@@ -1,0 +1,372 @@
+// Package runtime provides the UnifiedRuntime - pipeline orchestration engine.
+package runtime
+
+import (
+	"context"
+	"fmt"
+	"time"
+
+	"github.com/jeeves-cluster-organization/codeanalysis/coreengine/agents"
+	"github.com/jeeves-cluster-organization/codeanalysis/coreengine/config"
+	"github.com/jeeves-cluster-organization/codeanalysis/coreengine/envelope"
+)
+
+// LLMProviderFactory creates LLM providers by role.
+type LLMProviderFactory func(role string) agents.LLMProvider
+
+// PersistenceAdapter handles state persistence.
+type PersistenceAdapter interface {
+	SaveState(ctx context.Context, threadID string, state map[string]any) error
+	LoadState(ctx context.Context, threadID string) (map[string]any, error)
+}
+
+// UnifiedRuntime executes any pipeline from configuration.
+type UnifiedRuntime struct {
+	Config         *config.PipelineConfig
+	LLMFactory     LLMProviderFactory
+	ToolExecutor   agents.ToolExecutor
+	Logger         agents.Logger
+	Persistence    PersistenceAdapter
+	PromptRegistry agents.PromptRegistry
+	UseMock        bool
+
+	agents      map[string]*agents.UnifiedAgent
+	eventCtx    agents.EventContext
+	dagExecutor *DAGExecutor // DAG executor for parallel execution
+}
+
+// NewUnifiedRuntime creates a new UnifiedRuntime.
+func NewUnifiedRuntime(
+	cfg *config.PipelineConfig,
+	llmFactory LLMProviderFactory,
+	toolExecutor agents.ToolExecutor,
+	logger agents.Logger,
+) (*UnifiedRuntime, error) {
+	if err := cfg.Validate(); err != nil {
+		return nil, err
+	}
+
+	runtime := &UnifiedRuntime{
+		Config:       cfg,
+		LLMFactory:   llmFactory,
+		ToolExecutor: toolExecutor,
+		Logger:       logger.Bind("pipeline", cfg.Name),
+		agents:       make(map[string]*agents.UnifiedAgent),
+	}
+
+	// Build agents from config
+	if err := runtime.buildAgents(); err != nil {
+		return nil, err
+	}
+
+	return runtime, nil
+}
+
+func (r *UnifiedRuntime) buildAgents() error {
+	for _, agentConfig := range r.Config.Agents {
+		// Get LLM provider if needed
+		var llm agents.LLMProvider
+		if agentConfig.HasLLM && agentConfig.ModelRole != "" && r.LLMFactory != nil {
+			llm = r.LLMFactory(agentConfig.ModelRole)
+		}
+
+		// Get tool executor if needed
+		var tools agents.ToolExecutor
+		if agentConfig.HasTools {
+			tools = r.ToolExecutor
+		}
+
+		agent, err := agents.NewUnifiedAgent(agentConfig, r.Logger, llm, tools)
+		if err != nil {
+			return fmt.Errorf("failed to create agent '%s': %w", agentConfig.Name, err)
+		}
+
+		agent.PromptRegistry = r.PromptRegistry
+		agent.UseMock = r.UseMock
+
+		r.agents[agentConfig.Name] = agent
+	}
+
+	// Create DAG executor if DAG execution is enabled
+	if r.Config.EnableDAGExecution {
+		r.dagExecutor = NewDAGExecutor(r.Config, r.agents, r.Logger)
+		r.dagExecutor.Persistence = r.Persistence
+		r.Logger.Info("dag_executor_created",
+			"topological_order", r.Config.GetTopologicalOrder(),
+		)
+	}
+
+	r.Logger.Info("runtime_agents_built",
+		"agent_count", len(r.agents),
+		"agents", r.Config.GetStageOrder(),
+		"dag_enabled", r.Config.EnableDAGExecution,
+	)
+
+	return nil
+}
+
+// SetEventContext sets the event context for all agents.
+func (r *UnifiedRuntime) SetEventContext(ctx agents.EventContext) {
+	r.eventCtx = ctx
+	for _, agent := range r.agents {
+		agent.SetEventContext(ctx)
+	}
+}
+
+// Run executes the pipeline on an envelope.
+func (r *UnifiedRuntime) Run(ctx context.Context, env *envelope.GenericEnvelope, threadID string) (*envelope.GenericEnvelope, error) {
+	// Use DAG executor if enabled
+	if r.Config.EnableDAGExecution && r.dagExecutor != nil {
+		return r.dagExecutor.Execute(ctx, env, threadID)
+	}
+
+	// Fall back to sequential execution
+	return r.runSequential(ctx, env, threadID)
+}
+
+// runSequential executes the pipeline sequentially (original behavior).
+func (r *UnifiedRuntime) runSequential(ctx context.Context, env *envelope.GenericEnvelope, threadID string) (*envelope.GenericEnvelope, error) {
+	startTime := time.Now()
+
+	// Set stage order on envelope
+	env.StageOrder = r.Config.GetStageOrder()
+	if len(env.StageOrder) > 0 {
+		env.CurrentStage = env.StageOrder[0]
+	} else {
+		env.CurrentStage = "end"
+	}
+
+	// Apply bounds from config
+	env.MaxIterations = r.Config.MaxIterations
+	env.MaxLLMCalls = r.Config.MaxLLMCalls
+	env.MaxAgentHops = r.Config.MaxAgentHops
+
+	r.Logger.Info("pipeline_started",
+		"envelope_id", env.EnvelopeID,
+		"request_id", env.RequestID,
+		"stage_order", env.StageOrder,
+		"mode", "sequential",
+	)
+
+	var err error
+
+	// Execute pipeline loop
+	for env.CurrentStage != "end" && !env.Terminated {
+		// Check bounds
+		if !env.CanContinue() {
+			r.Logger.Warn("pipeline_bounds_exceeded",
+				"envelope_id", env.EnvelopeID,
+				"terminal_reason", env.TerminalReason_,
+			)
+			break
+		}
+
+		// Handle pending interrupt
+		if env.InterruptPending {
+			r.Logger.Info("pipeline_interrupt",
+				"envelope_id", env.EnvelopeID,
+				"interrupt_kind", env.GetInterruptKind(),
+			)
+			break
+		}
+
+		// Get agent for current stage
+		agent, exists := r.agents[env.CurrentStage]
+		if !exists {
+			r.Logger.Error("pipeline_unknown_stage",
+				"envelope_id", env.EnvelopeID,
+				"stage", env.CurrentStage,
+			)
+			reason := envelope.TerminalReasonToolFailedFatally
+			env.Terminate(fmt.Sprintf("Unknown stage: %s", env.CurrentStage), &reason)
+			break
+		}
+
+		// Execute agent
+		env, err = agent.Process(ctx, env)
+		if err != nil {
+			r.Logger.Error("pipeline_agent_error",
+				"envelope_id", env.EnvelopeID,
+				"agent", agent.Name,
+				"error", err.Error(),
+			)
+			// Agent may have set error_next routing
+			if env.CurrentStage == "end" || env.Terminated {
+				break
+			}
+			// If no error routing, propagate error
+			reason := envelope.TerminalReasonToolFailedFatally
+			env.Terminate(err.Error(), &reason)
+			break
+		}
+
+		// Persist state if configured
+		if r.Persistence != nil && threadID != "" {
+			if persistErr := r.Persistence.SaveState(ctx, threadID, env.ToStateDict()); persistErr != nil {
+				r.Logger.Warn("state_persist_error",
+					"thread_id", threadID,
+					"error", persistErr.Error(),
+				)
+			}
+		}
+	}
+
+	// Mark complete
+	durationMS := int(time.Since(startTime).Milliseconds())
+
+	r.Logger.Info("pipeline_completed",
+		"envelope_id", env.EnvelopeID,
+		"request_id", env.RequestID,
+		"final_stage", env.CurrentStage,
+		"terminated", env.Terminated,
+		"duration_ms", durationMS,
+	)
+
+	return env, nil
+}
+
+// RunStreaming executes pipeline with streaming updates via channel.
+func (r *UnifiedRuntime) RunStreaming(ctx context.Context, env *envelope.GenericEnvelope, threadID string) (<-chan StageOutput, error) {
+	// Use DAG executor streaming if enabled
+	if r.Config.EnableDAGExecution && r.dagExecutor != nil {
+		return r.dagExecutor.ExecuteStreaming(ctx, env, threadID)
+	}
+
+	// Fall back to sequential streaming
+	return r.runStreamingSequential(ctx, env, threadID)
+}
+
+// runStreamingSequential executes pipeline sequentially with streaming updates.
+func (r *UnifiedRuntime) runStreamingSequential(ctx context.Context, env *envelope.GenericEnvelope, threadID string) (<-chan StageOutput, error) {
+	outputChan := make(chan StageOutput, len(r.Config.Agents)+1)
+
+	go func() {
+		defer close(outputChan)
+
+		// Set stage order on envelope
+		env.StageOrder = r.Config.GetStageOrder()
+		if len(env.StageOrder) > 0 {
+			env.CurrentStage = env.StageOrder[0]
+		} else {
+			env.CurrentStage = "end"
+		}
+
+		env.MaxIterations = r.Config.MaxIterations
+		env.MaxLLMCalls = r.Config.MaxLLMCalls
+		env.MaxAgentHops = r.Config.MaxAgentHops
+
+		r.Logger.Info("pipeline_streaming_started",
+			"envelope_id", env.EnvelopeID,
+			"request_id", env.RequestID,
+			"mode", "sequential",
+		)
+
+		var err error
+
+		for env.CurrentStage != "end" && !env.Terminated {
+			if !env.CanContinue() {
+				break
+			}
+
+			if env.InterruptPending {
+				break
+			}
+
+			agent, exists := r.agents[env.CurrentStage]
+			if !exists {
+				reason := envelope.TerminalReasonToolFailedFatally
+				env.Terminate(fmt.Sprintf("Unknown stage: %s", env.CurrentStage), &reason)
+				break
+			}
+
+			stageName := env.CurrentStage
+
+			// Execute agent
+			env, err = agent.Process(ctx, env)
+			if err != nil {
+				reason := envelope.TerminalReasonToolFailedFatally
+				env.Terminate(err.Error(), &reason)
+				break
+			}
+
+			// Yield stage output
+			output := env.GetOutput(stageName)
+			outputChan <- StageOutput{Stage: stageName, Output: output}
+
+			// Persist if configured
+			if r.Persistence != nil && threadID != "" {
+				_ = r.Persistence.SaveState(ctx, threadID, env.ToStateDict())
+			}
+		}
+
+		// Final yield for completion
+		outputChan <- StageOutput{
+			Stage:  "__end__",
+			Output: map[string]any{"terminated": env.Terminated},
+		}
+	}()
+
+	return outputChan, nil
+}
+
+// Resume resumes pipeline execution after interrupt.
+func (r *UnifiedRuntime) Resume(ctx context.Context, env *envelope.GenericEnvelope, response envelope.InterruptResponse, threadID string) (*envelope.GenericEnvelope, error) {
+	if !env.InterruptPending || env.Interrupt == nil {
+		return env, fmt.Errorf("no pending interrupt to resume")
+	}
+
+	// Store the interrupt kind before resolving
+	kind := env.Interrupt.Kind
+
+	// Resolve the interrupt with the response
+	env.ResolveInterrupt(response)
+
+	// Determine resume stage based on interrupt kind
+	switch kind {
+	case envelope.InterruptKindClarification:
+		env.CurrentStage = "intent"
+	case envelope.InterruptKindConfirmation:
+		if response.Approved != nil && *response.Approved {
+			env.CurrentStage = "executor"
+		} else {
+			env.Terminate("User denied confirmation", nil)
+			return env, nil
+		}
+	case envelope.InterruptKindCriticReview:
+		env.CurrentStage = "intent"
+	default:
+		// For other interrupt types, stay at current stage
+	}
+
+	r.Logger.Info("pipeline_resumed",
+		"envelope_id", env.EnvelopeID,
+		"interrupt_kind", kind,
+		"resume_stage", env.CurrentStage,
+	)
+
+	return r.Run(ctx, env, threadID)
+}
+
+// GetState gets persisted state for a thread.
+func (r *UnifiedRuntime) GetState(ctx context.Context, threadID string) (map[string]any, error) {
+	if r.Persistence == nil {
+		return nil, nil
+	}
+	return r.Persistence.LoadState(ctx, threadID)
+}
+
+// StageOutput represents output from a pipeline stage.
+type StageOutput struct {
+	Stage  string
+	Output map[string]any
+}
+
+// CreateRuntimeFromConfig is a factory function to create UnifiedRuntime.
+func CreateRuntimeFromConfig(
+	cfg *config.PipelineConfig,
+	llmFactory LLMProviderFactory,
+	toolExecutor agents.ToolExecutor,
+	logger agents.Logger,
+) (*UnifiedRuntime, error) {
+	return NewUnifiedRuntime(cfg, llmFactory, toolExecutor, logger)
+}

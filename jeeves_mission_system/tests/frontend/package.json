@@ -1,0 +1,20 @@
+{
+  "name": "jeeves-ff-frontend-tests",
+  "version": "1.0.0",
+  "description": "Frontend tests for Jeeves FF Chat and Kanban UI",
+  "type": "module",
+  "scripts": {
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "test:ui": "vitest --ui",
+    "test:coverage": "vitest run --coverage"
+  },
+  "devDependencies": {
+    "@testing-library/dom": "^9.3.4",
+    "@testing-library/jest-dom": "^6.4.0",
+    "@vitest/coverage-v8": "^1.2.0",
+    "@vitest/ui": "^1.2.0",
+    "happy-dom": "^13.3.8",
+    "vitest": "^1.2.0"
+  }
+}

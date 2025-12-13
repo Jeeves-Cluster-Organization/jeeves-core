@@ -1,0 +1,17 @@
+[Unit]
+Description=Daily backup timer for 7-Agent Assistant database
+Documentation=https://github.com/2Shabby/assistant-7agent
+
+[Timer]
+# Run daily at 2 AM
+OnCalendar=daily
+OnCalendar=*-*-* 02:00:00
+
+# If system was off during scheduled time, run on next boot
+Persistent=true
+
+# Randomize start time by up to 15 minutes to avoid conflicts
+RandomizedDelaySec=15min
+
+[Install]
+WantedBy=timers.target

@@ -1,0 +1,220 @@
+/* Governance View Styles */
+
+.health-card {
+    background: #f9fafb;
+    border-radius: 0.5rem;
+    padding: 1rem;
+    text-align: center;
+}
+
+.dark .health-card {
+    background: rgb(51 65 85);
+}
+
+.health-card-value {
+    font-size: 1.5rem;
+    font-weight: 700;
+    margin-bottom: 0.25rem;
+}
+
+.health-card-label {
+    font-size: 0.75rem;
+    color: #6b7280;
+}
+
+.dark .health-card-label {
+    color: #9ca3af;
+}
+
+/* Agent cards */
+.agent-card {
+    background: #f9fafb;
+    border-radius: 0.5rem;
+    padding: 0.75rem;
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+}
+
+.dark .agent-card {
+    background: rgb(51 65 85);
+}
+
+.agent-status-indicator {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    flex-shrink: 0;
+}
+
+.agent-status-indicator.enabled {
+    background: #22c55e;
+}
+
+.agent-status-indicator.disabled {
+    background: #9ca3af;
+}
+
+.agent-name {
+    font-size: 0.875rem;
+    font-weight: 500;
+    color: #374151;
+}
+
+.dark .agent-name {
+    color: #e5e7eb;
+}
+
+/* Tools table */
+#tools-table tbody tr {
+    transition: background-color 0.15s ease;
+}
+
+#tools-table tbody tr:hover {
+    background: #f9fafb;
+}
+
+.dark #tools-table tbody tr:hover {
+    background: rgb(51 65 85);
+}
+
+.tool-status-badge {
+    display: inline-flex;
+    align-items: center;
+    padding: 0.125rem 0.5rem;
+    font-size: 0.75rem;
+    font-weight: 500;
+    border-radius: 9999px;
+}
+
+.tool-status-badge.ok {
+    background: rgba(34, 197, 94, 0.1);
+    color: #16a34a;
+}
+
+.dark .tool-status-badge.ok {
+    background: rgba(34, 197, 94, 0.2);
+    color: #4ade80;
+}
+
+.tool-status-badge.warning {
+    background: rgba(234, 179, 8, 0.1);
+    color: #ca8a04;
+}
+
+.dark .tool-status-badge.warning {
+    background: rgba(234, 179, 8, 0.2);
+    color: #facc15;
+}
+
+.tool-status-badge.error {
+    background: rgba(239, 68, 68, 0.1);
+    color: #dc2626;
+}
+
+.dark .tool-status-badge.error {
+    background: rgba(239, 68, 68, 0.2);
+    color: #f87171;
+}
+
+/* Circuit breaker states */
+.circuit-badge {
+    display: inline-flex;
+    align-items: center;
+    padding: 0.125rem 0.5rem;
+    font-size: 0.75rem;
+    font-weight: 500;
+    border-radius: 9999px;
+}
+
+.circuit-badge.closed {
+    background: rgba(34, 197, 94, 0.1);
+    color: #16a34a;
+}
+
+.dark .circuit-badge.closed {
+    background: rgba(34, 197, 94, 0.2);
+    color: #4ade80;
+}
+
+.circuit-badge.half-open {
+    background: rgba(234, 179, 8, 0.1);
+    color: #ca8a04;
+}
+
+.dark .circuit-badge.half-open {
+    background: rgba(234, 179, 8, 0.2);
+    color: #facc15;
+}
+
+.circuit-badge.open {
+    background: rgba(239, 68, 68, 0.1);
+    color: #dc2626;
+}
+
+.dark .circuit-badge.open {
+    background: rgba(239, 68, 68, 0.2);
+    color: #f87171;
+}
+
+/* Memory layer cards */
+.memory-layer-card {
+    background: #f9fafb;
+    border-radius: 0.5rem;
+    padding: 0.75rem;
+    text-align: center;
+}
+
+.dark .memory-layer-card {
+    background: rgb(51 65 85);
+}
+
+.memory-layer-name {
+    font-size: 0.875rem;
+    font-weight: 600;
+    color: #374151;
+    margin-bottom: 0.25rem;
+}
+
+.dark .memory-layer-name {
+    color: #e5e7eb;
+}
+
+.memory-layer-status {
+    font-size: 0.75rem;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.25rem;
+}
+
+/* Config items */
+.config-item {
+    background: #f9fafb;
+    border-radius: 0.5rem;
+    padding: 0.75rem;
+}
+
+.dark .config-item {
+    background: rgb(51 65 85);
+}
+
+.config-label {
+    font-size: 0.75rem;
+    color: #6b7280;
+    margin-bottom: 0.25rem;
+}
+
+.dark .config-label {
+    color: #9ca3af;
+}
+
+.config-value {
+    font-size: 0.875rem;
+    font-weight: 500;
+    color: #374151;
+}
+
+.dark .config-value {
+    color: #e5e7eb;
+}

@@ -1,0 +1,68 @@
+[Unit]
+Description=7-Agent Personal Assistant API Service
+Documentation=https://github.com/2Shabby/fedora-node-config
+After=network-online.target ollama.service
+Wants=network-online.target
+Requires=ollama.service
+
+[Service]
+Type=notify
+NotifyAccess=all
+
+# User/Group (adjust as needed)
+User=%i
+Group=%i
+
+# Working directory
+# Note: To use a custom path, create a drop-in file:
+# systemctl edit assistant-7agent@username.service
+# [Service]
+# WorkingDirectory=/custom/path
+WorkingDirectory=/opt/assistant-7agent
+
+# Environment
+EnvironmentFile=-/opt/assistant-7agent/.env
+Environment="PATH=/opt/assistant-7agent/.venv/bin:/usr/local/bin:/usr/bin"
+
+# Podman container execution
+ExecStartPre=-/usr/bin/podman stop assistant-7agent-api
+ExecStartPre=-/usr/bin/podman rm assistant-7agent-api
+ExecStart=/usr/bin/podman run \
+    --name assistant-7agent-api \
+    --rm \
+    --sdnotify=container \
+    --network assistant-network \
+    --publish ${API_PORT:-8000}:8000 \
+    --publish ${METRICS_PORT:-9090}:9090 \
+    --volume %h/.local/share/assistant-7agent/data:/app/data:Z \
+    --env-file /opt/assistant-7agent/.env \
+    --label "io.containers.autoupdate=registry" \
+    assistant-7agent:latest
+
+# Cleanup on stop
+ExecStop=/usr/bin/podman stop -t 10 assistant-7agent-api
+
+# Restart policy
+Restart=on-failure
+RestartSec=10s
+TimeoutStartSec=0
+TimeoutStopSec=30
+
+# Resource limits
+MemoryLimit=2G
+CPUQuota=200%
+
+# Security hardening
+PrivateTmp=yes
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=yes
+ReadWritePaths=%h/.local/share/assistant-7agent
+
+# Logging
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=assistant-7agent
+
+[Install]
+WantedBy=multi-user.target default.target
