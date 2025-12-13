@@ -27,8 +27,8 @@ class _ProcessResources:
     pid: str
     quota: ResourceQuota
     usage: ResourceUsage = field(default_factory=ResourceUsage)
-    allocated_at: datetime = field(default_factory=datetime.utcnow)
-    last_updated_at: datetime = field(default_factory=datetime.utcnow)
+    allocated_at: datetime = field(default_factory=utc_now)
+    last_updated_at: datetime = field(default_factory=utc_now)
 
 
 class ResourceTracker(ResourceTrackerProtocol):

@@ -205,6 +205,22 @@ from jeeves_protocols.utils import (
 )
 
 # =============================================================================
+# INTERRUPTS AND RATE LIMITING
+# =============================================================================
+from jeeves_protocols.interrupts import (
+    # Interrupt types
+    InterruptKind,
+    InterruptStatus,
+    InterruptResponse,
+    FlowInterrupt,
+    InterruptServiceProtocol,
+    # Rate limit types
+    RateLimitConfig,
+    RateLimitResult,
+    RateLimiterProtocol,
+)
+
+# =============================================================================
 # PUBLIC API
 # =============================================================================
 __all__ = [
@@ -321,4 +337,14 @@ __all__ = [
     "JSONRepairKit",
     "normalize_string_list",
     "truncate_string",
+
+    # ─── Interrupts & Rate Limiting ───
+    "InterruptKind",
+    "InterruptStatus",
+    "InterruptResponse",
+    "FlowInterrupt",
+    "InterruptServiceProtocol",
+    "RateLimitConfig",
+    "RateLimitResult",
+    "RateLimiterProtocol",
 ]
