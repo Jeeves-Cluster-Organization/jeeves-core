@@ -1,6 +1,6 @@
 # Capability Layer Integration Guide
 
-This document describes how capability layer repositories (e.g., `jeeves-capability-code-analysis`) integrate with `jeeves-core` when used as a git submodule.
+This document describes how capability layer repositories integrate with `jeeves-core` when used as a git submodule. See [CONTRACT.md](../CONTRACT.md) for the authoritative capability integration contract.
 
 ## Package Import Hierarchy
 
@@ -287,15 +287,15 @@ from jeeves_protocols import (
 from jeeves_avionics.capability_registry import get_capability_registry
 
 def register_capability():
-    """Register code-analysis capability resources."""
+    """Register capability resources. Replace 'my_capability' with your capability ID."""
 
     # 1. Register capability mode config
     resource_registry = get_capability_resource_registry()
     resource_registry.register_mode(
-        "code_analysis",
+        "my_capability",  # Your unique capability identifier
         CapabilityModeConfig(
-            name="code_analysis",
-            description="Code analysis and exploration",
+            name="my_capability",
+            description="Description of your capability",
             # ... other config
         )
     )
@@ -303,7 +303,7 @@ def register_capability():
     # 2. Register agent LLM configurations
     llm_registry = get_capability_registry()
     llm_registry.register(
-        capability_id="code_analysis",
+        capability_id="my_capability",
         agent_name="planner",
         config=AgentLLMConfig(
             agent_name="planner",
@@ -313,7 +313,7 @@ def register_capability():
         )
     )
     llm_registry.register(
-        capability_id="code_analysis",
+        capability_id="my_capability",
         agent_name="critic",
         config=AgentLLMConfig(
             agent_name="critic",
@@ -324,18 +324,18 @@ def register_capability():
     )
 
     # 3. Register tools (via tool catalog)
-    from jeeves_mission_system.contracts import tool_catalog, ToolId
+    from jeeves_mission_system.contracts import tool_catalog
     from jeeves_protocols import ToolCategory, RiskLevel
 
     @tool_catalog.register(
-        tool_id=ToolId.ANALYZE,
-        description="Unified code analysis entry point",
+        tool_id="my_capability.analyze",  # Namespaced tool ID
+        description="Your tool description",
         parameters={"query": "string", "context": "dict?"},
         category=ToolCategory.UNIFIED,
         risk_level=RiskLevel.LOW,
     )
     async def analyze(query: str, context: dict = None):
-        # Implementation
+        # Your implementation
         pass
 ```
 

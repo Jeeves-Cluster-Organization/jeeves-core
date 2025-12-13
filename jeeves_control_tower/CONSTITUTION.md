@@ -339,7 +339,7 @@ subscription_id = await kernel.event_aggregator.subscribe(
 - **Shared Utilities:** [../jeeves_shared/](../jeeves_shared/)
 - **Mission System:** [../jeeves_mission_system/CONSTITUTION.md](../jeeves_mission_system/CONSTITUTION.md)
 - **Avionics:** [../jeeves_avionics/CONSTITUTION.md](../jeeves_avionics/CONSTITUTION.md)
-- **Capability:** [../jeeves-capability-code-analyser/CONSTITUTION.md](../jeeves-capability-code-analyser/CONSTITUTION.md)
+- **Capability Contract:** [../CONTRACT.md](../CONTRACT.md) (for external capabilities)
 
 ---
 

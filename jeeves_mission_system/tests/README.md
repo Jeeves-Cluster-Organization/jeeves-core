@@ -8,7 +8,7 @@
 
 ## Overview
 
-Mission System tests validate the 7-agent code analysis pipeline, tools, orchestration, and API layer. Tests follow the **LLAMASERVER_ALWAYS** policy: real LLM testing by default, with mock fallbacks only for CI.
+Mission System tests validate the orchestration framework, tools, and API layer. Tests follow the **LLAMASERVER_ALWAYS** policy: real LLM testing by default, with mock fallbacks only for CI.
 
 ### Constitutional Compliance
 
@@ -603,7 +603,7 @@ async def test_intent_extraction():
 - **Test Configuration**: [config/markers.py](config/markers.py) - Marker definitions
 - **Protocols Tests**: [../../jeeves_protocols/tests/](../../jeeves_protocols/tests/)
 - **Avionics Tests**: [../../jeeves_avionics/tests/README.md](../../jeeves_avionics/tests/README.md)
-- **App Layer Tests**: [../../jeeves-capability-code-analyser/tests/README.md](../../jeeves-capability-code-analyser/tests/README.md)
+- **Capability Layer Tests**: Test documentation in respective capability repositories
 
 ## Dependencies Note
 

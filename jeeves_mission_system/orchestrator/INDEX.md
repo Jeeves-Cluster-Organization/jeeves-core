@@ -6,7 +6,7 @@
 
 ## Overview
 
-Pure Python workflow orchestration implementing the 7-agent pipeline with REINTENT loops and multi-stage processing.
+Pure Python workflow orchestration providing the foundation for capability pipelines with REINTENT loops and multi-stage processing.
 
 ---
 
@@ -17,7 +17,7 @@ Pure Python workflow orchestration implementing the 7-agent pipeline with REINTE
 | `__init__.py` | Package exports |
 | `agent_events.py` | `AgentEventEmitter` - Agent lifecycle event emission |
 | `event_context.py` | `AgentEventContext` - Unified event emission facade |
-| `flow_service.py` | `CodeAnalysisFlowService` - Main orchestration service |
+| `flow_service.py` | `FlowService` - Main orchestration service |
 | `governance_service.py` | `GovernanceService` - Tool access governance |
 | `vertical_service.py` | Vertical registration and management |
 
@@ -34,7 +34,7 @@ Pure Python workflow orchestration implementing the 7-agent pipeline with REINTE
 ### FlowService (`flow_service.py`)
 Main orchestration entry point:
 ```python
-class CodeAnalysisFlowService:
+class FlowService:
     async def process_query(
         self, query: str, session_id: str, user_id: str, ...
     ) -> AsyncIterator[StreamEvent]

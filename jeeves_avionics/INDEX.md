@@ -130,7 +130,7 @@ class ToolExecutor:
 # Factory functions
 def create_tool_executor(registry=None) -> ToolExecutorProtocol
 def create_llm_provider_factory(settings=None) -> Callable[[str], LLMProviderProtocol]
-def create_code_analysis_service(...) -> CodeAnalysisFlowService
+def create_capability_service(...) -> FlowService  # Capability-specific
 def get_database_client(settings=None) -> DatabaseClient
 def get_tool_registry() -> ToolRegistry
 ```
@@ -210,13 +210,17 @@ def reset_context_bounds() -> None
 
 ```python
 from jeeves_avionics import Settings, get_settings
-from jeeves_avionics.wiring import create_code_analysis_service
+from jeeves_avionics.wiring import create_llm_provider_factory, get_database_client
 
 # Access settings
 settings = get_settings()
 
-# Create the code analysis service with all dependencies wired
-service = create_code_analysis_service(use_mock=False)
+# Create LLM provider factory
+llm_factory = create_llm_provider_factory(settings)
+llm = llm_factory("planner")
+
+# Get database client
+db = get_database_client(settings)
 
 # Or with custom configuration
 from jeeves_avionics import get_feature_flags, get_context_bounds

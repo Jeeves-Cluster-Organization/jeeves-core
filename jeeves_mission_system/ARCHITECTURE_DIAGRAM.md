@@ -8,9 +8,9 @@
 
 ## Overview
 
-This document provides architectural views for **Jeeves Mission System**—the application layer that implements the 7-agent code analysis pipeline, tools, orchestration, and API.
+This document provides architectural views for **Jeeves Mission System**—the application layer that provides orchestration framework, API endpoints, and the foundation for capabilities.
 
-**Key Principle:** Mission System provides **domain-specific logic** using infrastructure from Avionics and abstractions from Core Engine.
+**Key Principle:** Mission System provides **orchestration infrastructure** using services from Avionics and abstractions from Core Engine. Domain-specific logic belongs in capability layers.
 
 **Control Tower Integration:** Mission System services register with Control Tower at startup and receive requests via `control_tower.submit_request()`. All requests flow through the Control Tower kernel for lifecycle management, resource tracking, and event aggregation.
 
@@ -23,36 +23,8 @@ This document provides architectural views for **Jeeves Mission System**—the a
 ```
 jeeves_mission_system/
 │
-├─ verticals/                    # Domain-specific implementations
-│  └─ code_analysis/             # Code analysis vertical
-│     ├─ agents/                 # 7-agent implementations
-│     │  ├─ perception.py        # Load state, normalize input
-│     │  ├─ intent.py            # Extract goals (LLM)
-│     │  ├─ planner.py           # Create plan (LLM)
-│     │  ├─ traverser.py         # Execute tools (non-LLM)
-│     │  ├─ synthesizer.py       # Aggregate findings (LLM)
-│     │  ├─ critic.py            # Validate results (LLM)
-│     │  ├─ integration.py       # Format response (non-LLM)
-│     │  └─ bootstrap.py         # Vertical registration
-│     ├─ tools/                  # Tool implementations
-│     │  ├─ composite/           # Multi-step tools
-│     │  │  ├─ locate.py
-│     │  │  ├─ explore_symbol_usage.py
-│     │  │  ├─ map_module.py
-│     │  │  ├─ trace_entry_point.py
-│     │  │  └─ explain_code_history.py
-│     │  ├─ resilient/           # Wrapped base tools
-│     │  │  ├─ read_code.py
-│     │  │  └─ find_related.py
-│     │  ├─ standalone/          # Simple tools
-│     │  │  ├─ git_status.py
-│     │  │  └─ list_tools.py
-│     │  └─ base/                # Internal base tools
-│     │     ├─ file_ops.py       # read_file, glob_files
-│     │     ├─ code_search.py    # grep_search, find_symbol
-│     │     ├─ symbol_index.py   # get_file_symbols, get_imports
-│     │     └─ git_ops.py        # git_log, git_blame, git_diff
-│     └─ prompts/                # Agent prompts
+├─ verticals/                    # Capability registration (domain logic in external repos)
+│  └─ registry.py                # Capability registry
 │
 ├─ orchestrator/                 # LangGraph orchestration
 │  ├─ langgraph/
@@ -101,9 +73,11 @@ jeeves_mission_system/
 
 ---
 
-## Intra-Level: 7-Agent Pipeline Flow
+## Reference Pipeline Architecture
 
-### Complete Pipeline Diagram
+The following describes the **reference 7-agent pipeline** that capabilities can adopt. Capabilities may customize this pipeline or define their own agent configurations.
+
+### Reference Pipeline Diagram
 
 ```
 ┌───────────────────────────────────────────────────────────────┐
@@ -234,83 +208,40 @@ jeeves_mission_system/
 
 ---
 
-## Intra-Level: Tool Architecture
+## Tool Registry Architecture
 
-### Tool Categories (9 Exposed + Internal Base)
+Capabilities define and register their own tools. The runtime provides a `ToolRegistry` pattern:
+
+### Tool Categories
 
 ```
 ┌───────────────────────────────────────────────────────────────┐
-│  COMPOSITE TOOLS (5)                                          │
+│  COMPOSITE TOOLS                                              │
 │  Multi-step workflows with fallback strategies               │
 │                                                               │
-│  1. locate(query, scope)                                      │
-│     Strategy 1: find_symbol (exact match)                     │
-│     Strategy 2: grep_search (pattern match)                   │
-│     Strategy 3: semantic_search (fuzzy)                       │
-│                                                               │
-│  2. explore_symbol_usage(symbol, depth)                       │
-│     → get_importers() + grep_search() + read_file()           │
-│                                                               │
-│  3. map_module(module_path)                                   │
-│     → get_file_symbols() + get_imports() + tree_structure()   │
-│                                                               │
-│  4. trace_entry_point(entry_point)                            │
-│     → find_symbol() + get_imports() + recursive traversal     │
-│                                                               │
-│  5. explain_code_history(file, line_range)                    │
-│     → git_blame() + git_log() + read_file()                   │
+│  Example pattern:                                             │
+│  - Strategy 1: Fast, exact lookup                             │
+│  - Strategy 2: Pattern-based search                           │
+│  - Strategy 3: Semantic/fuzzy fallback                        │
 └───────────────────────────────────────────────────────────────┘
 
 ┌───────────────────────────────────────────────────────────────┐
-│  RESILIENT TOOLS (2)                                          │
+│  RESILIENT TOOLS                                              │
 │  Wrapped base tools with retry and graceful degradation      │
 │                                                               │
-│  6. read_code(file_path, line_range)                          │
-│     → read_file() with:                                       │
-│       - Fuzzy path matching on FileNotFoundError              │
-│       - Fallback to grep on read error                        │
-│       - Token-based slicing (max_file_slice_tokens)           │
-│                                                               │
-│  7. find_related(file_path, relation_type)                    │
-│     → find_similar_files() + semantic_search()                │
-│       - Fallback to directory listing on empty results        │
+│  Features:                                                    │
+│  - Fuzzy matching on NotFoundError                            │
+│  - Fallback strategies                                        │
+│  - Token/size-based slicing                                   │
 └───────────────────────────────────────────────────────────────┘
 
 ┌───────────────────────────────────────────────────────────────┐
-│  STANDALONE TOOLS (2)                                         │
+│  STANDALONE TOOLS                                             │
 │  Simple, single-operation tools                               │
 │                                                               │
-│  8. git_status()                                              │
-│     → Direct git command execution                            │
-│                                                               │
-│  9. list_tools()                                              │
-│     → Return tool registry metadata                           │
-└───────────────────────────────────────────────────────────────┘
-
-┌───────────────────────────────────────────────────────────────┐
-│  INTERNAL BASE TOOLS (13)                                     │
-│  Low-level operations, NOT exposed to agents                  │
-│                                                               │
-│  File Operations:                                             │
-│  • read_file(path) → str                                      │
-│  • glob_files(pattern) → List[str]                            │
-│  • tree_structure(path, depth) → Tree                         │
-│                                                               │
-│  Code Search:                                                 │
-│  • grep_search(pattern, scope) → List[Match]                  │
-│  • find_symbol(name, scope) → List[Location]                  │
-│  • semantic_search(query, scope) → List[CodeChunk]            │
-│                                                               │
-│  Symbol Index:                                                │
-│  • get_file_symbols(file) → List[Symbol]                      │
-│  • get_imports(file) → List[Import]                           │
-│  • get_importers(file) → List[str]                            │
-│  • find_similar_files(file) → List[str]                       │
-│                                                               │
-│  Git Operations:                                              │
-│  • git_log(file, limit) → List[Commit]                        │
-│  • git_blame(file, line_range) → List[BlameInfo]              │
-│  • git_diff(commit1, commit2) → str                           │
+│  Examples:                                                    │
+│  - System status tools                                        │
+│  - Registry introspection (list_tools)                        │
 └───────────────────────────────────────────────────────────────┘
 ```
 
@@ -590,13 +521,13 @@ jeeves_mission_system/
                             │ invokes
                             ↓
 ┌───────────────────────────────────────────────────────────────┐
-│  VERTICAL (jeeves_mission_system/verticals/code_analysis/)    │
+│  CAPABILITY (External capability repository)                  │
 │  ┌─────────────────────────────────────────────────────────┐ │
-│  │  7-Agent Pipeline                                        │ │
+│  │  Capability-Defined Agent Pipeline                       │ │
 │  │  Perception → Intent → Planner → ... → Integration      │ │
 │  │                                                          │ │
 │  │  Uses:                                                   │ │
-│  │  • Core Engine (Agent, CoreEnvelope, StateDelta)        │ │
+│  │  • Core Engine (Agent, GenericEnvelope, StateDelta)     │ │
 │  │  • Avionics (LLM, Database, Memory via context)         │ │
 │  │  • Mission System (Tools, ToolRegistry)                 │ │
 │  └─────────────────────────────────────────────────────────┘ │
@@ -818,4 +749,4 @@ jeeves_mission_system/
 
 ---
 
-*This architecture diagram shows the internal structure of the Mission System (intra-level) and how it uses Core Engine abstractions and Avionics infrastructure (inter-level) to implement the 7-agent code analysis pipeline with strict evidence chain integrity.*
+*This architecture diagram shows the internal structure of the Mission System (intra-level) and how it uses Core Engine abstractions and Avionics infrastructure (inter-level) to provide orchestration for capabilities with strict evidence chain integrity.*
