@@ -7,11 +7,11 @@
 
 ## Overview
 
-This directory contains the **application layer** of the Jeeves Code Analyser system. It implements orchestration, API endpoints, and provides the framework for capabilities.
+This directory contains the **application layer** of the Jeeves runtime. It implements orchestration, API endpoints, and provides the framework for capabilities to build upon.
 
 **Position in Architecture:**
 ```
-jeeves-capability-code-analyser/  →  Capability layer (7-agent pipeline)
+Capability Layer (external)       →  Domain-specific capabilities (e.g., code analysis)
         ↓
 jeeves_mission_system/            →  Application layer (THIS)
         ↓
@@ -42,7 +42,7 @@ commbus/, coreengine/             →  Go core
 |-----------|-------------|
 | [verticals/](verticals/) | Vertical registry and base classes |
 
-**Note:** The 7-agent code analysis pipeline is in `jeeves-capability-code-analyser/`, not here.
+**Note:** Domain-specific agent pipelines belong in capability layers, not here.
 
 ### API & Services
 
@@ -115,9 +115,9 @@ The mission system provides framework primitives for capabilities:
 - Role: Framework that capabilities build on (NOT an application)
 
 **Capabilities (Applications):**
-- Code Analysis Capability entry point: `jeeves-capability-code-analyser/server.py`
-- Protocol: gRPC on port 50051
-- Imports FROM mission system API (constitutional)
+- Capability entry points are defined in external capability repositories
+- Protocol: gRPC on port 50051 (configurable)
+- Capabilities import FROM mission system API (constitutional)
 
 **API Gateway:**
 - Contains: Minimal web layer (handled by jeeves_avionics/gateway/)

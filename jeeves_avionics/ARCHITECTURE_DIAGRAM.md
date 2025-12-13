@@ -51,7 +51,7 @@ jeeves_avionics/
 │  │  ├─ l1_episodic.py      # Per-request transient state
 │  │  ├─ l2_event_log.py     # Append-only event stream
 │  │  ├─ l3_working_memory.py # Session-scoped state
-│  │  └─ l4_persistent_cache.py # Code index, embeddings
+│  │  └─ l4_persistent_cache.py # Domain index, embeddings
 │  ├─ adapters/
 │  │  └─ state_adapter.py    # StateProtocol implementation
 │  └─ repositories/
@@ -307,22 +307,22 @@ jeeves_avionics/
 │                                                               │
 │  • Storage: PostgreSQL + pgvector                             │
 │  • Lifetime: Permanent (until invalidated)                    │
-│  • Contents: Code index, embeddings, symbol graph             │
+│  • Contents: Domain index, embeddings, entity graph           │
 │  • Persistence: Built incrementally                           │
 │                                                               │
 │  class PersistentCacheService:                                │
-│      async def get_symbol(                                    │
+│      async def get_entity(                                    │
 │          self,                                                │
 │          name: str,                                           │
 │          scope: str                                           │
-│      ) -> Optional[Symbol]:                                   │
-│          return await self.cache_repo.query_symbol(...)       │
+│      ) -> Optional[Entity]:                                   │
+│          return await self.cache_repo.query_entity(...)       │
 │                                                               │
 │      async def search_embeddings(                             │
 │          self,                                                │
 │          query_vector: List[float],                           │
 │          limit: int                                           │
-│      ) -> List[CodeChunk]:                                    │
+│      ) -> List[Chunk]:                                        │
 │          return await self.cache_repo.vector_search(...)      │
 └───────────────────────────────────────────────────────────────┘
 ```
@@ -337,7 +337,7 @@ jeeves_avionics/
 ┌───────────────────────────────────────────────────────────────┐
 │  FastAPI Gateway                                              │
 │                                                               │
-│  app = FastAPI(title="Jeeves Code Analyser API")             │
+│  app = FastAPI(title="Jeeves Runtime API")             │
 │                                                               │
 │  ┌─────────────────────────────────────────────────────────┐ │
 │  │  Middleware Stack                                        │ │

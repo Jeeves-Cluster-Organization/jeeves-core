@@ -47,7 +47,9 @@ From Core Engine principles (via [Avionics Constitution](../jeeves_avionics/CONS
 
 ---
 
-## The 7-Agent Pipeline
+## Reference Pipeline Architecture
+
+The following describes the **reference 7-agent pipeline** that capabilities can adopt. Capabilities may customize this pipeline or define their own agent configurations.
 
 ### Pipeline Definition (REINTENT Architecture)
 
@@ -108,23 +110,21 @@ Tool Execution → ExecutionOutput → SynthesizerOutput → Integration → Res
 
 #### R2: Tool Boundary (P1 + P3)
 
-**Only 9 tools exposed to agents.**
+**Capabilities define their own tool sets.** The runtime provides:
 
-| Category | Tools | Purpose |
-|----------|-------|---------|
-| **Composite (5)** | `locate`, `explore_symbol_usage`, `map_module`, `trace_entry_point`, `explain_code_history` | Multi-step with fallbacks |
-| **Resilient (2)** | `read_code`, `find_related` | Wrapped base tools with graceful degradation |
-| **Standalone (2)** | `git_status`, `list_tools` | Simple operations |
+| Category | Description |
+|----------|-------------|
+| **Composite** | Multi-step tools with fallback strategies |
+| **Resilient** | Wrapped base tools with graceful degradation |
+| **Standalone** | Simple, single-operation tools |
 
-**Base tools (internal only):**
-- `read_file`, `glob_files`, `grep_search`, `tree_structure`
-- `find_symbol`, `get_file_symbols`, `get_imports`, `get_importers`
-- `semantic_search`, `find_similar_files`
-- `git_log`, `git_blame`, `git_diff`
+**Tool Design Principles:**
+- **Composability**: Higher-level tools wrap base operations
+- **Transparency**: Return `attempt_history` showing all attempts
+- **Bounded**: Respect `max_llm_calls_per_query` limits
+- **Graceful degradation**: Partial results on failure
 
-**All tools are READ-ONLY** except `save_session_state`.
-
-**Why?** Reduces planning complexity, enforces composability, prevents low-level misuse.
+**Capabilities register their tools** via the `ToolRegistryProtocol`.
 
 #### R3: Bounded Retry (P3 Enforcement)
 
@@ -193,7 +193,7 @@ async def locate(query: str, scope: str = None) -> LocateResult:
 
 ## Thresholds and Limits
 
-Tuned for **Qwen2.5-7B-Q4KM** (~20K token context).
+Default values tuned for small-to-medium LLMs (~20K token context). Capabilities may override these via `ContextBounds`.
 
 | Limit | Default | Purpose | Enforcement |
 |-------|---------|---------|-------------|
@@ -334,46 +334,43 @@ If query is ambiguous:
 
 ## Verticals Architecture
 
-### Vertical Registration
+### Capability Registration
 
 **Bootstrap process** (no import side-effects):
 
 ```python
-# app_bootstrap.py
-from jeeves_mission_system.verticals.code_analysis.agents.bootstrap import (
-    register_code_analysis_vertical
-)
+# capability_bootstrap.py
+from my_capability.agents.bootstrap import register_capability
 
 # At startup
-register_code_analysis_vertical()
+register_capability()
 ```
 
 **Registry contract:**
 ```python
 @dataclass
-class Vertical:
+class Capability:
     id: str
     agents: Dict[str, Type[Agent]]
     tools: List[Callable]
     context_builders: Dict[str, Callable]
 
-def register(vertical: Vertical) -> None: ...
-def get_agent_class(vertical_id: str, agent_name: str) -> Type[Agent]: ...
+def register(capability: Capability) -> None: ...
+def get_agent_class(capability_id: str, agent_name: str) -> Type[Agent]: ...
 ```
 
-**Current vertical:** `code_analysis`
+**Example capabilities:** `code_analysis`, `document_analysis`, `log_analysis`, etc.
 
-**Future verticals:** `document_analysis`, `log_analysis`, etc.
+### Capability Boundary Rules
 
-### Vertical Boundary Rules
-
-**Verticals may:**
+**Capabilities may:**
 - Implement agents (using core contracts)
 - Provide tools (via registry)
 - Use avionics services (LLM, database, memory)
+- Define domain-specific configs
 
-**Verticals must NOT:**
-- Import from other verticals
+**Capabilities must NOT:**
+- Import from other capabilities
 - Modify core runtime
 - Bypass avionics adapters
 
@@ -583,27 +580,26 @@ The config architecture follows clear ownership boundaries:
 
 ### Domain Configs (OWNED by Capabilities)
 
-**Located in `jeeves-capability-code-analyser/config/`:**
+**Located in each capability's `config/` directory:**
 
 | Module | Content | Purpose |
 |--------|---------|---------|
-| `language_config.py` | LanguageId, LanguageSpec, LANGUAGE_SPECS | Code language patterns |
+| `domain_config.py` | Domain-specific settings | Domain patterns |
 | `tool_access.py` | AgentToolAccess, TOOL_CATEGORIES | Tool access matrix |
-| `deployment.py` | NodeProfile, PROFILES, CODE_ANALYSIS_AGENTS | Hardware deployment |
+| `deployment.py` | NodeProfile, PROFILES | Hardware deployment |
 | `modes.py` | AGENT_MODES | Pipeline mode configuration |
 | `identity.py` | PRODUCT_NAME, PRODUCT_VERSION | Product identity |
 
 ```python
 # ✅ CORRECT - Import domain config from capability
-from jeeves_capability_code_analyser.config import (
-    LanguageConfig,
+from my_capability.config import (
+    DomainConfig,
     AgentToolAccess,
     PROFILES,
 )
 
-# ❌ INCORRECT - Domain configs removed from mission_system
-from jeeves_mission_system.config.language_config import LanguageConfig  # Deleted
-from jeeves_mission_system.config.node_profiles import PROFILES          # Deleted
+# ❌ INCORRECT - Domain configs do not belong in mission_system
+from jeeves_mission_system.config.domain_config import DomainConfig  # WRONG
 ```
 
 ### Generic Config Mechanisms (Mission System)
@@ -648,7 +644,7 @@ config = registry.get(ConfigKeys.LANGUAGE_CONFIG)
 ### Constitutional Layering
 
 ```
-Capability (code-analyser)        ← OWNS domain configs (language, tool_access, etc.)
+Capability Layer                  ← OWNS domain configs (tool_access, etc.)
          ↓ registers via
 MissionRuntime.config_registry    ← Generic injection mechanism
          ↓ implements
