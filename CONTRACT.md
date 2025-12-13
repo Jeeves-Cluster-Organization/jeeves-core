@@ -628,10 +628,149 @@ if __name__ == "__main__":
 
 ---
 
+## Docker Configuration
+
+### Repository Structure
+
+```
+jeeves-core/
+├── cmd/
+│   └── envelope/              # Go CLI binary source
+│       └── main.go
+├── commbus/                   # Go: Message bus (L0)
+├── coreengine/                # Go: Core engine (L0)
+│   ├── agents/
+│   ├── config/
+│   ├── envelope/
+│   ├── runtime/
+│   └── tools/
+├── jeeves_protocols/          # Python: L0 Foundation - Type contracts
+├── jeeves_shared/             # Python: L0 Foundation - Shared utilities
+├── jeeves_avionics/           # Python: L1 Infrastructure
+│   ├── gateway/               # HTTP gateway (FastAPI)
+│   ├── llm/                   # LLM providers
+│   ├── database/              # Database clients
+│   └── logging/               # Logging module
+├── jeeves_control_tower/      # Python: L1 Kernel - Request lifecycle
+├── jeeves_memory_module/      # Python: Memory services
+├── jeeves_mission_system/     # Python: L2 Application
+│   ├── api/                   # REST API (server.py)
+│   ├── orchestrator/          # Orchestration framework
+│   └── proto/                 # gRPC proto files
+├── docker/
+│   ├── Dockerfile             # Multi-stage build
+│   ├── docker-compose.yml     # Service orchestration
+│   └── init-db.sql            # PostgreSQL initialization
+├── tests/                     # Root-level tests
+├── go.mod                     # Go module definition
+├── go.sum                     # Go dependencies
+├── Makefile                   # Build and test targets
+└── .env                       # Environment configuration
+```
+
+### Docker Targets
+
+The Dockerfile provides three targets:
+
+| Target | Image | Entry Point | Purpose |
+|--------|-------|-------------|---------|
+| `gateway` | `assistant-gateway:latest` | `jeeves_avionics.gateway.main:app` | HTTP gateway |
+| `orchestrator` | `assistant-7agent:latest` | `jeeves_mission_system.api.server:app` | Full runtime |
+| `test` | `assistant-7agent:test` | `pytest` | Test runner |
+
+### Building Images
+
+```bash
+# Build all images
+make docker-build
+
+# Build specific targets
+docker build -t assistant-gateway:latest -f docker/Dockerfile --target gateway .
+docker build -t assistant-7agent:latest -f docker/Dockerfile --target orchestrator .
+docker build -t assistant-7agent:test -f docker/Dockerfile --target test .
+```
+
+### Running Services
+
+```bash
+# Start all services (PostgreSQL, llama-server, orchestrator)
+docker compose -f docker/docker-compose.yml up -d
+
+# Start infrastructure only
+docker compose -f docker/docker-compose.yml up -d postgres llama-server
+
+# Run tests in Docker
+docker compose -f docker/docker-compose.yml run --rm test pytest -v
+
+# View logs
+docker compose -f docker/docker-compose.yml logs -f
+
+# Stop all services
+docker compose -f docker/docker-compose.yml down
+```
+
+### Environment Configuration
+
+The `.env` file at repository root configures all services:
+
+```bash
+# Database
+POSTGRES_HOST=localhost
+POSTGRES_PORT=5432
+POSTGRES_DATABASE=assistant
+POSTGRES_USER=assistant
+POSTGRES_PASSWORD=dev_password_change_in_production
+
+# LLM Provider
+LLM_PROVIDER=llamaserver
+LLAMASERVER_HOST=http://localhost:8080
+DEFAULT_MODEL=qwen2.5-3b-instruct
+LLAMA_CTX_SIZE=16384
+
+# API Server
+API_HOST=0.0.0.0
+API_PORT=8000
+LOG_LEVEL=DEBUG
+```
+
+### Using jeeves-core as a Submodule
+
+When using `jeeves-core` as a git submodule in a capability repository:
+
+```bash
+# Initialize submodule
+git submodule update --init --recursive
+
+# Verify structure
+ls jeeves-core/
+```
+
+Capability Dockerfile paths should reference the submodule:
+
+```dockerfile
+# Copy from submodule
+COPY jeeves-core/jeeves_protocols/ ./jeeves_protocols/
+COPY jeeves-core/jeeves_shared/ ./jeeves_shared/
+COPY jeeves-core/jeeves_avionics/ ./jeeves_avionics/
+COPY jeeves-core/jeeves_mission_system/ ./jeeves_mission_system/
+```
+
+### Required Services
+
+| Service | Port | Purpose |
+|---------|------|---------|
+| PostgreSQL (pgvector) | 5432 | Database with vector extension |
+| llama-server | 8080 | Local LLM inference |
+| Gateway | 8000 | HTTP API gateway |
+| Orchestrator | 8000, 50051 | REST + gRPC endpoints |
+
+---
+
 ## Version History
 
 | Version | Date | Changes |
 |---------|------|---------|
+| 1.1 | 2025-12-13 | Added Docker configuration section |
 | 1.0 | 2025-12-13 | Initial contract document |
 
 ---
