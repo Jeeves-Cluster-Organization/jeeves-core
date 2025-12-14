@@ -153,7 +153,17 @@ class UnifiedAgent:
             raise ValueError(f"Agent {self.name} requires prompt_registry")
 
         prompt_key = self.config.prompt_key or f"{envelope.metadata.get('pipeline', 'default')}.{self.name}"
-        prompt = self.prompt_registry.get(prompt_key, envelope=envelope)
+
+        # Build context dict from envelope for prompt template interpolation
+        context = {
+            "raw_input": envelope.raw_input,
+            "user_id": envelope.user_id,
+            "session_id": envelope.session_id,
+            **envelope.outputs,  # Include all agent outputs
+            **envelope.metadata,  # Include metadata
+        }
+
+        prompt = self.prompt_registry.get(prompt_key, context=context)
         messages = [{"role": "user", "content": prompt}]
 
         kwargs = {}

@@ -10,6 +10,7 @@ Pipeline: Perception → Intent → Planner → Traverser → Critic → Integra
 from __future__ import annotations
 
 import json
+from datetime import datetime, timezone
 from typing import Any, AsyncIterator, Dict, Optional, TYPE_CHECKING
 from uuid import uuid4
 
