@@ -77,9 +77,11 @@ async def main():
 
     # Check 4: Database client API
     try:
-        from jeeves_avionics.database.client import DatabaseClient
+        from jeeves_avionics.database.client import create_database_client
+        from jeeves_avionics.settings import Settings
 
-        db = DatabaseClient()
+        settings = Settings()
+        db = await create_database_client(settings)
         await db.connect()
 
         # Check connection.cursor() exists

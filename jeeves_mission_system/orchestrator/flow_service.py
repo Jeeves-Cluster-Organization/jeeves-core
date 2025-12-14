@@ -13,7 +13,7 @@ import json
 from typing import Any, AsyncIterator, Dict, Optional, TYPE_CHECKING
 from uuid import uuid4
 
-from jeeves_avionics.database.client import DatabaseClient
+from jeeves_avionics.database.client import DatabaseClientProtocol
 from jeeves_avionics.logging import get_current_logger
 from jeeves_shared.serialization import datetime_to_ms
 from jeeves_protocols import LoggerProtocol
@@ -57,7 +57,7 @@ if _GRPC_AVAILABLE:
 
         def __init__(
             self,
-            db: DatabaseClient,
+            db: DatabaseClientProtocol,
             code_analysis_servicer: Any,
             logger: Optional[LoggerProtocol] = None,
         ):
