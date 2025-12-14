@@ -16,6 +16,7 @@ Package Structure:
     - protocols.py: Protocol definitions (LoggerProtocol, etc.)
     - capability.py: CapabilityResourceRegistry for dynamic registration
     - memory.py: WorkingMemory, Finding, and memory operations
+    - events.py: Unified event schema (UnifiedEvent, EventCategory, EventSeverity)
     - utils.py: JSON utilities (JSONRepairKit, normalize_string_list)
 
 Usage by Capability Layers:
@@ -196,6 +197,19 @@ from jeeves_protocols.memory import (
 )
 
 # =============================================================================
+# UNIFIED EVENTS
+# =============================================================================
+from jeeves_protocols.events import (
+    # Event schema
+    UnifiedEvent,
+    EventCategory,
+    EventSeverity,
+    StandardEventTypes,
+    # Protocol
+    EventEmitterProtocol,
+)
+
+# =============================================================================
 # UTILITIES
 # =============================================================================
 from jeeves_protocols.utils import (
@@ -332,6 +346,13 @@ __all__ = [
     "clear_clarification",
     "serialize_working_memory",
     "deserialize_working_memory",
+
+    # ─── Unified Events ───
+    "UnifiedEvent",
+    "EventCategory",
+    "EventSeverity",
+    "StandardEventTypes",
+    "EventEmitterProtocol",
 
     # ─── Utilities ───
     "JSONRepairKit",

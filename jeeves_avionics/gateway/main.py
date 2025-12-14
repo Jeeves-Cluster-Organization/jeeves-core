@@ -105,7 +105,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
                           hint="Interrupt endpoints will return 503 until service is injected")
 
         # Setup event bus subscriptions for WebSocket broadcasting
-        setup_websocket_subscriptions()
+        await setup_websocket_subscriptions()
         _logger.info("websocket_subscriptions_configured")
 
         _logger.info("gateway_startup_complete", status="READY")

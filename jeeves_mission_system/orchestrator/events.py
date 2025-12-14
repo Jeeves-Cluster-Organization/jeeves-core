@@ -59,6 +59,7 @@ from jeeves_mission_system.orchestrator.event_context import (
 if TYPE_CHECKING:
     from jeeves_protocols import LoggerProtocol
     from jeeves_memory_module.repositories.event_repository import EventRepository
+    from jeeves_avionics.gateway.event_bus import GatewayEventBus
 
 
 @dataclass
@@ -66,12 +67,18 @@ class EventOrchestrator:
     """
     Unified orchestrator for all event operations.
 
-    Phase 7 consolidation: Provides single facade over:
-    - AgentEventEmitter (real-time streaming to frontend)
+    Provides single facade over:
+    - AgentEventEmitter (real-time streaming via gRPC to gateway)
     - AgentEventContext (unified emission context)
     - EventEmitter (domain event persistence)
 
     This is the ONLY entry point for event emission in the mission system.
+
+    Event Flow Architecture:
+    - Orchestrator emits to AgentEventEmitter (in-memory queue)
+    - Events streamed via gRPC to Gateway
+    - Gateway converts to UnifiedEvent and broadcasts to WebSocket clients
+    - NO direct gateway_event_bus injection (orchestrator and gateway are separate processes)
 
     Attributes:
         session_id: Current session identifier
@@ -147,7 +154,16 @@ class EventOrchestrator:
         agent_name: str,
         **payload,
     ) -> None:
-        """Emit agent started event (real-time + audit)."""
+        """
+        Emit agent started event.
+
+        Emission:
+        1. Real-time queue (AgentEvent) → gRPC stream → Gateway
+        2. Domain persistence (if enabled)
+
+        Note: Gateway receives events via gRPC and converts to UnifiedEvent.
+        No direct gateway_event_bus injection needed (cross-process).
+        """
         self._ensure_initialized()
         await self._context.emit_agent_started(agent_name, **payload)
 
@@ -158,7 +174,16 @@ class EventOrchestrator:
         error: Optional[str] = None,
         **payload,
     ) -> None:
-        """Emit agent completed event (real-time + audit)."""
+        """
+        Emit agent completed event.
+
+        Emission:
+        1. Real-time queue (AgentEvent) → gRPC stream → Gateway
+        2. Domain persistence (if enabled)
+
+        Note: Gateway receives events via gRPC and converts to UnifiedEvent.
+        No direct gateway_event_bus injection needed (cross-process).
+        """
         self._ensure_initialized()
         await self._context.emit_agent_completed(
             agent_name, status=status, error=error, **payload
@@ -435,6 +460,9 @@ def create_event_orchestrator(
 ) -> EventOrchestrator:
     """
     Factory function to create an EventOrchestrator.
+
+    Events flow: Orchestrator → gRPC → Gateway → WebSocket
+    No direct gateway injection (separate processes).
 
     Args:
         session_id: Current session identifier

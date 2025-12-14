@@ -37,19 +37,73 @@ router = APIRouter()
 # Event Publishing (Constitutional Pattern)
 # =============================================================================
 
-async def _publish_agent_event(event_name: str, payload: dict):
+async def _publish_unified_event(event: dict):
     """
-    Publish agent event to the gateway event bus.
+    Publish unified event to the gateway event bus.
 
     Constitutional Pattern:
-    - Router PUBLISHES events (fire and forget)
-    - WebSocket handler SUBSCRIBES and broadcasts
+    - Router receives gRPC events and converts to UnifiedEvent
+    - Emits to gateway_events bus
+    - WebSocket handler subscribes and broadcasts
     - Zero coupling between router and WebSocket implementation
 
     This enables real-time agent trace visibility on the frontend.
+
+    Args:
+        event: Dict containing event data from gRPC FlowEvent payload
     """
     from jeeves_avionics.gateway.event_bus import gateway_events
-    await gateway_events.publish(event_name, payload)
+    from jeeves_protocols.events import (
+        UnifiedEvent,
+        EventCategory,
+        EventSeverity,
+    )
+    from datetime import datetime, timezone
+    import uuid
+
+    # Extract event fields from AgentEvent dict
+    event_type = event.get("event_type", "agent.unknown")
+    request_id = event.get("request_id", "")
+    session_id = event.get("session_id", "")
+    timestamp_ms = event.get("timestamp_ms", int(datetime.now(timezone.utc).timestamp() * 1000))
+    payload = event.get("payload", {})
+    agent_name = event.get("agent_name", "")
+
+    # Determine category from event_type
+    if "perception" in event_type or "intent" in event_type or "planner" in event_type or \
+       "executor" in event_type or "synthesizer" in event_type or "integration" in event_type or \
+       "agent.started" in event_type or "agent.completed" in event_type:
+        category = EventCategory.AGENT_LIFECYCLE
+    elif "critic" in event_type:
+        category = EventCategory.CRITIC_DECISION
+    elif "tool" in event_type:
+        category = EventCategory.TOOL_EXECUTION
+    elif "orchestrator" in event_type or "flow" in event_type:
+        category = EventCategory.PIPELINE_FLOW
+    elif "stage" in event_type:
+        category = EventCategory.STAGE_TRANSITION
+    else:
+        category = EventCategory.DOMAIN_EVENT
+
+    # Create UnifiedEvent
+    dt = datetime.fromtimestamp(timestamp_ms / 1000, tz=timezone.utc)
+    unified = UnifiedEvent(
+        event_id=str(uuid.uuid4()),
+        event_type=event_type,
+        category=category,
+        timestamp_iso=dt.isoformat(),
+        timestamp_ms=timestamp_ms,
+        request_id=request_id,
+        session_id=session_id,
+        user_id=event.get("user_id", ""),
+        payload=payload,
+        severity=EventSeverity.INFO,
+        source="grpc_gateway",
+        version="1.0",
+    )
+
+    # Emit to gateway event bus
+    await gateway_events.emit(unified)
 
 
 # =============================================================================
@@ -214,17 +268,16 @@ async def send_message(
                     pass
 
             # Publish internal/trace events for frontend visibility (not final responses)
-            # Use specific event name from payload if available, otherwise use generic mapping
+            # Convert gRPC events to UnifiedEvent and publish to gateway_events
             if event.type in internal_event_types:
-                # Use the specific event name from payload (e.g., "perception.started")
-                # or fall back to a generic name
-                event_name = payload.get("event", f"agent.event_{event.type}")
-                await _publish_agent_event(event_name, {
+                # Merge gRPC context with payload for UnifiedEvent creation
+                event_data = {
                     "request_id": request_id,
                     "session_id": session_id,
                     "user_id": user_id,
                     **payload
-                })
+                }
+                await _publish_unified_event(event_data)
 
             if event.type == jeeves_pb2.FlowEvent.RESPONSE_READY:
                 final_response = {

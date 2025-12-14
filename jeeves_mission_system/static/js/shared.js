@@ -129,9 +129,19 @@ class WebSocketManager {
     }
 
     handleMessage(message) {
-        const { event, payload } = message;
-        this.emit(event, payload);
-        this.emit('message', message);
+        // UnifiedEvent format (constitutional standard)
+        if (message.type === 'event') {
+            const event_type = message.event_type;
+            const payload = message.payload || {};
+
+            // Emit with event_type as event name
+            this.emit(event_type, payload);
+
+            // Also emit the full UnifiedEvent
+            this.emit('message', message);
+        } else {
+            console.warn('[WS] Received non-UnifiedEvent message:', message);
+        }
     }
 
     scheduleReconnect() {

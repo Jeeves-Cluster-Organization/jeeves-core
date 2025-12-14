@@ -143,12 +143,14 @@ class ChatClient {
         }
     }
 
-    addAgentActivity(event, payload) {
-        // Add activity to the list
+    addAgentActivity(event_type, payload, timestamp, category, severity) {
+        // Add activity to the list with UnifiedEvent metadata
         this.agentActivity.unshift({
-            event,
+            event: event_type,  // Use event_type for backward compat with renderActivityItem
             payload,
-            timestamp: new Date().toISOString()
+            timestamp: timestamp || new Date().toISOString(),
+            category,
+            severity
         });
 
         // Keep only last 50 activities
@@ -437,32 +439,39 @@ class ChatClient {
     handleWebSocketMessage(message) {
         console.log('Received WebSocket message:', message);
 
-        // Support both 'event' and 'type' fields for compatibility
-        const event = message.event || message.type;
-        const payload = message.payload || {};
-
-        // Guard against undefined event
-        if (!event) {
-            console.warn('WebSocket message has no event/type field:', message);
+        // UnifiedEvent format (constitutional standard)
+        if (message.type !== 'event') {
+            console.warn('WebSocket message is not a UnifiedEvent:', message);
             return;
         }
 
-        // Capture agent events for internal view
-        // 7-Agent Pipeline: Perception → Intent → Planner → Traverser → Synthesizer → Critic → Integration
-        if (event.startsWith('perception.') ||
-            event.startsWith('intent.') ||
-            event.startsWith('planner.') ||
-            event.startsWith('traverser.') ||
-            event.startsWith('executor.') ||
-            event.startsWith('synthesizer.') ||
-            event.startsWith('critic.') ||
-            event.startsWith('integration.') ||
-            event.startsWith('orchestrator.') ||
-            event.startsWith('agent.')) {
-            this.addAgentActivity(event, payload);
+        // Extract UnifiedEvent fields
+        const event_type = message.event_type;
+        const category = message.category;
+        const payload = message.payload || {};
+        const session_id = message.session_id;
+        const request_id = message.request_id;
+        const severity = message.severity;
+        const timestamp = message.timestamp;
+
+        // Guard against missing event_type
+        if (!event_type) {
+            console.warn('UnifiedEvent has no event_type field:', message);
+            return;
         }
 
-        switch (event) {
+        // Capture agent events for internal view by category
+        // 7-Agent Pipeline: Perception → Intent → Planner → Executor → Synthesizer → Critic → Integration
+        if (category === 'agent_lifecycle' ||
+            category === 'tool_execution' ||
+            category === 'critic_decision' ||
+            category === 'stage_transition' ||
+            category === 'pipeline_flow') {
+            this.addAgentActivity(event_type, payload, timestamp, category, severity);
+        }
+
+        // Route by event_type
+        switch (event_type) {
             case 'orchestrator.completed':
                 this.handleOrchestratorCompleted(payload);
                 break;
@@ -474,16 +483,21 @@ class ChatClient {
                 // P1 Compliance: If uncertain, say so explicitly
                 this.handleOrchestratorClarification(payload);
                 break;
-            case 'orchestrator.failed':
+            case 'orchestrator.error':
                 this.handleOrchestratorFailed(payload);
                 break;
-            case 'chat.session.created':
-            case 'chat.session.updated':
-            case 'chat.session.deleted':
+            case 'session.created':
+            case 'session.updated':
+            case 'session.deleted':
                 this.loadSessions();
                 break;
             default:
-                console.log('Unhandled event:', event);
+                // Log unhandled events for debugging
+                if (severity === 'error' || severity === 'critical') {
+                    console.error('Unhandled error event:', event_type, payload);
+                } else {
+                    console.debug('Unhandled event:', event_type, category);
+                }
         }
     }
 

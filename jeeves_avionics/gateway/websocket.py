@@ -5,6 +5,11 @@ Constitutional Pattern:
 - Routers publish events, don't know about WebSocket
 - This module bridges events to WebSocket clients
 
+UNIFIED EVENT SUPPORT (2025-12-14):
+- Now receives UnifiedEvent instances from gateway_events
+- Converts to JSON format for WebSocket transmission
+- Constitutional compliance with EventEmitterProtocol
+
 Usage:
     # In main.py at startup
     from jeeves_avionics.gateway.websocket import setup_websocket_subscriptions
@@ -15,6 +20,7 @@ from typing import Set
 from fastapi import WebSocket
 
 from jeeves_avionics.logging import get_current_logger
+from jeeves_protocols.events import UnifiedEvent
 
 
 # Connected WebSocket clients (module-level state)
@@ -82,31 +88,72 @@ async def broadcast_to_clients(message: dict) -> int:
 # Event Bus Integration
 # =============================================================================
 
-async def _handle_agent_event(event) -> None:
-    """Handle agent events by broadcasting to WebSocket clients.
+async def _handle_agent_event(event: UnifiedEvent) -> None:
+    """
+    Handle unified events by broadcasting to WebSocket clients.
 
     This is the subscriber that bridges gateway events to WebSocket.
+
+    Args:
+        event: UnifiedEvent instance from gateway_events
+
+    The event is converted to JSON-friendly format before broadcast:
+    - type: "event" (message type indicator)
+    - event_id: Unique event identifier
+    - event_type: Namespaced event type (e.g., "agent.started")
+    - category: Event category for filtering
+    - timestamp: ISO 8601 timestamp
+    - payload: Event-specific data
+    - severity: Event severity level
+    - session_id: Session correlation ID
+    - request_id: Request correlation ID
     """
     await broadcast_to_clients({
-        "event": event.name,
+        "type": "event",
+        "event_id": event.event_id,
+        "event_type": event.event_type,
+        "category": event.category.value,
+        "timestamp": event.timestamp_iso,
+        "timestamp_ms": event.timestamp_ms,
         "payload": event.payload,
+        "severity": event.severity.value,
+        "session_id": event.session_id,
+        "request_id": event.request_id,
+        "source": event.source,
     })
 
 
-def setup_websocket_subscriptions() -> None:
-    """Subscribe to gateway events for WebSocket broadcasting.
+async def setup_websocket_subscriptions() -> None:
+    """
+    Subscribe to gateway events for WebSocket broadcasting.
 
     Call this once at application startup (in main.py lifespan).
+
+    Subscribes to all pipeline event categories:
+    - agent.* (generic agent lifecycle)
+    - perception.*, intent.*, planner.*, executor.*, synthesizer.*, critic.*, integration.*
+    - orchestrator.* (flow-level events)
     """
     from jeeves_avionics.gateway.event_bus import gateway_events
 
-    # Subscribe to all agent-related events
-    gateway_events.subscribe("agent.*", _handle_agent_event)
-    gateway_events.subscribe("orchestrator.*", _handle_agent_event)
-    gateway_events.subscribe("planner.*", _handle_agent_event)
-    gateway_events.subscribe("executor.*", _handle_agent_event)
-    gateway_events.subscribe("critic.*", _handle_agent_event)
-    gateway_events.subscribe("synthesizer.*", _handle_agent_event)
+    _logger = get_current_logger()
+
+    # Subscribe to all agent-related events with UnifiedEvent handler
+    patterns = [
+        "agent.*",
+        "perception.*",
+        "intent.*",
+        "planner.*",
+        "executor.*",
+        "synthesizer.*",
+        "critic.*",
+        "integration.*",
+        "orchestrator.*",
+    ]
+
+    for pattern in patterns:
+        subscription_id = await gateway_events.subscribe(pattern, _handle_agent_event)
+        _logger.debug("websocket_subscribed", pattern=pattern, subscription_id=subscription_id)
 
 
 __all__ = [

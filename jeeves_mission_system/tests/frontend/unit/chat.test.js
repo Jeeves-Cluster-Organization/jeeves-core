@@ -542,9 +542,24 @@ describe('ChatClient - WebSocket Events', () => {
   });
 
   describe('handleWebSocketMessage', () => {
-    it('should handle orchestrator.completed event', () => {
+    it('should handle orchestrator.completed event (UnifiedEvent)', () => {
       const client = createChatClient();
       let responseReceived = null;
+
+      // Simulate UnifiedEvent
+      const message = {
+        type: 'event',
+        event_id: 'evt-123',
+        event_type: 'orchestrator.completed',
+        category: 'pipeline_flow',
+        timestamp: new Date().toISOString(),
+        timestamp_ms: Date.now(),
+        session_id: 'sess-123',
+        request_id: 'req-456',
+        payload: { response_text: 'Task completed!' },
+        severity: 'info',
+        source: 'agent_emitter',
+      };
 
       // Simulate handleOrchestratorCompleted
       const handleOrchestratorCompleted = (payload) => {
@@ -558,7 +573,12 @@ describe('ChatClient - WebSocket Events', () => {
         }
       };
 
-      handleOrchestratorCompleted({ response_text: 'Task completed!' });
+      // Check message format
+      expect(message.type).toBe('event');
+      expect(message.event_type).toBe('orchestrator.completed');
+
+      // Handle the event
+      handleOrchestratorCompleted(message.payload);
 
       expect(responseReceived).toBe('Task completed!');
       expect(client.messages.length).toBe(1);
@@ -596,20 +616,38 @@ describe('ChatClient - WebSocket Events', () => {
       expect(errorMessage).toContain('Tool execution failed');
     });
 
-    it('should reload sessions on chat.session.* events', () => {
+    it('should reload sessions on session.* events (UnifiedEvent)', () => {
       let sessionsReloaded = false;
 
-      const handleEvent = (event) => {
+      // Simulate UnifiedEvent for session events
+      const message = {
+        type: 'event',
+        event_id: 'evt-789',
+        event_type: 'session.created',
+        category: 'session_event',
+        timestamp: new Date().toISOString(),
+        timestamp_ms: Date.now(),
+        session_id: 'sess-new',
+        request_id: 'req-789',
+        payload: { session_id: 'sess-new', title: 'New Chat' },
+        severity: 'info',
+        source: 'gateway',
+      };
+
+      const handleEvent = (event_type) => {
         if (
-          event === 'chat.session.created' ||
-          event === 'chat.session.updated' ||
-          event === 'chat.session.deleted'
+          event_type === 'session.created' ||
+          event_type === 'session.updated' ||
+          event_type === 'session.deleted'
         ) {
           sessionsReloaded = true;
         }
       };
 
-      handleEvent('chat.session.created');
+      expect(message.type).toBe('event');
+      expect(message.event_type).toBe('session.created');
+
+      handleEvent(message.event_type);
       expect(sessionsReloaded).toBe(true);
     });
   });
@@ -655,30 +693,40 @@ describe('ChatClient - Internal View Panel', () => {
   });
 
   describe('addAgentActivity', () => {
-    it('should add activity to the front of the list', () => {
+    it('should add activity to the front of the list (UnifiedEvent)', () => {
       const agentActivity = [];
 
-      const addAgentActivity = (event, payload) => {
+      const addAgentActivity = (event_type, payload, timestamp, category, severity) => {
         agentActivity.unshift({
-          event,
+          event: event_type,
           payload,
-          timestamp: new Date().toISOString(),
+          timestamp: timestamp || new Date().toISOString(),
+          category,
+          severity,
         });
       };
 
-      addAgentActivity('planner.generated', { confidence: 0.95 });
-      addAgentActivity('executor.completed', { tool_name: 'add_task' });
+      addAgentActivity('planner.plan_created', { confidence: 0.95 }, new Date().toISOString(), 'agent_lifecycle', 'info');
+      addAgentActivity('executor.tool_completed', { tool_name: 'add_task' }, new Date().toISOString(), 'tool_execution', 'info');
 
       expect(agentActivity.length).toBe(2);
-      expect(agentActivity[0].event).toBe('executor.completed');
-      expect(agentActivity[1].event).toBe('planner.generated');
+      expect(agentActivity[0].event).toBe('executor.tool_completed');
+      expect(agentActivity[0].category).toBe('tool_execution');
+      expect(agentActivity[1].event).toBe('planner.plan_created');
+      expect(agentActivity[1].category).toBe('agent_lifecycle');
     });
 
-    it('should limit activity list to 50 items', () => {
+    it('should limit activity list to 50 items (UnifiedEvent)', () => {
       let agentActivity = [];
 
-      const addAgentActivity = (event, payload) => {
-        agentActivity.unshift({ event, payload, timestamp: new Date().toISOString() });
+      const addAgentActivity = (event_type, payload, timestamp, category, severity) => {
+        agentActivity.unshift({
+          event: event_type,
+          payload,
+          timestamp: timestamp || new Date().toISOString(),
+          category,
+          severity,
+        });
         if (agentActivity.length > 50) {
           agentActivity = agentActivity.slice(0, 50);
         }
@@ -686,7 +734,7 @@ describe('ChatClient - Internal View Panel', () => {
 
       // Add 60 activities
       for (let i = 0; i < 60; i++) {
-        addAgentActivity(`test.event.${i}`, {});
+        addAgentActivity(`test.event.${i}`, {}, new Date().toISOString(), 'agent_lifecycle', 'info');
       }
 
       expect(agentActivity.length).toBe(50);
@@ -694,11 +742,13 @@ describe('ChatClient - Internal View Panel', () => {
   });
 
   describe('renderActivityItem', () => {
-    it('should render planner activity with correct styling', () => {
+    it('should render planner activity with correct styling (UnifiedEvent)', () => {
       const activity = {
-        event: 'planner.generated',
+        event: 'planner.plan_created',
         payload: { intent: 'add_task', confidence: 0.92 },
         timestamp: new Date().toISOString(),
+        category: 'agent_lifecycle',
+        severity: 'info',
       };
 
       // Simulate agent name detection
@@ -712,20 +762,23 @@ describe('ChatClient - Internal View Panel', () => {
 
       expect(agentName).toBe('Planner');
       expect(statusClass).toBe('bg-blue-50');
+      expect(activity.category).toBe('agent_lifecycle');
     });
 
-    it('should render executor activity with tool info', () => {
+    it('should render executor activity with tool info (UnifiedEvent)', () => {
       const activity = {
-        event: 'executor.completed',
+        event: 'executor.tool_completed',
         payload: { tool_name: 'add_task', status: 'success' },
         timestamp: new Date().toISOString(),
+        category: 'tool_execution',
+        severity: 'info',
       };
 
       let agentName = 'System';
       let details = '';
 
       if (activity.event.startsWith('executor.')) {
-        agentName = 'Executor';
+        agentName = 'Traverser';
         if (activity.payload.tool_name) {
           details = `Tool: ${activity.payload.tool_name}`;
         }
@@ -734,27 +787,31 @@ describe('ChatClient - Internal View Panel', () => {
         }
       }
 
-      expect(agentName).toBe('Executor');
+      expect(agentName).toBe('Traverser');
       expect(details).toContain('Tool: add_task');
       expect(details).toContain('Status: success');
+      expect(activity.category).toBe('tool_execution');
     });
 
-    it('should render orchestrator completion with success styling', () => {
+    it('should render orchestrator completion with success styling (UnifiedEvent)', () => {
       const activity = {
         event: 'orchestrator.completed',
         payload: {},
         timestamp: new Date().toISOString(),
+        category: 'pipeline_flow',
+        severity: 'info',
       };
 
       let statusClass = '';
 
       if (activity.event === 'orchestrator.completed') {
         statusClass = 'bg-green-50';
-      } else if (activity.event === 'orchestrator.failed') {
+      } else if (activity.event === 'orchestrator.error') {
         statusClass = 'bg-red-50';
       }
 
       expect(statusClass).toBe('bg-green-50');
+      expect(activity.category).toBe('pipeline_flow');
     });
   });
 });
