@@ -157,22 +157,91 @@ class UnifiedAgent:
         # Build context dict from envelope for prompt template interpolation
         context = {
             "raw_input": envelope.raw_input,
+            "user_input": envelope.raw_input,  # Alias for compatibility
             "user_id": envelope.user_id,
             "session_id": envelope.session_id,
-            **envelope.outputs,  # Include all agent outputs
-            **envelope.metadata,  # Include metadata
+            "system_identity": "You are a code analysis assistant.",
+            "role_description": f"As the {self.name} agent, you process information and pass results to the next stage.",
+            "normalized_input": envelope.raw_input,  # Default, may be overridden by perception output
+            "context_summary": "",
+            "detected_languages": "[]",
+            "capabilities_summary": "Code search, file reading, symbol lookup, dependency analysis",
+            "user_query": envelope.raw_input,
+            "session_state": f"Session: {envelope.session_id}",
+            # Provide safe defaults for common prompt placeholders
+            "intent": "",
+            "goals": "[]",
+            "scope_path": "",
+            "exploration_summary": "",
+            "available_tools": "",
+            "bounds_description": "",
+            "max_files": 50,
+            "max_tokens": 100000,
+            "files_explored": 0,
+            "tokens_used": 0,
+            "remaining_files": 50,
+            "remaining_tokens": 100000,
+            "retry_feedback": "",
+            "execution_results": "",
+            "relevant_snippets": "",
+            "verdict": "",
+            "suggested_response": "",
+            "pipeline_overview": "7-agent code analysis pipeline",
+            "files_examined": "[]",
         }
 
+        # Include all agent outputs as nested dicts (e.g., context["intent"] = {...})
+        context.update(envelope.outputs)
+
+        # Extract commonly needed fields from nested outputs
+        # This allows prompts to use both {intent} (dict) and flattened fields
+        if "perception" in envelope.outputs:
+            perception = envelope.outputs["perception"]
+            if isinstance(perception, dict):
+                context["normalized_input"] = perception.get("normalized_query", context["normalized_input"])
+                context["scope_path"] = perception.get("scope", "")
+
+        if "intent" in envelope.outputs:
+            intent_output = envelope.outputs["intent"]
+            if isinstance(intent_output, dict):
+                # Extract intent classification (string)
+                context["intent"] = intent_output.get("intent", "")
+                # Extract goals (list or string representation)
+                goals = intent_output.get("goals", [])
+                context["goals"] = str(goals) if isinstance(goals, list) else goals
+
+        if "plan" in envelope.outputs:
+            plan_output = envelope.outputs["plan"]
+            if isinstance(plan_output, dict):
+                context["execution_results"] = str(plan_output.get("steps", ""))
+
+        if "execution" in envelope.outputs:
+            exec_output = envelope.outputs["execution"]
+            if isinstance(exec_output, dict):
+                context["execution_results"] = str(exec_output.get("results", ""))
+                context["relevant_snippets"] = str(exec_output.get("snippets", ""))
+
+        if "critic" in envelope.outputs:
+            critic_output = envelope.outputs["critic"]
+            if isinstance(critic_output, dict):
+                context["verdict"] = critic_output.get("verdict", "")
+                context["suggested_response"] = critic_output.get("suggested_response", "")
+
+        # Include metadata last (can override extracted fields if needed)
+        context.update(envelope.metadata)
+
         prompt = self.prompt_registry.get(prompt_key, context=context)
-        messages = [{"role": "user", "content": prompt}]
 
-        kwargs = {}
+        # Build options dict for LLM provider
+        options = {}
         if self.config.temperature is not None:
-            kwargs["temperature"] = self.config.temperature
+            options["temperature"] = self.config.temperature
         if self.config.max_tokens is not None:
-            kwargs["max_tokens"] = self.config.max_tokens
+            options["num_predict"] = self.config.max_tokens  # llama-server uses num_predict
 
-        response = await self.llm.complete(messages, **kwargs)
+        # Call LLM provider's generate() method
+        # model is empty string since llama-server loads a single model
+        response = await self.llm.generate(model="", prompt=prompt, options=options)
         envelope.llm_call_count += 1
 
         try:
@@ -381,7 +450,10 @@ class UnifiedRuntime:
                 envelope.terminal_reason = str(e)
                 break
 
-            yield (stage_name, envelope.outputs.get(stage_name, {}))
+            # Yield the output using the agent's output_key, not stage_name
+            # Some agents have different output_key than their name (e.g., planner has output_key="plan")
+            output_key = agent.config.output_key
+            yield (stage_name, envelope.outputs.get(output_key, {}))
 
             if self.persistence and thread_id:
                 try:
@@ -397,14 +469,18 @@ class UnifiedRuntime:
         Resume stages are determined by PipelineConfig, not hardcoded.
         This allows different capabilities to define their own resume behavior.
         """
-        if envelope.clarification_response:
-            envelope.clarification_pending = False
+        # Handle unified interrupt mechanism
+        if envelope.interrupt and envelope.interrupt.get("type") == "clarification":
+            envelope.interrupt_pending = False
+            envelope.interrupt = None
             # Use config-defined resume stage (capability determines this)
             envelope.current_stage = self.config.get_clarification_resume_stage()
 
-        if envelope.confirmation_response is not None:
-            envelope.confirmation_pending = False
-            if envelope.confirmation_response:
+        if envelope.interrupt and envelope.interrupt.get("type") == "confirmation":
+            envelope.interrupt_pending = False
+            confirmation_response = envelope.interrupt.get("response")
+            envelope.interrupt = None
+            if confirmation_response:
                 # Use config-defined resume stage (capability determines this)
                 envelope.current_stage = self.config.get_confirmation_resume_stage()
             else:

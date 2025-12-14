@@ -146,6 +146,7 @@ class AgentEventEmitter:
             "perception": AgentEventType.PERCEPTION_STARTED,
             "intent": AgentEventType.INTENT_STARTED,
             "planner": AgentEventType.PLANNER_STARTED,
+            "executor": AgentEventType.TRAVERSER_STARTED,  # executor is the new name for traverser
             "traverser": AgentEventType.TRAVERSER_STARTED,
             "synthesizer": AgentEventType.SYNTHESIZER_STARTED,
             "critic": AgentEventType.CRITIC_STARTED,
@@ -183,6 +184,7 @@ class AgentEventEmitter:
             "perception": AgentEventType.PERCEPTION_COMPLETED,
             "intent": AgentEventType.INTENT_COMPLETED,
             "planner": AgentEventType.PLANNER_COMPLETED,
+            "executor": AgentEventType.TRAVERSER_COMPLETED,  # executor is the new name for traverser
             "traverser": AgentEventType.TRAVERSER_COMPLETED,
             "synthesizer": AgentEventType.SYNTHESIZER_COMPLETED,
             "critic": AgentEventType.CRITIC_DECISION,

@@ -187,16 +187,16 @@ async def send_message(
         # - CRITIC_DECISION: Critic validates results
         # - SYNTHESIZER_COMPLETE: Understanding structure built
         # - STAGE_TRANSITION: Multi-stage execution transitions
-        internal_event_names = {
-            jeeves_pb2.FlowEvent.FLOW_STARTED: "orchestrator.started",
-            jeeves_pb2.FlowEvent.PLAN_CREATED: "planner.plan_created",
-            jeeves_pb2.FlowEvent.TOOL_STARTED: "executor.tool_started",
-            jeeves_pb2.FlowEvent.TOOL_COMPLETED: "executor.tool_completed",
-            jeeves_pb2.FlowEvent.CRITIC_DECISION: "critic.decision",
-            jeeves_pb2.FlowEvent.AGENT_STARTED: "agent.started",
-            jeeves_pb2.FlowEvent.AGENT_COMPLETED: "agent.completed",
-            jeeves_pb2.FlowEvent.SYNTHESIZER_COMPLETE: "synthesizer.completed",
-            jeeves_pb2.FlowEvent.STAGE_TRANSITION: "orchestrator.stage_transition",
+        internal_event_types = {
+            jeeves_pb2.FlowEvent.FLOW_STARTED,
+            jeeves_pb2.FlowEvent.PLAN_CREATED,
+            jeeves_pb2.FlowEvent.TOOL_STARTED,
+            jeeves_pb2.FlowEvent.TOOL_COMPLETED,
+            jeeves_pb2.FlowEvent.CRITIC_DECISION,
+            jeeves_pb2.FlowEvent.AGENT_STARTED,
+            jeeves_pb2.FlowEvent.AGENT_COMPLETED,
+            jeeves_pb2.FlowEvent.SYNTHESIZER_COMPLETE,
+            jeeves_pb2.FlowEvent.STAGE_TRANSITION,
             # Note: RESPONSE_READY, CLARIFICATION, CONFIRMATION, ERROR are NOT broadcast
             # because those are returned in the POST response and would cause duplicates
         }
@@ -214,8 +214,11 @@ async def send_message(
                     pass
 
             # Publish internal/trace events for frontend visibility (not final responses)
-            if event.type in internal_event_names:
-                event_name = internal_event_names[event.type]
+            # Use specific event name from payload if available, otherwise use generic mapping
+            if event.type in internal_event_types:
+                # Use the specific event name from payload (e.g., "perception.started")
+                # or fall back to a generic name
+                event_name = payload.get("event", f"agent.event_{event.type}")
                 await _publish_agent_event(event_name, {
                     "request_id": request_id,
                     "session_id": session_id,
@@ -351,9 +354,11 @@ async def stream_chat(
 
         try:
             async for event in client.flow.StartFlow(grpc_request):
-                # Map gRPC event type to SSE event name
-                event_name = _event_type_to_name(event.type)
+                # Parse payload first
                 payload = json.loads(event.payload) if event.payload else {}
+
+                # Map gRPC event type to SSE event name (use specific name from payload if available)
+                event_name = _event_type_to_name(event.type, payload)
 
                 # Add common fields
                 payload["request_id"] = event.request_id
@@ -604,10 +609,19 @@ async def delete_session(
 # Helpers
 # =============================================================================
 
-def _event_type_to_name(event_type: int) -> str:
-    """Map gRPC event type enum to SSE event name."""
+def _event_type_to_name(event_type: int, payload: dict = None) -> str:
+    """
+    Map gRPC event type enum to SSE event name.
+
+    If payload contains a specific 'event' field (e.g., "perception.started"),
+    use that for more granular event names. Otherwise, use the generic mapping.
+    """
     if jeeves_pb2 is None:
         return "unknown"
+
+    # Check if payload has a more specific event name
+    if payload and "event" in payload:
+        return payload["event"]
 
     mapping = {
         jeeves_pb2.FlowEvent.FLOW_STARTED: "flow_started",
@@ -620,5 +634,9 @@ def _event_type_to_name(event_type: int) -> str:
         jeeves_pb2.FlowEvent.CONFIRMATION: "confirmation",
         jeeves_pb2.FlowEvent.CRITIC_DECISION: "critic_decision",
         jeeves_pb2.FlowEvent.ERROR: "error",
+        jeeves_pb2.FlowEvent.AGENT_STARTED: "agent_started",
+        jeeves_pb2.FlowEvent.AGENT_COMPLETED: "agent_completed",
+        jeeves_pb2.FlowEvent.SYNTHESIZER_COMPLETE: "synthesizer_completed",
+        jeeves_pb2.FlowEvent.STAGE_TRANSITION: "stage_transition",
     }
     return mapping.get(event_type, "unknown")

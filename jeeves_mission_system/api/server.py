@@ -542,13 +542,14 @@ async def submit_request(body: SubmitRequestBody) -> SubmitRequestResponse:
         traversal = result_envelope.metadata.get("traversal_state", {})
 
         # Check for clarification (EventBridge handles WebSocket broadcast)
-        clarification_needed = result_envelope.clarification_pending
+        # Use unified interrupt mechanism
+        clarification_needed = result_envelope.interrupt_pending and result_envelope.interrupt and result_envelope.interrupt.get("type") == "clarification"
 
         # Determine status
         if clarification_needed:
             status = "clarification_needed"
             response_text = None
-        elif result_envelope.terminal_reason == TerminalReason.COMPLETED_SUCCESSFULLY:
+        elif result_envelope.terminal_reason == TerminalReason.COMPLETED:
             status = "completed"
             response_text = integration.get("final_response")
         else:
@@ -636,13 +637,14 @@ async def submit_clarification(body: ClarificationBody) -> SubmitRequestResponse
         integration = result_envelope.outputs.get("integration", {})
 
         # Check for further clarification (EventBridge handles WebSocket broadcast)
-        clarification_needed = result_envelope.clarification_pending
+        # Use unified interrupt mechanism
+        clarification_needed = result_envelope.interrupt_pending and result_envelope.interrupt and result_envelope.interrupt.get("type") == "clarification"
 
         # Determine status
         if clarification_needed:
             status = "clarification_needed"
             response_text = None
-        elif result_envelope.terminal_reason == TerminalReason.COMPLETED_SUCCESSFULLY:
+        elif result_envelope.terminal_reason == TerminalReason.COMPLETED:
             status = "completed"
             response_text = integration.get("final_response")
         else:
