@@ -21,7 +21,7 @@ Usage:
     )
 
     # Check tool by typed ID
-    if tool_catalog.has_tool(ToolId.LOCATE):
+    if tool_catalog.has_tool_id(ToolId.LOCATE):
         entry = tool_catalog.get_entry(ToolId.LOCATE)
 
     # Generate Planner prompt
@@ -35,6 +35,7 @@ from jeeves_avionics.tools.catalog import (
     RiskLevel,
     # Dataclasses
     ToolCatalogEntry,
+    ToolDefinition,
     # Catalog
     ToolCatalog,
     tool_catalog,
@@ -53,6 +54,7 @@ __all__ = [
     "RiskLevel",
     # Dataclasses
     "ToolCatalogEntry",
+    "ToolDefinition",
     # Catalog
     "ToolCatalog",
     "tool_catalog",

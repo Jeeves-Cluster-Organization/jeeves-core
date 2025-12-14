@@ -94,10 +94,6 @@ RUN pip install \
     psycopg[binary]>=3.1.0 \
     sqlalchemy>=2.0.0 \
     alembic>=1.13.0 \
-    # LangGraph/LangChain
-    langgraph>=0.0.40 \
-    langchain-core>=0.1.0 \
-    langchain-community>=0.0.10 \
     # Logging/Observability
     structlog>=24.1.0 \
     opentelemetry-api>=1.22.0 \

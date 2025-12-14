@@ -160,7 +160,7 @@ class LLMProviderProtocol(Protocol):
 
 @runtime_checkable
 class ToolProtocol(Protocol):
-    """Tool interface."""
+    """Tool interface for individual tool implementations."""
 
     @property
     def name(self) -> str: ...
@@ -172,13 +172,56 @@ class ToolProtocol(Protocol):
 
 
 @runtime_checkable
-class ToolRegistryProtocol(Protocol):
-    """Tool registry interface."""
+class ToolDefinitionProtocol(Protocol):
+    """Tool definition returned by registry lookups.
 
-    def register(self, tool: ToolProtocol) -> None: ...
-    def get(self, name: str) -> Optional[ToolProtocol]: ...
-    def list(self) -> List[str]: ...
-    async def execute(self, name: str, params: Dict[str, Any]) -> Dict[str, Any]: ...
+    This is the minimal interface needed by ToolExecutor to invoke a tool.
+    Implementations may include additional fields (parameters, category, etc.)
+    but these are the required properties.
+
+    Constitutional Reference:
+        - Avionics CONSTITUTION: R4 (Swappable Implementations)
+        - Capability CONSTITUTION: P5 (Configuration over Code)
+    """
+    name: str
+    function: Any  # Callable - using Any for protocol compatibility
+    parameters: Dict[str, str]
+    description: str
+
+
+@runtime_checkable
+class ToolRegistryProtocol(Protocol):
+    """Tool registry interface for managing and accessing tools.
+
+    Updated to match actual usage patterns in wiring.py.
+    Supports both the catalog pattern (ToolCatalog) and legacy tool registration.
+
+    Constitutional Reference:
+        - Avionics CONSTITUTION: R4 (Swappable Implementations)
+        - Protocols should reflect actual usage, not theoretical ideals
+    """
+
+    def has_tool(self, name: str) -> bool:
+        """Check if a tool is registered.
+
+        Args:
+            name: Tool name (string)
+
+        Returns:
+            True if tool exists and has implementation
+        """
+        ...
+
+    def get_tool(self, name: str) -> Optional[ToolDefinitionProtocol]:
+        """Get tool definition by name.
+
+        Args:
+            name: Tool name (string)
+
+        Returns:
+            ToolDefinitionProtocol if found, None otherwise
+        """
+        ...
 
 
 # =============================================================================

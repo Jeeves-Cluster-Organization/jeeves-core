@@ -103,6 +103,63 @@ class GenericEnvelope:
                 setattr(env, key, value)
         return env
 
+    def initialize_goals(self, goals: List[str]) -> None:
+        """Initialize goals for multi-stage execution.
+
+        Args:
+            goals: List of goal strings extracted from intent
+        """
+        self.all_goals = list(goals)
+        self.remaining_goals = list(goals)
+        self.goal_completion_status = {goal: "pending" for goal in goals}
+
+    def mark_goal_complete(self, goal: str) -> None:
+        """Mark a goal as complete.
+
+        Args:
+            goal: The goal to mark complete
+        """
+        if goal in self.goal_completion_status:
+            self.goal_completion_status[goal] = "complete"
+        if goal in self.remaining_goals:
+            self.remaining_goals.remove(goal)
+
+    def advance_stage(self) -> None:
+        """Advance to the next stage."""
+        self.current_stage_number += 1
+
+    def get_stage_context(self) -> Dict[str, Any]:
+        """Get context for the current stage.
+
+        Returns:
+            Dictionary with stage context
+        """
+        return {
+            "current_stage_number": self.current_stage_number,
+            "max_stages": self.max_stages,
+            "all_goals": self.all_goals,
+            "remaining_goals": self.remaining_goals,
+            "goal_completion_status": self.goal_completion_status,
+            "completed_stages": self.completed_stages,
+        }
+
+    def is_stuck(self, min_progress_stages: int = 2) -> bool:
+        """Check if pipeline is stuck (no progress after N stages).
+
+        Args:
+            min_progress_stages: Minimum stages before checking for stuck state
+
+        Returns:
+            True if stuck (no goals completed after min_progress_stages)
+        """
+        if self.current_stage_number < min_progress_stages:
+            return False
+        completed_count = sum(
+            1 for status in self.goal_completion_status.values()
+            if status == "complete"
+        )
+        return completed_count == 0
+
     def to_dict(self) -> Dict[str, Any]:
         """Convert to dictionary for Go JSON input."""
         return {

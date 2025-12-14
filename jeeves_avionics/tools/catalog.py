@@ -5,26 +5,24 @@ Decision 1:A: All tools registered here with typed ToolId, no hardcoded strings.
 
 This module provides:
 - ToolId: Typed enum for all tool identifiers (no raw strings)
-- ToolCategory: IMPORTED from jeeves_commbus (canonical location)
-- RiskLevel: IMPORTED from jeeves_commbus (canonical location)
+- ToolCategory: IMPORTED from jeeves_protocols (canonical location)
+- RiskLevel: IMPORTED from jeeves_protocols (canonical location)
 - ToolCatalogEntry: Immutable metadata for each tool
 - ToolCatalog: Singleton registry and prompt generation
+- ToolDefinition: Tool definition for ToolExecutor (implements ToolDefinitionProtocol)
 - EXPOSED_TOOL_IDS: Tools visible to agents
 
 Constitutional Compliance:
 - P1 (Accuracy First): Single source of truth prevents drift
 - P5 (Deterministic Spine): Typed enums prevent typos/mismatches
 - P6 (Observable): Explicit registration for auditability
-
-Centralization Audit Phase 2:
-- RiskLevel and ToolCategory imported from jeeves_commbus (canonical location)
+- Avionics R4 (Swappable Implementations): Implements ToolRegistryProtocol
 """
 
 from dataclasses import dataclass
 from enum import Enum
 from typing import Any, Callable, Dict, FrozenSet, List, Optional
 
-# Phase 2: Import canonical enums from commbus
 from jeeves_protocols import RiskLevel, ToolCategory
 
 
@@ -36,8 +34,11 @@ class ToolId(str, Enum):
     """
 
     # ═══════════════════════════════════════════════════════════════════════════
-    # UNIFIED ANALYZER (Amendment XXII) - Single entry point for code analysis
+    # CODE ANALYSIS TOOLS - Two-path architecture (Amendment XXII v2)
     # ═══════════════════════════════════════════════════════════════════════════
+    # Primary search tool - always searches, never assumes paths exist
+    SEARCH_CODE = "search_code"
+    # Legacy unified tool - kept for backwards compatibility
     ANALYZE = "analyze"
 
     # ═══════════════════════════════════════════════════════════════════════════
@@ -100,10 +101,6 @@ class ToolId(str, Enum):
     SAVE_SESSION_STATE = "save_session_state"
 
 
-# ToolCategory and RiskLevel are now imported from jeeves_commbus (Phase 2)
-# Local definitions removed to avoid duplication
-
-
 @dataclass(frozen=True)
 class ToolCatalogEntry:
     """Immutable tool metadata.
@@ -157,14 +154,68 @@ EXPOSED_TOOL_IDS: FrozenSet[ToolId] = frozenset({
 })
 
 
+# ═══════════════════════════════════════════════════════════════════════════════
+# TOOL DEFINITION - Implements ToolDefinitionProtocol
+# ═══════════════════════════════════════════════════════════════════════════════
+
+@dataclass
+class ToolDefinition:
+    """Tool definition for ToolExecutor.
+
+    Implements ToolDefinitionProtocol from jeeves_protocols.
+    This is the object returned by ToolCatalog.get_tool().
+    """
+    name: str
+    function: Callable
+    parameters: Dict[str, str]
+    description: str = ""
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# HELPER FUNCTIONS - Must be defined before ToolCatalog uses them
+# ═══════════════════════════════════════════════════════════════════════════════
+
+def resolve_tool_id(name: str) -> Optional[ToolId]:
+    """Resolve string tool name to ToolId.
+
+    Args:
+        name: Tool name string (e.g., "locate")
+
+    Returns:
+        ToolId if valid, None otherwise
+    """
+    try:
+        return ToolId(name)
+    except ValueError:
+        return None
+
+
+def is_exposed_tool(tool_id: ToolId) -> bool:
+    """Check if tool is in exposed set.
+
+    Args:
+        tool_id: Tool to check
+
+    Returns:
+        True if tool should be visible to agents
+    """
+    return tool_id in EXPOSED_TOOL_IDS
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# TOOL CATALOG - Implements ToolRegistryProtocol
+# ═══════════════════════════════════════════════════════════════════════════════
+
 class ToolCatalog:
     """Canonical tool catalog - single source of truth (Decision 1:A).
+
+    Implements ToolRegistryProtocol from jeeves_protocols.
 
     Singleton registry that:
     - Stores all tool metadata (ToolCatalogEntry)
     - Maps ToolId to implementation functions
     - Generates consistent prompts for Planner
-    - Validates tool existence by typed ID
+    - Validates tool existence by typed ID or string name
 
     Usage:
         catalog = ToolCatalog.get_instance()
@@ -205,6 +256,10 @@ class ToolCatalog:
         """Reset singleton instance (for testing only)."""
         cls._instance = None
 
+    # ═══════════════════════════════════════════════════════════════════════════
+    # REGISTRATION METHODS
+    # ═══════════════════════════════════════════════════════════════════════════
+
     def register(
         self,
         tool_id: ToolId,
@@ -228,16 +283,6 @@ class ToolCatalog:
 
         Returns:
             Decorator function that registers the tool implementation
-
-        Example:
-            @catalog.register(
-                tool_id=ToolId.LOCATE,
-                description="Find code anywhere",
-                parameters={"symbol": "string"},
-                category=ToolCategory.COMPOSITE,
-            )
-            async def locate(symbol: str):
-                ...
         """
         entry = ToolCatalogEntry(
             id=tool_id,
@@ -284,8 +329,68 @@ class ToolCatalog:
         self._entries[tool_id] = entry
         self._functions[tool_id] = func
 
+    # ═══════════════════════════════════════════════════════════════════════════
+    # TOOLREGISTRYPROTOCOL IMPLEMENTATION (string-based interface)
+    # ═══════════════════════════════════════════════════════════════════════════
+
+    def has_tool(self, name: str) -> bool:
+        """Check if tool is registered by string name.
+
+        Implements ToolRegistryProtocol.has_tool().
+
+        Args:
+            name: Tool name string (e.g., "analyze")
+
+        Returns:
+            True if tool has both entry and function registered
+        """
+        tool_id = resolve_tool_id(name)
+        if tool_id is None:
+            return False
+        return tool_id in self._entries and tool_id in self._functions
+
+    def get_tool(self, name: str) -> Optional[ToolDefinition]:
+        """Get tool by string name.
+
+        Implements ToolRegistryProtocol.get_tool().
+
+        Args:
+            name: Tool name string (e.g., "analyze")
+
+        Returns:
+            ToolDefinition with function and parameters, or None
+        """
+        tool_id = resolve_tool_id(name)
+        if tool_id is None:
+            return None
+        entry = self._entries.get(tool_id)
+        func = self._functions.get(tool_id)
+        if entry is None or func is None:
+            return None
+        return ToolDefinition(
+            name=name,
+            function=func,
+            parameters=entry.parameters,
+            description=entry.description,
+        )
+
+    # ═══════════════════════════════════════════════════════════════════════════
+    # TOOLID-BASED ACCESS (typed interface for internal use)
+    # ═══════════════════════════════════════════════════════════════════════════
+
+    def has_tool_id(self, tool_id: ToolId) -> bool:
+        """Check if tool is registered by ToolId.
+
+        Args:
+            tool_id: Typed tool identifier
+
+        Returns:
+            True if tool has both entry and function registered
+        """
+        return tool_id in self._entries and tool_id in self._functions
+
     def get_entry(self, tool_id: ToolId) -> Optional[ToolCatalogEntry]:
-        """Get tool metadata.
+        """Get tool metadata by ToolId.
 
         Args:
             tool_id: Typed tool identifier
@@ -296,7 +401,7 @@ class ToolCatalog:
         return self._entries.get(tool_id)
 
     def get_function(self, tool_id: ToolId) -> Optional[Callable]:
-        """Get tool implementation.
+        """Get tool implementation by ToolId.
 
         Args:
             tool_id: Typed tool identifier
@@ -305,17 +410,6 @@ class ToolCatalog:
             Implementation function if registered, None otherwise
         """
         return self._functions.get(tool_id)
-
-    def has_tool(self, tool_id: ToolId) -> bool:
-        """Check if tool is registered.
-
-        Args:
-            tool_id: Typed tool identifier
-
-        Returns:
-            True if tool has both entry and function registered
-        """
-        return tool_id in self._entries and tool_id in self._functions
 
     def has_entry(self, tool_id: ToolId) -> bool:
         """Check if tool entry exists (may not have function yet).
@@ -327,6 +421,10 @@ class ToolCatalog:
             True if entry registered
         """
         return tool_id in self._entries
+
+    # ═══════════════════════════════════════════════════════════════════════════
+    # CATALOG OPERATIONS
+    # ═══════════════════════════════════════════════════════════════════════════
 
     def get_exposed_entries(self) -> List[ToolCatalogEntry]:
         """Get entries for all exposed tools.
@@ -419,36 +517,3 @@ class ToolCatalog:
 
 # Global singleton instance
 tool_catalog = ToolCatalog.get_instance()
-
-
-# ═══════════════════════════════════════════════════════════════════════════════
-# Helper functions for tool ID resolution
-# ═══════════════════════════════════════════════════════════════════════════════
-
-def resolve_tool_id(name: str) -> Optional[ToolId]:
-    """Resolve string tool name to ToolId.
-
-    For backwards compatibility during migration.
-
-    Args:
-        name: Tool name string (e.g., "locate")
-
-    Returns:
-        ToolId if valid, None otherwise
-    """
-    try:
-        return ToolId(name)
-    except ValueError:
-        return None
-
-
-def is_exposed_tool(tool_id: ToolId) -> bool:
-    """Check if tool is in exposed set.
-
-    Args:
-        tool_id: Tool to check
-
-    Returns:
-        True if tool should be visible to agents
-    """
-    return tool_id in EXPOSED_TOOL_IDS

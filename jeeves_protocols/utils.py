@@ -14,12 +14,54 @@ class JSONRepairKit:
     @staticmethod
     def extract_json(text: str) -> Optional[str]:
         """Extract JSON from text that may contain markdown or other content."""
+        # Strip leading/trailing whitespace
+        text = text.strip()
+
         # Try to find JSON in code blocks
         code_block_match = re.search(r'```(?:json)?\s*([\s\S]*?)```', text)
         if code_block_match:
             return code_block_match.group(1).strip()
 
-        # Try to find raw JSON object or array
+        # Try to find a balanced JSON object by tracking braces
+        # This handles cases where LLM outputs multiple JSON objects
+        start = text.find('{')
+        if start == -1:
+            start = text.find('[')
+            if start == -1:
+                return None
+            open_char, close_char = '[', ']'
+        else:
+            array_start = text.find('[')
+            if array_start != -1 and array_start < start:
+                start = array_start
+                open_char, close_char = '[', ']'
+            else:
+                open_char, close_char = '{', '}'
+
+        # Track brace depth to find matching close
+        depth = 0
+        in_string = False
+        escape_next = False
+        for i, c in enumerate(text[start:], start):
+            if escape_next:
+                escape_next = False
+                continue
+            if c == '\\':
+                escape_next = True
+                continue
+            if c == '"' and not escape_next:
+                in_string = not in_string
+                continue
+            if in_string:
+                continue
+            if c == open_char:
+                depth += 1
+            elif c == close_char:
+                depth -= 1
+                if depth == 0:
+                    return text[start:i+1]
+
+        # Fallback to greedy match if balanced extraction fails
         json_match = re.search(r'(\{[\s\S]*\}|\[[\s\S]*\])', text)
         if json_match:
             return json_match.group(1).strip()

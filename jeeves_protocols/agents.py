@@ -155,6 +155,8 @@ class UnifiedAgent:
         prompt_key = self.config.prompt_key or f"{envelope.metadata.get('pipeline', 'default')}.{self.name}"
 
         # Build context dict from envelope for prompt template interpolation
+        import os
+        repo_path = os.environ.get("REPO_PATH", "/workspace")
         context = {
             "raw_input": envelope.raw_input,
             "user_input": envelope.raw_input,  # Alias for compatibility
@@ -167,6 +169,7 @@ class UnifiedAgent:
             "detected_languages": "[]",
             "capabilities_summary": "Code search, file reading, symbol lookup, dependency analysis",
             "user_query": envelope.raw_input,
+            "repo_path": repo_path,
             "session_state": f"Session: {envelope.session_id}",
             # Provide safe defaults for common prompt placeholders
             "intent": "",
@@ -209,6 +212,12 @@ class UnifiedAgent:
                 # Extract goals (list or string representation)
                 goals = intent_output.get("goals", [])
                 context["goals"] = str(goals) if isinstance(goals, list) else goals
+                # Extract search targets (Amendment XXII v2 - Two-Tool Architecture)
+                search_targets = intent_output.get("search_targets", [])
+                if search_targets:
+                    context["search_targets"] = ", ".join(f'"{t}"' for t in search_targets)
+                else:
+                    context["search_targets"] = "none extracted - use keywords from query"
 
         if "plan" in envelope.outputs:
             plan_output = envelope.outputs["plan"]
@@ -244,11 +253,15 @@ class UnifiedAgent:
         response = await self.llm.generate(model="", prompt=prompt, options=options)
         envelope.llm_call_count += 1
 
-        try:
-            import json
-            return json.loads(response)
-        except (json.JSONDecodeError, TypeError):
-            return {"response": response}
+        # Use JSONRepairKit for robust parsing of LLM output
+        # Handles: code fences, text + embedded JSON, trailing commas, single quotes, etc.
+        # This ensures P1 (Accuracy First) by properly extracting structured output
+        from jeeves_protocols.utils import JSONRepairKit
+
+        result = JSONRepairKit.parse_lenient(response)
+        if result is not None:
+            return result
+        return {"response": response}
 
     async def _execute_tools(self, envelope: GenericEnvelope, output: Dict[str, Any]) -> Dict[str, Any]:
         """Execute tool calls from LLM output."""

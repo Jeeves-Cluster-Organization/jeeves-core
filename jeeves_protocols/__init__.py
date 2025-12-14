@@ -107,6 +107,7 @@ from jeeves_protocols.protocols import (
     VectorStorageProtocol,
     LLMProviderProtocol,
     ToolProtocol,
+    ToolDefinitionProtocol,
     ToolRegistryProtocol,
     ToolExecutorProtocol,
     # App context protocols
@@ -287,6 +288,7 @@ __all__ = [
     "VectorStorageProtocol",
     "LLMProviderProtocol",
     "ToolProtocol",
+    "ToolDefinitionProtocol",
     "ToolRegistryProtocol",
     "ToolExecutorProtocol",
     "SettingsProtocol",

@@ -666,15 +666,16 @@ def _event_type_to_name(event_type: int, payload: dict = None) -> str:
     """
     Map gRPC event type enum to SSE event name.
 
-    If payload contains a specific 'event' field (e.g., "perception.started"),
+    If payload contains a specific 'event_type' field (e.g., "perception.started"),
     use that for more granular event names. Otherwise, use the generic mapping.
     """
     if jeeves_pb2 is None:
         return "unknown"
 
     # Check if payload has a more specific event name
-    if payload and "event" in payload:
-        return payload["event"]
+    # Key is "event_type" to match AgentEvent.to_dict() output
+    if payload and "event_type" in payload:
+        return payload["event_type"]
 
     mapping = {
         jeeves_pb2.FlowEvent.FLOW_STARTED: "flow_started",

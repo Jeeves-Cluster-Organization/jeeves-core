@@ -92,12 +92,24 @@ class AgentEventContext:
             agent_name: Name of the agent (e.g., "planner", "critic")
             **payload: Additional payload data
         """
+        # Diagnostic: log whether emitter exists
+        has_emitter = self.agent_event_emitter is not None
+        self._logger.debug(
+            "emit_agent_started_check",
+            agent_name=agent_name,
+            has_agent_event_emitter=has_emitter,
+        )
+
         if self.agent_event_emitter:
             await self.agent_event_emitter.emit_agent_started(
                 agent_name=agent_name,
                 session_id=self.session_id,
                 request_id=self.request_id,
                 **payload,
+            )
+            self._logger.debug(
+                "emit_agent_started_queued",
+                agent_name=agent_name,
             )
 
         self._logger.debug(

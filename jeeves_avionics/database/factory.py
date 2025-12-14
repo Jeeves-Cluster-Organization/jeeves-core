@@ -3,6 +3,7 @@
 Constitutional Reference:
 - Avionics R4: Swappable Implementations
 - Avionics R6: Database Backend Registry
+- Avionics R2: Configuration Over Code
 - PostgreSQL Decoupling Audit (Option B)
 
 Ownership Model:
@@ -13,10 +14,15 @@ Ownership Model:
 This ensures clean separation and no event loop issues.
 """
 
+from pathlib import Path
 from typing import Optional, TYPE_CHECKING
 from jeeves_avionics.logging import get_current_logger
 from jeeves_protocols import LoggerProtocol, DatabaseClientProtocol
 from jeeves_avionics.database.registry import create_database_client as _create_client
+
+# Core infrastructure schema path - resolved relative to this module
+# This ensures portability regardless of working directory (R2: Configuration Over Code)
+_CORE_SCHEMAS_DIR = Path(__file__).parent / "schemas"
 
 if TYPE_CHECKING:
     from jeeves_avionics.settings import Settings
@@ -79,8 +85,11 @@ async def _maybe_init_schema(client: DatabaseClientProtocol, logger: LoggerProto
         )
         if result and result.get('count', 0) == 0:
             logger.info("initializing_database_schema")
-            # Initialize core schema (infrastructure owns this)
-            await client.initialize_schema("database/schemas/001_postgres_schema.sql")
+            # Initialize core infrastructure schemas (sorted by filename for ordering)
+            # Uses Path-relative resolution for portability (R2: Configuration Over Code)
+            for schema_file in sorted(_CORE_SCHEMAS_DIR.glob("*.sql")):
+                logger.info("initializing_core_schema", schema_path=schema_file.name)
+                await client.initialize_schema(str(schema_file))
 
             # Initialize capability schemas from registry
             registry = get_capability_resource_registry()
@@ -94,7 +103,10 @@ async def _maybe_init_schema(client: DatabaseClientProtocol, logger: LoggerProto
             error_type=type(e).__name__,
         )
         # If check fails, try initializing anyway
-        await client.initialize_schema("database/schemas/001_postgres_schema.sql")
+        # Uses Path-relative resolution for portability (R2: Configuration Over Code)
+        for schema_file in sorted(_CORE_SCHEMAS_DIR.glob("*.sql")):
+            logger.info("initializing_core_schema_fallback", schema_path=schema_file.name)
+            await client.initialize_schema(str(schema_file))
 
         # Initialize capability schemas from registry
         registry = get_capability_resource_registry()

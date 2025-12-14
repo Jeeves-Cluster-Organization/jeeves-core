@@ -69,10 +69,15 @@ class AgentEvent:
     payload: Dict[str, Any] = field(default_factory=dict)
 
     def to_dict(self) -> Dict[str, Any]:
-        """Convert to dictionary for serialization."""
+        """Convert to dictionary for serialization.
+
+        Key names match what gateway/routers/chat.py expects:
+        - event_type: The event type string (e.g., "perception.started")
+        - agent_name: The agent that emitted the event
+        """
         return {
-            "event": self.event_type.value,
-            "agent": self.agent_name,
+            "event_type": self.event_type.value,
+            "agent_name": self.agent_name,
             "session_id": self.session_id,
             "request_id": self.request_id,
             "timestamp_ms": self.timestamp_ms,
@@ -124,6 +129,15 @@ class AgentEventEmitter:
         """
         if not self._closed:
             await self._queue.put(event)
+            # Diagnostic: log queue state after emit
+            from jeeves_avionics.logging import get_current_logger
+            logger = get_current_logger()
+            logger.debug(
+                "agent_event_emitter_queued",
+                event_type=event.event_type.value,
+                agent_name=event.agent_name,
+                queue_size=self._queue.qsize(),
+            )
 
     async def emit_agent_started(
         self,

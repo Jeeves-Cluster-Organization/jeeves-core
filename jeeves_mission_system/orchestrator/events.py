@@ -421,9 +421,20 @@ class EventOrchestrator:
             AgentEvent instances as they are emitted
         """
         self._ensure_initialized()
+        self._logger.debug(
+            "orchestrator_events_started",
+            has_agent_emitter=self._agent_emitter is not None,
+        )
         if self._agent_emitter:
             async for event in self._agent_emitter.events():
+                self._logger.debug(
+                    "orchestrator_event_yielded",
+                    event_type=event.event_type.value,
+                    agent_name=event.agent_name,
+                )
                 yield event
+        else:
+            self._logger.warning("orchestrator_no_agent_emitter")
 
     def get_event_nowait(self) -> Optional[AgentEvent]:
         """Get an event without waiting (for polling consumers)."""
