@@ -17,7 +17,7 @@ LLM provider abstraction layer supporting multiple backends: OpenAI, Anthropic, 
 | `__init__.py` | Package exports |
 | `factory.py` | `create_llm_provider()` factory for provider instantiation |
 | `gateway.py` | LLM Gateway for centralized API management |
-| `provider.py` | Base `LLMProvider` class and common utilities |
+| `providers/base.py` | Base `LLMProvider` class and common utilities |
 | `cost_calculator.py` | Token cost calculation utilities |
 | `providers/` | Provider implementations (subdirectory) |
 
@@ -69,4 +69,4 @@ class LLMProviderProtocol(Protocol):
 
 ---
 
-*Last updated: 2025-12-08*
+*Last updated: 2025-12-14*

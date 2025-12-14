@@ -1,7 +1,7 @@
 # Jeeves Mission System - Application Layer Index
 
 **Parent:** [Repository Root](../INDEX.md)
-**Updated:** 2025-12-13
+**Updated:** 2025-12-14
 
 ---
 
@@ -135,7 +135,7 @@ See [Dockerfile](../Dockerfile) and [docker-compose.yml](../docker-compose.yml) 
 - [jeeves_shared/](../jeeves_shared/) - Shared utilities (logging, serialization, UUID)
 - [jeeves_avionics/](../jeeves_avionics/) - Infrastructure layer
 - [jeeves_control_tower/](../jeeves_control_tower/) - Control Tower (kernel layer)
-- [app_bootstrap.py](../app_bootstrap.py) - Application bootstrap
+- [bootstrap.py](bootstrap.py) - Application bootstrap
 
 ---
 
