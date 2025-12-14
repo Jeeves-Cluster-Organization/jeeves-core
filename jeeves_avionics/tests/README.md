@@ -495,7 +495,7 @@ async def test_feature_with_database(pg_test_db):
 
 ---
 
-**Last Updated**: 2025-12-06
+**Last Updated**: 2025-12-14
 **Test Files**: 13
 **Fast Tests**: 33 (no external deps)
 **Integration Tests**: Requires Docker

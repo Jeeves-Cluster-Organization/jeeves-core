@@ -1,7 +1,7 @@
 # Jeeves Infrastructure Index
 
 **Parent:** [Repository Root](../INDEX.md)
-**Updated:** 2025-12-13
+**Updated:** 2025-12-14
 
 ---
 
@@ -237,4 +237,4 @@ bounds = get_context_bounds()
 - [jeeves_protocols/](../jeeves_protocols/) - Python protocols package
 - [jeeves_shared/](../jeeves_shared/) - Shared utilities (logging, serialization, UUID)
 - [jeeves_control_tower/](../jeeves_control_tower/) - Control Tower (kernel layer)
-- [app_bootstrap.py](../app_bootstrap.py) - Bootstrap using infrastructure
+- [bootstrap.py](../jeeves_mission_system/bootstrap.py) - Bootstrap using infrastructure

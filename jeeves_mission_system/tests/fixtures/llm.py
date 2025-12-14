@@ -52,11 +52,11 @@ def llm_provider():
             response = await llm_provider.generate(...)
             assert response is not None
     """
-    from config import settings as settings_module
+    from jeeves_avionics.settings import get_settings
     from jeeves_avionics.llm.factory import create_llm_provider
 
     provider_type = get_llm_provider_type()
-    provider = create_llm_provider(provider_type, settings_module.settings)
+    provider = create_llm_provider(provider_type, get_settings())
 
     if provider is None:
         pytest.fail(
