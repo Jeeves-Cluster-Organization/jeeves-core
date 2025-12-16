@@ -77,9 +77,6 @@ class CommBusCoordinator(CommBusCoordinatorProtocol):
         # Dispatch handlers (for local services)
         self._handlers: Dict[str, DispatchHandler] = {}
 
-        # Event subscribers
-        self._subscribers: Dict[str, List[Callable]] = {}
-
         # Lock for thread safety
         self._lock = threading.RLock()
 
@@ -284,28 +281,11 @@ class CommBusCoordinator(CommBusCoordinatorProtocol):
         event_type: str,
         payload: Dict[str, Any],
     ) -> None:
-        """Broadcast an event to all subscribers."""
-        subscribers = self._subscribers.get(event_type, [])
-
+        """Broadcast an event via CommBus adapter."""
         self._logger.debug(
             "broadcast_event",
             event_type=event_type,
-            subscriber_count=len(subscribers),
         )
-
-        # Call local subscribers
-        for handler in subscribers:
-            try:
-                if asyncio.iscoroutinefunction(handler):
-                    await handler(payload)
-                else:
-                    handler(payload)
-            except Exception as e:
-                self._logger.error(
-                    "broadcast_handler_error",
-                    event_type=event_type,
-                    error=str(e),
-                )
 
         # Forward to CommBus adapter if available
         if self._commbus_adapter:
@@ -348,80 +328,3 @@ class CommBusCoordinator(CommBusCoordinatorProtocol):
                 return {"error": str(e)}
 
         return {"error": "No CommBus adapter configured"}
-
-    # =========================================================================
-    # Event subscription methods
-    # =========================================================================
-
-    def subscribe(
-        self,
-        event_type: str,
-        handler: Callable[[Dict[str, Any]], None],
-    ) -> None:
-        """Subscribe to events."""
-        with self._lock:
-            if event_type not in self._subscribers:
-                self._subscribers[event_type] = []
-            self._subscribers[event_type].append(handler)
-
-    def unsubscribe(
-        self,
-        event_type: str,
-        handler: Callable[[Dict[str, Any]], None],
-    ) -> None:
-        """Unsubscribe from events."""
-        with self._lock:
-            if event_type in self._subscribers:
-                try:
-                    self._subscribers[event_type].remove(handler)
-                except ValueError:
-                    pass
-
-    # =========================================================================
-    # Service health management
-    # =========================================================================
-
-    def mark_service_healthy(self, service_name: str) -> bool:
-        """Mark a service as healthy."""
-        with self._lock:
-            service = self._services.get(service_name)
-            if not service:
-                return False
-            service.healthy = True
-            return True
-
-    def mark_service_unhealthy(self, service_name: str) -> bool:
-        """Mark a service as unhealthy."""
-        with self._lock:
-            service = self._services.get(service_name)
-            if not service:
-                return False
-            service.healthy = False
-            return True
-
-    def get_service_load(self, service_name: str) -> Optional[int]:
-        """Get current load for a service."""
-        with self._lock:
-            service = self._services.get(service_name)
-            if not service:
-                return None
-            return service.current_load
-
-    def get_least_loaded_service(self, service_type: str) -> Optional[str]:
-        """Get the least loaded service of a given type.
-
-        Useful for load balancing across multiple instances.
-        """
-        with self._lock:
-            candidates = [
-                svc for svc in self._services.values()
-                if svc.service_type == service_type
-                and svc.healthy
-                and svc.current_load < svc.max_concurrent
-            ]
-
-            if not candidates:
-                return None
-
-            # Return service with lowest load
-            return min(candidates, key=lambda s: s.current_load).name
