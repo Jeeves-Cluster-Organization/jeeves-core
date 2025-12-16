@@ -468,8 +468,7 @@ class ControlTower(ControlTowerProtocol):
         # Clear the kernel-level interrupt
         self._events.clear_interrupt(pid)
 
-        # Transition back to READY
-        pcb.state = ProcessState.WAITING
+        # Transition back to READY (PCB should already be in WAITING state)
         self._lifecycle.transition_state(pid, ProcessState.READY)
 
         self._events.emit_event(
