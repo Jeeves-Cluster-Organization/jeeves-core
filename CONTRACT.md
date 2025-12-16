@@ -1,9 +1,14 @@
 # Jeeves Core Runtime Contract
 
-**Version:** 1.0
-**Last Updated:** 2025-12-13
+**Version:** 1.2
+**Last Updated:** 2025-12-16
 
 This document serves as the **Source of Truth** for capabilities built on top of `jeeves-core`. Capabilities should reference this contract rather than inspecting core internals.
+
+> **Related Documents:**
+> - [docs/CONTRACTS.md](docs/CONTRACTS.md) - Internal core architectural contracts
+> - [docs/CAPABILITY_LAYER_INTEGRATION.md](docs/CAPABILITY_LAYER_INTEGRATION.md) - Detailed integration guide
+> - [docs/CODEBASE_AUDIT_REPORT.md](docs/CODEBASE_AUDIT_REPORT.md) - Current audit status
 
 ---
 
@@ -143,7 +148,9 @@ from jeeves_mission_system.contracts import (
 from jeeves_mission_system.adapters import (
     get_logger, get_settings, get_feature_flags,
     MissionSystemAdapters,
-    create_database_client, create_llm_provider_factory,
+    create_database_client,
+    create_event_emitter, create_embedding_service,
+    create_nli_service, create_vector_adapter,
 )
 
 from jeeves_mission_system.config import (
@@ -770,9 +777,10 @@ COPY jeeves-core/jeeves_mission_system/ ./jeeves_mission_system/
 
 | Version | Date | Changes |
 |---------|------|---------|
+| 1.2 | 2025-12-16 | Updated adapters exports (removed deprecated factory), added doc references |
 | 1.1 | 2025-12-13 | Added Docker configuration section |
 | 1.0 | 2025-12-13 | Initial contract document |
 
 ---
 
-*This contract is the authoritative source for capability integration. For implementation details, see [docs/CAPABILITY_LAYER_INTEGRATION.md](docs/CAPABILITY_LAYER_INTEGRATION.md).*
+*This contract is the authoritative source for capability integration. For implementation details, see [docs/CAPABILITY_LAYER_INTEGRATION.md](docs/CAPABILITY_LAYER_INTEGRATION.md). For internal core contracts, see [docs/CONTRACTS.md](docs/CONTRACTS.md).*
