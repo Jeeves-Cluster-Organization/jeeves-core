@@ -1,8 +1,8 @@
 # Jeeves Control Tower Constitution
 
-**Version:** 1.1
-**Updated:** 2025-12-13
-**Parent:** [Core Constitution](../docs/CONSTITUTION.md)
+**Version:** 1.2
+**Updated:** 2025-12-16
+**Parent:** [Architectural Contracts](../docs/CONTRACTS.md)
 
 ---
 
@@ -41,14 +41,14 @@ This constitution defines the rules for **jeeves_control_tower**—the kernel la
 
 ---
 
-## Core Principles (Inherited from Core Constitution)
+## Core Principles (From Architectural Contracts)
 
-From [Core Constitution](../JEEVES_CORE_CONSTITUTION.md):
-- **P1: Accuracy First** — Evidence-based responses
-- **P2: Code Context Priority** — Understand before acting
-- **P3: Bounded Efficiency** — Graceful degradation
+From [Architectural Contracts](../docs/CONTRACTS.md):
+- **Protocol-Based State Management** — All state transitions through manager protocols
+- **Context-Aware Global State** — Use contextvars for async-safe state
+- **Dependency Injection via Adapters** — Access services through adapters
 
-**All core principles apply to this component.**
+**All architectural contracts apply to this component.**
 
 ---
 
@@ -334,12 +334,12 @@ subscription_id = await kernel.event_aggregator.subscribe(
 
 ## Cross-References
 
-- **Core Constitution:** [../docs/CONSTITUTION.md](../docs/CONSTITUTION.md)
+- **Architectural Contracts:** [../docs/CONTRACTS.md](../docs/CONTRACTS.md)
+- **Capability Contract:** [../CONTRACT.md](../CONTRACT.md) (for external capabilities)
 - **Protocols:** [../jeeves_protocols/](../jeeves_protocols/)
 - **Shared Utilities:** [../jeeves_shared/](../jeeves_shared/)
 - **Mission System:** [../jeeves_mission_system/CONSTITUTION.md](../jeeves_mission_system/CONSTITUTION.md)
 - **Avionics:** [../jeeves_avionics/CONSTITUTION.md](../jeeves_avionics/CONSTITUTION.md)
-- **Capability Contract:** [../CONTRACT.md](../CONTRACT.md) (for external capabilities)
 
 ---
 

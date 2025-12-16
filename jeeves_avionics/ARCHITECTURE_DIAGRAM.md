@@ -1,8 +1,8 @@
 # Jeeves Avionics Architecture Diagram
 
 **Companion to:** [CONSTITUTION.md](CONSTITUTION.md)
-**Version:** 2.0
-**Last Updated:** 2025-12-06
+**Version:** 2.1
+**Last Updated:** 2025-12-16
 
 ---
 
@@ -81,7 +81,7 @@ jeeves_avionics/
 
 ```
 ┌───────────────────────────────────────────────────────────────┐
-│  LLMProtocol (from jeeves_core_engine)                        │
+│  LLMProtocol (from jeeves_protocols)                          │
 │  • generate(prompt: str) -> str                               │
 │  • generate_structured(prompt: str, schema: dict) -> dict     │
 │  • health_check() -> bool                                     │
