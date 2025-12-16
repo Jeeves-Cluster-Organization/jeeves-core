@@ -2,8 +2,9 @@
 
 This module provides adapters to bridge Python CommBusCoordinator
 with external message buses (Go CommBus, HTTP endpoints, etc.).
+
+Note: Adapters are implemented as needed. Currently empty after
+removing unused HttpCommBusAdapter stub.
 """
 
-from jeeves_control_tower.ipc.adapters.http_adapter import HttpCommBusAdapter
-
-__all__ = ["HttpCommBusAdapter"]
+__all__: list[str] = []

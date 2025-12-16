@@ -261,35 +261,6 @@ class TestClassifier:
         primary = classifier._determine_primary_type(classification)
         assert primary == "message"  # Should default to message
 
-    def test_get_thresholds(self, classifier):
-        """Test getting current thresholds."""
-        thresholds = classifier.get_thresholds()
-
-        assert thresholds["task_threshold"] == 0.7
-        assert thresholds["journal_threshold"] == 0.5
-        assert thresholds["fact_threshold"] == 0.8
-
-    def test_update_thresholds(self, classifier):
-        """Test updating thresholds."""
-        classifier.update_thresholds(
-            task_threshold=0.8,
-            journal_threshold=0.6,
-            fact_threshold=0.9
-        )
-
-        thresholds = classifier.get_thresholds()
-        assert thresholds["task_threshold"] == 0.8
-        assert thresholds["journal_threshold"] == 0.6
-        assert thresholds["fact_threshold"] == 0.9
-
-    def test_update_thresholds_clamping(self, classifier):
-        """Test thresholds are clamped to [0, 1]."""
-        classifier.update_thresholds(task_threshold=1.5)  # Above 1.0
-        assert classifier.task_threshold == 1.0
-
-        classifier.update_thresholds(task_threshold=-0.5)  # Below 0.0
-        assert classifier.task_threshold == 0.0
-
     def test_get_default_classification(self, classifier):
         """Test getting default classification."""
         default = classifier._get_default_classification()

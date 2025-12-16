@@ -34,7 +34,7 @@ from jeeves_avionics.logging import get_current_logger
 from jeeves_protocols import LoggerProtocol
 
 if TYPE_CHECKING:
-    from orchestrator.agent_events import AgentEventEmitter
+    from jeeves_mission_system.orchestrator.agent_events import AgentEventEmitter
     from jeeves_memory_module.services.event_emitter import EventEmitter
 
 
@@ -530,7 +530,7 @@ class AgentEventContext:
     async def emit_flow_started(self) -> None:
         """Emit flow started event."""
         if self.agent_event_emitter:
-            from orchestrator.agent_events import AgentEvent, AgentEventType
+            from jeeves_mission_system.orchestrator.agent_events import AgentEvent, AgentEventType
 
             event = AgentEvent(
                 event_type=AgentEventType.FLOW_STARTED,
@@ -543,7 +543,7 @@ class AgentEventContext:
     async def emit_flow_completed(self, status: str = "success") -> None:
         """Emit flow completed event."""
         if self.agent_event_emitter:
-            from orchestrator.agent_events import AgentEvent, AgentEventType
+            from jeeves_mission_system.orchestrator.agent_events import AgentEvent, AgentEventType
 
             event = AgentEvent(
                 event_type=AgentEventType.FLOW_COMPLETED,
@@ -557,7 +557,7 @@ class AgentEventContext:
     async def emit_flow_error(self, error: str) -> None:
         """Emit flow error event."""
         if self.agent_event_emitter:
-            from orchestrator.agent_events import AgentEvent, AgentEventType
+            from jeeves_mission_system.orchestrator.agent_events import AgentEvent, AgentEventType
 
             event = AgentEvent(
                 event_type=AgentEventType.FLOW_ERROR,
@@ -615,7 +615,7 @@ class AgentEventContext:
             truncated_reasoning += "..."
 
         if self.agent_event_emitter:
-            from orchestrator.agent_events import AgentEvent, AgentEventType
+            from jeeves_mission_system.orchestrator.agent_events import AgentEvent, AgentEventType
 
             # Use AGENT_COMPLETED with special payload for reasoning
             # (avoids adding new event type to core)

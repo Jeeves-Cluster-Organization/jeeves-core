@@ -25,6 +25,7 @@ from __future__ import annotations
 
 import time
 from contextlib import contextmanager
+from contextvars import ContextVar
 from dataclasses import dataclass, field
 from typing import Any, Dict, Optional, TYPE_CHECKING
 from uuid import uuid4
@@ -52,9 +53,31 @@ from jeeves_shared.logging import (
 if TYPE_CHECKING:
     from jeeves_avionics.feature_flags import FeatureFlags
 
-# Module state for OTEL
-_OTEL_ENABLED = False
-_ACTIVE_SPANS: Dict[str, "Span"] = {}
+# Context-aware state for OTEL (thread-safe via contextvars)
+# ContextVars provide proper isolation across async tasks and threads
+_otel_enabled: ContextVar[bool] = ContextVar("otel_enabled", default=False)
+_active_spans: ContextVar[Dict[str, "Span"]] = ContextVar("active_spans")
+
+
+def _get_otel_enabled() -> bool:
+    """Get OTEL enabled state from context."""
+    return _otel_enabled.get()
+
+
+def _set_otel_enabled(value: bool) -> None:
+    """Set OTEL enabled state in context."""
+    _otel_enabled.set(value)
+
+
+def _get_active_spans() -> Dict[str, "Span"]:
+    """Get active spans dict from context, creating if needed."""
+    try:
+        return _active_spans.get()
+    except LookupError:
+        # Initialize empty dict for this context
+        spans: Dict[str, "Span"] = {}
+        _active_spans.set(spans)
+        return spans
 
 
 # =============================================================================
@@ -173,7 +196,7 @@ class JeevesLogger(_BaseJeevesLogger):
     def _log_with_span(self, level: str, msg: str, **kwargs: Any) -> None:
         """Internal logging with span enrichment."""
         # Add span context if active
-        if self._span and _OTEL_ENABLED:
+        if self._span and _get_otel_enabled():
             kwargs["trace_id"] = self._span.trace_id
             kwargs["span_id"] = self._span.span_id
             if self._span.parent_span_id:
@@ -204,8 +227,7 @@ def configure_logging(
         enable_otel: If True, enable OTEL span tracking
         component_levels: Override levels for specific components
     """
-    global _OTEL_ENABLED
-    _OTEL_ENABLED = enable_otel
+    _set_otel_enabled(enable_otel)
 
     # Delegate to base configuration
     _base_configure_logging(
@@ -275,8 +297,9 @@ def trace_agent(
     )
     span.set_attribute("agent.name", agent_name)
 
-    # Register span
-    _ACTIVE_SPANS[span.span_id] = span
+    # Register span in context-local storage
+    active_spans = _get_active_spans()
+    active_spans[span.span_id] = span
 
     # Create logger with span context
     logger = JeevesLogger(
@@ -294,13 +317,13 @@ def trace_agent(
         raise
     finally:
         # Emit span completion log
-        if _OTEL_ENABLED:
+        if _get_otel_enabled():
             structlog.get_logger().info(
                 "span_completed",
                 **span.to_dict(),
             )
-        # Unregister span
-        _ACTIVE_SPANS.pop(span.span_id, None)
+        # Unregister span from context-local storage
+        _get_active_spans().pop(span.span_id, None)
 
 
 @contextmanager
@@ -330,7 +353,9 @@ def trace_tool(
     if caller_agent:
         span.set_attribute("caller_agent", caller_agent)
 
-    _ACTIVE_SPANS[span.span_id] = span
+    # Register span in context-local storage
+    active_spans = _get_active_spans()
+    active_spans[span.span_id] = span
 
     logger = JeevesLogger(
         context={"tool": tool_name, "envelope_id": envelope_id},
@@ -345,14 +370,15 @@ def trace_tool(
         span.end("ERROR")
         raise
     finally:
-        if _OTEL_ENABLED:
+        if _get_otel_enabled():
             structlog.get_logger().info("span_completed", **span.to_dict())
-        _ACTIVE_SPANS.pop(span.span_id, None)
+        # Unregister span from context-local storage
+        _get_active_spans().pop(span.span_id, None)
 
 
 def get_current_span(span_id: str) -> Optional[Span]:
     """Get an active span by ID."""
-    return _ACTIVE_SPANS.get(span_id)
+    return _get_active_spans().get(span_id)
 
 
 # =============================================================================

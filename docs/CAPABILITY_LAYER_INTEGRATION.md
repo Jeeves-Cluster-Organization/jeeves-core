@@ -120,7 +120,6 @@ from jeeves_mission_system.adapters import (
 
     # Factory functions
     create_database_client,
-    create_llm_provider_factory,
     create_event_emitter,
     create_graph_repository,
     create_embedding_service,
@@ -419,5 +418,6 @@ structlog = ">=24.0"
 
 ## Revision History
 
+- **2025-12-16**: Removed deprecated `create_llm_provider_factory` from adapters exports
 - **2025-12-13**: Initial documentation created
 - **2025-12-13**: Fixed `jeeves_protocols/__init__.py` exports

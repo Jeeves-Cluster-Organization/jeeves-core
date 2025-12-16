@@ -231,27 +231,6 @@ def create_database_client(
     return _create_db(settings)
 
 
-def create_llm_provider_factory(
-    settings: Optional[SettingsProtocol] = None,
-) -> Callable[[str], LLMProviderProtocol]:
-    """
-    Create an LLM provider factory function.
-
-    Apps should use this instead of importing from jeeves_avionics directly.
-
-    Args:
-        settings: Optional settings (uses global if None)
-
-    Returns:
-        Factory function: (agent_role: str) -> LLMProviderProtocol
-
-    Constitutional compliance:
-        Apps access infrastructure via adapters, not direct avionics imports.
-    """
-    from jeeves_avionics.wiring import create_llm_provider_factory as _create_factory
-    return _create_factory(settings)
-
-
 def get_settings() -> SettingsProtocol:
     """
     Get application settings.
@@ -456,7 +435,6 @@ __all__ = [
     "get_logger",
     # Core factories
     "create_database_client",
-    "create_llm_provider_factory",
     "get_settings",
     "get_feature_flags",
     # Memory layer factories
