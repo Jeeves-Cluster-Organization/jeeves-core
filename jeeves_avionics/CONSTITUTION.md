@@ -1,12 +1,13 @@
 # Jeeves Avionics Constitution
 
-**Parent:** [Repository Root](../INDEX.md)
+**Parent:** [Architectural Contracts](../docs/CONTRACTS.md)
+**Updated:** 2025-12-16
 
 ---
 
 ## Overview
 
-This constitution extends the **Jeeves Core Engine Constitution** and defines the rules for **jeeves_avionics**—the infrastructure layer that provides implementations of core protocols and manages external system integrations.
+This constitution extends the **Jeeves Architectural Contracts** and defines the rules for **jeeves_avionics**—the infrastructure layer that provides implementations of core protocols and manages external system integrations.
 
 **Architecture:**
 - Provides `Settings` and `FeatureFlags` for infrastructure configuration
@@ -14,7 +15,7 @@ This constitution extends the **Jeeves Core Engine Constitution** and defines th
 - Per-agent LLM config centralized in `mission_system.config.agent_profiles`
 - Domain configs (language, tool access) owned by capability layer
 
-**Dependency:** This component depends on and extends the core engine. All core engine principles apply.
+**Dependency:** This component implements protocols from `jeeves_protocols`. All architectural contracts apply.
 
 ---
 
@@ -31,14 +32,15 @@ This constitution extends the **Jeeves Core Engine Constitution** and defines th
 
 ---
 
-## Core Principles (Inherited from Core Engine)
+## Core Principles (From Architectural Contracts)
 
-From Core Engine architectural principles:
-- **P1: Accuracy First** — Evidence-based responses
-- **P2: Code Context Priority** — Understand before acting
-- **P3: Bounded Efficiency** — Graceful degradation
+From [Architectural Contracts](../docs/CONTRACTS.md):
+- **Adapter Pattern** — Implement protocols, never modify them
+- **Configuration Over Code** — Infrastructure behavior is configurable
+- **Swappable Implementations** — Components can be replaced without affecting higher layers
+- **Defensive Error Handling** — Infrastructure failures must not crash the system
 
-**All core engine principles apply to this component.**
+**All architectural contracts apply to this component.**
 
 ---
 
@@ -490,4 +492,4 @@ dsn = f"postgresql://{user}@{host}/{db}"  # ✅ Password via environment
 
 ---
 
-*This constitution extends the Core Engine architecture principles and must not contradict its core principles.*
+*This constitution extends the [Architectural Contracts](../docs/CONTRACTS.md) and must not contradict its principles.*

@@ -1,7 +1,7 @@
 # Jeeves Mission System - Application Layer Index
 
-**Parent:** [Repository Root](../INDEX.md)
-**Updated:** 2025-12-14
+**Parent:** [Capability Contract](../CONTRACT.md)
+**Updated:** 2025-12-16
 
 ---
 

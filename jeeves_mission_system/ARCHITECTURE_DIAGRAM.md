@@ -1,8 +1,8 @@
 # Jeeves Mission System Architecture Diagram
 
 **Companion to:** [CONSTITUTION.md](CONSTITUTION.md)
-**Version:** 2.1
-**Last Updated:** 2025-12-06
+**Version:** 2.2
+**Last Updated:** 2025-12-16
 
 ---
 

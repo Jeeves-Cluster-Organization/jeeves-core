@@ -1,12 +1,13 @@
 # Jeeves Mission System Constitution
 
 **Parent:** [Avionics Constitution](../jeeves_avionics/CONSTITUTION.md)
+**Updated:** 2025-12-16
 
 ---
 
 ## Overview
 
-This constitution extends the **Jeeves Avionics Constitution** (which extends the Core Engine Constitution) and defines the rules for **jeeves_mission_system**—the framework layer that provides generic orchestration mechanisms for capabilities.
+This constitution extends the **Jeeves Avionics Constitution** (which extends the Architectural Contracts) and defines the rules for **jeeves_mission_system**—the framework layer that provides generic orchestration mechanisms for capabilities.
 
 **Architecture:**
 - Re-exports centralized types from `core_engine` via `contracts_core.py`
@@ -14,7 +15,7 @@ This constitution extends the **Jeeves Avionics Constitution** (which extends th
 - Capabilities OWN domain-specific configs (not mission_system)
 - No concrete agent classes - agents defined via `AgentConfig` in capability layer
 
-**Dependency:** This component depends on both avionics and core engine. All principles from the dependency chain apply.
+**Dependency:** This component depends on avionics and protocols. All principles from the architectural contracts apply.
 
 ---
 
@@ -38,12 +39,12 @@ This constitution extends the **Jeeves Avionics Constitution** (which extends th
 
 ## Core Principles (Inherited from Dependency Chain)
 
-From Core Engine principles (via [Avionics Constitution](../jeeves_avionics/CONSTITUTION.md)):
-- **P1: Accuracy First** — Never hallucinate code; every claim requires `[file:line]` citation
-- **P2: Code Context Priority** — Read source before claiming
-- **P3: Bounded Efficiency** — Respect limits, degrade gracefully
+From [Avionics Constitution](../jeeves_avionics/CONSTITUTION.md) and [Architectural Contracts](../docs/CONTRACTS.md):
+- **Evidence Chain Integrity** — Every claim traces to source code with `[file:line]` citations
+- **Tool Boundary** — Capabilities define their own tools; runtime provides categories
+- **Bounded Retry** — Max retries per step with graceful degradation
 
-**All core engine and avionics principles apply to this component.**
+**All avionics and architectural contracts apply to this component.**
 
 ---
 
@@ -739,4 +740,4 @@ Each agent has **one job**:
 
 ---
 
-*This constitution extends the [Avionics Constitution](../jeeves_avionics/CONSTITUTION.md) and inherits all principles from the dependency chain (Core Engine → Avionics → Mission System).*
+*This constitution extends the [Avionics Constitution](../jeeves_avionics/CONSTITUTION.md) and inherits all principles from the dependency chain (Protocols → Avionics → Mission System).*
