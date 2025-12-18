@@ -261,16 +261,12 @@ fi
 
 # Check 11: Container runtime (optional)
 check_start "Container runtime"
-if command -v podman &> /dev/null; then
-  PODMAN_VER=$(podman --version | awk '{print $3}')
-  check_pass
-  verbose_log "Podman $PODMAN_VER"
-elif command -v docker &> /dev/null; then
+if command -v docker &> /dev/null; then
   DOCKER_VER=$(docker --version | awk '{print $3}' | tr -d ',')
   check_pass
   verbose_log "Docker $DOCKER_VER"
 else
-  check_warn "No container runtime found (optional)"
+  check_warn "Docker not found (optional for local dev)"
 fi
 
 # Check 12: Disk space

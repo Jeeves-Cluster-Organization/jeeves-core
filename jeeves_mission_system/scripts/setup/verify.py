@@ -128,7 +128,7 @@ async def test_postgres_connection():
         return True  # Not a failure, just not installed
     except Exception as e:
         print_test("PostgreSQL Connection", False, f"Error: {e}")
-        print_info("Make sure PostgreSQL is running: podman-compose up -d postgres")
+        print_info("Make sure PostgreSQL is running: docker compose up -d postgres")
         return False
 
 
@@ -187,7 +187,7 @@ async def main():
         print(f"{RED}✗ Some tests failed{NC}\n")
         print("Troubleshooting:")
         print("1. Install dependencies: pip install -r requirements.txt")
-        print("2. Start PostgreSQL: podman-compose up -d postgres")
+        print("2. Start PostgreSQL: docker compose up -d postgres")
         print("3. Initialize schema: python init_db.py --backend postgres")
         print("4. Check .env file for correct configuration")
         print("")

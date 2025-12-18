@@ -199,36 +199,25 @@ echo ""
 
 echo "Container Runtime:"
 
-CONTAINER_FOUND=false
-
-# Podman
-if command -v podman &> /dev/null; then
-  PODMAN_VER=$(podman --version | awk '{print $3}')
-  check_met "podman $PODMAN_VER"
-  CONTAINER_FOUND=true
-
-  # Check podman-compose
-  if command -v podman-compose &> /dev/null; then
-    PCOMP_VER=$(podman-compose --version | awk '{print $3}' || echo "unknown")
-    check_met "podman-compose $PCOMP_VER"
-  else
-    check_warning "podman-compose not found" "Useful for multi-container setups" \
-      "sudo dnf install -y podman-compose"
-  fi
-else
-  check_missing "podman not found" "Container runtime required" \
-    "sudo dnf install -y podman podman-compose"
-fi
-
-# Docker (alternative)
+# Docker
 if command -v docker &> /dev/null; then
   DOCKER_VER=$(docker --version | awk '{print $3}' | tr -d ',')
-  if [ "$CONTAINER_FOUND" = true ]; then
-    check_met "docker $DOCKER_VER (alternative to podman)"
+  check_met "docker $DOCKER_VER"
+
+  # Check docker compose
+  if docker compose version &> /dev/null 2>&1; then
+    COMPOSE_VER=$(docker compose version | awk '{print $4}' || echo "unknown")
+    check_met "docker compose $COMPOSE_VER"
+  elif command -v docker-compose &> /dev/null; then
+    COMPOSE_VER=$(docker-compose --version | awk '{print $3}' | tr -d ',' || echo "unknown")
+    check_met "docker-compose $COMPOSE_VER"
   else
-    check_met "docker $DOCKER_VER"
-    CONTAINER_FOUND=true
+    check_warning "docker compose not found" "Useful for multi-container setups" \
+      "Install Docker Compose plugin"
   fi
+else
+  check_missing "docker not found" "Container runtime required" \
+    "sudo dnf install -y docker docker-compose"
 fi
 
 echo ""
@@ -439,7 +428,7 @@ if [ "$SHOW_FIX" = true ] && [ ${#FIX_COMMANDS[@]} -gt 0 ]; then
   echo "  sudo dnf install -y \\"
   echo "    gcc gcc-c++ git make automake \\"
   echo "    python3.11 python3.11-devel python3.11-pip \\"
-  echo "    podman podman-compose \\"
+  echo "    docker docker-compose \\"
   echo "    sqlite sqlite-devel \\"
   echo "    curl wget jq bc"
   echo ""

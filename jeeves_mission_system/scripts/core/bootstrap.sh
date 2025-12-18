@@ -174,8 +174,8 @@ if [ "$SKIP_SYSTEM_PACKAGES" = false ]; then
 
   log_info "Installing container runtime..."
   sudo dnf install -y \
-    podman \
-    podman-compose
+    docker \
+    docker-compose
 
   log_info "Installing database and utilities..."
   sudo dnf install -y \

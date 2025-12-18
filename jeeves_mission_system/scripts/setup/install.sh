@@ -136,16 +136,12 @@ case "$OS_ID" in
       postgresql-client \
       jq
 
-    # Install podman for containers
-    if ! command -v podman &> /dev/null; then
-      log_info "Installing Podman..."
-      sudo apt-get install -y -qq podman
-    fi
-
-    # Install podman-compose if not present
-    if ! command -v podman-compose &> /dev/null; then
-      log_info "Installing podman-compose via pip..."
-      sudo pip3 install podman-compose
+    # Install Docker for containers
+    if ! command -v docker &> /dev/null; then
+      log_info "Installing Docker..."
+      sudo apt-get install -y -qq docker.io docker-compose
+      sudo usermod -aG docker "$USER"
+      log_warning "You may need to log out and back in for Docker group permissions"
     fi
     ;;
 
@@ -161,8 +157,11 @@ case "$OS_ID" in
       wget \
       postgresql \
       jq \
-      podman \
-      podman-compose
+      docker \
+      docker-compose
+    sudo systemctl enable --now docker
+    sudo usermod -aG docker "$USER"
+    log_warning "You may need to log out and back in for Docker group permissions"
     ;;
 
   *)
@@ -254,19 +253,19 @@ POSTGRES_DATABASE=${POSTGRES_DATABASE:-assistant}
 
 # Start PostgreSQL container
 CONTAINER_ALREADY_RUNNING=false
-if podman ps --format "{{.Names}}" | grep -q "assistant-postgres"; then
+if docker ps --format "{{.Names}}" | grep -q "assistant-postgres"; then
   log_info "PostgreSQL container already running"
   CONTAINER_ALREADY_RUNNING=true
 else
   log_info "Starting PostgreSQL container with pgvector..."
-  podman-compose -f podman-compose.yml up -d postgres
+  docker compose -f docker-compose.yml up -d postgres
 
   # Wait for PostgreSQL to be ready
   log_info "Waiting for PostgreSQL to be ready..."
   sleep 5
 
   for i in {1..30}; do
-    if podman exec assistant-postgres pg_isready -U assistant &> /dev/null; then
+    if docker exec assistant-postgres pg_isready -U assistant &> /dev/null; then
       log_success "PostgreSQL is ready"
       break
     fi
@@ -291,7 +290,7 @@ if [ "$CONTAINER_ALREADY_RUNNING" = true ]; then
 
     # Reset password using the container's postgres superuser
     # First, get current password from container environment
-    CONTAINER_PASSWORD=$(podman exec assistant-postgres printenv POSTGRES_PASSWORD 2>/dev/null || echo "")
+    CONTAINER_PASSWORD=$(docker exec assistant-postgres printenv POSTGRES_PASSWORD 2>/dev/null || echo "")
 
     if [ -n "$CONTAINER_PASSWORD" ]; then
       # Use container's password to connect and update
@@ -300,22 +299,22 @@ if [ "$CONTAINER_ALREADY_RUNNING" = true ]; then
       else
         # Try using postgres superuser inside container
         log_info "Attempting password reset via container..."
-        if podman exec assistant-postgres psql -U "${POSTGRES_USER}" -d "${POSTGRES_DATABASE}" -c "ALTER USER ${POSTGRES_USER} WITH PASSWORD '${POSTGRES_PASSWORD}';" &> /dev/null; then
+        if docker exec assistant-postgres psql -U "${POSTGRES_USER}" -d "${POSTGRES_DATABASE}" -c "ALTER USER ${POSTGRES_USER} WITH PASSWORD '${POSTGRES_PASSWORD}';" &> /dev/null; then
           log_success "PostgreSQL password updated to match .env"
         else
           log_error "Failed to update PostgreSQL password"
-          log_info "Try recreating the container: podman-compose down -v && podman-compose up -d postgres"
+          log_info "Try recreating the container: docker compose down -v && docker compose up -d postgres"
           exit 1
         fi
       fi
     else
       # No container password found, try direct update via container
       log_info "Attempting password reset via container..."
-      if podman exec assistant-postgres psql -U "${POSTGRES_USER}" -d "${POSTGRES_DATABASE}" -c "ALTER USER ${POSTGRES_USER} WITH PASSWORD '${POSTGRES_PASSWORD}';" &> /dev/null; then
+      if docker exec assistant-postgres psql -U "${POSTGRES_USER}" -d "${POSTGRES_DATABASE}" -c "ALTER USER ${POSTGRES_USER} WITH PASSWORD '${POSTGRES_PASSWORD}';" &> /dev/null; then
         log_success "PostgreSQL password updated to match .env"
       else
         log_error "Failed to update PostgreSQL password"
-        log_info "Try recreating the container: podman-compose down -v && podman-compose up -d postgres"
+        log_info "Try recreating the container: docker compose down -v && docker compose up -d postgres"
         exit 1
       fi
     fi
