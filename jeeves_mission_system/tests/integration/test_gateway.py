@@ -1,7 +1,7 @@
 """
 Gateway Integration Tests.
 
-Tests the HTTP gateway endpoints that serve the frontend.
+Tests the HTTP gateway API endpoints.
 These tests require the gateway service to be running.
 
 Run with:
@@ -11,6 +11,7 @@ Or via the deployment script:
     python scripts/deployment/deploy.py --test-gateway
 
 Note: v3.0 Pivot - Removed Kanban, Journal, Open Loops API tests (features deleted)
+Note: UI/static file tests removed - frontend moved to capability layer
 """
 
 import os
@@ -99,23 +100,8 @@ class TestGatewayHealth:
         assert "chat" in data["api"]
 
 
-class TestGatewayUI:
-    """Test gateway UI endpoints."""
-
-    def test_chat_ui_page(self, gateway_client):
-        """Test that /chat serves the chat UI."""
-        response = gateway_client.get("/chat")
-        assert response.status_code == 200
-        assert "text/html" in response.headers["content-type"]
-        assert b"<html" in response.content.lower()
-
-    def test_governance_ui_page(self, gateway_client):
-        """Test that /governance serves the governance UI."""
-        response = gateway_client.get("/governance")
-        assert response.status_code == 200
-        assert "text/html" in response.headers["content-type"]
-
-    # Note: /kanban and /journal UI tests removed in v3.0 (features deleted)
+# Note: TestGatewayUI and TestStaticFiles removed - UI/static files moved to capability layer
+# jeeves-core provides API only; capabilities provide their own frontend
 
 
 class TestChatAPI:
@@ -208,21 +194,6 @@ class TestWebSocket:
         except Exception as e:
             # WebSocket may not be available in test environment
             pytest.skip(f"WebSocket connection failed: {e}")
-
-
-class TestStaticFiles:
-    """Test static file serving."""
-
-    def test_static_css_exists(self, gateway_client):
-        """Test that static CSS files are served."""
-        response = gateway_client.get("/static/css/shared.css")
-        # May return 404 if static not mounted, but endpoint should exist
-        assert response.status_code in (200, 404)
-
-    def test_static_js_exists(self, gateway_client):
-        """Test that static JS files are served."""
-        response = gateway_client.get("/static/js/shared.js")
-        assert response.status_code in (200, 404)
 
 
 class TestOpenAPISpec:
