@@ -188,3 +188,80 @@ class GenericEnvelope:
             "errors": self.errors,
             "metadata": self.metadata,
         }
+
+    def to_state_dict(self) -> Dict[str, Any]:
+        """Convert to dictionary with ALL fields for complete state serialization.
+
+        Similar to to_dict() but includes ALL fields for checkpoint adapters
+        and distributed task coordination. Datetime fields are serialized
+        with .isoformat() and processing_history items are fully serialized.
+
+        Returns:
+            Dictionary with complete envelope state.
+        """
+        # Serialize processing history records
+        serialized_history = []
+        for record in self.processing_history:
+            serialized_history.append({
+                "agent": record.agent,
+                "stage_order": record.stage_order,
+                "started_at": record.started_at.isoformat() if record.started_at else None,
+                "completed_at": record.completed_at.isoformat() if record.completed_at else None,
+                "duration_ms": record.duration_ms,
+                "status": record.status,
+                "error": record.error,
+                "llm_calls": record.llm_calls,
+            })
+
+        return {
+            # Identification
+            "envelope_id": self.envelope_id,
+            "request_id": self.request_id,
+            "user_id": self.user_id,
+            "session_id": self.session_id,
+            # Input
+            "raw_input": self.raw_input,
+            "received_at": self.received_at.isoformat() if self.received_at else None,
+            # Dynamic outputs
+            "outputs": self.outputs,
+            # Pipeline state
+            "current_stage": self.current_stage,
+            "stage_order": self.stage_order,
+            "iteration": self.iteration,
+            "max_iterations": self.max_iterations,
+            # Bounds
+            "llm_call_count": self.llm_call_count,
+            "max_llm_calls": self.max_llm_calls,
+            "agent_hop_count": self.agent_hop_count,
+            "max_agent_hops": self.max_agent_hops,
+            "terminal_reason": self.terminal_reason.value if self.terminal_reason else None,
+            # Control flow
+            "terminated": self.terminated,
+            "termination_reason": self.termination_reason,
+            # Unified interrupt fields
+            "interrupt_pending": self.interrupt_pending,
+            "interrupt": self.interrupt,
+            # DAG execution state
+            "active_stages": self.active_stages,
+            "completed_stage_set": self.completed_stage_set,
+            "failed_stages": self.failed_stages,
+            "dag_mode": self.dag_mode,
+            # Multi-stage
+            "completed_stages": self.completed_stages,
+            "current_stage_number": self.current_stage_number,
+            "max_stages": self.max_stages,
+            "all_goals": self.all_goals,
+            "remaining_goals": self.remaining_goals,
+            "goal_completion_status": self.goal_completion_status,
+            # Retry
+            "prior_plans": self.prior_plans,
+            "critic_feedback": self.critic_feedback,
+            # Audit
+            "processing_history": serialized_history,
+            "errors": self.errors,
+            # Timing
+            "created_at": self.created_at.isoformat() if self.created_at else None,
+            "completed_at": self.completed_at.isoformat() if self.completed_at else None,
+            # Metadata
+            "metadata": self.metadata,
+        }

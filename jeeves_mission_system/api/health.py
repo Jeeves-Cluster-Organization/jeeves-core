@@ -16,7 +16,7 @@ from typing import Any, Dict, Optional
 
 from jeeves_avionics.database.client import DatabaseClientProtocol
 from jeeves_protocols import HealthStatus
-from jeeves_mission_system.config.constants import PRODUCT_VERSION
+from jeeves_mission_system.config.constants import PLATFORM_VERSION
 
 
 class ComponentStatus(str, Enum):
@@ -45,7 +45,7 @@ class HealthCheckResult:
     timestamp: datetime
     uptime_seconds: float
     components: Dict[str, ComponentHealth]
-    version: str = PRODUCT_VERSION
+    version: str = PLATFORM_VERSION
 
 
 class HealthChecker:

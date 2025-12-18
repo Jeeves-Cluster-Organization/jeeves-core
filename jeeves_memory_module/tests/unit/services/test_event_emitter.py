@@ -2,10 +2,23 @@
 
 import pytest
 from datetime import datetime, timezone
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock
 
 from jeeves_memory_module.services.event_emitter import EventEmitter
 from jeeves_memory_module.repositories.event_repository import EventRepository, DomainEvent
+
+
+class MockFeatureFlags:
+    """Mock implementation of FeatureFlagsProtocol for testing."""
+
+    def __init__(self, enabled: bool = True):
+        self._enabled = enabled
+
+    def is_enabled(self, flag_name: str) -> bool:
+        """Return enabled state for memory_event_sourcing flag."""
+        if flag_name == "memory_event_sourcing":
+            return self._enabled
+        return False
 
 
 class TestEmitter:
@@ -20,25 +33,15 @@ class TestEmitter:
 
     @pytest.fixture
     def emitter_enabled(self, mock_repository):
-        """Create emitter with events enabled."""
-        with patch('jeeves_memory_module.services.event_emitter.get_feature_flags') as mock_flags:
-            flags = MagicMock()
-            flags.memory_event_sourcing_mode = "log_only"
-            mock_flags.return_value = flags
-            emitter = EventEmitter(mock_repository)
-            emitter._flags = flags
-            return emitter
+        """Create emitter with events enabled via constructor injection."""
+        mock_flags = MockFeatureFlags(enabled=True)
+        return EventEmitter(mock_repository, feature_flags=mock_flags)
 
     @pytest.fixture
     def emitter_disabled(self, mock_repository):
-        """Create emitter with events disabled."""
-        with patch('jeeves_memory_module.services.event_emitter.get_feature_flags') as mock_flags:
-            flags = MagicMock()
-            flags.memory_event_sourcing_mode = "disabled"
-            mock_flags.return_value = flags
-            emitter = EventEmitter(mock_repository)
-            emitter._flags = flags
-            return emitter
+        """Create emitter with events disabled via constructor injection."""
+        mock_flags = MockFeatureFlags(enabled=False)
+        return EventEmitter(mock_repository, feature_flags=mock_flags)
 
     @pytest.mark.asyncio
     async def test_emit_when_enabled(self, emitter_enabled, mock_repository):

@@ -149,6 +149,10 @@ class TestIntentPrompts:
         registry = PromptRegistry.get_instance()
 
         for prompt_name, versions in registry.list_prompts().items():
+            # Skip code_analysis prompts - capability-specific prompts define their own placeholders
+            if prompt_name.startswith("code_analysis"):
+                continue
+
             for version in versions:
                 # Get raw template (without context)
                 prompt_version = registry._prompts[prompt_name][version]

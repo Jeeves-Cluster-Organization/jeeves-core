@@ -18,7 +18,7 @@ from jeeves_mission_system.api.health import (
     HealthStatus,
     health_check_to_dict,
 )
-from jeeves_mission_system.config.constants import PRODUCT_VERSION
+from jeeves_mission_system.config.constants import PLATFORM_VERSION
 
 # Requires PostgreSQL database
 pytestmark = pytest.mark.requires_postgres
@@ -39,7 +39,7 @@ async def test_liveness_check(health_checker):
     assert result.uptime_seconds >= 0
     assert "api" in result.components
     assert result.components["api"].status == ComponentStatus.UP
-    assert result.version == PRODUCT_VERSION
+    assert result.version == PLATFORM_VERSION
 
 
 @pytest.mark.asyncio
@@ -217,7 +217,7 @@ def test_health_check_to_dict():
 
     assert data["status"] == "healthy"
     assert data["uptime_seconds"] == 123.45
-    assert data["version"] == PRODUCT_VERSION
+    assert data["version"] == PLATFORM_VERSION
     assert "database" in data["components"]
     assert data["components"]["database"]["status"] == "up"
     assert data["components"]["database"]["latency_ms"] == 5.2
