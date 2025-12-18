@@ -56,12 +56,12 @@ clean:
 
 ## docker-build: Build all Docker images (gateway + orchestrator)
 docker-build:
-	docker build -t assistant-gateway:latest -f docker/Dockerfile --target gateway .
-	docker build -t assistant-7agent:latest -f docker/Dockerfile --target orchestrator .
+	docker build -t jeeves-gateway:latest -f docker/Dockerfile --target gateway .
+	docker build -t jeeves-core:latest -f docker/Dockerfile --target orchestrator .
 
 ## docker-build-test: Build Docker test image
 docker-build-test:
-	docker build -t assistant-7agent:test -f docker/Dockerfile --target test .
+	docker build -t jeeves-core:test -f docker/Dockerfile --target test .
 
 ## docker-run: Run Docker containers (API + PostgreSQL + Ollama)
 docker-run:

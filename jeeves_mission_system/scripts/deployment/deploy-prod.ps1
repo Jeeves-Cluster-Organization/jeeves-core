@@ -103,7 +103,7 @@ if (-not $SkipValidation) {
 # -----------------------------------------------------------------------------
 Write-Step "Building production Docker images..."
 
-$imageName = "assistant-7agent"
+$imageName = "jeeves-core"
 $fullTag = "${imageName}:${Tag}"
 
 if ($DryRun) {

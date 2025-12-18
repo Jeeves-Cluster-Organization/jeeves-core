@@ -29,7 +29,7 @@ fi
 # Detect Docker
 detect_container_runtime || exit 1
 
-VOLUME_NAME="assistant-7agent_postgres-data"
+VOLUME_NAME="jeeves_postgres-data"
 
 echo ""
 print_warning "This script will:"

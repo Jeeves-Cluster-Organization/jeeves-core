@@ -1,0 +1,62 @@
+[Unit]
+Description=Jeeves Core API Service
+Documentation=https://github.com/Jeeves-Cluster-Organization/jeeves-core
+After=network-online.target ollama.service docker.service
+Wants=network-online.target
+Requires=ollama.service docker.service
+
+[Service]
+Type=notify
+NotifyAccess=all
+
+# User/Group (adjust as needed)
+User=%i
+Group=%i
+
+# Working directory
+WorkingDirectory=/opt/jeeves
+
+# Environment
+EnvironmentFile=-/opt/jeeves/.env
+Environment="PATH=/opt/jeeves/.venv/bin:/usr/local/bin:/usr/bin"
+
+# Docker container execution
+ExecStartPre=-/usr/bin/docker stop jeeves-api
+ExecStartPre=-/usr/bin/docker rm jeeves-api
+ExecStart=/usr/bin/docker run \
+    --name jeeves-api \
+    --rm \
+    --network jeeves-network \
+    --publish ${API_PORT:-8000}:8000 \
+    --publish ${METRICS_PORT:-9090}:9090 \
+    --volume %h/.local/share/jeeves/data:/app/data \
+    --env-file /opt/jeeves/.env \
+    jeeves-core:latest
+
+# Cleanup on stop
+ExecStop=/usr/bin/docker stop -t 10 jeeves-api
+
+# Restart policy
+Restart=on-failure
+RestartSec=10s
+TimeoutStartSec=0
+TimeoutStopSec=30
+
+# Resource limits
+MemoryLimit=2G
+CPUQuota=200%
+
+# Security hardening
+PrivateTmp=yes
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=yes
+ReadWritePaths=%h/.local/share/jeeves
+
+# Logging
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=jeeves
+
+[Install]
+WantedBy=multi-user.target default.target
