@@ -174,8 +174,8 @@ if [ "$SKIP_SYSTEM_PACKAGES" = false ]; then
 
   log_info "Installing container runtime..."
   sudo dnf install -y \
-    podman \
-    podman-compose
+    docker \
+    docker-compose
 
   log_info "Installing database and utilities..."
   sudo dnf install -y \
@@ -464,7 +464,7 @@ if [ "$ENABLE_SYSTEMD" = true ]; then
   step_header "Step 12: Installing Systemd Services"
 
   log_info "This will install systemd services for:"
-  log_info "  - assistant-7agent@${USER}.service"
+  log_info "  - jeeves@${USER}.service"
   log_info "  - ollama@${USER}.service"
   echo ""
   read -p "Continue? (y/N) " -n 1 -r
@@ -476,7 +476,7 @@ if [ "$ENABLE_SYSTEMD" = true ]; then
 
       log_info "To start services:"
       log_info "  sudo systemctl start ollama@${USER}.service"
-      log_info "  sudo systemctl start assistant-7agent@${USER}.service"
+      log_info "  sudo systemctl start jeeves@${USER}.service"
     else
       log_warning "install-systemd-services.sh not found"
     fi
@@ -533,8 +533,8 @@ if [ "$ENABLE_SYSTEMD" = true ]; then
   echo ""
   echo "5. Start systemd services:"
   echo "   sudo systemctl start ollama@${USER}.service"
-  echo "   sudo systemctl start assistant-7agent@${USER}.service"
-  echo "   sudo systemctl status assistant-7agent@${USER}.service"
+  echo "   sudo systemctl start jeeves@${USER}.service"
+  echo "   sudo systemctl status jeeves@${USER}.service"
 fi
 
 echo ""

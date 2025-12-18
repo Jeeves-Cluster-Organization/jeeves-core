@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Comprehensive system diagnostic script for the 7-agent assistant.
+Comprehensive system diagnostic script for Jeeves.
 
 This script consolidates and improves upon the functionality of:
 - diagnose_windows.py
@@ -159,7 +159,7 @@ def run_windows_diagnostics() -> bool:
         print("     Get-ChildItem -Path . -Recurse -Filter '__pycache__' | Remove-Item -Recurse -Force")
         print()
         print("  2. Verify you're in the project root:")
-        print("     Get-Location  # Should show: ...\\assistant-7agent-1")
+        print("     Get-Location  # Should show: ...\\jeeves-core")
         print()
         print("  3. Check for memory.py file conflicts:")
         print("     Get-ChildItem -Path . -Filter 'memory.py'")

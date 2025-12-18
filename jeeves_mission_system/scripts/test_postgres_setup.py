@@ -312,8 +312,8 @@ async def main():
     else:
         print("⚠️  Some tests failed. Check the output above for details.")
         print("\nTroubleshooting:")
-        print("1. Ensure PostgreSQL container is running: podman ps | grep postgres")
-        print("2. Check logs: podman logs assistant-postgres")
+        print("1. Ensure PostgreSQL container is running: docker ps | grep postgres")
+        print("2. Check logs: docker logs assistant-postgres")
         print("3. Verify .env settings: DATABASE_BACKEND=postgres")
         print("4. See docs/setup/POSTGRES_SETUP.md for setup instructions")
         return 1

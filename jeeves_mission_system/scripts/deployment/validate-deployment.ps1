@@ -148,7 +148,7 @@ try {
 
 if (-not $apiHealthy -and $apiError) {
     # Check if container is running
-    $containerStatus = docker ps --filter "name=assistant-7agent-api" --format "{{.Status}}" 2>&1
+    $containerStatus = docker ps --filter "name=jeeves-api" --format "{{.Status}}" 2>&1
     if ($containerStatus) {
         Write-Info "API container status: $containerStatus"
     } else {

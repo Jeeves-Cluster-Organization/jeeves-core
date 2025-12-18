@@ -680,9 +680,9 @@ The Dockerfile provides three targets:
 
 | Target | Image | Entry Point | Purpose |
 |--------|-------|-------------|---------|
-| `gateway` | `assistant-gateway:latest` | `jeeves_avionics.gateway.main:app` | HTTP gateway |
-| `orchestrator` | `assistant-7agent:latest` | `jeeves_mission_system.api.server:app` | Full runtime |
-| `test` | `assistant-7agent:test` | `pytest` | Test runner |
+| `gateway` | `jeeves-gateway:latest` | `jeeves_avionics.gateway.main:app` | HTTP gateway |
+| `orchestrator` | `jeeves-core:latest` | `jeeves_mission_system.api.server:app` | Full runtime |
+| `test` | `jeeves-core:test` | `pytest` | Test runner |
 
 ### Building Images
 
@@ -691,9 +691,9 @@ The Dockerfile provides three targets:
 make docker-build
 
 # Build specific targets
-docker build -t assistant-gateway:latest -f docker/Dockerfile --target gateway .
-docker build -t assistant-7agent:latest -f docker/Dockerfile --target orchestrator .
-docker build -t assistant-7agent:test -f docker/Dockerfile --target test .
+docker build -t jeeves-gateway:latest -f docker/Dockerfile --target gateway .
+docker build -t jeeves-core:latest -f docker/Dockerfile --target orchestrator .
+docker build -t jeeves-core:test -f docker/Dockerfile --target test .
 ```
 
 ### Running Services

@@ -1,6 +1,6 @@
 [Unit]
-Description=Daily backup timer for 7-Agent Assistant database
-Documentation=https://github.com/2Shabby/assistant-7agent
+Description=Daily backup timer for Jeeves database
+Documentation=https://github.com/Jeeves-Cluster-Organization/jeeves-core
 
 [Timer]
 # Run daily at 2 AM
