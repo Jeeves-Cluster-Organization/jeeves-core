@@ -24,7 +24,7 @@ from fastapi.testclient import TestClient
 from httpx import AsyncClient, ASGITransport
 
 from jeeves_mission_system.api.server import app, app_state, lifespan
-from jeeves_mission_system.config.constants import PRODUCT_VERSION
+from jeeves_mission_system.config.constants import PLATFORM_VERSION
 
 
 @dataclass
@@ -108,7 +108,7 @@ async def test_health_endpoint(test_app):
 
     assert data["status"] == "healthy"
     assert "uptime_seconds" in data
-    assert data["version"] == PRODUCT_VERSION
+    assert data["version"] == PLATFORM_VERSION
     assert "components" in data
     assert "api" in data["components"]
 
@@ -136,7 +136,7 @@ async def test_root_endpoint(test_app):
     data = response.json()
 
     assert data["service"] == "Code Analysis Agent"
-    assert data["version"] == PRODUCT_VERSION
+    assert data["version"] == PLATFORM_VERSION
     assert data["health"] == "/health"
     assert data["ready"] == "/ready"
 
