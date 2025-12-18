@@ -6,9 +6,8 @@
 This document serves as the **Source of Truth** for capabilities built on top of `jeeves-core`. Capabilities should reference this contract rather than inspecting core internals.
 
 > **Related Documents:**
-> - [docs/CONTRACTS.md](docs/CONTRACTS.md) - Internal core architectural contracts
-> - [docs/CAPABILITY_LAYER_INTEGRATION.md](docs/CAPABILITY_LAYER_INTEGRATION.md) - Detailed integration guide
-> - [docs/CODEBASE_AUDIT_REPORT.md](docs/CODEBASE_AUDIT_REPORT.md) - Current audit status
+> - [HANDOFF.md](HANDOFF.md) - Complete internal documentation for capability development
+> - [docs/CONTRACTS.md](docs/CONTRACTS.md) - Internal architectural contracts
 
 ---
 
