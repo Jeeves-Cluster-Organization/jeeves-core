@@ -89,7 +89,9 @@ class Settings(BaseSettings):
     # =========================================================================
     # TIMEOUTS AND RETRIES
     # =========================================================================
-    llm_timeout: int = Field(default=120, ge=1, le=600)
+    # LLM timeout increased to 300s (5 min) for large max_tokens generations
+    # With max_tokens=8000, llama-server needs more time to generate responses
+    llm_timeout: int = Field(default=300, ge=1, le=600)
     llm_max_retries: int = Field(default=3, ge=0, le=10)
     executor_timeout: int = Field(default=60, ge=1, le=600)
 

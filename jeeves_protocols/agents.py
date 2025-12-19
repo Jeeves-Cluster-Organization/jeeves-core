@@ -128,6 +128,29 @@ class UnifiedAgent:
         if self.config.has_tools and self.tools and output.get("tool_calls"):
             output = await self._execute_tools(envelope, output)
 
+        # Debug log output structure for diagnostics
+        output_keys = list(output.keys()) if isinstance(output, dict) else []
+        self.logger.debug(
+            f"{self.name}_output_received",
+            envelope_id=envelope.envelope_id,
+            output_keys=output_keys,
+            output_type=type(output).__name__,
+            has_response_key="response" in output_keys,
+            has_final_response_key="final_response" in output_keys,
+        )
+
+        # Validate required output fields
+        if self.config.required_output_fields and isinstance(output, dict):
+            missing_fields = [f for f in self.config.required_output_fields if f not in output]
+            if missing_fields:
+                self.logger.warning(
+                    f"{self.name}_missing_required_fields",
+                    envelope_id=envelope.envelope_id,
+                    missing_fields=missing_fields,
+                    required_fields=self.config.required_output_fields,
+                    actual_fields=output_keys,
+                )
+
         # Post-process hook
         if self.post_process:
             envelope = self.post_process(envelope, output, self)
@@ -397,7 +420,7 @@ class UnifiedRuntime:
         while envelope.current_stage != "end" and not envelope.terminated:
             if not self._can_continue(envelope):
                 if self.logger:
-                    self.logger.warn("pipeline_bounds_exceeded", reason=envelope.terminal_reason)
+                    self.logger.warning("pipeline_bounds_exceeded", reason=envelope.terminal_reason)
                 break
 
             if envelope.current_stage in ("clarification", "confirmation"):
