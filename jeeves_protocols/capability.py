@@ -29,9 +29,194 @@ Usage:
 
 from typing import Dict, List, Optional, Protocol, runtime_checkable, Any, Callable, TypeVar
 from dataclasses import dataclass, field
+from enum import Enum
 
 T = TypeVar('T')
 
+
+# =============================================================================
+# CAPABILITY TOOL CATALOG - Scoped tool registry per capability
+# =============================================================================
+
+@dataclass(frozen=True)
+class ToolCatalogEntry:
+    """Immutable tool metadata for capability tools.
+    
+    Frozen dataclass ensures entries cannot be modified after creation.
+    """
+    id: str
+    description: str
+    parameters: Dict[str, str]
+    category: str  # ToolCategory value as string
+    risk_level: str = "low"  # RiskLevel value as string
+
+
+@dataclass
+class ToolDefinition:
+    """Tool definition returned by catalog lookups."""
+    name: str
+    function: Callable
+    parameters: Dict[str, str]
+    description: str = ""
+
+
+class CapabilityToolCatalog:
+    """Tool catalog scoped to a single capability.
+    
+    Each capability owns its own catalog instance. Infrastructure queries via
+    CapabilityResourceRegistry.get_tools(capability_id) to get the catalog.
+    
+    This design ensures:
+    - Avionics R3: No Domain Logic in core (capabilities define their own tools)
+    - Full isolation between capabilities
+    - No global ToolId enum needed for capability-specific tools
+    
+    Usage:
+        # In capability layer
+        catalog = CapabilityToolCatalog("assistant")
+        catalog.register(
+            tool_id="add_task",
+            func=add_task,
+            description="Create a new task",
+            parameters={"title": "string", "priority": "integer?"},
+            category="standalone",
+            risk_level="write",
+        )
+        
+        # Infrastructure queries
+        registry = get_capability_resource_registry()
+        tools_config = registry.get_tools("assistant")
+        catalog = tools_config.catalog
+        tool = catalog.get_tool("add_task")
+    """
+    
+    def __init__(self, capability_id: str):
+        """Initialize a catalog for a specific capability.
+        
+        Args:
+            capability_id: Unique identifier for the capability (e.g., "assistant")
+        """
+        self.capability_id = capability_id
+        self._entries: Dict[str, ToolCatalogEntry] = {}
+        self._functions: Dict[str, Callable] = {}
+    
+    def register(
+        self,
+        tool_id: str,
+        func: Callable,
+        description: str,
+        parameters: Dict[str, str],
+        category: str,
+        risk_level: str = "low",
+    ) -> None:
+        """Register a tool in this capability's catalog.
+        
+        Args:
+            tool_id: Tool identifier (e.g., "add_task") - unique within this capability
+            func: The async function that implements the tool
+            description: Human-readable description for LLM prompts
+            parameters: Dict of parameter_name -> type_description
+            category: Tool category (e.g., "standalone", "composite")
+            risk_level: Risk level (e.g., "read_only", "write", "destructive")
+        """
+        entry = ToolCatalogEntry(
+            id=tool_id,
+            description=description,
+            parameters=parameters,
+            category=category,
+            risk_level=risk_level,
+        )
+        self._entries[tool_id] = entry
+        self._functions[tool_id] = func
+    
+    def get_tool(self, tool_id: str) -> Optional[ToolDefinition]:
+        """Get a tool definition by ID.
+        
+        Args:
+            tool_id: Tool identifier
+            
+        Returns:
+            ToolDefinition if found, None otherwise
+        """
+        entry = self._entries.get(tool_id)
+        func = self._functions.get(tool_id)
+        if entry is None or func is None:
+            return None
+        return ToolDefinition(
+            name=tool_id,
+            function=func,
+            parameters=entry.parameters,
+            description=entry.description,
+        )
+    
+    def get_function(self, tool_id: str) -> Optional[Callable]:
+        """Get tool function by ID.
+        
+        Args:
+            tool_id: Tool identifier
+            
+        Returns:
+            Function if found, None otherwise
+        """
+        return self._functions.get(tool_id)
+    
+    def has_tool(self, tool_id: str) -> bool:
+        """Check if tool is registered.
+        
+        Args:
+            tool_id: Tool identifier
+            
+        Returns:
+            True if tool exists in this catalog
+        """
+        return tool_id in self._functions
+    
+    def list_tools(self) -> List[str]:
+        """List all registered tool IDs.
+        
+        Returns:
+            List of tool identifiers
+        """
+        return list(self._entries.keys())
+    
+    def get_entries(self) -> List[ToolCatalogEntry]:
+        """Get all tool entries.
+        
+        Returns:
+            List of all ToolCatalogEntry objects
+        """
+        return list(self._entries.values())
+    
+    def generate_prompt_section(self) -> str:
+        """Generate tool descriptions for LLM prompts.
+        
+        Returns:
+            Formatted multi-line string with tool descriptions
+        """
+        lines = [f"Tools for {self.capability_id}:\n"]
+        for entry in sorted(self._entries.values(), key=lambda e: e.id):
+            param_parts = []
+            for name, ptype in entry.parameters.items():
+                if ptype.endswith("?") or "optional" in ptype.lower():
+                    param_parts.append(f"{name}?")
+                else:
+                    param_parts.append(name)
+            params = ", ".join(param_parts)
+            lines.append(f"- {entry.id}({params}): {entry.description}")
+        return "\n".join(lines)
+    
+    def __len__(self) -> int:
+        """Return number of registered tools."""
+        return len(self._entries)
+    
+    def __contains__(self, tool_id: str) -> bool:
+        """Check if tool_id is in catalog."""
+        return tool_id in self._entries
+
+
+# =============================================================================
+# CAPABILITY CONFIGURATION DATACLASSES
+# =============================================================================
 
 @dataclass
 class CapabilityAgentConfig:
@@ -56,9 +241,34 @@ class CapabilityPromptConfig:
 
 @dataclass
 class CapabilityToolsConfig:
-    """Configuration for tool initialization registered by a capability."""
-    initializer: Callable[..., Dict[str, Any]]  # Function: (db) -> dict with "catalog" key
+    """Configuration for tools registered by a capability.
+    
+    Supports two patterns:
+    1. Lazy initialization: Provide `initializer` function that creates catalog on demand
+    2. Eager initialization: Provide `catalog` instance directly
+    
+    The capability owns its CapabilityToolCatalog instance, ensuring full isolation
+    from other capabilities and no coupling to infrastructure.
+    """
     tool_ids: List[str] = field(default_factory=list)  # List of tool IDs provided
+    catalog: Optional["CapabilityToolCatalog"] = None  # The capability's tool catalog
+    initializer: Optional[Callable[..., "CapabilityToolCatalog"]] = None  # Lazy: (db) -> catalog
+    
+    def get_catalog(self, **kwargs) -> Optional["CapabilityToolCatalog"]:
+        """Get or initialize the tool catalog.
+        
+        Args:
+            **kwargs: Arguments passed to initializer (e.g., db=connection)
+            
+        Returns:
+            CapabilityToolCatalog instance or None
+        """
+        if self.catalog is not None:
+            return self.catalog
+        if self.initializer is not None:
+            self.catalog = self.initializer(**kwargs)
+            return self.catalog
+        return None
 
 
 @dataclass
@@ -554,6 +764,10 @@ def reset_capability_resource_registry() -> None:
 
 
 __all__ = [
+    # Tool catalog (capability-scoped)
+    "ToolCatalogEntry",
+    "ToolDefinition",
+    "CapabilityToolCatalog",
     # Config types
     "CapabilityServiceConfig",
     "CapabilityModeConfig",

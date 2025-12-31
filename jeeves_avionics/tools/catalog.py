@@ -100,6 +100,12 @@ class ToolId(str, Enum):
     GET_SESSION_STATE = "get_session_state"
     SAVE_SESSION_STATE = "save_session_state"
 
+    # ═══════════════════════════════════════════════════════════════════════════
+    # NOTE: Capability-specific tools are NOT defined here.
+    # Each capability owns its own CapabilityToolCatalog (see jeeves_protocols.capability).
+    # This enum only contains core/infrastructure tools and code-analysis tools.
+    # ═══════════════════════════════════════════════════════════════════════════
+
 
 @dataclass(frozen=True)
 class ToolCatalogEntry:

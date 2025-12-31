@@ -153,6 +153,10 @@ from jeeves_protocols.protocols import (
 # CAPABILITY REGISTRATION
 # =============================================================================
 from jeeves_protocols.capability import (
+    # Tool catalog (capability-scoped)
+    ToolCatalogEntry,
+    ToolDefinition,
+    CapabilityToolCatalog,
     # Config types
     CapabilityServiceConfig,
     CapabilityModeConfig,
@@ -318,6 +322,9 @@ __all__ = [
     "LanguageConfigProtocol",
 
     # ─── Capability Registration ───
+    "ToolCatalogEntry",
+    "ToolDefinition",
+    "CapabilityToolCatalog",
     "CapabilityServiceConfig",
     "CapabilityModeConfig",
     "CapabilityAgentConfig",
