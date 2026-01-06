@@ -25,7 +25,7 @@ class GenericEnvelope:
     """Envelope with dynamic output slots.
 
     This is a Python mirror of Go's GenericEnvelope.
-    Use GoClient to create/manipulate envelopes via Go runtime.
+    Primary state container for pipeline execution.
     """
     # Identification
     envelope_id: str = ""

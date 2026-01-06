@@ -1,7 +1,7 @@
 # Jeeves Avionics Constitution
 
 **Parent:** [Architectural Contracts](../docs/CONTRACTS.md)
-**Updated:** 2025-12-16
+**Updated:** 2026-01-06
 
 ---
 
@@ -147,7 +147,37 @@ mode_config = registry.get_mode_config(mode_id)  # Returns mode config
 
 **Core and Mission System remain unchanged.**
 
-### R5: Defensive Error Handling
+### R5: Capability-Owned Tool Identifiers
+
+**ToolId enums are CAPABILITY-OWNED, not avionics-owned:**
+
+```python
+# ❌ REMOVED - Avionics no longer defines ToolId
+# from jeeves_avionics.tools.catalog import ToolId
+
+# ✅ Avionics provides generic tool infrastructure
+from jeeves_avionics.tools.catalog import ToolCategory, ToolDefinition
+from jeeves_avionics.wiring import ToolExecutor  # Uses string tool names
+
+# ✅ Capabilities define their own ToolId
+# In my_capability/tools/catalog.py:
+class ToolId(str, Enum):
+    LOCATE = "locate"
+    READ_CODE = "read_code"
+```
+
+**Avionics provides:**
+- `ToolCategory` — Generic categories (COMPOSITE, RESILIENT, STANDALONE)
+- `ToolDefinition` — Generic tool metadata structure
+- `ToolExecutor` — Executes tools by string name
+- `ToolExecutorCore` — Base execution with access control
+
+**Capabilities provide:**
+- `ToolId` enum — Capability-specific tool identifiers
+- `ToolCatalog` — Capability-specific tool registry
+- Tool implementations
+
+### R6: Defensive Error Handling
 
 Infrastructure failures **must not** crash the system:
 

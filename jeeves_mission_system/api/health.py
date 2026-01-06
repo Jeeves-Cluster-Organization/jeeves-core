@@ -14,8 +14,7 @@ from enum import Enum
 from time import monotonic
 from typing import Any, Dict, Optional
 
-from jeeves_avionics.database.client import DatabaseClientProtocol
-from jeeves_protocols import HealthStatus
+from jeeves_protocols import DatabaseClientProtocol, HealthStatus
 from jeeves_mission_system.config.constants import PLATFORM_VERSION
 
 
@@ -195,7 +194,7 @@ class HealthChecker:
         start = monotonic()
 
         try:
-            from jeeves_avionics.settings import get_settings
+            from jeeves_mission_system.adapters import get_settings
             settings = get_settings()
             provider = settings.llm_provider.lower()
 

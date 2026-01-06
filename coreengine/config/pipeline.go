@@ -41,6 +41,16 @@ const (
 	JoinAny JoinStrategy = "any" // Proceed when ANY prerequisite completes
 )
 
+// EdgeLimit configures per-edge transition limits.
+// Capability layer defines these to control how many times
+// a specific transition (e.g., critic -> intent) can occur.
+// Core doesn't judge graph structure - capability defines it.
+type EdgeLimit struct {
+	From     string `json:"from"`      // Source stage
+	To       string `json:"to"`        // Target stage
+	MaxCount int    `json:"max_count"` // Maximum transitions on this edge (0 = use global)
+}
+
 // AgentConfig is the declarative agent configuration.
 // Enables capability layer to define agents without writing classes.
 type AgentConfig struct {
@@ -48,24 +58,12 @@ type AgentConfig struct {
 	Name       string `json:"name"`        // Unique agent name
 	StageOrder int    `json:"stage_order"` // Execution order in pipeline (for backward compat)
 
-	// === DAG Dependencies (systemd-style) ===
+	// Dependencies
 	// Requires: Hard dependencies - these stages MUST complete successfully before this runs
-	// Similar to systemd's Requires= directive
 	Requires []string `json:"requires,omitempty"`
 
 	// After: Soft ordering - run after these stages IF they are in the pipeline
-	// Does not create a hard dependency, just ordering preference
-	// Similar to systemd's After= directive
 	After []string `json:"after,omitempty"`
-
-	// RunsWith: Parallelization hint - can run concurrently with these stages
-	// Stages in the same RunsWith group may execute in parallel
-	RunsWith []string `json:"runs_with,omitempty"`
-
-	// JoinStrategy: How to handle multiple Requires dependencies
-	// "all" (default) = wait for ALL prerequisites
-	// "any" = proceed when ANY prerequisite completes (race)
-	JoinStrategy JoinStrategy `json:"join_strategy,omitempty"`
 
 	// Capability Flags
 	HasLLM      bool `json:"has_llm"`      // Whether agent needs LLM provider
@@ -132,37 +130,33 @@ type PipelineConfig struct {
 	Name   string         `json:"name"`   // Pipeline name for logging/metrics
 	Agents []*AgentConfig `json:"agents"` // Ordered list of agent configs
 
-	// Global Configuration
+	// Bounds - Go enforces these authoritatively
 	MaxIterations         int `json:"max_iterations"`          // Max pipeline loop iterations
 	MaxLLMCalls           int `json:"max_llm_calls"`           // Max total LLM calls
 	MaxAgentHops          int `json:"max_agent_hops"`          // Max agent transitions
 	DefaultTimeoutSeconds int `json:"default_timeout_seconds"` // Default agent timeout
 
-	// Feature Flags
-	EnableArbiter          bool `json:"enable_arbiter"`            // Whether to include arbiter
-	SkipArbiterForReadOnly bool `json:"skip_arbiter_for_read_only"` // Skip for read-only tools
-
-	// DAG Execution Mode
-	// When true, uses DAG-based parallel execution instead of sequential
-	// Requires agents to have Requires/After dependencies defined
-	EnableDAGExecution bool `json:"enable_dag_execution,omitempty"`
+	// EdgeLimits defines per-edge cycle limits.
+	// Cycles ARE allowed - this is REINTENT architecture.
+	// Example: {From: "critic", To: "intent", MaxCount: 3} limits REINTENT to 3 loops.
+	EdgeLimits []EdgeLimit `json:"edge_limits,omitempty"`
 
 	// Computed at validation time (internal)
-	topologicalOrder []string          // Computed topological sort
-	adjacencyList    map[string][]string // stage -> stages that depend on it
+	adjacencyList map[string][]string // stage -> stages that depend on it
+	edgeLimitMap  map[string]int      // "from->to" -> max count
 }
 
 // NewPipelineConfig creates a new pipeline config with defaults.
+// Cycles ARE allowed - this is REINTENT architecture.
 func NewPipelineConfig(name string) *PipelineConfig {
 	return &PipelineConfig{
-		Name:                   name,
-		Agents:                 make([]*AgentConfig, 0),
-		MaxIterations:          3,
-		MaxLLMCalls:            10,
-		MaxAgentHops:           21,
-		DefaultTimeoutSeconds:  300,
-		EnableArbiter:          true,
-		SkipArbiterForReadOnly: true,
+		Name:                  name,
+		Agents:                make([]*AgentConfig, 0),
+		MaxIterations:         3,
+		MaxLLMCalls:           10,
+		MaxAgentHops:          21,
+		DefaultTimeoutSeconds: 300,
+		EdgeLimits:            []EdgeLimit{},
 	}
 }
 
@@ -218,18 +212,18 @@ func (p *PipelineConfig) Validate() error {
 		}
 	}
 
-	// Validate DAG dependencies if DAG execution is enabled
-	if p.EnableDAGExecution {
-		if err := p.validateDAG(names); err != nil {
-			return err
-		}
+	// Build dependency graph and edge limits
+	if err := p.buildGraph(names); err != nil {
+		return err
 	}
 
 	return nil
 }
 
-// validateDAG validates DAG dependencies and computes topological order.
-func (p *PipelineConfig) validateDAG(validNames map[string]bool) error {
+// buildGraph builds the dependency graph and edge limit map.
+// Core doesn't validate graph structure - capability defines it.
+// If capability creates cycles, edge limits bound them at runtime.
+func (p *PipelineConfig) buildGraph(validNames map[string]bool) error {
 	// Validate all dependencies reference valid stages
 	for _, agent := range p.Agents {
 		for _, dep := range agent.Requires {
@@ -248,74 +242,35 @@ func (p *PipelineConfig) validateDAG(validNames map[string]bool) error {
 				return fmt.Errorf("agent '%s' cannot be after itself", agent.Name)
 			}
 		}
-		for _, dep := range agent.RunsWith {
-			if !validNames[dep] {
-				return fmt.Errorf("agent '%s' runs_with unknown stage '%s'", agent.Name, dep)
-			}
-		}
 	}
 
-	// Build adjacency list (dependency graph)
-	// For each stage, track which stages depend on it
+	// Build adjacency list
 	p.adjacencyList = make(map[string][]string)
-	inDegree := make(map[string]int)
-
 	for _, agent := range p.Agents {
 		p.adjacencyList[agent.Name] = []string{}
-		inDegree[agent.Name] = 0
 	}
-
 	for _, agent := range p.Agents {
 		for _, dep := range agent.GetAllDependencies() {
 			p.adjacencyList[dep] = append(p.adjacencyList[dep], agent.Name)
-			inDegree[agent.Name]++
 		}
 	}
 
-	// Kahn's algorithm for topological sort + cycle detection
-	queue := make([]string, 0)
-	for name, degree := range inDegree {
-		if degree == 0 {
-			queue = append(queue, name)
-		}
-	}
-
-	p.topologicalOrder = make([]string, 0, len(p.Agents))
-
-	for len(queue) > 0 {
-		// Pop from queue
-		current := queue[0]
-		queue = queue[1:]
-		p.topologicalOrder = append(p.topologicalOrder, current)
-
-		// Reduce in-degree of dependents
-		for _, dependent := range p.adjacencyList[current] {
-			inDegree[dependent]--
-			if inDegree[dependent] == 0 {
-				queue = append(queue, dependent)
-			}
-		}
-	}
-
-	// If we didn't process all nodes, there's a cycle
-	if len(p.topologicalOrder) != len(p.Agents) {
-		// Find nodes involved in cycle
-		cycleNodes := []string{}
-		for name, degree := range inDegree {
-			if degree > 0 {
-				cycleNodes = append(cycleNodes, name)
-			}
-		}
-		return fmt.Errorf("dependency cycle detected involving stages: %v", cycleNodes)
+	// Build edge limit map
+	p.edgeLimitMap = make(map[string]int)
+	for _, limit := range p.EdgeLimits {
+		key := limit.From + "->" + limit.To
+		p.edgeLimitMap[key] = limit.MaxCount
 	}
 
 	return nil
 }
 
-// GetTopologicalOrder returns the computed topological order.
-// Returns nil if DAG execution is not enabled or validation hasn't run.
-func (p *PipelineConfig) GetTopologicalOrder() []string {
-	return p.topologicalOrder
+// GetEdgeLimit returns the cycle limit for an edge, or 0 if no limit.
+func (p *PipelineConfig) GetEdgeLimit(from, to string) int {
+	if p.edgeLimitMap == nil {
+		return 0
+	}
+	return p.edgeLimitMap[from+"->"+to]
 }
 
 // GetReadyStages returns stages that are ready to execute given completed stages.

@@ -20,7 +20,7 @@ type PersistenceAdapter interface {
 	LoadState(ctx context.Context, threadID string) (map[string]any, error)
 }
 
-// UnifiedRuntime executes any pipeline from configuration.
+// UnifiedRuntime executes pipelines from configuration.
 type UnifiedRuntime struct {
 	Config         *config.PipelineConfig
 	LLMFactory     LLMProviderFactory
@@ -30,9 +30,8 @@ type UnifiedRuntime struct {
 	PromptRegistry agents.PromptRegistry
 	UseMock        bool
 
-	agents      map[string]*agents.UnifiedAgent
-	eventCtx    agents.EventContext
-	dagExecutor *DAGExecutor // DAG executor for parallel execution
+	agents   map[string]*agents.UnifiedAgent
+	eventCtx agents.EventContext
 }
 
 // NewUnifiedRuntime creates a new UnifiedRuntime.
@@ -87,19 +86,9 @@ func (r *UnifiedRuntime) buildAgents() error {
 		r.agents[agentConfig.Name] = agent
 	}
 
-	// Create DAG executor if DAG execution is enabled
-	if r.Config.EnableDAGExecution {
-		r.dagExecutor = NewDAGExecutor(r.Config, r.agents, r.Logger)
-		r.dagExecutor.Persistence = r.Persistence
-		r.Logger.Info("dag_executor_created",
-			"topological_order", r.Config.GetTopologicalOrder(),
-		)
-	}
-
 	r.Logger.Info("runtime_agents_built",
 		"agent_count", len(r.agents),
 		"agents", r.Config.GetStageOrder(),
-		"dag_enabled", r.Config.EnableDAGExecution,
 	)
 
 	return nil
@@ -115,17 +104,6 @@ func (r *UnifiedRuntime) SetEventContext(ctx agents.EventContext) {
 
 // Run executes the pipeline on an envelope.
 func (r *UnifiedRuntime) Run(ctx context.Context, env *envelope.GenericEnvelope, threadID string) (*envelope.GenericEnvelope, error) {
-	// Use DAG executor if enabled
-	if r.Config.EnableDAGExecution && r.dagExecutor != nil {
-		return r.dagExecutor.Execute(ctx, env, threadID)
-	}
-
-	// Fall back to sequential execution
-	return r.runSequential(ctx, env, threadID)
-}
-
-// runSequential executes the pipeline sequentially (original behavior).
-func (r *UnifiedRuntime) runSequential(ctx context.Context, env *envelope.GenericEnvelope, threadID string) (*envelope.GenericEnvelope, error) {
 	startTime := time.Now()
 
 	// Set stage order on envelope
@@ -145,7 +123,6 @@ func (r *UnifiedRuntime) runSequential(ctx context.Context, env *envelope.Generi
 		"envelope_id", env.EnvelopeID,
 		"request_id", env.RequestID,
 		"stage_order", env.StageOrder,
-		"mode", "sequential",
 	)
 
 	var err error
@@ -227,23 +204,11 @@ func (r *UnifiedRuntime) runSequential(ctx context.Context, env *envelope.Generi
 
 // RunStreaming executes pipeline with streaming updates via channel.
 func (r *UnifiedRuntime) RunStreaming(ctx context.Context, env *envelope.GenericEnvelope, threadID string) (<-chan StageOutput, error) {
-	// Use DAG executor streaming if enabled
-	if r.Config.EnableDAGExecution && r.dagExecutor != nil {
-		return r.dagExecutor.ExecuteStreaming(ctx, env, threadID)
-	}
-
-	// Fall back to sequential streaming
-	return r.runStreamingSequential(ctx, env, threadID)
-}
-
-// runStreamingSequential executes pipeline sequentially with streaming updates.
-func (r *UnifiedRuntime) runStreamingSequential(ctx context.Context, env *envelope.GenericEnvelope, threadID string) (<-chan StageOutput, error) {
 	outputChan := make(chan StageOutput, len(r.Config.Agents)+1)
 
 	go func() {
 		defer close(outputChan)
 
-		// Set stage order on envelope
 		env.StageOrder = r.Config.GetStageOrder()
 		if len(env.StageOrder) > 0 {
 			env.CurrentStage = env.StageOrder[0]
@@ -258,7 +223,6 @@ func (r *UnifiedRuntime) runStreamingSequential(ctx context.Context, env *envelo
 		r.Logger.Info("pipeline_streaming_started",
 			"envelope_id", env.EnvelopeID,
 			"request_id", env.RequestID,
-			"mode", "sequential",
 		)
 
 		var err error
@@ -281,7 +245,6 @@ func (r *UnifiedRuntime) runStreamingSequential(ctx context.Context, env *envelo
 
 			stageName := env.CurrentStage
 
-			// Execute agent
 			env, err = agent.Process(ctx, env)
 			if err != nil {
 				reason := envelope.TerminalReasonToolFailedFatally
@@ -289,17 +252,14 @@ func (r *UnifiedRuntime) runStreamingSequential(ctx context.Context, env *envelo
 				break
 			}
 
-			// Yield stage output
 			output := env.GetOutput(stageName)
 			outputChan <- StageOutput{Stage: stageName, Output: output}
 
-			// Persist if configured
 			if r.Persistence != nil && threadID != "" {
 				_ = r.Persistence.SaveState(ctx, threadID, env.ToStateDict())
 			}
 		}
 
-		// Final yield for completion
 		outputChan <- StageOutput{
 			Stage:  "__end__",
 			Output: map[string]any{"terminated": env.Terminated},

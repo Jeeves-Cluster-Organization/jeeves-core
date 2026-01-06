@@ -9,7 +9,7 @@ This file does NOT import from agents/code_analysis/ or tools/code_analysis/.
 from typing import Type, Dict, Any, Callable, Optional
 
 from jeeves_mission_system.verticals.registry import get, get_agent_class
-from jeeves_avionics.logging import get_current_logger
+from jeeves_mission_system.adapters import get_logger
 
 
 def run_stage(vertical_id: str, stage: str, envelope: Any) -> Any:

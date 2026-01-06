@@ -30,8 +30,8 @@ import time
 from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional, TYPE_CHECKING
 
-from jeeves_avionics.logging import get_current_logger
 from jeeves_protocols import LoggerProtocol
+from jeeves_mission_system.adapters import get_logger
 
 if TYPE_CHECKING:
     from jeeves_mission_system.orchestrator.agent_events import AgentEventEmitter
@@ -66,7 +66,7 @@ class AgentEventContext:
 
     def __post_init__(self):
         if self._logger is None:
-            self._logger = get_current_logger()
+            self._logger = get_logger()
         self._logger = self._logger.bind(
             component="agent_event_context",
             session_id=self.session_id,
@@ -600,7 +600,7 @@ class AgentEventContext:
         """
         # Config gate: Check feature flag
         try:
-            from jeeves_avionics.feature_flags import get_feature_flags
+            from jeeves_mission_system.adapters import get_feature_flags
             flags = get_feature_flags()
             if not flags.emit_agent_reasoning:
                 return

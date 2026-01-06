@@ -1,8 +1,8 @@
 # Jeeves-Core Handoff Document
 
 **Purpose:** Complete internal documentation for building capabilities on jeeves-core
-**Version:** 1.0.0
-**Date:** 2025-12-18
+**Version:** 1.1.0
+**Date:** 2026-01-06
 
 This document provides everything needed to build a new capability (such as a finetuning capability) on top of jeeves-core. It covers architecture, protocols, wiring, and integration patterns.
 
@@ -550,13 +550,29 @@ class ToolAccess(str, Enum):
 
 ### 6.2 Tool Registration
 
-```python
-from jeeves_avionics.tools.catalog import ToolCatalog, ToolId
+**Architecture Decision:** `ToolId` enums are CAPABILITY-OWNED. Each capability defines
+its own ToolId enum in `tools/catalog.py`. This prevents layer violations and allows
+capabilities to define their own tool sets without modifying avionics.
 
+```python
+# In your capability's tools/catalog.py
+from enum import Enum
+from jeeves_protocols import ToolCategory, RiskLevel
+
+class ToolId(str, Enum):
+    """Capability-owned tool identifiers."""
+    MY_TOOL = "my_capability.my_tool"
+    # ... your tools
+
+class ToolCatalog:
+    """Capability-owned tool catalog."""
+    # ... implementation
+
+# Tool registration
 catalog = ToolCatalog.get_instance()
 
 @catalog.register(
-    tool_id=ToolId.MY_TOOL,  # Or use string "my_capability.my_tool"
+    tool_id=ToolId.MY_TOOL,  # Capability-owned enum
     description="What this tool does",
     parameters={"param1": "string", "param2": "int?"},  # ? = optional
     category=ToolCategory.COMPOSITE,
@@ -570,6 +586,9 @@ async def my_tool(param1: str, param2: int = None) -> Dict[str, Any]:
         "citations": [...]
     }
 ```
+
+**Note:** Avionics provides `ToolExecutor` which works with string tool names.
+The capability's `ToolCatalog` maps `ToolId` enums to implementations.
 
 ### 6.3 Tool Execution with Access Control
 
@@ -1576,14 +1595,16 @@ from jeeves_mission_system.adapters import (
     MissionSystemAdapters,
 )
 
-# Avionics (L3)
+# Avionics (L3) - Infrastructure
 from jeeves_avionics.capability_registry import get_capability_registry
 from jeeves_avionics.wiring import (
     ToolExecutor, AgentContext,
     create_tool_executor, create_llm_provider_factory,
 )
-from jeeves_avionics.tools.catalog import ToolCatalog, ToolId
 from jeeves_avionics.llm.factory import create_llm_provider
+
+# Capability-owned (NOT from avionics)
+# from my_capability.tools.catalog import ToolCatalog, ToolId  # Capability defines these
 ```
 
 ### 15.2 Pipeline Pattern

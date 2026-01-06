@@ -1,7 +1,7 @@
 # Jeeves Control Tower Constitution
 
-**Version:** 1.2
-**Updated:** 2025-12-16
+**Version:** 1.3
+**Updated:** 2026-01-06
 **Parent:** [Architectural Contracts](../docs/CONTRACTS.md)
 
 ---

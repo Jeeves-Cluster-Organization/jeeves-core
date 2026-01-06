@@ -1,0 +1,619 @@
+// Package grpc provides the gRPC server for jeeves-core.
+// This is the primary IPC mechanism between Python and Go.
+package grpc
+
+import (
+	"context"
+	"encoding/json"
+	"fmt"
+	"net"
+	"time"
+
+	"google.golang.org/grpc"
+
+	"github.com/jeeves-cluster-organization/codeanalysis/coreengine/config"
+	"github.com/jeeves-cluster-organization/codeanalysis/coreengine/envelope"
+	pb "github.com/jeeves-cluster-organization/codeanalysis/coreengine/proto"
+	"github.com/jeeves-cluster-organization/codeanalysis/coreengine/runtime"
+)
+
+// Logger interface for the server.
+type Logger interface {
+	Debug(msg string, keysAndValues ...any)
+	Info(msg string, keysAndValues ...any)
+	Warn(msg string, keysAndValues ...any)
+	Error(msg string, keysAndValues ...any)
+}
+
+// JeevesCoreServer implements the gRPC service.
+type JeevesCoreServer struct {
+	pb.UnimplementedJeevesCoreServiceServer
+
+	logger  Logger
+	runtime *runtime.UnifiedRuntime
+}
+
+// NewJeevesCoreServer creates a new gRPC server.
+func NewJeevesCoreServer(logger Logger) *JeevesCoreServer {
+	return &JeevesCoreServer{
+		logger: logger,
+	}
+}
+
+// SetRuntime sets the runtime for pipeline execution.
+func (s *JeevesCoreServer) SetRuntime(r *runtime.UnifiedRuntime) {
+	s.runtime = r
+}
+
+// =============================================================================
+// Envelope Operations
+// =============================================================================
+
+// CreateEnvelope creates a new GenericEnvelope.
+func (s *JeevesCoreServer) CreateEnvelope(
+	ctx context.Context,
+	req *pb.CreateEnvelopeRequest,
+) (*pb.Envelope, error) {
+	var requestID *string
+	if req.RequestId != "" {
+		requestID = &req.RequestId
+	}
+
+	metadata := make(map[string]any)
+	for k, v := range req.Metadata {
+		metadata[k] = v
+	}
+
+	env := envelope.CreateGenericEnvelope(
+		req.RawInput,
+		req.UserId,
+		req.SessionId,
+		requestID,
+		metadata,
+		req.StageOrder,
+	)
+
+	s.logger.Debug("envelope_created",
+		"envelope_id", env.EnvelopeID,
+		"user_id", req.UserId,
+	)
+
+	return envelopeToProto(env), nil
+}
+
+// UpdateEnvelope updates an envelope from proto.
+func (s *JeevesCoreServer) UpdateEnvelope(
+	ctx context.Context,
+	req *pb.UpdateEnvelopeRequest,
+) (*pb.Envelope, error) {
+	env := protoToEnvelope(req.Envelope)
+
+	s.logger.Debug("envelope_updated",
+		"envelope_id", env.EnvelopeID,
+	)
+
+	return envelopeToProto(env), nil
+}
+
+// CloneEnvelope creates a deep copy of an envelope.
+func (s *JeevesCoreServer) CloneEnvelope(
+	ctx context.Context,
+	req *pb.CloneRequest,
+) (*pb.Envelope, error) {
+	env := protoToEnvelope(req.Envelope)
+	clone := env.Clone()
+
+	s.logger.Debug("envelope_cloned",
+		"original_id", env.EnvelopeID,
+		"clone_id", clone.EnvelopeID,
+	)
+
+	return envelopeToProto(clone), nil
+}
+
+// =============================================================================
+// Bounds Checking
+// =============================================================================
+
+// CheckBounds checks if execution can continue.
+func (s *JeevesCoreServer) CheckBounds(
+	ctx context.Context,
+	protoEnv *pb.Envelope,
+) (*pb.BoundsResult, error) {
+	env := protoToEnvelope(protoEnv)
+	canContinue := env.CanContinue()
+
+	result := &pb.BoundsResult{
+		CanContinue:         canContinue,
+		LlmCallsRemaining:   int32(env.MaxLLMCalls - env.LLMCallCount),
+		AgentHopsRemaining:  int32(env.MaxAgentHops - env.AgentHopCount),
+		IterationsRemaining: int32(env.MaxIterations - env.Iteration),
+	}
+
+	if !canContinue && env.TerminalReason_ != nil {
+		result.TerminalReason = terminalReasonToProto(*env.TerminalReason_)
+	}
+
+	s.logger.Debug("bounds_checked",
+		"envelope_id", env.EnvelopeID,
+		"can_continue", canContinue,
+	)
+
+	return result, nil
+}
+
+// =============================================================================
+// Pipeline Execution
+// =============================================================================
+
+// ExecutePipeline executes the pipeline with streaming events.
+func (s *JeevesCoreServer) ExecutePipeline(
+	req *pb.ExecuteRequest,
+	stream pb.JeevesCoreService_ExecutePipelineServer,
+) error {
+	ctx := stream.Context()
+	env := protoToEnvelope(req.Envelope)
+
+	s.logger.Info("pipeline_execution_started",
+		"envelope_id", env.EnvelopeID,
+		"thread_id", req.ThreadId,
+	)
+
+	// Parse pipeline config if provided
+	if len(req.PipelineConfig) > 0 {
+		var cfg config.PipelineConfig
+		if err := json.Unmarshal(req.PipelineConfig, &cfg); err != nil {
+			return fmt.Errorf("failed to parse pipeline config: %w", err)
+		}
+		// Create runtime with config
+		rt, err := runtime.NewUnifiedRuntime(&cfg, nil, nil, s)
+		if err != nil {
+			return fmt.Errorf("failed to create runtime: %w", err)
+		}
+		s.runtime = rt
+	}
+
+	if s.runtime == nil {
+		return fmt.Errorf("no runtime configured")
+	}
+
+	// Send started event
+	if err := stream.Send(&pb.ExecutionEvent{
+		Type:        pb.ExecutionEventType_STAGE_STARTED,
+		Stage:       env.CurrentStage,
+		TimestampMs: time.Now().UnixMilli(),
+		Envelope:    envelopeToProto(env),
+	}); err != nil {
+		return err
+	}
+
+	// Execute pipeline
+	result, err := s.runtime.Run(ctx, env, req.ThreadId)
+	if err != nil {
+		// Send error event
+		payload, _ := json.Marshal(map[string]any{"error": err.Error()})
+		if sendErr := stream.Send(&pb.ExecutionEvent{
+			Type:        pb.ExecutionEventType_STAGE_FAILED,
+			Stage:       env.CurrentStage,
+			TimestampMs: time.Now().UnixMilli(),
+			Payload:     payload,
+			Envelope:    envelopeToProto(result),
+		}); sendErr != nil {
+			return sendErr
+		}
+		return err
+	}
+
+	// Send completion event
+	eventType := pb.ExecutionEventType_PIPELINE_COMPLETED
+	if result.InterruptPending {
+		eventType = pb.ExecutionEventType_INTERRUPT_RAISED
+	} else if !result.CanContinue() {
+		eventType = pb.ExecutionEventType_BOUNDS_EXCEEDED
+	}
+
+	if err := stream.Send(&pb.ExecutionEvent{
+		Type:        eventType,
+		Stage:       result.CurrentStage,
+		TimestampMs: time.Now().UnixMilli(),
+		Envelope:    envelopeToProto(result),
+	}); err != nil {
+		return err
+	}
+
+	s.logger.Info("pipeline_execution_completed",
+		"envelope_id", env.EnvelopeID,
+		"final_stage", result.CurrentStage,
+		"terminated", result.Terminated,
+	)
+
+	return nil
+}
+
+// ExecuteAgent executes a single agent.
+func (s *JeevesCoreServer) ExecuteAgent(
+	ctx context.Context,
+	req *pb.ExecuteAgentRequest,
+) (*pb.AgentResult, error) {
+	env := protoToEnvelope(req.Envelope)
+
+	s.logger.Debug("agent_execution_started",
+		"envelope_id", env.EnvelopeID,
+		"agent", req.AgentName,
+	)
+
+	// For now, return a placeholder - actual agent execution
+	// would go through the runtime
+	return &pb.AgentResult{
+		Success:    true,
+		Envelope:   envelopeToProto(env),
+		DurationMs: 0,
+		LlmCalls:   0,
+	}, nil
+}
+
+// =============================================================================
+// Logger interface for grpc server (implements runtime Logger)
+// =============================================================================
+
+func (s *JeevesCoreServer) Debug(msg string, keysAndValues ...any) {
+	s.logger.Debug(msg, keysAndValues...)
+}
+
+func (s *JeevesCoreServer) Info(msg string, keysAndValues ...any) {
+	s.logger.Info(msg, keysAndValues...)
+}
+
+func (s *JeevesCoreServer) Warn(msg string, keysAndValues ...any) {
+	s.logger.Warn(msg, keysAndValues...)
+}
+
+func (s *JeevesCoreServer) Error(msg string, keysAndValues ...any) {
+	s.logger.Error(msg, keysAndValues...)
+}
+
+func (s *JeevesCoreServer) Bind(fields ...any) interface{ Debug(string, ...any) } {
+	return s
+}
+
+// =============================================================================
+// Conversion Functions
+// =============================================================================
+
+func envelopeToProto(e *envelope.GenericEnvelope) *pb.Envelope {
+	proto := &pb.Envelope{
+		EnvelopeId:         e.EnvelopeID,
+		RequestId:          e.RequestID,
+		UserId:             e.UserID,
+		SessionId:          e.SessionID,
+		RawInput:           e.RawInput,
+		ReceivedAtMs:       e.ReceivedAt.UnixMilli(),
+		CurrentStage:       e.CurrentStage,
+		StageOrder:         e.StageOrder,
+		Iteration:          int32(e.Iteration),
+		MaxIterations:      int32(e.MaxIterations),
+		LlmCallCount:       int32(e.LLMCallCount),
+		MaxLlmCalls:        int32(e.MaxLLMCalls),
+		AgentHopCount:      int32(e.AgentHopCount),
+		MaxAgentHops:       int32(e.MaxAgentHops),
+		Terminated:         e.Terminated,
+		InterruptPending:   e.InterruptPending,
+		CurrentStageNumber: int32(e.CurrentStageNumber),
+		MaxStages:          int32(e.MaxStages),
+		AllGoals:           e.AllGoals,
+		RemainingGoals:     e.RemainingGoals,
+		CreatedAtMs:        e.CreatedAt.UnixMilli(),
+	}
+
+	// Termination reason
+	if e.TerminationReason != nil {
+		proto.TerminationReason = *e.TerminationReason
+	}
+	if e.TerminalReason_ != nil {
+		proto.TerminalReason = terminalReasonToProto(*e.TerminalReason_)
+	}
+	if e.CompletedAt != nil {
+		proto.CompletedAtMs = e.CompletedAt.UnixMilli()
+	}
+
+	// Outputs (JSON-encoded)
+	proto.Outputs = make(map[string][]byte)
+	for k, v := range e.Outputs {
+		if data, err := json.Marshal(v); err == nil {
+			proto.Outputs[k] = data
+		}
+	}
+
+	// DAG state
+	proto.ActiveStages = e.ActiveStages
+	proto.CompletedStageSet = e.CompletedStageSet
+	proto.FailedStages = e.FailedStages
+
+	// Goal completion status
+	proto.GoalCompletionStatus = e.GoalCompletionStatus
+
+	// Metadata
+	proto.MetadataStr = make(map[string]string)
+	for k, v := range e.Metadata {
+		if str, ok := v.(string); ok {
+			proto.MetadataStr[k] = str
+		}
+	}
+
+	// Interrupt
+	if e.Interrupt != nil {
+		proto.Interrupt = flowInterruptToProto(e.Interrupt)
+	}
+
+	return proto
+}
+
+func protoToEnvelope(p *pb.Envelope) *envelope.GenericEnvelope {
+	e := envelope.NewGenericEnvelope()
+
+	e.EnvelopeID = p.EnvelopeId
+	e.RequestID = p.RequestId
+	e.UserID = p.UserId
+	e.SessionID = p.SessionId
+	e.RawInput = p.RawInput
+	e.ReceivedAt = time.UnixMilli(p.ReceivedAtMs)
+	e.CurrentStage = p.CurrentStage
+	e.StageOrder = p.StageOrder
+	e.Iteration = int(p.Iteration)
+	e.MaxIterations = int(p.MaxIterations)
+	e.LLMCallCount = int(p.LlmCallCount)
+	e.MaxLLMCalls = int(p.MaxLlmCalls)
+	e.AgentHopCount = int(p.AgentHopCount)
+	e.MaxAgentHops = int(p.MaxAgentHops)
+	e.Terminated = p.Terminated
+	e.InterruptPending = p.InterruptPending
+	e.CurrentStageNumber = int(p.CurrentStageNumber)
+	e.MaxStages = int(p.MaxStages)
+	e.AllGoals = p.AllGoals
+	e.RemainingGoals = p.RemainingGoals
+	e.CreatedAt = time.UnixMilli(p.CreatedAtMs)
+
+	// Termination
+	if p.TerminationReason != "" {
+		e.TerminationReason = &p.TerminationReason
+	}
+	if p.TerminalReason != pb.TerminalReason_TERMINAL_REASON_UNSPECIFIED {
+		reason := protoToTerminalReason(p.TerminalReason)
+		e.TerminalReason_ = &reason
+	}
+	if p.CompletedAtMs > 0 {
+		t := time.UnixMilli(p.CompletedAtMs)
+		e.CompletedAt = &t
+	}
+
+	// Outputs
+	e.Outputs = make(map[string]map[string]any)
+	for k, v := range p.Outputs {
+		var output map[string]any
+		if err := json.Unmarshal(v, &output); err == nil {
+			e.Outputs[k] = output
+		}
+	}
+
+	// DAG state
+	e.ActiveStages = p.ActiveStages
+	e.CompletedStageSet = p.CompletedStageSet
+	e.FailedStages = p.FailedStages
+
+	// Goal completion status
+	e.GoalCompletionStatus = p.GoalCompletionStatus
+
+	// Metadata
+	e.Metadata = make(map[string]any)
+	for k, v := range p.MetadataStr {
+		e.Metadata[k] = v
+	}
+
+	// Interrupt
+	if p.Interrupt != nil {
+		e.Interrupt = protoToFlowInterrupt(p.Interrupt)
+	}
+
+	return e
+}
+
+func flowInterruptToProto(i *envelope.FlowInterrupt) *pb.FlowInterrupt {
+	proto := &pb.FlowInterrupt{
+		Kind:        interruptKindToProto(i.Kind),
+		InterruptId: i.ID,
+		Question:    i.Question,
+		Message:     i.Message,
+		CreatedAtMs: i.CreatedAt.UnixMilli(),
+	}
+
+	if i.Data != nil {
+		if data, err := json.Marshal(i.Data); err == nil {
+			proto.Data = data
+		}
+	}
+
+	if i.Response != nil {
+		proto.Response = &pb.InterruptResponse{
+			ResolvedAtMs: i.Response.ReceivedAt.UnixMilli(),
+		}
+		if i.Response.Text != nil {
+			proto.Response.Text = *i.Response.Text
+		}
+		if i.Response.Approved != nil {
+			proto.Response.Approved = *i.Response.Approved
+		}
+		if i.Response.Decision != nil {
+			proto.Response.Decision = *i.Response.Decision
+		}
+		if i.Response.Data != nil {
+			if data, err := json.Marshal(i.Response.Data); err == nil {
+				proto.Response.Data = data
+			}
+		}
+	}
+
+	return proto
+}
+
+func protoToFlowInterrupt(p *pb.FlowInterrupt) *envelope.FlowInterrupt {
+	i := &envelope.FlowInterrupt{
+		Kind:      protoToInterruptKind(p.Kind),
+		ID:        p.InterruptId,
+		Question:  p.Question,
+		Message:   p.Message,
+		CreatedAt: time.UnixMilli(p.CreatedAtMs),
+	}
+
+	if len(p.Data) > 0 {
+		var data map[string]any
+		if err := json.Unmarshal(p.Data, &data); err == nil {
+			i.Data = data
+		}
+	}
+
+	if p.Response != nil {
+		i.Response = &envelope.InterruptResponse{
+			ReceivedAt: time.UnixMilli(p.Response.ResolvedAtMs),
+		}
+		if p.Response.Text != "" {
+			i.Response.Text = &p.Response.Text
+		}
+		if p.Response.Approved {
+			i.Response.Approved = &p.Response.Approved
+		}
+		if p.Response.Decision != "" {
+			i.Response.Decision = &p.Response.Decision
+		}
+		if len(p.Response.Data) > 0 {
+			var data map[string]any
+			if err := json.Unmarshal(p.Response.Data, &data); err == nil {
+				i.Response.Data = data
+			}
+		}
+	}
+
+	return i
+}
+
+func terminalReasonToProto(r envelope.TerminalReason) pb.TerminalReason {
+	switch r {
+	case envelope.TerminalReasonMaxIterationsExceeded:
+		return pb.TerminalReason_MAX_ITERATIONS_EXCEEDED
+	case envelope.TerminalReasonMaxLLMCallsExceeded:
+		return pb.TerminalReason_MAX_LLM_CALLS_EXCEEDED
+	case envelope.TerminalReasonMaxAgentHopsExceeded:
+		return pb.TerminalReason_MAX_AGENT_HOPS_EXCEEDED
+	case envelope.TerminalReasonUserCancelled:
+		return pb.TerminalReason_USER_CANCELLED
+	case envelope.TerminalReasonToolFailedFatally:
+		return pb.TerminalReason_TOOL_FAILED_FATALLY
+	case envelope.TerminalReasonLLMFailedFatally:
+		return pb.TerminalReason_LLM_FAILED_FATALLY
+	case envelope.TerminalReasonCompleted:
+		return pb.TerminalReason_COMPLETED
+	default:
+		return pb.TerminalReason_TERMINAL_REASON_UNSPECIFIED
+	}
+}
+
+func protoToTerminalReason(r pb.TerminalReason) envelope.TerminalReason {
+	switch r {
+	case pb.TerminalReason_MAX_ITERATIONS_EXCEEDED:
+		return envelope.TerminalReasonMaxIterationsExceeded
+	case pb.TerminalReason_MAX_LLM_CALLS_EXCEEDED:
+		return envelope.TerminalReasonMaxLLMCallsExceeded
+	case pb.TerminalReason_MAX_AGENT_HOPS_EXCEEDED:
+		return envelope.TerminalReasonMaxAgentHopsExceeded
+	case pb.TerminalReason_USER_CANCELLED:
+		return envelope.TerminalReasonUserCancelled
+	case pb.TerminalReason_TOOL_FAILED_FATALLY:
+		return envelope.TerminalReasonToolFailedFatally
+	case pb.TerminalReason_LLM_FAILED_FATALLY:
+		return envelope.TerminalReasonLLMFailedFatally
+	case pb.TerminalReason_COMPLETED:
+		return envelope.TerminalReasonCompleted
+	default:
+		return envelope.TerminalReasonCompleted
+	}
+}
+
+func interruptKindToProto(k envelope.InterruptKind) pb.InterruptKind {
+	switch k {
+	case envelope.InterruptKindClarification:
+		return pb.InterruptKind_CLARIFICATION
+	case envelope.InterruptKindConfirmation:
+		return pb.InterruptKind_CONFIRMATION
+	case envelope.InterruptKindCheckpoint:
+		return pb.InterruptKind_CHECKPOINT
+	case envelope.InterruptKindResourceExhausted:
+		return pb.InterruptKind_RESOURCE_EXHAUSTED
+	case envelope.InterruptKindTimeout:
+		return pb.InterruptKind_TIMEOUT
+	case envelope.InterruptKindSystemError:
+		return pb.InterruptKind_SYSTEM_ERROR
+	case envelope.InterruptKindCriticReview:
+		return pb.InterruptKind_CRITIC_REVIEW
+	default:
+		return pb.InterruptKind_INTERRUPT_KIND_UNSPECIFIED
+	}
+}
+
+func protoToInterruptKind(k pb.InterruptKind) envelope.InterruptKind {
+	switch k {
+	case pb.InterruptKind_CLARIFICATION:
+		return envelope.InterruptKindClarification
+	case pb.InterruptKind_CONFIRMATION:
+		return envelope.InterruptKindConfirmation
+	case pb.InterruptKind_CHECKPOINT:
+		return envelope.InterruptKindCheckpoint
+	case pb.InterruptKind_RESOURCE_EXHAUSTED:
+		return envelope.InterruptKindResourceExhausted
+	case pb.InterruptKind_TIMEOUT:
+		return envelope.InterruptKindTimeout
+	case pb.InterruptKind_SYSTEM_ERROR:
+		return envelope.InterruptKindSystemError
+	case pb.InterruptKind_CRITIC_REVIEW:
+		return envelope.InterruptKindCriticReview
+	default:
+		return envelope.InterruptKindClarification
+	}
+}
+
+// =============================================================================
+// Server Lifecycle
+// =============================================================================
+
+// Start starts the gRPC server on the given address.
+func Start(address string, server *JeevesCoreServer) error {
+	lis, err := net.Listen("tcp", address)
+	if err != nil {
+		return fmt.Errorf("failed to listen: %w", err)
+	}
+
+	grpcServer := grpc.NewServer()
+	pb.RegisterJeevesCoreServiceServer(grpcServer, server)
+
+	server.logger.Info("grpc_server_started", "address", address)
+	return grpcServer.Serve(lis)
+}
+
+// StartBackground starts the gRPC server in a goroutine.
+func StartBackground(address string, server *JeevesCoreServer) (*grpc.Server, error) {
+	lis, err := net.Listen("tcp", address)
+	if err != nil {
+		return nil, fmt.Errorf("failed to listen: %w", err)
+	}
+
+	grpcServer := grpc.NewServer()
+	pb.RegisterJeevesCoreServiceServer(grpcServer, server)
+
+	go func() {
+		if err := grpcServer.Serve(lis); err != nil {
+			server.logger.Error("grpc_server_error", "error", err.Error())
+		}
+	}()
+
+	server.logger.Info("grpc_server_started_background", "address", address)
+	return grpcServer, nil
+}
+

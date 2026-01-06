@@ -14,10 +14,9 @@ from datetime import datetime, timezone
 from typing import Any, AsyncIterator, Dict, Optional, TYPE_CHECKING
 from uuid import uuid4
 
-from jeeves_avionics.database.client import DatabaseClientProtocol
-from jeeves_avionics.logging import get_current_logger
+from jeeves_protocols import DatabaseClientProtocol, LoggerProtocol
+from jeeves_mission_system.adapters import get_logger
 from jeeves_shared.serialization import datetime_to_ms
-from jeeves_protocols import LoggerProtocol
 
 if TYPE_CHECKING:
     pass
@@ -70,7 +69,7 @@ if _GRPC_AVAILABLE:
                 code_analysis_servicer: CodeAnalysisServicer instance
                 logger: Optional logger instance
             """
-            self._logger = logger or get_current_logger()
+            self._logger = logger or get_logger()
             self.db = db
             self.code_analysis_servicer = code_analysis_servicer
 

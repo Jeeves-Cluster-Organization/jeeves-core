@@ -375,6 +375,7 @@ test-comprehensive-cov:
 		--cov=jeeves_memory_module \
 		--cov=jeeves_avionics \
 		--cov=jeeves_mission_system \
+		--cov=jeeves_shared \
 		--cov-report=html \
 		--cov-report=term
 	@echo ""

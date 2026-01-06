@@ -1,7 +1,7 @@
 # Jeeves Mission System Constitution
 
 **Parent:** [Avionics Constitution](../jeeves_avionics/CONSTITUTION.md)
-**Updated:** 2025-12-16
+**Updated:** 2026-01-06
 
 ---
 
@@ -494,8 +494,9 @@ def test_import_boundaries():
    - `AgentConfig`, `PipelineConfig`, `RoutingRule`, `ToolAccess`
    - `UnifiedAgent`, `UnifiedRuntime`, `create_runtime_from_config`
    - `GenericEnvelope`, `ProcessingRecord`, `create_generic_envelope`
-   - All protocols from core engine and commbus
+   - All protocols from jeeves_protocols (LoggerProtocol, ToolExecutorProtocol, etc.)
    - `AgentProfile`, `LLMProfile`, `ThresholdProfile` (generic per-agent config)
+   - **NOTE:** `ToolId` and `ToolCatalog` are NOT exported - these are capability-owned
 
 2. **config/** — Generic config mechanisms
    - `ConfigRegistry`, `ConfigKeys` — Config injection pattern

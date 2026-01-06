@@ -1,0 +1,208 @@
+// Jeeves Core gRPC Service - Python <-> Go runtime bridge
+//
+// This is the primary IPC mechanism between Python orchestration
+// and Go execution engine. Replaces subprocess-based JSON IPC.
+//
+// Compile Go:
+//   protoc --go_out=. --go-grpc_out=. coreengine/proto/jeeves_core.proto
+//
+// Compile Python:
+//   python -m grpc_tools.protoc -I. --python_out=. --grpc_python_out=. coreengine/proto/jeeves_core.proto
+
+syntax = "proto3";
+
+package jeeves.core.v1;
+
+option go_package = "github.com/jeeves-cluster-organization/codeanalysis/coreengine/proto";
+
+// =============================================================================
+// JeevesCoreService - Go runtime operations
+// =============================================================================
+service JeevesCoreService {
+    // Envelope lifecycle
+    rpc CreateEnvelope(CreateEnvelopeRequest) returns (Envelope);
+    rpc UpdateEnvelope(UpdateEnvelopeRequest) returns (Envelope);
+    
+    // Bounds checking (Go is authoritative)
+    rpc CheckBounds(Envelope) returns (BoundsResult);
+    
+    // Execution
+    rpc ExecutePipeline(ExecuteRequest) returns (stream ExecutionEvent);
+    rpc ExecuteAgent(ExecuteAgentRequest) returns (AgentResult);
+    
+    // State management
+    rpc CloneEnvelope(CloneRequest) returns (Envelope);
+}
+
+// =============================================================================
+// Envelope Messages
+// =============================================================================
+
+message CreateEnvelopeRequest {
+    string raw_input = 1;
+    string user_id = 2;
+    string session_id = 3;
+    string request_id = 4;              // Optional, generated if empty
+    map<string, string> metadata = 5;
+    repeated string stage_order = 6;
+}
+
+message UpdateEnvelopeRequest {
+    Envelope envelope = 1;
+}
+
+message CloneRequest {
+    Envelope envelope = 1;
+}
+
+message Envelope {
+    // Identification
+    string envelope_id = 1;
+    string request_id = 2;
+    string user_id = 3;
+    string session_id = 4;
+    
+    // Input
+    string raw_input = 5;
+    int64 received_at_ms = 6;
+    
+    // Pipeline state
+    string current_stage = 7;
+    repeated string stage_order = 8;
+    int32 iteration = 9;
+    int32 max_iterations = 10;
+    
+    // Bounds
+    int32 llm_call_count = 11;
+    int32 max_llm_calls = 12;
+    int32 agent_hop_count = 13;
+    int32 max_agent_hops = 14;
+    
+    // Termination
+    bool terminated = 15;
+    string termination_reason = 16;
+    TerminalReason terminal_reason = 17;
+    int64 completed_at_ms = 18;
+    
+    // Interrupt
+    bool interrupt_pending = 19;
+    FlowInterrupt interrupt = 20;
+    
+    // Outputs (JSON-encoded per-agent outputs)
+    map<string, bytes> outputs = 21;
+    
+    // DAG state
+    map<string, bool> active_stages = 22;
+    map<string, bool> completed_stage_set = 23;
+    map<string, string> failed_stages = 24;
+    
+    // Multi-stage
+    int32 current_stage_number = 25;
+    int32 max_stages = 26;
+    
+    // Goals
+    repeated string all_goals = 27;
+    repeated string remaining_goals = 28;
+    map<string, string> goal_completion_status = 29;
+    
+    // Metadata
+    map<string, string> metadata_str = 30;
+    int64 created_at_ms = 31;
+}
+
+enum TerminalReason {
+    TERMINAL_REASON_UNSPECIFIED = 0;
+    MAX_ITERATIONS_EXCEEDED = 1;
+    MAX_LLM_CALLS_EXCEEDED = 2;
+    MAX_AGENT_HOPS_EXCEEDED = 3;
+    USER_CANCELLED = 4;
+    TOOL_FAILED_FATALLY = 5;
+    LLM_FAILED_FATALLY = 6;
+    COMPLETED = 7;
+}
+
+message FlowInterrupt {
+    InterruptKind kind = 1;
+    string interrupt_id = 2;
+    string question = 3;
+    string message = 4;
+    bytes data = 5;                     // JSON-encoded additional data
+    InterruptResponse response = 6;
+    int64 created_at_ms = 7;
+}
+
+enum InterruptKind {
+    INTERRUPT_KIND_UNSPECIFIED = 0;
+    CLARIFICATION = 1;
+    CONFIRMATION = 2;
+    CHECKPOINT = 3;
+    RESOURCE_EXHAUSTED = 4;
+    TIMEOUT = 5;
+    SYSTEM_ERROR = 6;
+    CRITIC_REVIEW = 7;
+}
+
+message InterruptResponse {
+    string text = 1;
+    bool approved = 2;
+    string decision = 3;
+    bytes data = 4;                     // JSON-encoded response data
+    int64 resolved_at_ms = 5;
+}
+
+// =============================================================================
+// Bounds Messages
+// =============================================================================
+
+message BoundsResult {
+    bool can_continue = 1;
+    TerminalReason terminal_reason = 2;
+    int32 llm_calls_remaining = 3;
+    int32 agent_hops_remaining = 4;
+    int32 iterations_remaining = 5;
+}
+
+// =============================================================================
+// Execution Messages
+// =============================================================================
+
+message ExecuteRequest {
+    Envelope envelope = 1;
+    string thread_id = 2;
+    bytes pipeline_config = 3;          // JSON-encoded PipelineConfig
+}
+
+message ExecuteAgentRequest {
+    Envelope envelope = 1;
+    string agent_name = 2;
+    bytes agent_config = 3;             // JSON-encoded AgentConfig
+}
+
+message ExecutionEvent {
+    ExecutionEventType type = 1;
+    string stage = 2;
+    int64 timestamp_ms = 3;
+    bytes payload = 4;                  // JSON-encoded event data
+    Envelope envelope = 5;              // Updated envelope after event
+}
+
+enum ExecutionEventType {
+    EXECUTION_EVENT_TYPE_UNSPECIFIED = 0;
+    STAGE_STARTED = 1;
+    STAGE_COMPLETED = 2;
+    STAGE_FAILED = 3;
+    PIPELINE_COMPLETED = 4;
+    INTERRUPT_RAISED = 5;
+    CHECKPOINT_CREATED = 6;
+    BOUNDS_EXCEEDED = 7;
+}
+
+message AgentResult {
+    bool success = 1;
+    bytes output = 2;                   // JSON-encoded output
+    string error = 3;
+    int32 duration_ms = 4;
+    int32 llm_calls = 5;
+    Envelope envelope = 6;              // Updated envelope
+}
+

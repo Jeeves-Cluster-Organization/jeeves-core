@@ -1,7 +1,7 @@
 # Jeeves Core Runtime Contract
 
-**Version:** 1.2
-**Last Updated:** 2025-12-16
+**Version:** 1.3
+**Last Updated:** 2026-01-06
 
 This document serves as the **Source of Truth** for capabilities built on top of `jeeves-core`. Capabilities should reference this contract rather than inspecting core internals.
 
@@ -140,9 +140,12 @@ from jeeves_shared import (
 # From jeeves_mission_system (L2) - Framework APIs
 from jeeves_mission_system.contracts import (
     LoggerProtocol, ContextBounds, WorkingMemory,
-    tool_catalog, ToolId, get_config_registry, ConfigKeys,
+    get_config_registry, ConfigKeys,
     StandardToolResult, ToolErrorDetails,
 )
+
+# NOTE: ToolId is CAPABILITY-OWNED - import from your capability's tools/catalog.py
+# from my_capability.tools.catalog import ToolId  # Capability-owned enum
 
 from jeeves_mission_system.adapters import (
     get_logger, get_settings, get_feature_flags,
@@ -314,11 +317,26 @@ async def bootstrap():
 
 ### Tool Registration
 
+Capabilities define their own `ToolCatalog` and `ToolId` enum. The avionics layer provides
+generic `ToolExecutor` that works with string tool names.
+
 ```python
-from jeeves_mission_system.contracts import tool_catalog
+# In your capability's tools/catalog.py
+from enum import Enum
 from jeeves_protocols import ToolCategory, RiskLevel
 
-@tool_catalog.register(
+class ToolId(str, Enum):
+    """Capability-owned tool identifiers."""
+    LOCATE = "locate"
+    READ_CODE = "read_code"
+    # ... your tools
+
+# Tool registration - capability owns the catalog
+from my_capability.tools.catalog import ToolCatalog
+
+catalog = ToolCatalog.get_instance()
+
+@catalog.register(
     tool_id="my_capability.my_tool",  # Namespaced ID
     description="What this tool does",
     parameters={
@@ -336,6 +354,10 @@ async def my_tool(param1: str, param2: int = None) -> dict:
         "citations": [...]  # If applicable
     }
 ```
+
+**Key Architecture Decision:** `ToolId` enums are CAPABILITY-OWNED, not defined in
+avionics or mission_system. This allows each capability to define its own tool set
+without modifying core layers.
 
 ### Tool Categories
 
@@ -776,6 +798,7 @@ COPY jeeves-core/jeeves_mission_system/ ./jeeves_mission_system/
 
 | Version | Date | Changes |
 |---------|------|---------|
+| 1.3 | 2026-01-06 | ToolId is now CAPABILITY-OWNED; removed ToolId/ToolCatalog from contracts_core exports |
 | 1.2 | 2025-12-16 | Updated adapters exports (removed deprecated factory), added doc references |
 | 1.1 | 2025-12-13 | Added Docker configuration section |
 | 1.0 | 2025-12-13 | Initial contract document |

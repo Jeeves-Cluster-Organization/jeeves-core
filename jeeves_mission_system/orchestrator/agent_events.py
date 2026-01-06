@@ -130,8 +130,8 @@ class AgentEventEmitter:
         if not self._closed:
             await self._queue.put(event)
             # Diagnostic: log queue state after emit
-            from jeeves_avionics.logging import get_current_logger
-            logger = get_current_logger()
+            from jeeves_mission_system.adapters import get_logger
+            logger = get_logger()
             logger.debug(
                 "agent_event_emitter_queued",
                 event_type=event.event_type.value,

@@ -104,18 +104,14 @@ from jeeves_mission_system.config.agent_profiles import (
     get_latency_budget,
 )
 
-# Tool catalog types
-from jeeves_avionics.tools.catalog import (
-    ToolId,
-    ToolCategory,
-    ToolCatalogEntry,
-    ToolDefinition,
-    ToolCatalog,
-    tool_catalog,
-    EXPOSED_TOOL_IDS,
-    resolve_tool_id,
-    is_exposed_tool,
-)
+# NOTE: Tool catalog types (ToolId, ToolCatalog, etc.) are OWNED BY CAPABILITIES
+# NOT re-exported here. Capability layers should import from their own tools/catalog.py.
+# See: jeeves-capability-code-analyser/tools/catalog.py for code_analysis capability.
+# ToolCategory and RiskLevel come from jeeves_protocols.
+
+# ToolCategory from jeeves_protocols (canonical location)
+from jeeves_protocols import ToolCategory
+
 # NOTE: AgentContext removed in v4.0 - context flows through GenericEnvelope
 
 __all__ = [
@@ -188,15 +184,9 @@ __all__ = [
     "get_thresholds",
     "get_latency_budget",
 
-    # ─── Tool Catalog ───
-    "ToolId",
-    "ToolCategory",
-    "ToolCatalogEntry",
-    "ToolDefinition",
-    "ToolCatalog",
-    "tool_catalog",
-    "EXPOSED_TOOL_IDS",
-    "resolve_tool_id",
-    "is_exposed_tool",
+    # ─── Tool Types (from jeeves_protocols) ───
+    # NOTE: ToolId, ToolCatalog, etc. are CAPABILITY-OWNED (not re-exported here)
+    # Capabilities import from their own tools/catalog.py
+    "ToolCategory",  # From jeeves_protocols
 
 ]

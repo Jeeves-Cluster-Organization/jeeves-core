@@ -22,7 +22,7 @@ from typing import List, Optional
 
 import grpc
 
-from jeeves_avionics.logging import get_current_logger
+from jeeves_mission_system.adapters import get_logger
 from jeeves_shared.serialization import datetime_to_ms
 from jeeves_protocols import LoggerProtocol, get_capability_resource_registry
 
@@ -118,7 +118,7 @@ class GovernanceServicer(jeeves_pb2_grpc.GovernanceServiceServicer):
     """gRPC implementation of GovernanceService."""
 
     def __init__(self, tool_health_service, db=None, logger: Optional[LoggerProtocol] = None):
-        self._logger = logger or get_current_logger()
+        self._logger = logger or get_logger()
         self.tool_health_service = tool_health_service
         self.db = db  # Database client for layer status checks
 

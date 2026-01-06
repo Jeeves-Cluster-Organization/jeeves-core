@@ -642,3 +642,129 @@ func TestTerminalReasonValues(t *testing.T) {
 	assert.Equal(t, TerminalReason("max_iterations_exceeded"), TerminalReasonMaxIterationsExceeded)
 	assert.Equal(t, TerminalReason("max_llm_calls_exceeded"), TerminalReasonMaxLLMCallsExceeded)
 }
+
+// =============================================================================
+// CLONE TESTS
+// =============================================================================
+
+func TestCloneBasic(t *testing.T) {
+	// Test basic clone creates independent copy.
+	original := CreateGenericEnvelope("Test", "user-1", "sess-1", nil, nil, nil)
+	original.Outputs["test"] = map[string]any{"key": "value"}
+	original.Iteration = 5
+
+	clone := original.Clone()
+
+	// Verify values copied
+	assert.Equal(t, original.EnvelopeID, clone.EnvelopeID)
+	assert.Equal(t, original.Iteration, clone.Iteration)
+	assert.Equal(t, "value", clone.Outputs["test"]["key"])
+
+	// Verify independence - modify clone
+	clone.Outputs["test"]["key"] = "modified"
+	clone.Iteration = 10
+
+	// Original unchanged
+	assert.Equal(t, "value", original.Outputs["test"]["key"])
+	assert.Equal(t, 5, original.Iteration)
+}
+
+func TestCloneDeepCopyOutputs(t *testing.T) {
+	// Test that nested outputs are deeply copied.
+	original := CreateGenericEnvelope("Test", "user-1", "sess-1", nil, nil, nil)
+	original.Outputs["nested"] = map[string]any{
+		"level1": map[string]any{
+			"level2": "deep",
+		},
+	}
+
+	clone := original.Clone()
+
+	// Modify clone's nested data
+	if level1, ok := clone.Outputs["nested"]["level1"].(map[string]any); ok {
+		level1["level2"] = "changed"
+	}
+
+	// Original should be unchanged
+	if level1, ok := original.Outputs["nested"]["level1"].(map[string]any); ok {
+		assert.Equal(t, "deep", level1["level2"])
+	}
+}
+
+func TestCloneWithInterrupt(t *testing.T) {
+	// Test cloning envelope with interrupt.
+	original := CreateGenericEnvelope("Test", "user-1", "sess-1", nil, nil, nil)
+	original.SetInterrupt(InterruptKindClarification, "int-1", WithQuestion("What file?"))
+
+	clone := original.Clone()
+
+	// Verify interrupt copied
+	require.NotNil(t, clone.Interrupt)
+	assert.Equal(t, InterruptKindClarification, clone.Interrupt.Kind)
+	assert.Equal(t, "What file?", clone.Interrupt.Question)
+
+	// Modify clone's interrupt
+	clone.Interrupt.Question = "Modified?"
+
+	// Original unchanged
+	assert.Equal(t, "What file?", original.Interrupt.Question)
+}
+
+func TestCloneWithDAGState(t *testing.T) {
+	// Test cloning envelope with DAG state.
+	original := CreateGenericEnvelope("Test", "user-1", "sess-1", nil, nil, nil)
+	original.DAGMode = true
+	original.ActiveStages["stage1"] = true
+	original.CompletedStageSet["stage0"] = true
+	original.FailedStages["stage2"] = "error"
+
+	clone := original.Clone()
+
+	// Verify DAG state copied
+	assert.True(t, clone.DAGMode)
+	assert.True(t, clone.ActiveStages["stage1"])
+	assert.True(t, clone.CompletedStageSet["stage0"])
+	assert.Equal(t, "error", clone.FailedStages["stage2"])
+
+	// Modify clone's DAG state
+	clone.ActiveStages["stage1"] = false
+	clone.CompletedStageSet["new"] = true
+
+	// Original unchanged
+	assert.True(t, original.ActiveStages["stage1"])
+	assert.False(t, original.CompletedStageSet["new"])
+}
+
+func TestCloneWithProcessingHistory(t *testing.T) {
+	// Test cloning envelope with processing history.
+	original := CreateGenericEnvelope("Test", "user-1", "sess-1", nil, nil, nil)
+	original.RecordAgentStart("agent1", 1)
+	original.RecordAgentComplete("agent1", "success", nil, 2, 100)
+
+	clone := original.Clone()
+
+	// Verify history copied
+	require.Len(t, clone.ProcessingHistory, 1)
+	assert.Equal(t, "agent1", clone.ProcessingHistory[0].Agent)
+	assert.Equal(t, "success", clone.ProcessingHistory[0].Status)
+
+	// Modify clone's history
+	clone.ProcessingHistory[0].Status = "modified"
+
+	// Original unchanged
+	assert.Equal(t, "success", original.ProcessingHistory[0].Status)
+}
+
+func TestCloneNilFields(t *testing.T) {
+	// Test cloning envelope with nil optional fields.
+	original := CreateGenericEnvelope("Test", "user-1", "sess-1", nil, nil, nil)
+	// Leave optional fields nil
+
+	clone := original.Clone()
+
+	// Should not panic, nil fields should remain nil
+	assert.Nil(t, clone.Interrupt)
+	assert.Nil(t, clone.TerminalReason_)
+	assert.Nil(t, clone.TerminationReason)
+	assert.Nil(t, clone.CompletedAt)
+}

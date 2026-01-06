@@ -352,26 +352,12 @@ class UnifiedRuntime:
 
     agents: Dict[str, UnifiedAgent] = field(default_factory=dict)
     event_context: Optional[EventContext] = None
-    _go_client: Optional[Any] = field(default=None)
     _initialized: bool = field(default=False)
 
     def __post_init__(self):
         if not self._initialized:
             self._build_agents()
-            self._init_go_client()
             self._initialized = True
-
-    def _init_go_client(self):
-        """Initialize Go client if available."""
-        try:
-            from jeeves_protocols.client import GoClient
-            client = GoClient()
-            if client.is_available():
-                self._go_client = client
-                if self.logger:
-                    self.logger.info("go_client_initialized")
-        except Exception:
-            self._go_client = None
 
     def _build_agents(self):
         """Build agents from pipeline config."""
@@ -532,16 +518,7 @@ class UnifiedRuntime:
         return await self.persistence.load_state(thread_id)
 
     def _can_continue(self, envelope: GenericEnvelope) -> bool:
-        """Check bounds - use Go if available."""
-        if self._go_client:
-            try:
-                result = self._go_client.can_continue(envelope)
-                if not result.can_continue:
-                    envelope.terminal_reason = result.terminal_reason
-                return result.can_continue
-            except Exception:
-                pass
-
+        """Check bounds."""
         if envelope.iteration >= envelope.max_iterations:
             envelope.terminal_reason = "max_iterations_exceeded"
             return False
@@ -589,21 +566,7 @@ def create_generic_envelope(
     request_id: str = "",
     metadata: Optional[Dict[str, Any]] = None,
 ) -> GenericEnvelope:
-    """Factory to create GenericEnvelope - uses Go if available."""
-    try:
-        from jeeves_protocols.client import GoClient
-        client = GoClient()
-        if client.is_available():
-            return client.create(
-                raw_input=raw_input,
-                user_id=user_id,
-                session_id=session_id,
-                request_id=request_id if request_id else None,
-                metadata=metadata,
-            )
-    except Exception:
-        pass
-
+    """Factory to create GenericEnvelope."""
     import uuid
     from jeeves_shared.serialization import utc_now
 

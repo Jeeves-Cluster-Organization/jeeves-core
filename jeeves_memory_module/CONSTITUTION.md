@@ -1,6 +1,6 @@
 # Jeeves Memory Module Constitution
 
-**Updated:** 2025-12-16
+**Updated:** 2026-01-06
 
 ---
 

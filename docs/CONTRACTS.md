@@ -1,7 +1,7 @@
 # Jeeves-Core Architectural Contracts
 
-**Last Updated:** 2025-12-16
-**Version:** 1.0.0
+**Last Updated:** 2026-01-06
+**Version:** 1.1.0
 
 This document defines the architectural contracts that govern the Jeeves-Core codebase. These contracts ensure consistency, maintainability, and proper separation of concerns.
 
@@ -254,7 +254,196 @@ def some_function(logger: Optional[LoggerProtocol] = None):
 
 ---
 
+---
+
+## Contract 10: Capability-Owned ToolId
+
+### Rule
+`ToolId` enums MUST be defined in the capability layer, NOT in avionics or mission_system.
+
+### Rationale
+- Prevents layer violations (L5 importing L2 for tool identifiers)
+- Allows capabilities to define their own tool sets independently
+- Maintains clean dependency direction (outer layers depend on inner, not vice versa)
+
+### Implementation
+```python
+# ✅ CORRECT - ToolId in capability layer
+# my_capability/tools/catalog.py
+class ToolId(str, Enum):
+    LOCATE = "locate"
+    READ_CODE = "read_code"
+
+# ❌ INCORRECT - ToolId in avionics (removed)
+# from jeeves_avionics.tools.catalog import ToolId  # NO LONGER EXISTS
+
+# ❌ INCORRECT - ToolId re-exported from contracts_core
+# from jeeves_mission_system.contracts_core import ToolId  # REMOVED
+```
+
+### Affected Components
+- `jeeves_avionics.tools.catalog` - Still provides generic ToolCategory, ToolDefinition
+- `jeeves_mission_system.contracts_core` - No longer exports ToolId, ToolCatalog
+- Capability `tools/catalog.py` - Defines capability-specific ToolId enum
+
+---
+
+## Contract 11: Envelope Sync (Go ↔ Python)
+
+### Rule
+The Go and Python `GenericEnvelope` implementations MUST produce identical serialization, verified by round-trip contract tests.
+
+### Rationale
+- Envelope flows: Go → Python → Go during request lifecycle
+- Any field mismatch causes silent data loss or runtime errors
+- Go has 983-line implementation with typed `FlowInterrupt`
+- Python has 268-line implementation with `Dict[str, Any]` interrupt
+
+### Enforcement
+```python
+# tests/contracts/test_envelope_roundtrip.py
+
+def test_envelope_roundtrip_all_fields():
+    """Go → Python → Go must be lossless."""
+    grpc = GrpcGoClient()
+    original = grpc.create_envelope(
+        raw_input="test",
+        user_id="u1",
+        session_id="s1",
+    )
+    
+    # Mutate envelope with all field types
+    original.set_interrupt(InterruptKind.CLARIFICATION, "q1")
+    original.set_output("perception", {"normalized": "..."})
+    original.initialize_goals(["goal1", "goal2"])
+    
+    # Round-trip
+    py_dict = original.to_state_dict()
+    py_envelope = GenericEnvelope.from_dict(py_dict)
+    go_dict = py_envelope.to_dict()
+    
+    # Compare
+    assert_dicts_equal(py_dict, go_dict, ignore_timestamps=True)
+
+def test_flow_interrupt_typing():
+    """FlowInterrupt must serialize identically."""
+    # Go: typed FlowInterrupt struct
+    # Python: must match exactly (not Dict[str, Any])
+    ...
+```
+
+### Affected Components
+- `coreengine/envelope/generic.go` - Go envelope
+- `jeeves_protocols/envelope.py` - Python envelope
+- `jeeves_protocols/grpc_client.py` - gRPC client (to be implemented)
+
+---
+
+## Contract 12: Bounds Authority Split
+
+### Rule
+Bounds enforcement follows defense-in-depth:
+- **Go Runtime**: In-loop enforcement via `env.CanContinue()` (authoritative during execution)
+- **Python ControlTower**: Post-hoc audit via `ResourceTracker.check_quota()` (catches discrepancies)
+
+### Rationale
+Go is the execution engine; it must enforce bounds before each agent. Python is the lifecycle manager; it validates final state and handles failures.
+
+### Invariant
+```python
+# After every request completion:
+assert envelope.llm_call_count == resource_tracker.get_usage(pid).llm_calls
+assert envelope.agent_hop_count == resource_tracker.get_usage(pid).agent_hops
+```
+
+### Implementation
+```go
+// Go: in-loop check (coreengine/envelope/generic.go)
+func (e *GenericEnvelope) CanContinue() bool {
+    if e.LLMCallCount >= e.MaxLLMCalls { return false }
+    if e.AgentHopCount >= e.MaxAgentHops { return false }
+    // ...
+}
+```
+
+```python
+# Python: post-hoc audit (jeeves_control_tower/kernel.py)
+quota_exceeded = self._resources.check_quota(pid)
+if quota_exceeded:
+    # This should NEVER happen if Go enforced correctly
+    logger.error("bounds_discrepancy", go_count=env.llm_call_count, ...)
+```
+
+---
+
+## Contract 13: Core Doesn't Reject Cycles
+
+### Rule
+Core does NOT validate or reject cycles. Capability layer defines the graph via routing rules.
+If capability defines cycles, they MUST be bounded by:
+1. **Global iteration limit** (`MaxIterations`) - hard cap on pipeline loops
+2. **Per-edge limits** (`EdgeLimits`) - capability-defined per-transition limits
+
+### Rationale
+```
+Capability defines:  Critic -> [reintent] -> Intent   (cycle exists)
+       or:           Critic -> end                     (no cycle)
+```
+
+Core's job: Execute the graph. Enforce bounds. Not judge the graph structure.
+
+### Configuration
+```go
+cfg := &PipelineConfig{
+    MaxIterations: 5,  // Global cap
+    EdgeLimits: []EdgeLimit{
+        {From: "critic", To: "intent", MaxCount: 3},  // Max 3 REINTENT loops
+    },
+}
+```
+
+### Invariants
+
+**C13.1: Edge limits enforced at runtime**
+```go
+if edgeCounts[edge] >= edgeLimit {
+    route to "end" instead of cycle
+}
+```
+
+**C13.2: Global limit is hard cap**
+```go
+if env.Iteration > p.MaxIterations {
+    terminate
+}
+```
+
+**C13.3: Checkpoints before cycles**
+```go
+if isCycleEdge(from, to) {
+    checkpoint(from, env)
+}
+```
+
+### Affected Components
+- `coreengine/config/pipeline.go` - EdgeLimit type
+- `coreengine/runtime/state_machine_executor.go` - Cycle handling
+- Capability layer - Defines EdgeLimits for workflows
+
+---
+
 ## Changelog
+
+### 2026-01-06 - v1.2.0 (Hardening Review)
+- Added Contract 11: Envelope Sync (Go <-> Python round-trip tests)
+- Added Contract 12: Bounds Authority Split (Go in-loop, Python post-hoc)
+- Added Contract 13: Intentional Cycles (REINTENT Architecture)
+- Added CyclePolicy and EdgeLimit to pipeline config
+- Documented enforcement mechanisms and invariants
+
+### 2026-01-06 - v1.1.0
+- Added Contract 10: Capability-Owned ToolId
+- ToolId/ToolCatalog removed from avionics and contracts_core exports
 
 ### 2025-12-16 - v1.0.0
 - Initial contracts document created

@@ -453,6 +453,232 @@ func (e *GenericEnvelope) Terminate(reason string, terminalReason *TerminalReaso
 }
 
 // =============================================================================
+// Clone - Deep Copy for State Rollback
+// =============================================================================
+
+// Clone creates a deep copy of the envelope for checkpointing.
+func (e *GenericEnvelope) Clone() *GenericEnvelope {
+	clone := &GenericEnvelope{
+		// Identification (copy by value)
+		EnvelopeID: e.EnvelopeID,
+		RequestID:  e.RequestID,
+		UserID:     e.UserID,
+		SessionID:  e.SessionID,
+
+		// Input
+		RawInput:   e.RawInput,
+		ReceivedAt: e.ReceivedAt,
+
+		// Pipeline state
+		CurrentStage:  e.CurrentStage,
+		Iteration:     e.Iteration,
+		MaxIterations: e.MaxIterations,
+
+		// Bounds
+		LLMCallCount:  e.LLMCallCount,
+		MaxLLMCalls:   e.MaxLLMCalls,
+		AgentHopCount: e.AgentHopCount,
+		MaxAgentHops:  e.MaxAgentHops,
+
+		// Control flow
+		Terminated:       e.Terminated,
+		InterruptPending: e.InterruptPending,
+		DAGMode:          e.DAGMode,
+
+		// Multi-stage
+		CurrentStageNumber: e.CurrentStageNumber,
+		MaxStages:          e.MaxStages,
+
+		// Timing
+		CreatedAt: e.CreatedAt,
+	}
+
+	// Deep copy slices
+	clone.StageOrder = copyStringSlice(e.StageOrder)
+	clone.AllGoals = copyStringSlice(e.AllGoals)
+	clone.RemainingGoals = copyStringSlice(e.RemainingGoals)
+	clone.CriticFeedback = copyStringSlice(e.CriticFeedback)
+	clone.CompletedStages = deepCopyMapSlice(e.CompletedStages)
+	clone.PriorPlans = deepCopyMapSlice(e.PriorPlans)
+	clone.Errors = deepCopyMapSlice(e.Errors)
+	clone.ProcessingHistory = copyProcessingHistory(e.ProcessingHistory)
+
+	// Deep copy maps
+	clone.Outputs = deepCopyOutputs(e.Outputs)
+	clone.ActiveStages = copyStringBoolMap(e.ActiveStages)
+	clone.CompletedStageSet = copyStringBoolMap(e.CompletedStageSet)
+	clone.FailedStages = copyStringStringMap(e.FailedStages)
+	clone.GoalCompletionStatus = copyStringStringMap(e.GoalCompletionStatus)
+	clone.Metadata = deepCopyAnyMap(e.Metadata)
+
+	// Deep copy pointers
+	if e.TerminalReason_ != nil {
+		reason := *e.TerminalReason_
+		clone.TerminalReason_ = &reason
+	}
+	if e.TerminationReason != nil {
+		reason := *e.TerminationReason
+		clone.TerminationReason = &reason
+	}
+	if e.Interrupt != nil {
+		clone.Interrupt = e.Interrupt.Clone()
+	}
+	if e.CompletedAt != nil {
+		t := *e.CompletedAt
+		clone.CompletedAt = &t
+	}
+
+	return clone
+}
+
+// Clone creates a deep copy of the FlowInterrupt.
+func (i *FlowInterrupt) Clone() *FlowInterrupt {
+	clone := &FlowInterrupt{
+		Kind:      i.Kind,
+		ID:        i.ID,
+		Question:  i.Question,
+		Message:   i.Message,
+		CreatedAt: i.CreatedAt,
+	}
+	if i.Data != nil {
+		clone.Data = deepCopyAnyMap(i.Data)
+	}
+	if i.ExpiresAt != nil {
+		t := *i.ExpiresAt
+		clone.ExpiresAt = &t
+	}
+	if i.Response != nil {
+		clone.Response = &InterruptResponse{
+			ReceivedAt: i.Response.ReceivedAt,
+		}
+		if i.Response.Text != nil {
+			text := *i.Response.Text
+			clone.Response.Text = &text
+		}
+		if i.Response.Approved != nil {
+			approved := *i.Response.Approved
+			clone.Response.Approved = &approved
+		}
+		if i.Response.Decision != nil {
+			decision := *i.Response.Decision
+			clone.Response.Decision = &decision
+		}
+		if i.Response.Data != nil {
+			clone.Response.Data = deepCopyAnyMap(i.Response.Data)
+		}
+	}
+	return clone
+}
+
+// Helper functions for deep copying
+func copyStringSlice(s []string) []string {
+	if s == nil {
+		return nil
+	}
+	result := make([]string, len(s))
+	copy(result, s)
+	return result
+}
+
+func copyStringBoolMap(m map[string]bool) map[string]bool {
+	if m == nil {
+		return nil
+	}
+	result := make(map[string]bool, len(m))
+	for k, v := range m {
+		result[k] = v
+	}
+	return result
+}
+
+func copyStringStringMap(m map[string]string) map[string]string {
+	if m == nil {
+		return nil
+	}
+	result := make(map[string]string, len(m))
+	for k, v := range m {
+		result[k] = v
+	}
+	return result
+}
+
+func deepCopyOutputs(m map[string]map[string]any) map[string]map[string]any {
+	if m == nil {
+		return nil
+	}
+	result := make(map[string]map[string]any, len(m))
+	for k, v := range m {
+		result[k] = deepCopyAnyMap(v)
+	}
+	return result
+}
+
+func deepCopyAnyMap(m map[string]any) map[string]any {
+	if m == nil {
+		return nil
+	}
+	result := make(map[string]any, len(m))
+	for k, v := range m {
+		result[k] = deepCopyValue(v)
+	}
+	return result
+}
+
+func deepCopyValue(v any) any {
+	switch val := v.(type) {
+	case map[string]any:
+		return deepCopyAnyMap(val)
+	case []any:
+		result := make([]any, len(val))
+		for i, item := range val {
+			result[i] = deepCopyValue(item)
+		}
+		return result
+	case []string:
+		return copyStringSlice(val)
+	default:
+		return v // Primitives are copied by value
+	}
+}
+
+func deepCopyMapSlice(s []map[string]any) []map[string]any {
+	if s == nil {
+		return nil
+	}
+	result := make([]map[string]any, len(s))
+	for i, m := range s {
+		result[i] = deepCopyAnyMap(m)
+	}
+	return result
+}
+
+func copyProcessingHistory(h []ProcessingRecord) []ProcessingRecord {
+	if h == nil {
+		return nil
+	}
+	result := make([]ProcessingRecord, len(h))
+	for i, r := range h {
+		result[i] = ProcessingRecord{
+			Agent:      r.Agent,
+			StageOrder: r.StageOrder,
+			StartedAt:  r.StartedAt,
+			DurationMS: r.DurationMS,
+			Status:     r.Status,
+			LLMCalls:   r.LLMCalls,
+		}
+		if r.CompletedAt != nil {
+			t := *r.CompletedAt
+			result[i].CompletedAt = &t
+		}
+		if r.Error != nil {
+			err := *r.Error
+			result[i].Error = &err
+		}
+	}
+	return result
+}
+
+// =============================================================================
 // Goal Tracking
 // =============================================================================
 
