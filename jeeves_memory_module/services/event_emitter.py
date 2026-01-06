@@ -711,6 +711,243 @@ class EventEmitter:
         )
 
     # ============================================================
+    # Memory Event Factories (CommBus integration)
+    # Emits events defined in jeeves_memory_module/messages/events.py
+    # ============================================================
+
+    async def emit_memory_stored(
+        self,
+        item_id: str,
+        layer: str,
+        user_id: str,
+        item_type: str,
+        metadata: Optional[Dict[str, Any]] = None,
+        actor: str = "system",
+        correlation_id: Optional[str] = None,
+        session_id: Optional[str] = None
+    ) -> Optional[str]:
+        """Emit memory_stored event when a memory item is persisted.
+
+        Maps to MemoryStored from messages/events.py.
+        """
+        return await self.emit(
+            aggregate_type="memory",
+            aggregate_id=item_id,
+            event_type="memory_stored",
+            payload={
+                "layer": layer,
+                "item_type": item_type,
+                "metadata": metadata or {}
+            },
+            user_id=user_id,
+            actor=actor,
+            correlation_id=correlation_id,
+            session_id=session_id
+        )
+
+    async def emit_memory_retrieved(
+        self,
+        user_id: str,
+        query: str,
+        layer: str,
+        results_count: int,
+        latency_ms: float,
+        actor: str = "system",
+        correlation_id: Optional[str] = None,
+        session_id: Optional[str] = None
+    ) -> Optional[str]:
+        """Emit memory_retrieved event when memory is queried.
+
+        Maps to MemoryRetrieved from messages/events.py.
+        """
+        # Generate a unique aggregate ID for the search operation
+        from uuid import uuid4
+        search_id = f"search_{uuid4().hex[:12]}"
+
+        return await self.emit(
+            aggregate_type="memory",
+            aggregate_id=search_id,
+            event_type="memory_retrieved",
+            payload={
+                "query": query[:200] if query else "",
+                "layer": layer,
+                "results_count": results_count,
+                "latency_ms": latency_ms
+            },
+            user_id=user_id,
+            actor=actor,
+            correlation_id=correlation_id,
+            session_id=session_id
+        )
+
+    async def emit_memory_deleted(
+        self,
+        item_id: str,
+        layer: str,
+        user_id: str,
+        soft_delete: bool = True,
+        actor: str = "system",
+        correlation_id: Optional[str] = None,
+        session_id: Optional[str] = None
+    ) -> Optional[str]:
+        """Emit memory_deleted event when a memory item is deleted.
+
+        Maps to MemoryDeleted from messages/events.py.
+        """
+        return await self.emit(
+            aggregate_type="memory",
+            aggregate_id=item_id,
+            event_type="memory_deleted",
+            payload={
+                "layer": layer,
+                "soft_delete": soft_delete
+            },
+            user_id=user_id,
+            actor=actor,
+            correlation_id=correlation_id,
+            session_id=session_id
+        )
+
+    async def emit_session_state_changed(
+        self,
+        session_id: str,
+        user_id: str,
+        change_type: str,
+        actor: str = "system",
+        correlation_id: Optional[str] = None
+    ) -> Optional[str]:
+        """Emit session_state_changed event when session state changes.
+
+        Maps to SessionStateChanged from messages/events.py.
+        """
+        return await self.emit(
+            aggregate_type="session",
+            aggregate_id=session_id,
+            event_type="session_state_changed",
+            payload={
+                "change_type": change_type
+            },
+            user_id=user_id,
+            actor=actor,
+            correlation_id=correlation_id,
+            session_id=session_id
+        )
+
+    async def emit_focus_changed(
+        self,
+        session_id: str,
+        focus_type: str,
+        user_id: str,
+        focus_id: Optional[str] = None,
+        focus_label: Optional[str] = None,
+        actor: str = "system",
+        correlation_id: Optional[str] = None
+    ) -> Optional[str]:
+        """Emit focus_changed event when session focus changes.
+
+        Maps to FocusChanged from messages/events.py.
+        """
+        return await self.emit(
+            aggregate_type="session",
+            aggregate_id=session_id,
+            event_type="focus_changed",
+            payload={
+                "focus_type": focus_type,
+                "focus_id": focus_id,
+                "focus_label": focus_label
+            },
+            user_id=user_id,
+            actor=actor,
+            correlation_id=correlation_id,
+            session_id=session_id
+        )
+
+    async def emit_entity_referenced(
+        self,
+        session_id: str,
+        entity_type: str,
+        entity_id: str,
+        label: str,
+        user_id: str,
+        actor: str = "system",
+        correlation_id: Optional[str] = None
+    ) -> Optional[str]:
+        """Emit entity_referenced event when an entity is referenced in a session.
+
+        Maps to EntityReferenced from messages/events.py.
+        """
+        return await self.emit(
+            aggregate_type="session",
+            aggregate_id=session_id,
+            event_type="entity_referenced",
+            payload={
+                "entity_type": entity_type,
+                "entity_id": entity_id,
+                "label": label
+            },
+            user_id=user_id,
+            actor=actor,
+            correlation_id=correlation_id,
+            session_id=session_id
+        )
+
+    async def emit_clarification_requested(
+        self,
+        session_id: str,
+        question: str,
+        original_request: str,
+        user_id: str,
+        options: Optional[List[str]] = None,
+        actor: str = "system",
+        correlation_id: Optional[str] = None
+    ) -> Optional[str]:
+        """Emit clarification_requested event when clarification is needed.
+
+        Maps to ClarificationRequested from messages/events.py.
+        """
+        return await self.emit(
+            aggregate_type="session",
+            aggregate_id=session_id,
+            event_type="clarification_requested",
+            payload={
+                "question": question,
+                "original_request": original_request[:500] if original_request else "",
+                "options": options or []
+            },
+            user_id=user_id,
+            actor=actor,
+            correlation_id=correlation_id,
+            session_id=session_id
+        )
+
+    async def emit_clarification_resolved(
+        self,
+        session_id: str,
+        answer: str,
+        user_id: str,
+        was_expired: bool = False,
+        actor: str = "system",
+        correlation_id: Optional[str] = None
+    ) -> Optional[str]:
+        """Emit clarification_resolved event when clarification is resolved.
+
+        Maps to ClarificationResolved from messages/events.py.
+        """
+        return await self.emit(
+            aggregate_type="session",
+            aggregate_id=session_id,
+            event_type="clarification_resolved",
+            payload={
+                "answer": answer,
+                "was_expired": was_expired
+            },
+            user_id=user_id,
+            actor=actor,
+            correlation_id=correlation_id,
+            session_id=session_id
+        )
+
+    # ============================================================
     # Workflow Event Factories (v1.0 Hardening)
     # ============================================================
 

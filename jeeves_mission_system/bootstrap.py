@@ -565,6 +565,74 @@ def create_distributed_infrastructure(
     return result
 
 
+async def create_memory_manager(
+    app_context: AppContext,
+    postgres_client: Optional[Any] = None,
+    vector_adapter: Optional[Any] = None,
+) -> Optional[Any]:
+    """Create MemoryManager facade for unified memory operations.
+
+    Wires the MemoryManager with SQL adapter, vector adapter, and cross-ref manager.
+    This is the unified memory interface per Memory Module Constitution.
+
+    Args:
+        app_context: AppContext with logger and settings
+        postgres_client: PostgreSQL client for SQL operations
+        vector_adapter: Vector storage adapter (pgvector) for semantic search
+
+    Returns:
+        MemoryManager instance, or None if dependencies unavailable
+    """
+    if postgres_client is None:
+        app_context.logger.warning(
+            "memory_manager_skipped",
+            message="No postgres_client provided - MemoryManager requires database",
+        )
+        return None
+
+    try:
+        from jeeves_memory_module.manager import MemoryManager
+        from jeeves_memory_module.adapters.sql_adapter import SQLAdapter
+        from jeeves_memory_module.services.xref_manager import CrossRefManager
+        from jeeves_avionics.logging import create_logger
+
+        memory_logger = create_logger("memory_manager")
+
+        # Create SQL adapter wrapping the postgres client
+        sql_adapter = SQLAdapter(db_client=postgres_client, logger=memory_logger)
+
+        # Create cross-reference manager
+        xref_manager = CrossRefManager(db_client=postgres_client, logger=memory_logger)
+
+        # Create MemoryManager facade
+        memory_manager = MemoryManager(
+            sql_adapter=sql_adapter,
+            vector_adapter=vector_adapter,
+            xref_manager=xref_manager,
+            logger=memory_logger,
+        )
+
+        app_context.logger.info(
+            "memory_manager_created",
+            has_vector_adapter=vector_adapter is not None,
+        )
+
+        return memory_manager
+
+    except ImportError as e:
+        app_context.logger.error(
+            "memory_manager_import_error",
+            error=str(e),
+        )
+        return None
+    except Exception as e:
+        app_context.logger.error(
+            "memory_manager_init_error",
+            error=str(e),
+        )
+        return None
+
+
 __all__ = [
     "create_app_context",
     "create_avionics_dependencies",
@@ -574,6 +642,8 @@ __all__ = [
     "core_config_to_resource_quota",
     # Distributed infrastructure
     "create_distributed_infrastructure",
+    # Memory management
+    "create_memory_manager",
     # Per-request PID context for resource tracking
     "set_request_pid",
     "clear_request_pid",

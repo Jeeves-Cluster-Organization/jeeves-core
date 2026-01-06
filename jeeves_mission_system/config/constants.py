@@ -9,6 +9,15 @@ NOTE: LLM parameters and agent thresholds have been moved to:
 - jeeves_avionics/thresholds.py (operational thresholds)
 """
 
+# Import operational thresholds from canonical source (Avionics Constitution)
+from jeeves_avionics.thresholds import (
+    MAX_RETRY_ATTEMPTS,
+    FUZZY_MATCH_MIN_SCORE,
+)
+
+# Re-export for backwards compatibility
+FUZZY_MATCH_THRESHOLD = FUZZY_MATCH_MIN_SCORE  # Alias for compatibility
+
 # ==============================================================================
 # PLATFORM IDENTITY (generic - capabilities provide specific identity)
 # ==============================================================================
@@ -26,7 +35,7 @@ AGENT_COUNT = 7
 # FUZZY MATCHING
 # ==============================================================================
 
-FUZZY_MATCH_THRESHOLD = 0.5
+# FUZZY_MATCH_THRESHOLD imported from thresholds.py (re-exported above as alias)
 FUZZY_MATCH_CONFIDENCE_THRESHOLD = 0.7
 FUZZY_MATCH_SUBSTRING_WEIGHT = 1.0
 FUZZY_MATCH_WORD_OVERLAP_WEIGHT = 0.9
@@ -85,7 +94,7 @@ METRICS_RETENTION_DAYS = 30
 # ERROR HANDLING
 # ==============================================================================
 
-MAX_RETRY_ATTEMPTS = 3
+# MAX_RETRY_ATTEMPTS imported from jeeves_avionics/thresholds.py (canonical source)
 RETRY_BACKOFF_MULTIPLIER = 2.0
 RETRY_INITIAL_DELAY = 1.0
 

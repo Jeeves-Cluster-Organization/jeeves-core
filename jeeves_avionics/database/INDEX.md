@@ -6,7 +6,7 @@
 
 ## Overview
 
-Database clients and repositories for PostgreSQL (primary). Implements connection pooling, health checks, and schema management.
+Database clients for PostgreSQL (primary). Implements connection pooling, health checks, and schema management.
 
 **Note:** Redis support is available for distributed bus functionality (see `jeeves_avionics/distributed/`).
 Database clients implement `DatabaseClientProtocol` from `jeeves_protocols`.
@@ -29,9 +29,9 @@ Database clients implement `DatabaseClientProtocol` from `jeeves_protocols`.
 
 | Directory | Description |
 |-----------|-------------|
-| `migrations/` | SQL migration scripts |
-| `repositories/` | Data access repositories |
 | `schemas/` | Database schema definitions |
+
+**Note:** Repository pattern implementations are in `jeeves_memory_module/repositories/`, not in this module.
 
 ---
 
