@@ -13,7 +13,7 @@ import (
 	"runtime/debug"
 	"strings"
 
-	"github.com/jeeves-cluster-organization/codeanalysis/commbus"
+	"github.com/Jeeves-Cluster-Organization/jeeves-core/commbus"
 )
 
 // =============================================================================

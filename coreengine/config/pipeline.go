@@ -92,6 +92,9 @@ type AgentConfig struct {
 	// Bounds
 	TimeoutSeconds int `json:"timeout_seconds"` // Agent-specific timeout
 	MaxRetries     int `json:"max_retries"`     // Max retries on failure
+
+	// DAG Execution
+	JoinStrategy JoinStrategy `json:"join_strategy"` // How to handle multiple prerequisites (all/any)
 }
 
 // Validate validates the agent configuration.

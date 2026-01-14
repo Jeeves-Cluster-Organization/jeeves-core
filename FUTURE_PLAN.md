@@ -1,7 +1,7 @@
 # Jeeves-Core Future Plan
 
 **Created:** 2026-01-06
-**Last Updated:** 2026-01-06 (Hardening Review)
+**Last Updated:** 2026-01-14 (Audit & Go Binary Build)
 **Status:** Planning Document
 **Purpose:** Capture identified gaps and roadmap for future development
 
@@ -20,7 +20,7 @@ This document captures gaps identified during the 2026-01-06 architecture review
 | Execution paradigm | Unified executor. Core doesn't judge graph structure. |
 | IPC mechanism | gRPC only. Delete subprocess client. |
 | Envelope sync | Contract tests (Go → Python → Go round-trips) |
-| Import linter | **BLOCKER** - completed ✓ |
+| Import linter | Pending - create scripts/check_layer_boundaries.py |
 | Bounds authority | Go in-loop, Python post-hoc audit |
 | Cycle limits | Global cap + per-edge configurable (capability layer) |
 | LifecycleManager coverage | Raise to 80%+ before Phase 2 |
@@ -28,15 +28,19 @@ This document captures gaps identified during the 2026-01-06 architecture review
 
 ### Code to DELETE (not deprecate)
 
-| File/Pattern | Reason |
-|--------------|--------|
-| `dag_executor.go` | Replaced by StateMachineExecutor |
-| `jeeves_protocols/client.py` | Replaced by gRPC client |
-| `CyclePolicyReject` | Core doesn't validate graph structure |
-| `EnableDAGExecution` flag | Always state machine |
-| `EnableArbiter` flag in PipelineConfig | Capability concern |
-| `if go_client else python` patterns | Go only. Fail loudly. |
-| `topologicalOrder` in PipelineConfig | Not needed with cycles |
+| File/Pattern | Reason | Status (2026-01-14) |
+|--------------|--------|---------------------|
+| `dag_executor.go` | Replaced by StateMachineExecutor | ✅ Never existed |
+| `jeeves_protocols/client.py` | Replaced by gRPC client | ✅ Never existed |
+| `CyclePolicyReject` | Core doesn't validate graph structure | ✅ Only in docs |
+| `EnableDAGExecution` flag | Always state machine | ✅ Never existed |
+| `EnableArbiter` flag in PipelineConfig | Capability concern | ⚠️ **KEPT** in CoreConfig - used for orchestration control |
+| `if go_client else python` patterns | Go only. Fail loudly. | ⚠️ **KEPT** - go_bridge.py provides fallback during transition |
+| `topologicalOrder` in PipelineConfig | Not needed with cycles | ✅ Never existed |
+
+**Note (2026-01-14):** `EnableArbiter` is retained in `coreengine/config/core_config.go` as it controls
+orchestration behavior (skip arbiter for read-only operations). The fallback pattern in `go_bridge.py`
+is retained during the transition period until Go binary is deployed to all environments.
 
 ---
 

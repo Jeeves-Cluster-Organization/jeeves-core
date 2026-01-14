@@ -256,35 +256,45 @@ def some_function(logger: Optional[LoggerProtocol] = None):
 
 ---
 
-## Contract 10: Capability-Owned ToolId
+## Contract 10: Dual Tool Catalog Architecture
 
 ### Rule
-`ToolId` enums MUST be defined in the capability layer, NOT in avionics or mission_system.
+Tool catalogs follow a dual-architecture pattern:
+1. **Core Tools**: `jeeves_avionics.tools.catalog.ToolId` for infrastructure/shared tools
+2. **Capability Tools**: `CapabilityToolCatalog` for domain-specific tools
 
 ### Rationale
-- Prevents layer violations (L5 importing L2 for tool identifiers)
-- Allows capabilities to define their own tool sets independently
-- Maintains clean dependency direction (outer layers depend on inner, not vice versa)
+- Core analysis tools (locate, read_code, etc.) are shared infrastructure
+- Capability-specific tools need isolation and independent versioning
+- Capabilities can extend without modifying core layers
 
 ### Implementation
 ```python
-# ✅ CORRECT - ToolId in capability layer
-# my_capability/tools/catalog.py
-class ToolId(str, Enum):
-    LOCATE = "locate"
-    READ_CODE = "read_code"
+# ✅ Core/infrastructure tools - from avionics
+from jeeves_avionics.tools import ToolId, tool_catalog
+tool_catalog.has_tool_id(ToolId.LOCATE)  # Shared tools
 
-# ❌ INCORRECT - ToolId in avionics (removed)
-# from jeeves_avionics.tools.catalog import ToolId  # NO LONGER EXISTS
+# ✅ Capability-specific tools - from CapabilityToolCatalog
+from jeeves_protocols import CapabilityToolCatalog
+my_catalog = CapabilityToolCatalog("my_capability")
+my_catalog.register(
+    tool_id="my_tool",
+    func=my_tool_func,
+    description="My capability-specific tool",
+    parameters={"param": "string"},
+    category="standalone",
+)
 
-# ❌ INCORRECT - ToolId re-exported from contracts_core
-# from jeeves_mission_system.contracts_core import ToolId  # REMOVED
+# Register with infrastructure
+from jeeves_protocols import get_capability_resource_registry, CapabilityToolsConfig
+registry = get_capability_resource_registry()
+registry.register_tools("my_capability", CapabilityToolsConfig(catalog=my_catalog))
 ```
 
 ### Affected Components
-- `jeeves_avionics.tools.catalog` - Still provides generic ToolCategory, ToolDefinition
-- `jeeves_mission_system.contracts_core` - No longer exports ToolId, ToolCatalog
-- Capability `tools/catalog.py` - Defines capability-specific ToolId enum
+- `jeeves_avionics.tools.catalog` - Core ToolId enum and ToolCatalog for shared tools
+- `jeeves_protocols.capability` - CapabilityToolCatalog for capability-owned tools
+- `CapabilityResourceRegistry` - Wires capability catalogs to infrastructure
 
 ---
 

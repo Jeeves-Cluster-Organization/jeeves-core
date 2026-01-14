@@ -144,8 +144,10 @@ from jeeves_mission_system.contracts import (
     StandardToolResult, ToolErrorDetails,
 )
 
-# NOTE: ToolId is CAPABILITY-OWNED - import from your capability's tools/catalog.py
-# from my_capability.tools.catalog import ToolId  # Capability-owned enum
+# NOTE: Tool catalogs follow a dual-architecture pattern:
+# - Core/infrastructure tools: from jeeves_avionics.tools import ToolId
+# - Capability-specific tools: use CapabilityToolCatalog from jeeves_protocols
+# from my_capability.tools.catalog import MyCapabilityToolCatalog  # Capability-owned
 
 from jeeves_mission_system.adapters import (
     get_logger, get_settings, get_feature_flags,
@@ -355,9 +357,17 @@ async def my_tool(param1: str, param2: int = None) -> dict:
     }
 ```
 
-**Key Architecture Decision:** `ToolId` enums are CAPABILITY-OWNED, not defined in
-avionics or mission_system. This allows each capability to define its own tool set
-without modifying core layers.
+**Key Architecture Decision:** Tool catalogs follow a dual-architecture pattern:
+
+1. **Core/Infrastructure Tools** (`jeeves_avionics.tools.catalog.ToolId`):
+   - Standard code analysis tools (locate, read_code, search_code, etc.)
+   - Shared across all capabilities
+   - Managed by infrastructure team
+
+2. **Capability-Specific Tools** (`CapabilityToolCatalog`):
+   - Domain-specific tools owned by each capability
+   - Registered via `CapabilityResourceRegistry.register_tools()`
+   - Full isolation between capabilities
 
 ### Tool Categories
 
@@ -798,7 +808,8 @@ COPY jeeves-core/jeeves_mission_system/ ./jeeves_mission_system/
 
 | Version | Date | Changes |
 |---------|------|---------|
-| 1.3 | 2026-01-06 | ToolId is now CAPABILITY-OWNED; removed ToolId/ToolCatalog from contracts_core exports |
+| 1.4 | 2026-01-14 | Clarified dual-catalog architecture: avionics ToolId for core tools, CapabilityToolCatalog for capability tools |
+| 1.3 | 2026-01-06 | Added CapabilityToolCatalog to jeeves_protocols for capability-owned tools |
 | 1.2 | 2025-12-16 | Updated adapters exports (removed deprecated factory), added doc references |
 | 1.1 | 2025-12-13 | Added Docker configuration section |
 | 1.0 | 2025-12-13 | Initial contract document |
