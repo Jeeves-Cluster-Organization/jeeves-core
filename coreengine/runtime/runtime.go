@@ -6,9 +6,9 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/jeeves-cluster-organization/codeanalysis/coreengine/agents"
-	"github.com/jeeves-cluster-organization/codeanalysis/coreengine/config"
-	"github.com/jeeves-cluster-organization/codeanalysis/coreengine/envelope"
+	"github.com/Jeeves-Cluster-Organization/jeeves-core/coreengine/agents"
+	"github.com/Jeeves-Cluster-Organization/jeeves-core/coreengine/config"
+	"github.com/Jeeves-Cluster-Organization/jeeves-core/coreengine/envelope"
 )
 
 // LLMProviderFactory creates LLM providers by role.

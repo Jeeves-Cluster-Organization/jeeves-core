@@ -45,18 +45,9 @@ jeeves_avionics/
 │  │  └─ embeddings.py       # pgvector tables
 │  └─ migrations/            # Alembic migrations
 │
-├─ memory/                   # Memory Layer
-│  ├─ services/
-│  │  ├─ memory_service.py   # MemoryServiceProtocol implementation
-│  │  ├─ l1_episodic.py      # Per-request transient state
-│  │  ├─ l2_event_log.py     # Append-only event stream
-│  │  ├─ l3_working_memory.py # Session-scoped state
-│  │  └─ l4_persistent_cache.py # Domain index, embeddings
-│  ├─ adapters/
-│  │  └─ state_adapter.py    # StateProtocol implementation
-│  └─ repositories/
-│     ├─ session_state_repo.py
-│     └─ event_log_repo.py
+├─ # NOTE: Memory services are in jeeves_memory_module/, not avionics
+│  # See: jeeves_memory_module/services/, jeeves_memory_module/repositories/
+│  # Avionics provides database clients; memory_module provides memory abstractions
 │
 ├─ gateway/                  # HTTP Gateway Layer
 │  ├─ main.py                # FastAPI app initialization

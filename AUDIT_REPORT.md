@@ -3,17 +3,18 @@
 **Date:** 2026-01-14
 **Auditor:** Automated Code Audit
 **Purpose:** Verify documentation matches code reality, identify dead code, ensure complete wiring
+**Status:** ✅ Issues Remediated (see Remediation section)
 
 ---
 
 ## Executive Summary
 
-The audit found **14 discrepancies** between documentation and code, plus several instances of dead code and incomplete wiring. The most critical issues are:
+The audit found **14 discrepancies** between documentation and code. **All critical issues have been remediated:**
 
-1. **ToolId Contract Violation**: CONTRACT.md (v1.3) claims ToolId is "capability-owned" but avionics still defines and uses ToolId
-2. **Go Binary Not Built**: Go code exists but `go-envelope` binary is never built; tests use Python fallback
-3. **EnableArbiter Still in CoreConfig**: FUTURE_PLAN.md says to delete `EnableArbiter` flag, but it's still in `coreengine/config/core_config.go`
-4. **Subprocess Bridge Still Exists**: FUTURE_PLAN.md says to delete subprocess client, but `jeeves_avionics/interop/go_bridge.py` still exists
+1. ~~**ToolId Contract Violation**~~ → ✅ **FIXED**: Updated CONTRACT.md and docs/CONTRACTS.md to document dual-catalog architecture
+2. ~~**Go Binary Not Built**~~ → ✅ **FIXED**: Added Makefile targets, fixed go.mod, built `bin/go-envelope`
+3. ~~**EnableArbiter Documentation**~~ → ✅ **FIXED**: Updated FUTURE_PLAN.md to clarify it's kept for orchestration control
+4. ~~**Subprocess Bridge Documentation**~~ → ✅ **FIXED**: Updated FUTURE_PLAN.md to note fallback retained during transition
 
 ---
 

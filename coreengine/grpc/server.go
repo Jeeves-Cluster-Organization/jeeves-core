@@ -11,10 +11,10 @@ import (
 
 	"google.golang.org/grpc"
 
-	"github.com/jeeves-cluster-organization/codeanalysis/coreengine/config"
-	"github.com/jeeves-cluster-organization/codeanalysis/coreengine/envelope"
-	pb "github.com/jeeves-cluster-organization/codeanalysis/coreengine/proto"
-	"github.com/jeeves-cluster-organization/codeanalysis/coreengine/runtime"
+	"github.com/Jeeves-Cluster-Organization/jeeves-core/coreengine/config"
+	"github.com/Jeeves-Cluster-Organization/jeeves-core/coreengine/envelope"
+	pb "github.com/Jeeves-Cluster-Organization/jeeves-core/coreengine/proto"
+	"github.com/Jeeves-Cluster-Organization/jeeves-core/coreengine/runtime"
 )
 
 // Logger interface for the server.

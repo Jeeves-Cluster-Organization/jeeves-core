@@ -7,6 +7,34 @@
 # Default target
 .DEFAULT_GOAL := help
 
+# =============================================================================
+# Go Build Targets
+# =============================================================================
+
+## go-build: Build Go binaries (go-envelope CLI)
+go-build:
+	@echo "🔨 Building Go binaries..."
+	@mkdir -p bin
+	go build -o bin/go-envelope ./cmd/envelope
+	@echo "✅ Built bin/go-envelope"
+
+## go-test: Run Go tests
+go-test:
+	@echo "🧪 Running Go tests..."
+	go test ./coreengine/... -v
+	@echo "✅ Go tests complete"
+
+## go-clean: Clean Go build artifacts
+go-clean:
+	@rm -rf bin/
+	@echo "✅ Go build artifacts cleaned"
+
+## go-install: Install go-envelope to $GOPATH/bin
+go-install:
+	@echo "📦 Installing go-envelope..."
+	go install ./cmd/envelope
+	@echo "✅ Installed to $(shell go env GOPATH)/bin/go-envelope"
+
 ## help: Show this help message
 help:
 	@echo "Available targets:"

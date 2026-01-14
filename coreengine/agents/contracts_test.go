@@ -4,7 +4,7 @@ import (
 	"errors"
 	"testing"
 
-	"github.com/jeeves-cluster-organization/codeanalysis/commbus"
+	"github.com/Jeeves-Cluster-Organization/jeeves-core/commbus"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
