@@ -104,7 +104,7 @@ Capabilities provide domain-specific logic; core provides the runtime.
 from jeeves_protocols import (
     # Enums
     RiskLevel, ToolAccess, ToolCategory, OperationStatus,
-    TerminalReason, CriticVerdict, RiskApproval,
+    TerminalReason, LoopVerdict, RiskApproval,
 
     # Configuration
     AgentConfig, PipelineConfig, RoutingRule, ContextBounds,
@@ -400,8 +400,8 @@ agent_config = AgentConfig(
             next_agent="integration",
         ),
         RoutingRule(
-            condition="verdict == 'reintent'",
-            next_agent="intent",
+            condition="verdict == 'loop_back'",
+            next_agent="stage_a",
         ),
     ],
 )

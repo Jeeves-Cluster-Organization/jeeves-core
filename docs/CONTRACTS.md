@@ -402,8 +402,8 @@ cfg := &PipelineConfig{
 }
 ```
 
-> **Terminology Note:** Current codebase uses domain-specific terms like "reintent", "critic".
-> These should be generic ("loop_back", "stageC"). See `ARCHITECTURAL_DEBT.md` for cleanup plan.
+> **Note:** Core uses generic terminology (loop_back, proceed, stageA, stageB).
+> Domain-specific names (critic, planner) belong in capability layer only.
 
 ### Invariants
 
@@ -440,7 +440,7 @@ if isCycleEdge(from, to) {
 ### 2026-01-06 - v1.2.0 (Hardening Review)
 - Added Contract 11: Envelope Sync (Go <-> Python round-trip tests)
 - Added Contract 12: Bounds Authority Split (Go in-loop, Python post-hoc)
-- Added Contract 13: Intentional Cycles (REINTENT Architecture)
+- Added Contract 13: Intentional Cycles (Cyclic Routing)
 - Added CyclePolicy and EdgeLimit to pipeline config
 - Documented enforcement mechanisms and invariants
 
