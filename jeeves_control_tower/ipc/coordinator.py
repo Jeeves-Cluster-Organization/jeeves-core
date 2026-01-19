@@ -4,25 +4,28 @@ This implements the kernel's IPC management:
 - Service registration (like init daemon registration)
 - Message routing (like kernel message passing)
 - Request dispatch (like syscall dispatch)
+- Event publish/subscribe via InMemoryCommBus
 
-The actual CommBus is in Go. This coordinator provides:
-1. Service registry (in-memory, kernel-side)
-2. Dispatch logic (route requests to services)
-3. Abstraction over CommBus protocol
+Constitutional Reference:
+- Control Tower CONSTITUTION: CommBus communication for service dispatch
+- Memory Module CONSTITUTION P4: Memory operations publish events via CommBus
 
 Layering: ONLY imports from jeeves_protocols (syscall interface).
-The actual CommBus communication happens through injected adapters.
+The actual CommBus communication happens through the InMemoryCommBus.
 """
 
 import asyncio
 import threading
 from datetime import datetime
-from typing import Any, Callable, Dict, List, Optional
+from typing import Any, Callable, Dict, List, Optional, TYPE_CHECKING, Union
 
 from jeeves_protocols import GenericEnvelope, LoggerProtocol
 
 from jeeves_control_tower.protocols import CommBusCoordinatorProtocol
 from jeeves_control_tower.types import DispatchTarget, ServiceDescriptor
+
+if TYPE_CHECKING:
+    from jeeves_control_tower.ipc.commbus import InMemoryCommBus
 
 
 # Type alias for dispatch handlers
@@ -60,16 +63,17 @@ class CommBusCoordinator(CommBusCoordinatorProtocol):
     def __init__(
         self,
         logger: LoggerProtocol,
-        commbus_adapter: Optional[Any] = None,  # CommBus adapter if using Go bus
+        commbus: Optional["InMemoryCommBus"] = None,
     ) -> None:
         """Initialize CommBus coordinator.
 
         Args:
             logger: Logger instance
-            commbus_adapter: Optional adapter for external CommBus
+            commbus: Optional InMemoryCommBus for event pub/sub and queries.
+                     If not provided, get_commbus() is used lazily.
         """
         self._logger = logger.bind(component="commbus_coordinator")
-        self._commbus_adapter = commbus_adapter
+        self._commbus = commbus
 
         # Service registry
         self._services: Dict[str, ServiceDescriptor] = {}
@@ -79,6 +83,14 @@ class CommBusCoordinator(CommBusCoordinatorProtocol):
 
         # Lock for thread safety
         self._lock = threading.RLock()
+
+    @property
+    def commbus(self) -> "InMemoryCommBus":
+        """Get the CommBus instance (lazy initialization)."""
+        if self._commbus is None:
+            from jeeves_control_tower.ipc.commbus import get_commbus
+            self._commbus = get_commbus(self._logger)
+        return self._commbus
 
     def register_service(
         self,
@@ -281,22 +293,55 @@ class CommBusCoordinator(CommBusCoordinatorProtocol):
         event_type: str,
         payload: Dict[str, Any],
     ) -> None:
-        """Broadcast an event via CommBus adapter."""
+        """Broadcast an event via CommBus.
+
+        Creates a simple event message and publishes to all subscribers.
+        For typed events, use publish_event() instead.
+        """
         self._logger.debug(
             "broadcast_event",
             event_type=event_type,
         )
 
-        # Forward to CommBus adapter if available
-        if self._commbus_adapter:
-            try:
-                await self._commbus_adapter.broadcast(event_type, payload)
-            except Exception as e:
-                self._logger.error(
-                    "broadcast_adapter_error",
-                    event_type=event_type,
-                    error=str(e),
-                )
+        # Create a simple event wrapper
+        from dataclasses import dataclass, field
+
+        @dataclass
+        class _DynamicEvent:
+            category: str = field(default="event", init=False)
+            event_type: str = ""
+            payload: Dict[str, Any] = field(default_factory=dict)
+
+        event = _DynamicEvent(event_type=event_type, payload=payload)
+
+        try:
+            await self.commbus.publish(event)
+        except Exception as e:
+            self._logger.error(
+                "broadcast_error",
+                event_type=event_type,
+                error=str(e),
+            )
+
+    async def publish_event(self, event: Any) -> None:
+        """Publish a typed event via CommBus.
+
+        Use this for proper typed events (e.g., MemoryStored, SessionStateChanged).
+
+        Args:
+            event: The event message (must have category="event")
+        """
+        event_type = type(event).__name__
+        self._logger.debug("publish_event", event_type=event_type)
+
+        try:
+            await self.commbus.publish(event)
+        except Exception as e:
+            self._logger.error(
+                "publish_event_error",
+                event_type=event_type,
+                error=str(e),
+            )
 
     async def request(
         self,
@@ -305,26 +350,95 @@ class CommBusCoordinator(CommBusCoordinatorProtocol):
         payload: Dict[str, Any],
         timeout_seconds: float = 30.0,
     ) -> Dict[str, Any]:
-        """Send a request to a service and wait for response."""
+        """Send a request to a service and wait for response.
+
+        Uses CommBus query for typed queries, falls back to service dispatch.
+        """
         # Check if service exists
         service = self.get_service(service_name)
         if not service:
             return {"error": f"Unknown service: {service_name}"}
 
-        # Use CommBus adapter if available
-        if self._commbus_adapter:
+        # Check if there's a CommBus handler for this query type
+        if self.commbus.has_handler(query_type):
+            from dataclasses import dataclass, field
+
+            @dataclass
+            class _DynamicQuery:
+                category: str = field(default="query", init=False)
+                query_type: str = ""
+                payload: Dict[str, Any] = field(default_factory=dict)
+
+            query = _DynamicQuery(query_type=query_type, payload=payload)
             try:
-                return await asyncio.wait_for(
-                    self._commbus_adapter.request(
-                        service_name=service_name,
-                        query_type=query_type,
-                        payload=payload,
-                    ),
+                result = await self.commbus.query(query, timeout=timeout_seconds)
+                return {"result": result}
+            except asyncio.TimeoutError:
+                return {"error": "Query timeout"}
+            except Exception as e:
+                return {"error": str(e)}
+
+        # Fall back to service handler
+        handler = self._handlers.get(service_name)
+        if handler:
+            self._logger.debug(
+                "request_via_handler",
+                service_name=service_name,
+                query_type=query_type,
+            )
+            # Create a minimal envelope for the request
+            envelope = GenericEnvelope()
+            envelope.metadata = {"query_type": query_type, **payload}
+            try:
+                result = await asyncio.wait_for(
+                    handler(envelope),
                     timeout=timeout_seconds,
                 )
+                return {"result": result}
             except asyncio.TimeoutError:
                 return {"error": "Request timeout"}
             except Exception as e:
                 return {"error": str(e)}
 
-        return {"error": "No CommBus adapter configured"}
+        return {"error": f"No handler for service: {service_name}"}
+
+    async def send_query(self, query: Any, timeout: Optional[float] = None) -> Any:
+        """Send a typed query via CommBus.
+
+        Use this for proper typed queries (e.g., GetSessionState).
+
+        Args:
+            query: The query message (must have category="query")
+            timeout: Optional timeout in seconds
+
+        Returns:
+            Query response
+
+        Raises:
+            ValueError: If no handler registered
+            asyncio.TimeoutError: If query times out
+        """
+        query_type = type(query).__name__
+        self._logger.debug("send_query", query_type=query_type)
+        return await self.commbus.query(query, timeout=timeout)
+
+    def subscribe(self, event_type: str, handler: Any) -> Callable[[], None]:
+        """Subscribe to CommBus events.
+
+        Args:
+            event_type: Event type name (e.g., "MemoryStored")
+            handler: Handler function (sync or async)
+
+        Returns:
+            Unsubscribe function
+        """
+        return self.commbus.subscribe(event_type, handler)
+
+    def register_query_handler(self, query_type: str, handler: Any) -> None:
+        """Register a handler for CommBus queries.
+
+        Args:
+            query_type: Query type name (e.g., "GetSessionState")
+            handler: Handler function (sync or async)
+        """
+        self.commbus.register_handler(query_type, handler)
