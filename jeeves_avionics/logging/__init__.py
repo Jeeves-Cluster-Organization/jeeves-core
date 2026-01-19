@@ -1,11 +1,13 @@
 """Centralized Logging Infrastructure for Jeeves Runtime.
 
-This module extends jeeves_shared.logging with OTEL tracing support.
-All base logging functionality comes from jeeves_shared.logging.
+This module provides logging configuration with optional OTEL tracing support.
+Base logging functionality comes from jeeves_shared.logging.
+Real OpenTelemetry tracing is provided by jeeves_avionics.observability.
 
 Constitutional Compliance:
-- Avionics owns OTEL configuration (tracing, spans)
+- Avionics owns OTEL configuration flag
 - Base logging utilities come from jeeves_shared (L0)
+- Real OTEL spans are managed by observability/otel_adapter.py
 - Other layers only use injected LoggerProtocol
 
 Usage:
@@ -23,27 +25,21 @@ Usage:
 
 from __future__ import annotations
 
-import time
-from contextlib import contextmanager
 from contextvars import ContextVar
-from dataclasses import dataclass, field
 from typing import Any, Dict, Optional, TYPE_CHECKING
-from uuid import uuid4
-
-import structlog
 
 from jeeves_protocols import LoggerProtocol
 
 # Import base logging from jeeves_shared (L0)
 from jeeves_shared.logging import (
-    JeevesLogger as _BaseJeevesLogger,
+    JeevesLogger,
     configure_logging as _base_configure_logging,
     create_logger,
     create_agent_logger,
     create_capability_logger,
     create_tool_logger,
     get_component_logger,
-    get_current_logger as _base_get_current_logger,
+    get_current_logger,
     set_current_logger,
     get_request_context,
     set_request_context,
@@ -53,10 +49,8 @@ from jeeves_shared.logging import (
 if TYPE_CHECKING:
     from jeeves_avionics.feature_flags import FeatureFlags
 
-# Context-aware state for OTEL (thread-safe via contextvars)
-# ContextVars provide proper isolation across async tasks and threads
+# Context-aware state for OTEL enabled flag
 _otel_enabled: ContextVar[bool] = ContextVar("otel_enabled", default=False)
-_active_spans: ContextVar[Dict[str, "Span"]] = ContextVar("active_spans")
 
 
 def _get_otel_enabled() -> bool:
@@ -67,142 +61,6 @@ def _get_otel_enabled() -> bool:
 def _set_otel_enabled(value: bool) -> None:
     """Set OTEL enabled state in context."""
     _otel_enabled.set(value)
-
-
-def _get_active_spans() -> Dict[str, "Span"]:
-    """Get active spans dict from context, creating if needed."""
-    try:
-        return _active_spans.get()
-    except LookupError:
-        # Initialize empty dict for this context
-        spans: Dict[str, "Span"] = {}
-        _active_spans.set(spans)
-        return spans
-
-
-# =============================================================================
-# Span Support for OTEL-Style Tracing
-# =============================================================================
-
-@dataclass
-class Span:
-    """OTEL-compatible span for distributed tracing.
-
-    Used for Planner → Traverser → Synthesizer → Critic flow.
-    """
-    name: str
-    trace_id: str
-    span_id: str = field(default_factory=lambda: str(uuid4())[:16])
-    parent_span_id: Optional[str] = None
-    start_time: float = field(default_factory=time.time)
-    end_time: Optional[float] = None
-    attributes: Dict[str, Any] = field(default_factory=dict)
-    status: str = "OK"
-
-    def set_attribute(self, key: str, value: Any) -> None:
-        """Set span attribute."""
-        self.attributes[key] = value
-
-    def end(self, status: str = "OK") -> None:
-        """End the span."""
-        self.end_time = time.time()
-        self.status = status
-
-    @property
-    def duration_ms(self) -> int:
-        """Duration in milliseconds."""
-        end = self.end_time or time.time()
-        return int((end - self.start_time) * 1000)
-
-    def to_dict(self) -> Dict[str, Any]:
-        """Export span data."""
-        return {
-            "name": self.name,
-            "trace_id": self.trace_id,
-            "span_id": self.span_id,
-            "parent_span_id": self.parent_span_id,
-            "start_time": self.start_time,
-            "end_time": self.end_time,
-            "duration_ms": self.duration_ms,
-            "attributes": self.attributes,
-            "status": self.status,
-        }
-
-
-# =============================================================================
-# Extended Logger with Span Support
-# =============================================================================
-
-class JeevesLogger(_BaseJeevesLogger):
-    """Extended JeevesLogger with OTEL span support.
-
-    Inherits base functionality from jeeves_shared.logging.JeevesLogger
-    and adds span context enrichment.
-    """
-
-    def __init__(
-        self,
-        base_logger: Any = None,
-        context: Optional[Dict[str, Any]] = None,
-        span: Optional[Span] = None,
-    ):
-        """Initialize logger.
-
-        Args:
-            base_logger: Underlying structlog logger (created if None)
-            context: Bound context fields
-            span: Active OTEL span for this logger
-        """
-        super().__init__(base_logger=base_logger, context=context)
-        self._span = span
-
-    def debug(self, msg: str, **kwargs: Any) -> None:
-        """Log debug message with span enrichment."""
-        self._log_with_span("debug", msg, **kwargs)
-
-    def info(self, msg: str, **kwargs: Any) -> None:
-        """Log info message with span enrichment."""
-        self._log_with_span("info", msg, **kwargs)
-
-    def warning(self, msg: str, **kwargs: Any) -> None:
-        """Log warning message with span enrichment."""
-        self._log_with_span("warning", msg, **kwargs)
-
-    def error(self, msg: str, **kwargs: Any) -> None:
-        """Log error message with span enrichment."""
-        self._log_with_span("error", msg, **kwargs)
-
-    def critical(self, msg: str, **kwargs: Any) -> None:
-        """Log critical message with span enrichment."""
-        self._log_with_span("critical", msg, **kwargs)
-
-    def bind(self, **kwargs: Any) -> "JeevesLogger":
-        """Create child logger with additional context."""
-        new_context = {**self._context, **kwargs}
-        return JeevesLogger(
-            base_logger=structlog.get_logger(),
-            context=new_context,
-            span=self._span,
-        )
-
-    def with_span(self, span: Span) -> "JeevesLogger":
-        """Create child logger with active span."""
-        return JeevesLogger(
-            base_logger=structlog.get_logger(),
-            context=self._context,
-            span=span,
-        )
-
-    def _log_with_span(self, level: str, msg: str, **kwargs: Any) -> None:
-        """Internal logging with span enrichment."""
-        # Add span context if active
-        if self._span and _get_otel_enabled():
-            kwargs["trace_id"] = self._span.trace_id
-            kwargs["span_id"] = self._span.span_id
-            if self._span.parent_span_id:
-                kwargs["parent_span_id"] = self._span.parent_span_id
-
-        getattr(self._logger, level)(msg, **kwargs)
 
 
 # =============================================================================
@@ -221,10 +79,12 @@ def configure_logging(
     This should be called ONCE at application startup.
     All subsequent logging uses the configuration set here.
 
+    For actual OpenTelemetry tracing, use jeeves_avionics.observability.
+
     Args:
         level: Default log level (DEBUG, INFO, WARNING, ERROR)
         json_output: If True, output JSON; if False, console format
-        enable_otel: If True, enable OTEL span tracking
+        enable_otel: If True, enable OTEL span tracking via observability module
         component_levels: Override levels for specific components
     """
     _set_otel_enabled(enable_otel)
@@ -250,135 +110,13 @@ def configure_from_flags(flags: "FeatureFlags") -> None:
     )
 
 
-def get_current_logger() -> LoggerProtocol:
-    """Get current logger for context-based access.
-
-    Returns extended JeevesLogger if no context logger is set.
+def is_otel_enabled() -> bool:
+    """Check if OTEL tracing is enabled.
+    
+    Returns:
+        True if OTEL was enabled via configure_logging
     """
-    logger = _base_get_current_logger()
-    # If we got the default base logger, return our extended version
-    if isinstance(logger, _BaseJeevesLogger) and not isinstance(logger, JeevesLogger):
-        return JeevesLogger()
-    return logger
-
-
-# =============================================================================
-# OTEL Span Context Managers
-# =============================================================================
-
-@contextmanager
-def trace_agent(
-    agent_name: str,
-    envelope_id: str,
-    parent_span_id: Optional[str] = None,
-):
-    """Context manager for tracing agent execution.
-
-    Creates an OTEL-style span for the agent's execution.
-
-    Args:
-        agent_name: Name of the agent
-        envelope_id: Envelope ID (used as trace_id)
-        parent_span_id: Parent span for nested tracing
-
-    Yields:
-        Tuple of (Span, LoggerProtocol with span context)
-
-    Example:
-        with trace_agent("planner", envelope.envelope_id) as (span, logger):
-            span.set_attribute("plan_steps", 5)
-            logger.info("planning_started")
-            # ... do work ...
-    """
-    span = Span(
-        name=f"agent.{agent_name}",
-        trace_id=envelope_id,
-        parent_span_id=parent_span_id,
-    )
-    span.set_attribute("agent.name", agent_name)
-
-    # Register span in context-local storage
-    active_spans = _get_active_spans()
-    active_spans[span.span_id] = span
-
-    # Create logger with span context
-    logger = JeevesLogger(
-        context={"agent": agent_name, "envelope_id": envelope_id},
-        span=span,
-    )
-
-    try:
-        yield span, logger
-        span.end("OK")
-    except Exception as e:
-        span.set_attribute("error", str(e))
-        span.set_attribute("error_type", type(e).__name__)
-        span.end("ERROR")
-        raise
-    finally:
-        # Emit span completion log
-        if _get_otel_enabled():
-            structlog.get_logger().info(
-                "span_completed",
-                **span.to_dict(),
-            )
-        # Unregister span from context-local storage
-        _get_active_spans().pop(span.span_id, None)
-
-
-@contextmanager
-def trace_tool(
-    tool_name: str,
-    envelope_id: str,
-    parent_span_id: Optional[str] = None,
-    caller_agent: Optional[str] = None,
-):
-    """Context manager for tracing tool execution.
-
-    Args:
-        tool_name: Name of the tool
-        envelope_id: Envelope ID (trace_id)
-        parent_span_id: Parent span ID
-        caller_agent: Agent requesting tool execution
-
-    Yields:
-        Tuple of (Span, LoggerProtocol)
-    """
-    span = Span(
-        name=f"tool.{tool_name}",
-        trace_id=envelope_id,
-        parent_span_id=parent_span_id,
-    )
-    span.set_attribute("tool.name", tool_name)
-    if caller_agent:
-        span.set_attribute("caller_agent", caller_agent)
-
-    # Register span in context-local storage
-    active_spans = _get_active_spans()
-    active_spans[span.span_id] = span
-
-    logger = JeevesLogger(
-        context={"tool": tool_name, "envelope_id": envelope_id},
-        span=span,
-    )
-
-    try:
-        yield span, logger
-        span.end("OK")
-    except Exception as e:
-        span.set_attribute("error", str(e))
-        span.end("ERROR")
-        raise
-    finally:
-        if _get_otel_enabled():
-            structlog.get_logger().info("span_completed", **span.to_dict())
-        # Unregister span from context-local storage
-        _get_active_spans().pop(span.span_id, None)
-
-
-def get_current_span(span_id: str) -> Optional[Span]:
-    """Get an active span by ID."""
-    return _get_active_spans().get(span_id)
+    return _get_otel_enabled()
 
 
 # =============================================================================
@@ -399,6 +137,7 @@ __all__ = [
     # Configuration
     "configure_logging",
     "configure_from_flags",
+    "is_otel_enabled",
     # Logger creation (re-exported from jeeves_shared)
     "create_logger",
     "create_agent_logger",
@@ -407,11 +146,6 @@ __all__ = [
     "get_component_logger",
     # Types
     "JeevesLogger",
-    "Span",
-    # Tracing
-    "trace_agent",
-    "trace_tool",
-    "get_current_span",
     # ADR-001: Adapter
     "StructlogAdapter",
     "create_structlog_adapter",
