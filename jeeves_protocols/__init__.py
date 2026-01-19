@@ -150,6 +150,9 @@ from jeeves_protocols.protocols import (
     AgentToolAccessProtocol,
     # Language config
     LanguageConfigProtocol,
+    # Memory layer protocols (L5-L6)
+    GraphStorageProtocol,
+    SkillStorageProtocol,
 )
 
 # =============================================================================
@@ -330,6 +333,9 @@ __all__ = [
     "FeatureFlagsProviderProtocol",
     "AgentToolAccessProtocol",
     "LanguageConfigProtocol",
+    # Memory layer protocols (L5-L6)
+    "GraphStorageProtocol",
+    "SkillStorageProtocol",
 
     # ─── Capability Registration ───
     "ToolCatalogEntry",

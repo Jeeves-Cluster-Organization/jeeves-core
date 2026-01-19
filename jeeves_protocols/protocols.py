@@ -732,3 +732,286 @@ class AgentToolAccessProtocol(Protocol):
             List of tool names the agent can access
         """
         ...
+
+
+# =============================================================================
+# MEMORY LAYER PROTOCOLS (L5-L6)
+# =============================================================================
+
+
+@runtime_checkable
+class GraphStorageProtocol(Protocol):
+    """L5 Entity Graph storage interface.
+
+    Provides graph-based storage for entity relationships.
+    This is the extensible protocol for L5 memory layer.
+
+    Constitutional Reference:
+    - Memory Module CONSTITUTION: L5 Graph - Entity relationships
+
+    Use Cases:
+    - Entity relationship tracking (files, functions, classes)
+    - Dependency graphs
+    - Knowledge graphs for reasoning
+
+    Implementations can be:
+    - In-memory graph (for testing)
+    - Neo4j adapter
+    - PostgreSQL with recursive CTEs
+    - Custom graph databases
+    """
+
+    async def add_node(
+        self,
+        node_id: str,
+        node_type: str,
+        properties: Dict[str, Any],
+        user_id: Optional[str] = None,
+    ) -> bool:
+        """Add a node to the graph.
+
+        Args:
+            node_id: Unique node identifier
+            node_type: Type of node (e.g., "file", "function", "class")
+            properties: Node properties/attributes
+            user_id: Optional owner user ID
+
+        Returns:
+            True if created, False if already exists
+        """
+        ...
+
+    async def add_edge(
+        self,
+        source_id: str,
+        target_id: str,
+        edge_type: str,
+        properties: Optional[Dict[str, Any]] = None,
+    ) -> bool:
+        """Add an edge between nodes.
+
+        Args:
+            source_id: Source node ID
+            target_id: Target node ID
+            edge_type: Type of relationship (e.g., "imports", "calls", "inherits")
+            properties: Optional edge properties
+
+        Returns:
+            True if created, False if already exists
+        """
+        ...
+
+    async def get_node(self, node_id: str) -> Optional[Dict[str, Any]]:
+        """Get a node by ID.
+
+        Args:
+            node_id: Node identifier
+
+        Returns:
+            Node data with properties, or None if not found
+        """
+        ...
+
+    async def get_neighbors(
+        self,
+        node_id: str,
+        edge_type: Optional[str] = None,
+        direction: str = "both",
+        limit: int = 100,
+    ) -> List[Dict[str, Any]]:
+        """Get neighboring nodes.
+
+        Args:
+            node_id: Center node ID
+            edge_type: Optional filter by edge type
+            direction: "in", "out", or "both"
+            limit: Maximum neighbors to return
+
+        Returns:
+            List of neighbor nodes with edge information
+        """
+        ...
+
+    async def find_path(
+        self,
+        source_id: str,
+        target_id: str,
+        max_depth: int = 5,
+    ) -> Optional[List[Dict[str, Any]]]:
+        """Find path between two nodes.
+
+        Args:
+            source_id: Start node
+            target_id: End node
+            max_depth: Maximum path length
+
+        Returns:
+            Path as list of nodes, or None if no path exists
+        """
+        ...
+
+    async def query_subgraph(
+        self,
+        center_id: str,
+        depth: int = 2,
+        node_types: Optional[List[str]] = None,
+        edge_types: Optional[List[str]] = None,
+    ) -> Dict[str, Any]:
+        """Query a subgraph around a center node.
+
+        Args:
+            center_id: Center node ID
+            depth: Expansion depth
+            node_types: Optional filter by node types
+            edge_types: Optional filter by edge types
+
+        Returns:
+            Subgraph with nodes and edges
+        """
+        ...
+
+    async def delete_node(self, node_id: str) -> bool:
+        """Delete a node and its edges.
+
+        Args:
+            node_id: Node to delete
+
+        Returns:
+            True if deleted, False if not found
+        """
+        ...
+
+
+@runtime_checkable
+class SkillStorageProtocol(Protocol):
+    """L6 Skills/Patterns storage interface.
+
+    Provides storage for learned patterns and reusable skills.
+    This is the extensible protocol for L6 memory layer.
+
+    Constitutional Reference:
+    - Memory Module CONSTITUTION: L6 Skills - Learned patterns (not yet implemented)
+
+    Use Cases:
+    - Tool usage patterns (what worked before)
+    - Code generation templates
+    - User preference learning
+    - Successful prompt patterns
+
+    Skills differ from other memory layers:
+    - They're learned/extracted, not directly stored
+    - They have confidence scores
+    - They can be promoted/demoted based on success
+    """
+
+    async def store_skill(
+        self,
+        skill_id: str,
+        skill_type: str,
+        pattern: Dict[str, Any],
+        source_context: Optional[Dict[str, Any]] = None,
+        confidence: float = 0.5,
+        user_id: Optional[str] = None,
+    ) -> str:
+        """Store a learned skill/pattern.
+
+        Args:
+            skill_id: Unique skill identifier
+            skill_type: Type of skill (e.g., "tool_sequence", "code_pattern", "prompt_template")
+            pattern: The skill pattern data
+            source_context: Optional context where skill was learned
+            confidence: Initial confidence score (0.0 to 1.0)
+            user_id: Optional owner user ID
+
+        Returns:
+            Skill ID
+        """
+        ...
+
+    async def get_skill(self, skill_id: str) -> Optional[Dict[str, Any]]:
+        """Get a skill by ID.
+
+        Args:
+            skill_id: Skill identifier
+
+        Returns:
+            Skill data or None if not found
+        """
+        ...
+
+    async def find_skills(
+        self,
+        skill_type: Optional[str] = None,
+        context: Optional[Dict[str, Any]] = None,
+        min_confidence: float = 0.0,
+        limit: int = 10,
+        user_id: Optional[str] = None,
+    ) -> List[Dict[str, Any]]:
+        """Find relevant skills.
+
+        Args:
+            skill_type: Optional filter by skill type
+            context: Optional context for relevance matching
+            min_confidence: Minimum confidence threshold
+            limit: Maximum skills to return
+            user_id: Optional filter by owner
+
+        Returns:
+            List of matching skills, ordered by relevance/confidence
+        """
+        ...
+
+    async def update_confidence(
+        self,
+        skill_id: str,
+        delta: float,
+        reason: Optional[str] = None,
+    ) -> float:
+        """Update skill confidence based on outcome.
+
+        Args:
+            skill_id: Skill to update
+            delta: Confidence change (-1.0 to 1.0)
+            reason: Optional reason for update
+
+        Returns:
+            New confidence value
+        """
+        ...
+
+    async def record_usage(
+        self,
+        skill_id: str,
+        success: bool,
+        context: Optional[Dict[str, Any]] = None,
+    ) -> None:
+        """Record skill usage for learning.
+
+        Args:
+            skill_id: Skill that was used
+            success: Whether the usage was successful
+            context: Optional usage context
+        """
+        ...
+
+    async def delete_skill(self, skill_id: str) -> bool:
+        """Delete a skill.
+
+        Args:
+            skill_id: Skill to delete
+
+        Returns:
+            True if deleted, False if not found
+        """
+        ...
+
+    async def get_skill_stats(self, skill_id: str) -> Optional[Dict[str, Any]]:
+        """Get usage statistics for a skill.
+
+        Args:
+            skill_id: Skill identifier
+
+        Returns:
+            Statistics including usage count, success rate, etc.
+        """
+        ...

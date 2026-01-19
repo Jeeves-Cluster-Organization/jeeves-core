@@ -8,9 +8,14 @@ Repositories:
 - TraceRepository: Agent execution traces
 - PgVectorRepository: L3 semantic vector storage
 - ChunkRepository: L3 semantic chunks
-- GraphRepository: L5 entity relationships
+- GraphRepository: L5 entity relationships (production)
+- InMemoryGraphStorage: L5 graph stub for development
 - SessionStateRepository: L4 working memory
 - ToolMetricsRepository: L7 tool health metrics
+- InMemorySkillStorage: L6 skills stub for development
+
+Constitutional Reference:
+- Memory Module CONSTITUTION: L5 Graph, L6 Skills (extensible)
 """
 
 from jeeves_memory_module.repositories.event_repository import EventRepository, DomainEvent
@@ -20,6 +25,9 @@ from jeeves_memory_module.repositories.chunk_repository import ChunkRepository, 
 from jeeves_memory_module.repositories.graph_repository import GraphRepository
 from jeeves_memory_module.repositories.session_state_repository import SessionStateRepository, SessionState
 from jeeves_memory_module.repositories.tool_metrics_repository import ToolMetricsRepository, ToolMetric
+# L5-L6 extensible stubs
+from jeeves_memory_module.repositories.graph_stub import InMemoryGraphStorage, GraphNode, GraphEdge
+from jeeves_memory_module.repositories.skill_stub import InMemorySkillStorage, Skill, SkillUsage
 
 __all__ = [
     # L2 Events
@@ -32,8 +40,15 @@ __all__ = [
     "PgVectorRepository",
     "ChunkRepository",
     "Chunk",
-    # L5 Graph
+    # L5 Graph (production + stub)
     "GraphRepository",
+    "InMemoryGraphStorage",
+    "GraphNode",
+    "GraphEdge",
+    # L6 Skills (stub - extensible)
+    "InMemorySkillStorage",
+    "Skill",
+    "SkillUsage",
     # L4 Session
     "SessionStateRepository",
     "SessionState",
