@@ -91,7 +91,7 @@ message Envelope {
     // Outputs (JSON-encoded per-agent outputs)
     map<string, bytes> outputs = 21;
     
-    // DAG state
+    // Parallel execution state
     map<string, bool> active_stages = 22;
     map<string, bool> completed_stage_set = 23;
     map<string, string> failed_stages = 24;

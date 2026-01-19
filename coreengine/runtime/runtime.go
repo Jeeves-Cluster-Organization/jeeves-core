@@ -335,7 +335,7 @@ type StageOutput struct {
 
 // RunParallel executes pipeline with parallel stage execution.
 // Independent stages (no dependencies between them) run concurrently.
-// This is the preferred execution mode for DAG-style pipelines.
+// Sets ParallelMode=true on the envelope during execution.
 func (r *UnifiedRuntime) RunParallel(ctx context.Context, env *envelope.GenericEnvelope, threadID string) (*envelope.GenericEnvelope, error) {
 	startTime := time.Now()
 

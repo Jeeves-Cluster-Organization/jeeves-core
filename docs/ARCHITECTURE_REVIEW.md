@@ -1,45 +1,42 @@
 # Architecture Review: Execution Model
 
 **Date:** 2026-01-19
-**Status:** For Review
+**Status:** In Progress
 
-This document flags architectural issues discovered during the cleanup pass that require design decisions before implementation.
-
----
-
-## Issue 1: Misleading "DAG" Terminology
-
-### Current State
-The codebase uses "DAG" (Directed Acyclic Graph) terminology in several places:
-- `DAGMode` / `dag_mode` - Flag in GenericEnvelope
-- `RunParallel()` comment: "DAG-style pipelines"
-- Test names: `TestDAGStateRoundtrip`, `TestCloneWithDAGState`
-
-### Problem
-The system explicitly supports **cyclic routing** via:
-- `LoopVerdictLoopBack` - Route back to earlier stages
-- `EdgeLimits` - Control how many times a cycle can be traversed
-- `MaxIterations` - Global bound on pipeline loops
-
-Calling anything "DAG" is misleading because DAG means "Directed **Acyclic** Graph".
-
-### What DAGMode Actually Means
-`DAGMode` indicates **parallel execution mode**, not acyclicity. It's set when using `RunParallel()` to execute independent stages concurrently.
-
-### Proposed Fix
-Rename to accurately describe the concept:
-- `DAGMode` → `ParallelMode`
-- `dag_mode` → `parallel_mode`
-- Update all comments
-
-**But see Issue 2 first** - this rename may be unnecessary if the execution model is unified.
+This document tracks architectural improvements to the execution model.
 
 ---
 
-## Issue 2: Separate Execution Flows
+## Completed: Issue 1 - DAG → ParallelMode Rename
+
+### Changes Made
+Renamed `DAGMode` / `dag_mode` to `ParallelMode` / `parallel_mode` throughout the codebase:
+
+**Go Files:**
+- `coreengine/envelope/generic.go` - Field renamed, JSON key updated
+- `coreengine/envelope/generic_test.go` - Test names and assertions updated
+- `coreengine/config/pipeline.go` - Comment updated
+- `coreengine/runtime/runtime.go` - Comment updated
+- `coreengine/grpc/server.go` - Comments updated
+- `coreengine/proto/jeeves_core.proto` - Comment updated
+
+**Python Files:**
+- `jeeves_protocols/envelope.py` - Field renamed, JSON keys updated
+- `jeeves_protocols/agents.py` - Docstring updated
+
+### Rationale
+"DAG" (Directed Acyclic Graph) was misleading because:
+- The routing graph explicitly supports cycles via `loop_back` routing
+- The flag actually indicates **parallel execution mode**, not acyclicity
+- `ParallelMode` accurately describes what the flag controls
+
+---
+
+## Next: Issue 2 - Execution Flow Unification
 
 ### Current State
-The runtime has three separate execution methods:
+The runtime has three separate execution methods with duplicated logic:
+
 ```go
 func (r *UnifiedRuntime) Run(ctx, env, threadID)           // Sequential
 func (r *UnifiedRuntime) RunStreaming(ctx, env, threadID)  // Sequential + streaming
@@ -57,19 +54,16 @@ All methods duplicate core logic:
 - Interrupt handling (`env.InterruptPending`)
 - State persistence
 - Logging patterns
-- Routing decisions
+- Stage routing
 
 This creates:
 1. **Maintenance burden** - Changes must be made in multiple places
 2. **Inconsistency risk** - Methods can drift apart
 3. **API confusion** - Caller must choose execution method
 
-### Root Cause
-Execution mode is expressed as **method choice** rather than **configuration**.
-
 ### Proposed Design
-A unified execution model where:
 
+#### Option A: Unified Method with Config
 ```go
 type ExecutionMode string
 const (
@@ -82,28 +76,41 @@ type PipelineConfig struct {
     ExecutionMode ExecutionMode  // Default: sequential
 }
 
-// Single entry point
+// Single entry point - execution mode from config
 func (r *UnifiedRuntime) Run(ctx, env, threadID) (*GenericEnvelope, error)
 ```
 
-The runtime internally:
-1. Checks `PipelineConfig.ExecutionMode`
-2. If parallel: finds stages with satisfied dependencies, runs concurrently
-3. If sequential: follows routing rules one stage at a time
-4. Both modes handle cycles via routing rules and bounds
+#### Option B: Unified Core with Mode Parameter
+```go
+// Single entry point with mode parameter
+func (r *UnifiedRuntime) Execute(ctx, env, threadID string, opts ExecutionOptions) (*GenericEnvelope, error)
+
+type ExecutionOptions struct {
+    Mode     ExecutionMode  // sequential, parallel
+    Streaming bool          // whether to stream outputs
+}
+```
+
+### Implementation Plan
+
+1. **Create unified execution core** - Extract common logic into internal method
+2. **Implement execution strategy pattern** - Sequential and parallel as strategies
+3. **Refactor public methods** - Delegate to unified core
+4. **Add streaming as output mode** - Not separate execution method
+5. **Update ParallelMode flag** - Set automatically based on execution mode
 
 ### Benefits
 - Single code path for core logic
-- Execution mode is config, not API
-- `ParallelMode` flag in envelope becomes read-only (set by runtime based on config)
-- Streaming becomes an output mode, not a separate method
+- Execution mode is config/parameter, not API choice
+- Streaming becomes an output option, not a separate method
+- Easier to add new execution modes (e.g., hybrid)
 
 ---
 
 ## Issue 3: Graph Terminology Clarification
 
 ### Two Distinct Graphs
-The system has two graph concepts that should be clearly distinguished:
+The system has two graph concepts that should be clearly documented:
 
 1. **Routing Graph** (can have cycles)
    - Defined by: `RoutingRules` in AgentConfig
@@ -116,56 +123,25 @@ The system has two graph concepts that should be clearly distinguished:
    - Used for: Parallel execution ordering
    - Cycles: Would cause deadlock (should be validated)
 
-### Current Confusion
-The term "DAG" conflates these:
-- The routing graph is NOT a DAG (cycles allowed)
-- The dependency graph SHOULD be a DAG (cycles = error)
-
-### Proposed Clarification
-Documentation and code should clearly distinguish:
-- "Pipeline graph" or "Routing graph" for the execution flow
-- "Dependency graph" for parallel execution ordering
-- Never use "DAG" to describe the overall system
+### Documentation Updates Needed
+- Add clear definitions to HANDOFF.md
+- Add validation for dependency graph acyclicity
+- Document the distinction in code comments
 
 ---
 
-## Recommendation
-
-Address these issues together in a single design pass:
-
-1. **Design unified execution model** (Issue 2)
-   - Single `Run()` method
-   - Execution mode in config
-   
-2. **Rename based on new design** (Issue 1)
-   - If unified model: may not need `ParallelMode` flag at all
-   - If kept: rename to `ParallelMode`
-
-3. **Update documentation** (Issue 3)
-   - Clearly distinguish routing graph vs dependency graph
-   - Remove all "DAG" references for the routing graph
-
----
-
-## Files Affected
-
-If full refactoring is approved:
+## Files Affected by Execution Unification
 
 ### Go (coreengine)
-- `runtime/runtime.go` - Unify execution methods
-- `envelope/generic.go` - Rename/remove DAGMode
-- `envelope/generic_test.go` - Update tests
-- `config/pipeline.go` - Add ExecutionMode
+- `runtime/runtime.go` - Primary refactoring target
+- `config/pipeline.go` - Add ExecutionMode if using Option A
 
 ### Python (jeeves_protocols)
-- `envelope.py` - Mirror Go changes
-- Test files
+- `agents.py` - Update UnifiedRuntime if mirroring Go changes
 
-### Documentation
-- `HANDOFF.md` - Update runtime section
-- `docs/CONTRACTS.md` - Clarify graph types
-- `jeeves_mission_system/CONSTITUTION.md` - Update architecture diagrams
+### Tests
+- `runtime/runtime_test.go` - Update for unified API
 
 ---
 
-*This document requires user review before implementation.*
+*This document tracks progress on execution model improvements.*

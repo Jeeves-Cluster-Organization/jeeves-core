@@ -134,15 +134,15 @@ type GenericEnvelope struct {
 	Iteration     int      `json:"iteration"`
 	MaxIterations int      `json:"max_iterations"`
 
-	// DAG Execution State (for parallel execution)
+	// Parallel Execution State
 	// ActiveStages: stages currently executing (may be multiple in parallel)
 	ActiveStages map[string]bool `json:"active_stages,omitempty"`
 	// CompletedStageSet: stages that have completed successfully
 	CompletedStageSet map[string]bool `json:"completed_stage_set,omitempty"`
 	// FailedStages: stages that failed (with error messages)
 	FailedStages map[string]string `json:"failed_stages,omitempty"`
-	// DAGMode: whether running in DAG parallel mode
-	DAGMode bool `json:"dag_mode,omitempty"`
+	// ParallelMode: whether running stages concurrently via RunParallel()
+	ParallelMode bool `json:"parallel_mode,omitempty"`
 
 	// Bounds Tracking
 	LLMCallCount    int             `json:"llm_call_count"`
@@ -201,7 +201,7 @@ func NewGenericEnvelope() *GenericEnvelope {
 		ActiveStages:         make(map[string]bool),
 		CompletedStageSet:    make(map[string]bool),
 		FailedStages:         make(map[string]string),
-		DAGMode:              false,
+		ParallelMode:              false,
 		LLMCallCount:         0,
 		MaxLLMCalls:          10,
 		AgentHopCount:        0,
@@ -225,7 +225,7 @@ func NewGenericEnvelope() *GenericEnvelope {
 }
 
 // =============================================================================
-// DAG Execution Helpers
+// Parallel Execution Helpers
 // =============================================================================
 
 // StartStage marks a stage as actively executing.
@@ -484,7 +484,7 @@ func (e *GenericEnvelope) Clone() *GenericEnvelope {
 		// Control flow
 		Terminated:       e.Terminated,
 		InterruptPending: e.InterruptPending,
-		DAGMode:          e.DAGMode,
+		ParallelMode:          e.ParallelMode,
 
 		// Multi-stage
 		CurrentStageNumber: e.CurrentStageNumber,
@@ -922,11 +922,11 @@ func (e *GenericEnvelope) ToStateDict() map[string]any {
 		"iteration":              e.Iteration,
 		"llm_call_count":         e.LLMCallCount,
 		"agent_hop_count":        e.AgentHopCount,
-		// DAG execution state
+		// Parallel execution state
 		"active_stages":         e.ActiveStages,
 		"completed_stage_set":   e.CompletedStageSet,
 		"failed_stages":         e.FailedStages,
-		"dag_mode":              e.DAGMode,
+		"parallel_mode":              e.ParallelMode,
 		"terminated":             e.Terminated,
 		"termination_reason":     e.TerminationReason,
 		"terminal_reason":        terminalReasonStr,
@@ -1039,8 +1039,8 @@ func FromStateDict(state map[string]any) *GenericEnvelope {
 			}
 		}
 	}
-	if v, ok := state["dag_mode"].(bool); ok {
-		e.DAGMode = v
+	if v, ok := state["parallel_mode"].(bool); ok {
+		e.ParallelMode = v
 	}
 	if v, ok := state["terminated"].(bool); ok {
 		e.Terminated = v

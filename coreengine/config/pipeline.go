@@ -26,9 +26,9 @@
 //
 // # Parallel Execution
 //
-// Parallel DAG execution is available via UnifiedRuntime.RunParallel().
+// Parallel execution is available via UnifiedRuntime.RunParallel().
 // This executes independent stages concurrently using goroutines.
-// The DAGMode flag in envelope indicates parallel execution mode.
+// The ParallelMode flag in envelope indicates parallel execution mode.
 package config
 
 import (

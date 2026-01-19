@@ -1,7 +1,7 @@
 """Unified Agent Runtime - Go-backed pipeline execution.
 
 Architecture:
-    Go (coreengine/)     - Envelope state, bounds checking, DAG structure
+    Go (coreengine/)     - Envelope state, bounds checking, pipeline graph
     Python (this file)   - Agent execution, LLM calls, tool execution
     Bridge (client.py)   - JSON-over-stdio communication
 """

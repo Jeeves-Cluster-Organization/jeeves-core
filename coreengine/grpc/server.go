@@ -325,7 +325,7 @@ func envelopeToProto(e *envelope.GenericEnvelope) *pb.Envelope {
 		}
 	}
 
-	// DAG state
+	// Parallel execution state
 	proto.ActiveStages = e.ActiveStages
 	proto.CompletedStageSet = e.CompletedStageSet
 	proto.FailedStages = e.FailedStages
@@ -396,7 +396,7 @@ func protoToEnvelope(p *pb.Envelope) *envelope.GenericEnvelope {
 		}
 	}
 
-	// DAG state
+	// Parallel execution state
 	e.ActiveStages = p.ActiveStages
 	e.CompletedStageSet = p.CompletedStageSet
 	e.FailedStages = p.FailedStages

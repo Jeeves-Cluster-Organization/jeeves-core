@@ -61,11 +61,11 @@ class GenericEnvelope:
     interrupt_pending: bool = False
     interrupt: Optional[Dict[str, Any]] = None
 
-    # DAG execution state (matches Go GenericEnvelope)
+    # Parallel execution state (matches Go GenericEnvelope)
     active_stages: Dict[str, bool] = field(default_factory=dict)
     completed_stage_set: Dict[str, bool] = field(default_factory=dict)
     failed_stages: Dict[str, str] = field(default_factory=dict)
-    dag_mode: bool = False
+    parallel_mode: bool = False
 
     # Multi-stage
     completed_stages: List[Dict[str, Any]] = field(default_factory=list)
@@ -180,11 +180,11 @@ class GenericEnvelope:
             # Unified interrupt fields
             "interrupt_pending": self.interrupt_pending,
             "interrupt": self.interrupt,
-            # DAG execution state
+            # Parallel execution state
             "active_stages": self.active_stages,
             "completed_stage_set": self.completed_stage_set,
             "failed_stages": self.failed_stages,
-            "dag_mode": self.dag_mode,
+            "parallel_mode": self.parallel_mode,
             "errors": self.errors,
             "metadata": self.metadata,
         }
@@ -241,11 +241,11 @@ class GenericEnvelope:
             # Unified interrupt fields
             "interrupt_pending": self.interrupt_pending,
             "interrupt": self.interrupt,
-            # DAG execution state
+            # Parallel execution state
             "active_stages": self.active_stages,
             "completed_stage_set": self.completed_stage_set,
             "failed_stages": self.failed_stages,
-            "dag_mode": self.dag_mode,
+            "parallel_mode": self.parallel_mode,
             # Multi-stage
             "completed_stages": self.completed_stages,
             "current_stage_number": self.current_stage_number,
