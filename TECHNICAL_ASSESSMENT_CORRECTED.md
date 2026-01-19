@@ -130,53 +130,151 @@ class GrpcGoClient:
 
 ---
 
-## 4. DAG/Parallel Execution - INFRASTRUCTURE ONLY (Original Assessment: Correct)
+## 4. Cyclic Execution - FULLY SUPPORTED (Original Assessment: WRONG)
 
-### Envelope DAG Fields - IMPLEMENTED
+**Major Correction:** The original assessment claimed "sequential only" and "DAG not implemented". This was **misleading** - the system fully supports **cyclic execution** (loops), which is more important than parallel DAG execution for agentic workflows.
 
-```go
-// GenericEnvelope in envelope/generic.go
-ActiveStages      map[string]bool   `json:"active_stages,omitempty"`
-CompletedStageSet map[string]bool   `json:"completed_stage_set,omitempty"`
-FailedStages      map[string]string `json:"failed_stages,omitempty"`
-DAGMode           bool              `json:"dag_mode,omitempty"`
+### Cyclic Execution (REINTENT Architecture) - FULLY IMPLEMENTED
 
-// Helper methods
-func (e *GenericEnvelope) StartStage(stage string)    // ✅
-func (e *GenericEnvelope) CompleteStage(stage string) // ✅
-func (e *GenericEnvelope) FailStage(stage, error)     // ✅
-```
-
-### Orchestration Flags - DEFINED
-
-```python
-@dataclass
-class OrchestrationFlags:
-    enable_parallel_agents: bool = False  # ⚠️ Not wired
-    enable_checkpoints: bool = False
-    enable_distributed: bool = False
-```
-
-### Current Runtime - SEQUENTIAL ONLY
+The Go runtime **explicitly supports cycles** via routing rules. This is called the "REINTENT Architecture":
 
 ```go
-// runtime.go - Run() method
-for env.CurrentStage != "end" && !env.Terminated {
-    agent := r.agents[env.CurrentStage]
-    env, err = agent.Process(ctx, env)  // Sequential execution
+// coreengine/config/pipeline.go - Comments explicitly state:
+// "Cycles ARE allowed - this is REINTENT architecture."
+// "Example: {From: 'critic', To: 'intent', MaxCount: 3} limits REINTENT to 3 loops."
+```
+
+### Routing Rules Enable Cycles
+
+```go
+// coreengine/agents/unified.go - evaluateRouting()
+func (a *UnifiedAgent) evaluateRouting(output map[string]any) string {
+    for _, rule := range a.Config.RoutingRules {
+        value, exists := output[rule.Condition]
+        if exists && value == rule.Value {
+            return rule.Target  // Can route BACKWARDS to earlier stages!
+        }
+    }
+    return a.Config.DefaultNext
 }
 ```
 
-### Design Document - PRE-IMPLEMENTATION
+### Cycle-Aware Agent Outcomes
 
-`docs/STATE_MACHINE_EXECUTOR_DESIGN.md`:
+```go
+// coreengine/agents/contracts.go
+const (
+    AgentOutcomeReplan   AgentOutcome = "replan"    // Loops back
+    AgentOutcomeReintent AgentOutcome = "reintent"  // Loops back to intent
+)
+
+// RequiresLoop checks if this outcome requires looping back.
+func (o AgentOutcome) RequiresLoop() bool {
+    return o == AgentOutcomeReplan || o == AgentOutcomeReintent
+}
 ```
-**Status:** Architectural Design (Pre-Implementation)
+
+### CriticVerdict Enables Loops
+
+```go
+// coreengine/envelope/enums.go
+const (
+    CriticVerdictApproved  CriticVerdict = "approved"   // Proceed
+    CriticVerdictReintent  CriticVerdict = "reintent"   // Loop back to Intent!
+    CriticVerdictNextStage CriticVerdict = "next_stage" // Advance
+)
 ```
 
-The `StateMachineExecutor` with parallel execution is **designed but not implemented**.
+### Iteration Tracking for Cycles
 
-**Corrected Rating:** LOW maturity (infrastructure exists, execution is sequential)
+```go
+// coreengine/envelope/generic.go
+type GenericEnvelope struct {
+    Iteration     int `json:"iteration"`       // Tracks cycle count
+    MaxIterations int `json:"max_iterations"`  // Bounds cycles (default: 3)
+    
+    PriorPlans     []map[string]any  // Stores previous plans for retry
+    CriticFeedback []string          // Stores feedback for replanning
+}
+
+// IncrementIteration increments iteration for retry.
+func (e *GenericEnvelope) IncrementIteration(feedback *string) {
+    e.Iteration++
+    if feedback != nil {
+        e.CriticFeedback = append(e.CriticFeedback, *feedback)
+    }
+    // Store current plan for debugging/learning
+    if plan, exists := e.Outputs["plan"]; exists {
+        e.PriorPlans = append(e.PriorPlans, plan)
+    }
+}
+```
+
+### Edge Limits for Cycle Control
+
+```go
+// coreengine/config/pipeline.go
+type EdgeLimit struct {
+    From     string `json:"from"`      // Source stage
+    To       string `json:"to"`        // Target stage  
+    MaxCount int    `json:"max_count"` // Max transitions on this edge
+}
+
+// GetEdgeLimit returns the cycle limit for an edge
+func (p *PipelineConfig) GetEdgeLimit(from, to string) int {
+    return p.edgeLimitMap[from+"->"+to]
+}
+```
+
+### Runtime Loop with Bounds
+
+```go
+// coreengine/runtime/runtime.go - Run()
+for env.CurrentStage != "end" && !env.Terminated {
+    if !env.CanContinue() {  // Checks MaxIterations, MaxLLMCalls, etc.
+        break
+    }
+    agent := r.agents[env.CurrentStage]
+    env, err = agent.Process(ctx, env)
+    // agent.evaluateRouting() sets env.CurrentStage - CAN GO BACKWARDS!
+}
+```
+
+### Core Config for Loop Control
+
+```go
+// coreengine/config/core_config.go
+type CoreConfig struct {
+    EnableCriticLoop      bool `json:"enable_critic_loop"`       // Allow Critic to trigger replan
+    MaxReplanIterations   int  `json:"max_replan_iterations"`    // Max replans (default: 3)
+    MaxCriticRejections   int  `json:"max_critic_rejections"`    // Max rejections (default: 2)
+    ReplanOnPartialSuccess bool `json:"replan_on_partial_success"` // Replan on partial
+    MaxLoopIterations     int  `json:"max_loop_iterations"`      // Default: 10
+}
+```
+
+### Example Cyclic Flow
+
+```
+Planner → Executor → Critic → [reintent] → Intent → Planner → ...
+                        ↓
+                   [approved] → Integration → end
+```
+
+This is the **core agent loop pattern** - not a limitation!
+
+### Parallel DAG - Infrastructure Only
+
+The original assessment was correct that **parallel DAG execution** (running independent stages concurrently) is infrastructure-only:
+- `DAGMode`, `ActiveStages`, `CompletedStageSet` fields exist
+- `enable_parallel_agents` flag exists but isn't wired
+- Actual execution is sequential within each cycle
+
+**But this is less important** than cyclic support for agentic workflows.
+
+**Corrected Rating:** 
+- Cyclic Execution: **HIGH** (fully implemented)
+- Parallel DAG: **LOW** (infrastructure only)
 
 ---
 
@@ -193,7 +291,8 @@ The `StateMachineExecutor` with parallel execution is **designed but not impleme
 | **Embedding Service** | Medium | **HIGH** ✅ | sentence-transformers + caching |
 | **gRPC Go Server** | Low | **HIGH** ✅ | Full implementation |
 | **gRPC Python Client** | Low | **LOW** | Stub with local fallbacks |
-| **DAG Execution** | Low | **LOW** | Infrastructure only, not wired |
+| **Cyclic Execution** | N/A | **HIGH** ✅ | REINTENT architecture, edge limits |
+| **Parallel DAG** | Low | **LOW** | Infrastructure only, not wired |
 | **Interrupt System** | Medium | **HIGH** ✅ | 7 interrupt types, persistence |
 
 ---
@@ -209,12 +308,14 @@ The `StateMachineExecutor` with parallel execution is **designed but not impleme
 | **Resource Quotas** | ✅ Built-in kernel | ❌ Manual |
 | **7 Interrupt Types** | ✅ With persistence | ⚠️ Manual breakpoints |
 | **Go Performance Core** | ✅ Hybrid architecture | ❌ Pure Python |
+| **Cyclic Execution Control** | ✅ EdgeLimits, MaxIterations | ⚠️ Manual loop control |
+| **Prior Plans / Critic Feedback** | ✅ Built-in retry context | ❌ Manual |
 
 ### Features Where OSS EXCEEDS Jeeves-Core
 
 | Feature | Jeeves-Core | LangChain/LangGraph |
 |---------|-------------|---------------------|
-| **DAG Parallelism** | ❌ Sequential only | ✅ Full parallel |
+| **Parallel DAG Execution** | ❌ Sequential within cycles | ✅ Full parallel |
 | **Integrations** | 6 LLM providers | 50+ providers |
 | **Community** | ❌ None | ✅ Huge |
 | **Production Battle-Test** | ❌ New | ✅ Years |
@@ -246,7 +347,14 @@ The `StateMachineExecutor` with parallel execution is **designed but not impleme
    - Resource quotas enforced at kernel level
    - Structured logging with OTEL hooks
 
-3. **Clean Architecture:**
+3. **Cyclic Agent Execution (REINTENT Architecture):**
+   - Routing rules allow backward transitions (Critic → Intent)
+   - EdgeLimits control per-edge cycle counts
+   - MaxIterations provides global cycle bounds
+   - PriorPlans/CriticFeedback built-in for retry context
+   - `RequiresLoop()` method on agent outcomes
+
+4. **Clean Architecture:**
    - 5-layer Python architecture with import rules
    - 13 documented contracts
    - Protocol-first design
@@ -259,9 +367,11 @@ The `StateMachineExecutor` with parallel execution is **designed but not impleme
    - Go server ready, Python client uses local fallbacks
    - Not production-integrated yet
 
-2. **Sequential Execution Only:**
-   - DAG infrastructure exists but not wired
-   - `enable_parallel_agents` flag unused
+2. **No Parallel DAG Execution:**
+   - DAG infrastructure exists (ActiveStages, CompletedStageSet)
+   - `enable_parallel_agents` flag defined but not wired
+   - Cyclic execution works; parallel doesn't
+   - Note: For most agentic workflows, cycles matter more than parallelism
 
 3. **No External Community:**
    - Single-team development
@@ -293,9 +403,32 @@ The checkpointing and semantic search implementations are more mature than initi
 | "No recovery/replay" | ❌ Wrong | ✅ Full PostgresCheckpointAdapter with fork_from_checkpoint |
 | "Memory underutilized" | ❌ Wrong | ✅ pgvector used in 22+ files |
 | "gRPC incomplete" | ⚠️ Partial | Go server complete, Python client stub |
-| "DAG not implemented" | ✅ Correct | Infrastructure exists, execution sequential |
+| "Sequential only" | ❌ **WRONG** | ✅ **Cyclic execution fully supported** (REINTENT architecture) |
+| "DAG not implemented" | ⚠️ Misleading | Parallel DAG incomplete, but cyclic (loops) fully work |
 | "Semantic search exists" | ✅ Correct | More complete than stated |
 
 ---
 
-*This corrected assessment reflects deep code inspection. The original analysis underestimated checkpointing and semantic search maturity.*
+## 12. Key Insight: Cyclic vs Parallel
+
+The original assessment confused two different concepts:
+
+1. **Parallel DAG Execution** (running A and B simultaneously) - **NOT implemented**
+2. **Cyclic Execution** (Critic → Intent → Planner → Executor → Critic → ...) - **FULLY implemented**
+
+For agentic LLM workflows, **cyclic execution is more important**:
+- Enables Planner/Executor/Critic loops
+- Supports REINTENT (re-evaluate intent based on results)
+- Allows iterative refinement with bounded retries
+
+The codebase explicitly calls this "REINTENT Architecture" and provides:
+- `RoutingRules` for conditional backward transitions
+- `EdgeLimits` for per-edge cycle control
+- `MaxIterations` for global cycle bounds
+- `IncrementIteration()` with feedback/prior plan storage
+- `CriticVerdict` enum with `reintent` value
+- `AgentOutcome.RequiresLoop()` method
+
+---
+
+*This corrected assessment reflects deep code inspection. The original analysis significantly underestimated the maturity of checkpointing, semantic search, and especially cyclic execution support.*
