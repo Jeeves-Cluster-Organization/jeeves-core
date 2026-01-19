@@ -40,7 +40,7 @@ from jeeves_protocols.core import (
     HealthStatus,
     # Control flow enums
     TerminalReason,
-    CriticVerdict,
+    LoopVerdict,
     RiskApproval,
     # Operation result
     OperationResult,
@@ -250,7 +250,7 @@ __all__ = [
     "OperationStatus",
     "HealthStatus",
     "TerminalReason",
-    "CriticVerdict",
+    "LoopVerdict",
     "RiskApproval",
     "OperationResult",
 

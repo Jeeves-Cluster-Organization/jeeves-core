@@ -376,7 +376,7 @@ if quota_exceeded:
 
 ---
 
-## Contract 13: Core Doesn't Reject Cycles
+## Contract 13: Core Doesn't Reject Cycles (Cyclic Routing)
 
 ### Rule
 Core does NOT validate or reject cycles. Capability layer defines the graph via routing rules.
@@ -386,8 +386,8 @@ If capability defines cycles, they MUST be bounded by:
 
 ### Rationale
 ```
-Capability defines:  Critic -> [reintent] -> Intent   (cycle exists)
-       or:           Critic -> end                     (no cycle)
+Capability defines:  StageC -> [loop_back] -> StageA   (cycle exists)
+       or:           StageC -> end                     (no cycle)
 ```
 
 Core's job: Execute the graph. Enforce bounds. Not judge the graph structure.
@@ -397,10 +397,13 @@ Core's job: Execute the graph. Enforce bounds. Not judge the graph structure.
 cfg := &PipelineConfig{
     MaxIterations: 5,  // Global cap
     EdgeLimits: []EdgeLimit{
-        {From: "critic", To: "intent", MaxCount: 3},  // Max 3 REINTENT loops
+        {From: "stageC", To: "stageA", MaxCount: 3},  // Max 3 loops on this edge
     },
 }
 ```
+
+> **Note:** Core uses generic terminology (loop_back, proceed, stageA, stageB).
+> Domain-specific names (critic, planner) belong in capability layer only.
 
 ### Invariants
 
@@ -437,7 +440,7 @@ if isCycleEdge(from, to) {
 ### 2026-01-06 - v1.2.0 (Hardening Review)
 - Added Contract 11: Envelope Sync (Go <-> Python round-trip tests)
 - Added Contract 12: Bounds Authority Split (Go in-loop, Python post-hoc)
-- Added Contract 13: Intentional Cycles (REINTENT Architecture)
+- Added Contract 13: Intentional Cycles (Cyclic Routing)
 - Added CyclePolicy and EdgeLimit to pipeline config
 - Documented enforcement mechanisms and invariants
 

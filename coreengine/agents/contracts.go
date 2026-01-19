@@ -44,6 +44,7 @@ func ToolStatusFromString(value string) (ToolStatus, error) {
 }
 
 // AgentOutcome represents explicit outcome types for agent execution.
+// These are GENERIC outcomes - capability layer defines specific semantics.
 //
 // Outcomes:
 //
@@ -52,7 +53,7 @@ func ToolStatusFromString(value string) (ToolStatus, error) {
 //	CLARIFY: Agent needs user clarification
 //	CONFIRM: Agent needs user confirmation
 //	REPLAN: Agent recommends replanning
-//	REINTENT: Agent recommends re-evaluating intent
+//	LOOP_BACK: Agent recommends returning to an earlier stage
 //	TERMINATE: Agent recommends terminating
 //	SKIP: Agent was skipped
 //	PARTIAL: Agent partially completed
@@ -64,7 +65,7 @@ const (
 	AgentOutcomeClarify   AgentOutcome = "clarify"
 	AgentOutcomeConfirm   AgentOutcome = "confirm"
 	AgentOutcomeReplan    AgentOutcome = "replan"
-	AgentOutcomeReintent  AgentOutcome = "reintent"
+	AgentOutcomeLoopBack  AgentOutcome = "loop_back"
 	AgentOutcomeTerminate AgentOutcome = "terminate"
 	AgentOutcomeSkip      AgentOutcome = "skip"
 	AgentOutcomePartial   AgentOutcome = "partial"
@@ -84,8 +85,8 @@ func AgentOutcomeFromString(value string) (AgentOutcome, error) {
 		return AgentOutcomeConfirm, nil
 	case "replan":
 		return AgentOutcomeReplan, nil
-	case "reintent":
-		return AgentOutcomeReintent, nil
+	case "loop_back":
+		return AgentOutcomeLoopBack, nil
 	case "terminate":
 		return AgentOutcomeTerminate, nil
 	case "skip":
@@ -93,7 +94,7 @@ func AgentOutcomeFromString(value string) (AgentOutcome, error) {
 	case "partial":
 		return AgentOutcomePartial, nil
 	default:
-		return "", fmt.Errorf("invalid agent outcome '%s'. Must be one of: success, error, clarify, confirm, replan, reintent, terminate, skip, partial", value)
+		return "", fmt.Errorf("invalid agent outcome '%s'. Must be one of: success, error, clarify, confirm, replan, loop_back, terminate, skip, partial", value)
 	}
 }
 
@@ -114,7 +115,7 @@ func (o AgentOutcome) IsSuccess() bool {
 
 // RequiresLoop checks if this outcome requires looping back.
 func (o AgentOutcome) RequiresLoop() bool {
-	return o == AgentOutcomeReplan || o == AgentOutcomeReintent
+	return o == AgentOutcomeReplan || o == AgentOutcomeLoopBack
 }
 
 // IdempotencyClass represents idempotency classification for tools.

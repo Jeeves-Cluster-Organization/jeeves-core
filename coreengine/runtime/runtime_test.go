@@ -62,8 +62,8 @@ func TestResumeClarificationInterrupt(t *testing.T) {
 	// Test Resume with clarification interrupt.
 	runtime := createTestRuntime(t)
 	env := envelope.CreateGenericEnvelope("Analyze code", "user-1", "sess-1", nil, nil, nil)
-	env.CurrentStage = "planner"
-	env.StageOrder = []string{"intent", "planner", "executor", "end"}
+	env.CurrentStage = "stageB"
+	env.StageOrder = []string{"stageA", "stageB", "stageC", "end"}
 
 	// Set clarification interrupt
 	env.SetInterrupt(envelope.InterruptKindClarification, "clar-1",
@@ -75,7 +75,7 @@ func TestResumeClarificationInterrupt(t *testing.T) {
 
 	require.NoError(t, err)
 	assert.False(t, result.InterruptPending)
-	// Clarification resets to intent, but since no agents configured, pipeline ends
+	// Clarification stays at current stage (no resume stage configured), pipeline ends with no agents
 	assert.Equal(t, "main.go", *result.Interrupt.Response.Text)
 }
 
@@ -83,8 +83,8 @@ func TestResumeConfirmationApproved(t *testing.T) {
 	// Test Resume with confirmation interrupt approved.
 	runtime := createTestRuntime(t)
 	env := envelope.CreateGenericEnvelope("Delete file", "user-1", "sess-1", nil, nil, nil)
-	env.CurrentStage = "planner"
-	env.StageOrder = []string{"intent", "planner", "executor", "end"}
+	env.CurrentStage = "stageB"
+	env.StageOrder = []string{"stageA", "stageB", "stageC", "end"}
 
 	// Set confirmation interrupt
 	env.SetInterrupt(envelope.InterruptKindConfirmation, "conf-1",
@@ -96,7 +96,7 @@ func TestResumeConfirmationApproved(t *testing.T) {
 
 	require.NoError(t, err)
 	assert.False(t, result.InterruptPending)
-	// Approved confirmation goes to executor, but since no agents configured, pipeline ends
+	// Approved confirmation stays at current stage (no resume stage configured), pipeline ends with no agents
 	assert.True(t, *result.Interrupt.Response.Approved)
 }
 
@@ -104,8 +104,8 @@ func TestResumeConfirmationDenied(t *testing.T) {
 	// Test Resume with confirmation interrupt denied.
 	runtime := createTestRuntime(t)
 	env := envelope.CreateGenericEnvelope("Delete file", "user-1", "sess-1", nil, nil, nil)
-	env.CurrentStage = "planner"
-	env.StageOrder = []string{"intent", "planner", "executor", "end"}
+	env.CurrentStage = "stageB"
+	env.StageOrder = []string{"stageA", "stageB", "stageC", "end"}
 
 	// Set confirmation interrupt
 	env.SetInterrupt(envelope.InterruptKindConfirmation, "conf-1",
@@ -120,15 +120,15 @@ func TestResumeConfirmationDenied(t *testing.T) {
 	assert.Contains(t, *result.TerminationReason, "denied")
 }
 
-func TestResumeCriticReviewInterrupt(t *testing.T) {
-	// Test Resume with critic review interrupt.
+func TestResumeAgentReviewInterrupt(t *testing.T) {
+	// Test Resume with agent review interrupt.
 	runtime := createTestRuntime(t)
 	env := envelope.CreateGenericEnvelope("Test", "user-1", "sess-1", nil, nil, nil)
-	env.CurrentStage = "critic"
-	env.StageOrder = []string{"intent", "planner", "critic", "executor", "end"}
+	env.CurrentStage = "stageC"
+	env.StageOrder = []string{"stageA", "stageB", "stageC", "stageD", "end"}
 
-	// Set critic review interrupt
-	env.SetInterrupt(envelope.InterruptKindCriticReview, "critic-1",
+	// Set agent review interrupt
+	env.SetInterrupt(envelope.InterruptKindAgentReview, "review-1",
 		envelope.WithMessage("Review plan"),
 		envelope.WithInterruptData(map[string]any{"plan_id": "plan-1"}))
 
@@ -138,7 +138,7 @@ func TestResumeCriticReviewInterrupt(t *testing.T) {
 
 	require.NoError(t, err)
 	assert.False(t, result.InterruptPending)
-	// Critic review resets to intent, but since no agents are configured, pipeline ends
+	// Agent review stays at current stage (no resume stage configured), pipeline ends with no agents
 	assert.Equal(t, "approve", *result.Interrupt.Response.Decision)
 }
 
@@ -146,12 +146,12 @@ func TestResumeCheckpointInterrupt(t *testing.T) {
 	// Test Resume with checkpoint interrupt.
 	runtime := createTestRuntime(t)
 	env := envelope.CreateGenericEnvelope("Test", "user-1", "sess-1", nil, nil, nil)
-	env.CurrentStage = "planner"
-	env.StageOrder = []string{"intent", "planner", "executor", "end"}
+	env.CurrentStage = "stageB"
+	env.StageOrder = []string{"stageA", "stageB", "stageC", "end"}
 
 	// Set checkpoint interrupt
 	env.SetInterrupt(envelope.InterruptKindCheckpoint, "checkpoint-1",
-		envelope.WithInterruptData(map[string]any{"stage": "planner"}))
+		envelope.WithInterruptData(map[string]any{"stage": "stageB"}))
 
 	// Resume checkpoint (no specific response needed)
 	result, err := runtime.Resume(context.Background(), env, envelope.InterruptResponse{}, "thread-1")
@@ -167,8 +167,8 @@ func TestResumeResourceExhaustedInterrupt(t *testing.T) {
 	// Test Resume with resource exhausted interrupt.
 	runtime := createTestRuntime(t)
 	env := envelope.CreateGenericEnvelope("Test", "user-1", "sess-1", nil, nil, nil)
-	env.CurrentStage = "executor"
-	env.StageOrder = []string{"intent", "planner", "executor", "end"}
+	env.CurrentStage = "stageC"
+	env.StageOrder = []string{"stageA", "stageB", "stageC", "end"}
 
 	// Set resource exhausted interrupt
 	env.SetInterrupt(envelope.InterruptKindResourceExhausted, "rate-1",
@@ -188,8 +188,8 @@ func TestResumeTimeoutInterrupt(t *testing.T) {
 	// Test Resume with timeout interrupt.
 	runtime := createTestRuntime(t)
 	env := envelope.CreateGenericEnvelope("Test", "user-1", "sess-1", nil, nil, nil)
-	env.CurrentStage = "executor"
-	env.StageOrder = []string{"intent", "planner", "executor", "end"}
+	env.CurrentStage = "stageC"
+	env.StageOrder = []string{"stageA", "stageB", "stageC", "end"}
 
 	// Set timeout interrupt
 	env.SetInterrupt(envelope.InterruptKindTimeout, "timeout-1",
@@ -208,8 +208,8 @@ func TestResumeSystemErrorInterrupt(t *testing.T) {
 	// Test Resume with system error interrupt.
 	runtime := createTestRuntime(t)
 	env := envelope.CreateGenericEnvelope("Test", "user-1", "sess-1", nil, nil, nil)
-	env.CurrentStage = "planner"
-	env.StageOrder = []string{"intent", "planner", "executor", "end"}
+	env.CurrentStage = "stageB"
+	env.StageOrder = []string{"stageA", "stageB", "stageC", "end"}
 
 	// Set system error interrupt
 	env.SetInterrupt(envelope.InterruptKindSystemError, "error-1",

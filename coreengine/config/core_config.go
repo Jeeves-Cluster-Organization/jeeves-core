@@ -47,16 +47,14 @@ type CoreConfig struct {
 	MetaValidationDelay   float64 `json:"meta_validation_delay"`
 
 	// Orchestration Feature Flags
-	EnableCriticLoop               bool `json:"enable_critic_loop"`                 // Allow Critic to trigger replan
-	EnableArbiter                  bool `json:"enable_arbiter"`                     // Enable policy arbiter stage
-	EnableSynthesizer              bool `json:"enable_synthesizer"`                 // Enable synthesizer between execution and critic
-	SkipPlannerIfSimpleIntent      bool `json:"skip_planner_if_simple_intent"`      // Bypass planner for trivial intents
-	SkipArbiterForReadOnly         bool `json:"skip_arbiter_for_read_only"`         // Skip arbiter if all steps are read-only
+	EnableLoopBack                    bool `json:"enable_loop_back"`                     // Allow agents to trigger loop back to earlier stages
+	EnableArbiter                     bool `json:"enable_arbiter"`                       // Enable policy arbiter stage
+	SkipArbiterForReadOnly            bool `json:"skip_arbiter_for_read_only"`           // Skip arbiter if all steps are read-only
 	RequireConfirmationForDestructive bool `json:"require_confirmation_for_destructive"` // Force confirmation for destructive ops
 
 	// Loop Control
-	MaxReplanIterations   int  `json:"max_replan_iterations"`    // Max replans before escalating
-	MaxCriticRejections   int  `json:"max_critic_rejections"`    // Max critic rejections before forcing completion
+	MaxReplanIterations    int  `json:"max_replan_iterations"`     // Max replans before escalating
+	MaxLoopBackRejections  int  `json:"max_loop_back_rejections"`  // Max loop back rejections before forcing completion
 	ReplanOnPartialSuccess bool `json:"replan_on_partial_success"` // Replan if some steps failed
 
 	// Determinism
@@ -97,16 +95,14 @@ func DefaultCoreConfig() *CoreConfig {
 		MetaValidationDelay:   0.5,
 
 		// Orchestration Feature Flags
-		EnableCriticLoop:               true,
-		EnableArbiter:                  true,
-		EnableSynthesizer:              true,
-		SkipPlannerIfSimpleIntent:      false,
-		SkipArbiterForReadOnly:         true,
+		EnableLoopBack:                    true,
+		EnableArbiter:                     true,
+		SkipArbiterForReadOnly:            true,
 		RequireConfirmationForDestructive: true,
 
 		// Loop Control
 		MaxReplanIterations:    3,
-		MaxCriticRejections:    2,
+		MaxLoopBackRejections:  2,
 		ReplanOnPartialSuccess: true,
 
 		// Determinism
@@ -181,17 +177,11 @@ func CoreConfigFromMap(config map[string]any) *CoreConfig {
 	if v, ok := config["meta_validation_delay"].(float64); ok {
 		c.MetaValidationDelay = v
 	}
-	if v, ok := config["enable_critic_loop"].(bool); ok {
-		c.EnableCriticLoop = v
+	if v, ok := config["enable_loop_back"].(bool); ok {
+		c.EnableLoopBack = v
 	}
 	if v, ok := config["enable_arbiter"].(bool); ok {
 		c.EnableArbiter = v
-	}
-	if v, ok := config["enable_synthesizer"].(bool); ok {
-		c.EnableSynthesizer = v
-	}
-	if v, ok := config["skip_planner_if_simple_intent"].(bool); ok {
-		c.SkipPlannerIfSimpleIntent = v
 	}
 	if v, ok := config["skip_arbiter_for_read_only"].(bool); ok {
 		c.SkipArbiterForReadOnly = v
@@ -204,10 +194,10 @@ func CoreConfigFromMap(config map[string]any) *CoreConfig {
 	} else if v, ok := config["max_replan_iterations"].(float64); ok {
 		c.MaxReplanIterations = int(v)
 	}
-	if v, ok := config["max_critic_rejections"].(int); ok {
-		c.MaxCriticRejections = v
-	} else if v, ok := config["max_critic_rejections"].(float64); ok {
-		c.MaxCriticRejections = int(v)
+	if v, ok := config["max_loop_back_rejections"].(int); ok {
+		c.MaxLoopBackRejections = v
+	} else if v, ok := config["max_loop_back_rejections"].(float64); ok {
+		c.MaxLoopBackRejections = int(v)
 	}
 	if v, ok := config["replan_on_partial_success"].(bool); ok {
 		c.ReplanOnPartialSuccess = v
@@ -257,14 +247,12 @@ func (c *CoreConfig) ToMap() map[string]any {
 		"high_confidence_threshold":          c.HighConfidenceThreshold,
 		"meta_validation_enabled":            c.MetaValidationEnabled,
 		"meta_validation_delay":              c.MetaValidationDelay,
-		"enable_critic_loop":                 c.EnableCriticLoop,
-		"enable_arbiter":                     c.EnableArbiter,
-		"enable_synthesizer":                 c.EnableSynthesizer,
-		"skip_planner_if_simple_intent":      c.SkipPlannerIfSimpleIntent,
-		"skip_arbiter_for_read_only":         c.SkipArbiterForReadOnly,
+		"enable_loop_back":                     c.EnableLoopBack,
+		"enable_arbiter":                       c.EnableArbiter,
+		"skip_arbiter_for_read_only":           c.SkipArbiterForReadOnly,
 		"require_confirmation_for_destructive": c.RequireConfirmationForDestructive,
-		"max_replan_iterations":              c.MaxReplanIterations,
-		"max_critic_rejections":              c.MaxCriticRejections,
+		"max_replan_iterations":                c.MaxReplanIterations,
+		"max_loop_back_rejections":             c.MaxLoopBackRejections,
 		"replan_on_partial_success":          c.ReplanOnPartialSuccess,
 		"strict_transition_validation":       c.StrictTransitionValidation,
 		"enable_idempotency":                 c.EnableIdempotency,

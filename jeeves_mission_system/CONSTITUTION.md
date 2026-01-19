@@ -541,7 +541,7 @@ Settings              # Configuration
 AgentConfig, PipelineConfig, RoutingRule, ToolAccess
 UnifiedAgent, UnifiedRuntime, create_runtime_from_config
 GenericEnvelope, ProcessingRecord, create_generic_envelope
-TerminalReason, CriticVerdict, RiskApproval
+TerminalReason, LoopVerdict, RiskApproval
 
 # Generic config types (defined in mission_system)
 AgentProfile, LLMProfile, ThresholdProfile

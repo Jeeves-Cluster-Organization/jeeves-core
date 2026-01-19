@@ -139,7 +139,7 @@ enum InterruptKind {
     RESOURCE_EXHAUSTED = 4;
     TIMEOUT = 5;
     SYSTEM_ERROR = 6;
-    CRITIC_REVIEW = 7;
+    AGENT_REVIEW = 7;
 }
 
 message InterruptResponse {

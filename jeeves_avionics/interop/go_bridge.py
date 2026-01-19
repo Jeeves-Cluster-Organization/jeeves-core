@@ -1,14 +1,12 @@
 """Go bridge module for Python-Go interoperability.
 
-This module provides a bridge to Go binaries for performance-critical
-operations. When Go binaries are not available, it falls back to Python
-implementations.
+Go binary is REQUIRED. No Python fallback.
+If Go binary is not available, initialization fails immediately.
 """
 
 import json
 import shutil
 import subprocess
-import uuid
 from dataclasses import dataclass, field
 from typing import Any, Dict, Optional
 
@@ -19,7 +17,7 @@ class GoBridgeError(Exception):
 
 
 class GoNotAvailableError(GoBridgeError):
-    """Raised when Go binary is not available."""
+    """Raised when Go binary is required but not available."""
     pass
 
 
@@ -41,7 +39,7 @@ class GoResult:
 
 
 class GoBridge:
-    """Base class for Go binary bridges."""
+    """Bridge to Go binary. Fails if binary not available."""
 
     def __init__(self, binary_name: str, timeout_seconds: float = 30.0):
         """Initialize Go bridge.
@@ -49,18 +47,19 @@ class GoBridge:
         Args:
             binary_name: Name of the Go binary
             timeout_seconds: Timeout for binary execution
+            
+        Raises:
+            GoNotAvailableError: If binary not found in PATH
         """
         self._binary_name = binary_name
         self._timeout = timeout_seconds
-        self._binary_path: Optional[str] = None
-
-    def is_available(self) -> bool:
-        """Check if the Go binary is available.
-
-        Returns:
-            True if binary is found in PATH
-        """
-        return shutil.which(self._binary_name) is not None
+        self._binary_path = shutil.which(binary_name)
+        
+        if self._binary_path is None:
+            raise GoNotAvailableError(
+                f"Go binary '{binary_name}' not found in PATH. "
+                f"Build with: go build -o {binary_name} cmd/envelope/main.go"
+            )
 
     def call(self, command: str, args: Dict[str, Any]) -> GoResult:
         """Call the Go binary with a command.
@@ -73,19 +72,13 @@ class GoBridge:
             GoResult with success status and data/error
 
         Raises:
-            GoNotAvailableError: If binary not found
             GoExecutionError: If execution fails
         """
-        if not self.is_available():
-            raise GoNotAvailableError(f"Binary {self._binary_name} not found")
-
         try:
-            # Prepare input
             input_data = json.dumps({"command": command, **args})
 
-            # Execute binary
             result = subprocess.run(
-                [self._binary_name],
+                [self._binary_path],
                 input=input_data,
                 capture_output=True,
                 text=True,
@@ -98,7 +91,6 @@ class GoBridge:
                     code="exit_error",
                 )
 
-            # Parse output
             output = json.loads(result.stdout)
 
             if output.get("error"):
@@ -121,31 +113,15 @@ class GoBridge:
 
 
 class GoEnvelopeBridge(GoBridge):
-    """Bridge to Go envelope operations."""
+    """Bridge to Go envelope operations. Go binary is REQUIRED."""
 
-    def __init__(self, use_go: Optional[bool] = None):
+    def __init__(self):
         """Initialize envelope bridge.
-
-        Args:
-            use_go: Force Go usage (True), Python fallback (False),
-                   or auto-detect (None)
+        
+        Raises:
+            GoNotAvailableError: If go-envelope binary not available
         """
         super().__init__("go-envelope")
-        self._use_go = use_go
-        self._initialized = False
-
-    @property
-    def using_go(self) -> bool:
-        """Check if using Go implementation.
-
-        Returns:
-            True if using Go binary, False if using Python fallback
-        """
-        if not self._initialized:
-            if self._use_go is None:
-                self._use_go = self.is_available()
-            self._initialized = True
-        return self._use_go
 
     def create_envelope(
         self,
@@ -154,7 +130,7 @@ class GoEnvelopeBridge(GoBridge):
         session_id: str,
         **kwargs: Any,
     ) -> Dict[str, Any]:
-        """Create a new envelope.
+        """Create a new envelope via Go.
 
         Args:
             raw_input: Raw user input
@@ -164,21 +140,25 @@ class GoEnvelopeBridge(GoBridge):
 
         Returns:
             Created envelope as dictionary
+            
+        Raises:
+            GoExecutionError: If Go execution fails
         """
-        if self.using_go:
-            result = self.call(
-                "create",
-                {
-                    "raw_input": raw_input,
-                    "user_id": user_id,
-                    "session_id": session_id,
-                    **kwargs,
-                },
+        result = self.call(
+            "create",
+            {
+                "raw_input": raw_input,
+                "user_id": user_id,
+                "session_id": session_id,
+                **kwargs,
+            },
+        )
+        if not result.success:
+            raise GoExecutionError(
+                result.error_message or "create_envelope failed",
+                code=result.error_code or "unknown"
             )
-            return result.data
-
-        # Python fallback
-        return self._python_create_envelope(raw_input, user_id, session_id, **kwargs)
+        return result.data
 
     def can_continue(self, envelope: Dict[str, Any]) -> Dict[str, Any]:
         """Check if envelope processing can continue.
@@ -188,13 +168,17 @@ class GoEnvelopeBridge(GoBridge):
 
         Returns:
             Dictionary with can_continue status and metrics
+            
+        Raises:
+            GoExecutionError: If Go execution fails
         """
-        if self.using_go:
-            result = self.call("can_continue", {"envelope": envelope})
-            return result.data
-
-        # Python fallback
-        return self._python_can_continue(envelope)
+        result = self.call("can_continue", {"envelope": envelope})
+        if not result.success:
+            raise GoExecutionError(
+                result.error_message or "can_continue failed",
+                code=result.error_code or "unknown"
+            )
+        return result.data
 
     def get_result(self, envelope: Dict[str, Any]) -> Dict[str, Any]:
         """Get result from envelope.
@@ -204,13 +188,17 @@ class GoEnvelopeBridge(GoBridge):
 
         Returns:
             Result dictionary
+            
+        Raises:
+            GoExecutionError: If Go execution fails
         """
-        if self.using_go:
-            result = self.call("get_result", {"envelope": envelope})
-            return result.data
-
-        # Python fallback
-        return self._python_get_result(envelope)
+        result = self.call("get_result", {"envelope": envelope})
+        if not result.success:
+            raise GoExecutionError(
+                result.error_message or "get_result failed",
+                code=result.error_code or "unknown"
+            )
+        return result.data
 
     def validate(self, envelope: Dict[str, Any]) -> Dict[str, Any]:
         """Validate an envelope.
@@ -220,88 +208,14 @@ class GoEnvelopeBridge(GoBridge):
 
         Returns:
             Validation result with valid status and errors
+            
+        Raises:
+            GoExecutionError: If Go execution fails
         """
-        if self.using_go:
-            result = self.call("validate", {"envelope": envelope})
-            return result.data
-
-        # Python fallback
-        return self._python_validate(envelope)
-
-    # Python fallback implementations
-
-    def _python_create_envelope(
-        self,
-        raw_input: str,
-        user_id: str,
-        session_id: str,
-        **kwargs: Any,
-    ) -> Dict[str, Any]:
-        """Python fallback for create_envelope."""
-        envelope_id = f"env_{uuid.uuid4().hex[:12]}"
-        request_id = f"req_{uuid.uuid4().hex[:12]}"
-
-        return {
-            "envelope_id": envelope_id,
-            "request_id": request_id,
-            "raw_input": raw_input,
-            "user_id": user_id,
-            "session_id": session_id,
-            "iteration": 0,
-            "llm_call_count": 0,
-            "terminated": False,
-            "error": None,
-            **kwargs,
-        }
-
-    def _python_can_continue(self, envelope: Dict[str, Any]) -> Dict[str, Any]:
-        """Python fallback for can_continue."""
-        iteration = envelope.get("iteration", 0)
-        llm_calls = envelope.get("llm_call_count", 0)
-        terminated = envelope.get("terminated", False)
-
-        # Default limits
-        max_iterations = 10
-        max_llm_calls = 20
-
-        can_continue = (
-            not terminated
-            and iteration < max_iterations
-            and llm_calls < max_llm_calls
-        )
-
-        return {
-            "can_continue": can_continue,
-            "iteration": iteration,
-            "llm_call_count": llm_calls,
-            "max_iterations": max_iterations,
-            "max_llm_calls": max_llm_calls,
-            "terminated": terminated,
-        }
-
-    def _python_get_result(self, envelope: Dict[str, Any]) -> Dict[str, Any]:
-        """Python fallback for get_result."""
-        return {
-            "envelope_id": envelope.get("envelope_id", ""),
-            "request_id": envelope.get("request_id", ""),
-            "final_response": envelope.get("final_response"),
-            "terminated": envelope.get("terminated", False),
-            "error": envelope.get("error"),
-            "iteration": envelope.get("iteration", 0),
-            "llm_call_count": envelope.get("llm_call_count", 0),
-        }
-
-    def _python_validate(self, envelope: Dict[str, Any]) -> Dict[str, Any]:
-        """Python fallback for validate."""
-        errors = []
-
-        # Required fields
-        required = ["envelope_id", "user_id"]
-        for field in required:
-            if field not in envelope:
-                errors.append(f"Missing required field: {field}")
-
-        return {
-            "valid": len(errors) == 0,
-            "errors": errors,
-        }
+        result = self.call("validate", {"envelope": envelope})
+        if not result.success:
+            raise GoExecutionError(
+                result.error_message or "validate failed",
+                code=result.error_code or "unknown"
+            )
+        return result.data

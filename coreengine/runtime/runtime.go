@@ -4,6 +4,7 @@ package runtime
 import (
 	"context"
 	"fmt"
+	"sync"
 	"time"
 
 	"github.com/jeeves-cluster-organization/codeanalysis/coreengine/agents"
@@ -282,18 +283,28 @@ func (r *UnifiedRuntime) Resume(ctx context.Context, env *envelope.GenericEnvelo
 	env.ResolveInterrupt(response)
 
 	// Determine resume stage based on interrupt kind
+	// Use configurable stages from PipelineConfig, or stay at current stage
 	switch kind {
 	case envelope.InterruptKindClarification:
-		env.CurrentStage = "intent"
+		if r.Config.ClarificationResumeStage != "" {
+			env.CurrentStage = r.Config.ClarificationResumeStage
+		}
+		// If not configured, stay at current stage
 	case envelope.InterruptKindConfirmation:
 		if response.Approved != nil && *response.Approved {
-			env.CurrentStage = "executor"
+			if r.Config.ConfirmationResumeStage != "" {
+				env.CurrentStage = r.Config.ConfirmationResumeStage
+			}
+			// If not configured, stay at current stage
 		} else {
 			env.Terminate("User denied confirmation", nil)
 			return env, nil
 		}
-	case envelope.InterruptKindCriticReview:
-		env.CurrentStage = "intent"
+	case envelope.InterruptKindAgentReview:
+		if r.Config.AgentReviewResumeStage != "" {
+			env.CurrentStage = r.Config.AgentReviewResumeStage
+		}
+		// If not configured, stay at current stage
 	default:
 		// For other interrupt types, stay at current stage
 	}
@@ -319,6 +330,155 @@ func (r *UnifiedRuntime) GetState(ctx context.Context, threadID string) (map[str
 type StageOutput struct {
 	Stage  string
 	Output map[string]any
+	Error  error
+}
+
+// RunParallel executes pipeline with parallel stage execution.
+// Independent stages (no dependencies between them) run concurrently.
+// This is the preferred execution mode for DAG-style pipelines.
+func (r *UnifiedRuntime) RunParallel(ctx context.Context, env *envelope.GenericEnvelope, threadID string) (*envelope.GenericEnvelope, error) {
+	startTime := time.Now()
+
+	// Initialize envelope
+	env.StageOrder = r.Config.GetStageOrder()
+	env.MaxIterations = r.Config.MaxIterations
+	env.MaxLLMCalls = r.Config.MaxLLMCalls
+	env.MaxAgentHops = r.Config.MaxAgentHops
+
+	r.Logger.Info("pipeline_parallel_started",
+		"envelope_id", env.EnvelopeID,
+		"request_id", env.RequestID,
+		"stage_order", env.StageOrder,
+	)
+
+	// Track completed stages
+	completed := make(map[string]bool)
+	var mu sync.Mutex
+
+	// Execute until all stages done or terminated
+	for !env.Terminated {
+		// Check bounds
+		if !env.CanContinue() {
+			r.Logger.Warn("pipeline_bounds_exceeded",
+				"envelope_id", env.EnvelopeID,
+				"terminal_reason", env.TerminalReason_,
+			)
+			break
+		}
+
+		// Handle pending interrupt
+		if env.InterruptPending {
+			r.Logger.Info("pipeline_interrupt",
+				"envelope_id", env.EnvelopeID,
+				"interrupt_kind", env.GetInterruptKind(),
+			)
+			break
+		}
+
+		// Find stages ready to execute
+		readyStages := r.Config.GetReadyStages(completed)
+		if len(readyStages) == 0 {
+			// No more stages to execute
+			break
+		}
+
+		r.Logger.Debug("parallel_batch",
+			"envelope_id", env.EnvelopeID,
+			"ready_stages", readyStages,
+			"completed", len(completed),
+		)
+
+		// Execute ready stages in parallel
+		results := make(chan StageOutput, len(readyStages))
+		var wg sync.WaitGroup
+
+		for _, stageName := range readyStages {
+			agent, exists := r.agents[stageName]
+			if !exists {
+				r.Logger.Error("pipeline_unknown_stage",
+					"envelope_id", env.EnvelopeID,
+					"stage", stageName,
+				)
+				reason := envelope.TerminalReasonToolFailedFatally
+				env.Terminate(fmt.Sprintf("Unknown stage: %s", stageName), &reason)
+				break
+			}
+
+			wg.Add(1)
+			go func(name string, a *agents.UnifiedAgent) {
+				defer wg.Done()
+
+				// Clone envelope for this stage (thread safety)
+				stageEnv := env.Clone()
+				stageEnv.CurrentStage = name
+
+				// Execute agent
+				resultEnv, err := a.Process(ctx, stageEnv)
+				results <- StageOutput{
+					Stage:  name,
+					Output: resultEnv.GetOutput(name),
+					Error:  err,
+				}
+			}(stageName, agent)
+		}
+
+		// Wait for all parallel stages to complete
+		go func() {
+			wg.Wait()
+			close(results)
+		}()
+
+		// Collect results
+		for result := range results {
+			if result.Error != nil {
+				r.Logger.Error("pipeline_agent_error",
+					"envelope_id", env.EnvelopeID,
+					"agent", result.Stage,
+					"error", result.Error.Error(),
+				)
+				reason := envelope.TerminalReasonToolFailedFatally
+				env.Terminate(result.Error.Error(), &reason)
+				break
+			}
+
+			// Merge output into main envelope
+			mu.Lock()
+			env.SetOutput(result.Stage, result.Output)
+			completed[result.Stage] = true
+			mu.Unlock()
+
+			r.Logger.Debug("stage_completed",
+				"envelope_id", env.EnvelopeID,
+				"stage", result.Stage,
+			)
+		}
+
+		if env.Terminated {
+			break
+		}
+
+		// Persist state after each batch
+		if r.Persistence != nil && threadID != "" {
+			if persistErr := r.Persistence.SaveState(ctx, threadID, env.ToStateDict()); persistErr != nil {
+				r.Logger.Warn("state_persist_error",
+					"thread_id", threadID,
+					"error", persistErr.Error(),
+				)
+			}
+		}
+	}
+
+	durationMS := int(time.Since(startTime).Milliseconds())
+
+	r.Logger.Info("pipeline_parallel_completed",
+		"envelope_id", env.EnvelopeID,
+		"request_id", env.RequestID,
+		"stages_completed", len(completed),
+		"terminated", env.Terminated,
+		"duration_ms", durationMS,
+	)
+
+	return env, nil
 }
 
 // CreateRuntimeFromConfig is a factory function to create UnifiedRuntime.

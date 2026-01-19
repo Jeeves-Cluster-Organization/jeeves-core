@@ -202,10 +202,10 @@ async def respond_to_interrupt(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Confirmation interrupt requires 'approved' field",
         )
-    if kind == "critic_review" and body.decision is None:
+    if kind == "agent_review" and body.decision is None:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Critic review interrupt requires 'decision' field",
+            detail="Agent review interrupt requires 'decision' field",
         )
 
     # Respond to the interrupt
@@ -245,7 +245,7 @@ async def list_interrupts(
     ),
     kind: Optional[str] = Query(
         None,
-        description="Filter by kind: clarification, confirmation, critic_review, etc.",
+        description="Filter by kind: clarification, confirmation, agent_review, etc.",
     ),
     limit: int = Query(50, ge=1, le=200),
     service=Depends(get_interrupt_service),

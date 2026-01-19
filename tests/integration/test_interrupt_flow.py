@@ -146,18 +146,18 @@ async def test_confirmation_flow_denied(
 
 
 @pytest.mark.asyncio
-async def test_critic_review_flow(
+async def test_agent_review_flow(
     interrupt_service: InterruptService, sample_interrupt_data: Dict[str, Any]
 ):
-    """Test critic review interrupt flow."""
+    """Test agent review interrupt flow."""
     interrupt = await interrupt_service.create_interrupt(
-        kind=InterruptKind.CRITIC_REVIEW,
+        kind=InterruptKind.AGENT_REVIEW,
         message="Review this execution plan",
         data={"plan_id": "plan-123", "steps": ["step1", "step2"]},
         **sample_interrupt_data,
     )
 
-    assert interrupt.kind == InterruptKind.CRITIC_REVIEW
+    assert interrupt.kind == InterruptKind.AGENT_REVIEW
     assert interrupt.data["plan_id"] == "plan-123"
 
     # Approve the plan
@@ -461,7 +461,7 @@ async def test_all_interrupt_kinds_creatable(
     kinds_and_responses = [
         (InterruptKind.CLARIFICATION, InterruptResponse(text="Answer")),
         (InterruptKind.CONFIRMATION, InterruptResponse(approved=True)),
-        (InterruptKind.CRITIC_REVIEW, InterruptResponse(decision="approve")),
+        (InterruptKind.AGENT_REVIEW, InterruptResponse(decision="approve")),
         (InterruptKind.CHECKPOINT, InterruptResponse()),
         (InterruptKind.RESOURCE_EXHAUSTED, InterruptResponse()),
         (InterruptKind.TIMEOUT, InterruptResponse()),
@@ -473,7 +473,7 @@ async def test_all_interrupt_kinds_creatable(
         interrupt = await interrupt_service.create_interrupt(
             kind=kind,
             question="Q" if kind == InterruptKind.CLARIFICATION else None,
-            message="M" if kind in (InterruptKind.CONFIRMATION, InterruptKind.CRITIC_REVIEW) else None,
+            message="M" if kind in (InterruptKind.CONFIRMATION, InterruptKind.AGENT_REVIEW) else None,
             **data,
         )
 

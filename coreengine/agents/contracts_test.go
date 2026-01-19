@@ -80,7 +80,7 @@ func TestAgentOutcomeIsSuccess(t *testing.T) {
 
 func TestAgentOutcomeRequiresLoop(t *testing.T) {
 	assert.True(t, AgentOutcomeReplan.RequiresLoop())
-	assert.True(t, AgentOutcomeReintent.RequiresLoop())
+	assert.True(t, AgentOutcomeLoopBack.RequiresLoop())
 
 	assert.False(t, AgentOutcomeSuccess.RequiresLoop())
 	assert.False(t, AgentOutcomeError.RequiresLoop())
