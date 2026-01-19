@@ -38,6 +38,7 @@ from jeeves_shared.uuid_utils import (
     UUIDStr,
     OptionalUUIDStr,
 )
+from jeeves_shared.fuzzy_matcher import FuzzyMatcher, MatchScore, fuzzy_match_score
 
 __all__ = [
     # Logging
@@ -66,4 +67,8 @@ __all__ = [
     "convert_uuids_to_strings",
     "UUIDStr",
     "OptionalUUIDStr",
+    # Fuzzy Matching
+    "FuzzyMatcher",
+    "MatchScore",
+    "fuzzy_match_score",
 ]

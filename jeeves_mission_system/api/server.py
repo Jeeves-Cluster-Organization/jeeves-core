@@ -23,7 +23,7 @@ from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
 
-from jeeves_mission_system.common.websocket_manager import WebSocketEventManager
+from jeeves_avionics.gateway.websocket_manager import WebSocketEventManager
 from jeeves_mission_system.events.bridge import EventBridge
 from jeeves_mission_system.bootstrap import create_app_context, core_config_to_resource_quota
 from jeeves_avionics.wiring import create_llm_provider_factory, create_tool_executor
