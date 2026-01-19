@@ -138,6 +138,37 @@ The "REINTENT Architecture" naming in documentation created a conceptual leak:
 
 ---
 
+## Constitutional Justification
+
+The refactoring plan is **aligned with existing CONSTITUTION.md principles**:
+
+### Avionics Constitution R5:
+> "**ToolId enums are CAPABILITY-OWNED, not avionics-owned**"
+
+This principle should extend to all domain-specific enums. Just as `ToolId` was moved 
+to capability layer, `CriticVerdict` and `AgentOutcomeReintent` should follow.
+
+### Mission System Constitution:
+> "The following describes the **reference 7-agent pipeline** that capabilities can adopt. 
+> **Capabilities may customize this pipeline** or define their own agent configurations."
+
+This confirms that agent names (Critic, Intent, Planner) are capability-layer concepts.
+Core should provide generic routing primitives, not assume specific agent names.
+
+### Control Tower Constitution R1:
+> "Control Tower **ONLY imports from** `jeeves_protocols` and `jeeves_shared`"
+
+Domain-specific enums like `InterruptKindCriticReview` violate the spirit of this rule -
+protocols should be generic, not embed capability-layer agent names.
+
+### Mission System Constitution - Config Architecture:
+> "**Capability layer OWNS domain-specific configs** (language, tool access, deployment, identity)"
+
+Config fields like `EnableCriticLoop` and `MaxCriticRejections` are domain-specific 
+and should follow the same ownership pattern.
+
+---
+
 ## Impact Assessment
 
 | Impact | Severity | Description |
