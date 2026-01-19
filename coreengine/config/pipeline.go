@@ -24,15 +24,11 @@
 //   - Routing conditions (e.g., "verdict", "approved")
 //   - EdgeLimits for domain-specific edges
 //
-// See docs/ARCHITECTURAL_DEBT.md for known violations of this principle.
-//
 // # Parallel Execution
 //
-// Parallel DAG execution (running independent stages concurrently) is NOT YET IMPLEMENTED.
-// The infrastructure exists (ActiveStages, CompletedStageSet, DAGMode fields in envelope)
-// but the runtime currently executes stages sequentially within each cycle.
-//
-// See docs/STATE_MACHINE_EXECUTOR_DESIGN.md for the planned parallel execution design.
+// Parallel DAG execution is available via UnifiedRuntime.RunParallel().
+// This executes independent stages concurrently using goroutines.
+// The DAGMode flag in envelope indicates parallel execution mode.
 package config
 
 import (
