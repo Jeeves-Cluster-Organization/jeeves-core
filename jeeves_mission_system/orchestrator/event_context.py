@@ -226,10 +226,10 @@ class AgentEventContext:
         This is emitted by the Critic agent after evaluating results.
 
         Args:
-            action: Critic verdict ("approved", "reintent", "next_stage")
+            action: Critic verdict ("approved", "loop_back", "next_stage")
             confidence: Decision confidence (0.0-1.0)
             issue: Issue description if not approved
-            feedback: Refine intent hint for REINTENT verdict
+            feedback: Refine intent hint for loop_back verdict
 
         Returns:
             Event ID if domain event emitted, None otherwise

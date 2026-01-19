@@ -202,7 +202,7 @@ class TestCheckpointIntegrity:
         # Simulate after 2 replan iterations
         state["iteration"] = 2
         state["prior_plans"] = [{"plan_id": "plan_1"}, {"plan_id": "plan_2"}]
-        state["critic_feedback"] = [
+        state["loop_feedback"] = [
             "First attempt failed - task not found",
             "Second attempt failed - wrong date format",
         ]
@@ -214,7 +214,7 @@ class TestCheckpointIntegrity:
 
         assert deserialized["iteration"] == 2
         assert len(deserialized["prior_plans"]) == 2
-        assert len(deserialized["critic_feedback"]) == 2
+        assert len(deserialized["loop_feedback"]) == 2
 
     @pytest.mark.asyncio
     async def test_checkpoint_preserves_errors(self):

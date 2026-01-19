@@ -7,7 +7,6 @@
 //
 // NOTE: This package uses GENERIC terminology. Domain-specific concepts like
 // "Critic" or "Intent" belong in the capability layer, not here.
-// See docs/ARCHITECTURAL_DEBT.md for details.
 package envelope
 
 // TerminalReason represents why processing terminated - exactly one per request.

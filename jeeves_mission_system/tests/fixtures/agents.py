@@ -246,12 +246,12 @@ def envelope_with_clarification(envelope_with_perception) -> GenericEnvelope:
 
 
 @pytest.fixture
-def envelope_with_reintent(envelope_with_critic) -> GenericEnvelope:
-    """Envelope that needs reintent (critic verdict=reintent)."""
+def envelope_with_loop_back(envelope_with_critic) -> GenericEnvelope:
+    """Envelope that needs loop_back (critic verdict=loop_back)."""
     env = envelope_with_critic
-    # Override critic output with reintent verdict
+    # Override critic output with loop_back verdict
     env.set_output("critic", {
-        "verdict": "reintent",
+        "verdict": "loop_back",
         "confidence": 0.5,
         "intent_alignment_score": 0.4,
         "issues": ["Results don't fully address the question"],
@@ -260,7 +260,7 @@ def envelope_with_reintent(envelope_with_critic) -> GenericEnvelope:
     })
     env.current_stage = "intent"
     env.iteration = 1
-    env.metadata["critic_feedback_for_intent"] = {
+    env.metadata["loop_feedback_for_intent"] = {
         "prior_intent": env.outputs.get("intent", {}),
         "refine_hint": "Focus on the entry point main function, not helper functions",
         "issues": ["Results don't fully address the question"],
@@ -285,5 +285,5 @@ __all__ = [
     "envelope_with_critic",
     # Special state fixtures
     "envelope_with_clarification",
-    "envelope_with_reintent",
+    "envelope_with_loop_back",
 ]

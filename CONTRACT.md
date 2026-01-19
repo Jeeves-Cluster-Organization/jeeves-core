@@ -113,7 +113,7 @@ from jeeves_protocols import (
     GenericEnvelope, ProcessingRecord,
 
     # Agent Runtime
-    UnifiedAgent, UnifiedRuntime, create_runtime_from_config,
+    UnifiedAgent, Runtime, create_runtime_from_config,
     create_generic_envelope, LLMProviderFactory,
 
     # Protocols

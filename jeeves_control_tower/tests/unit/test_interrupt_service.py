@@ -3,7 +3,7 @@
 Tests the unified interrupt handling service for all 7 interrupt kinds:
 - clarification
 - confirmation
-- critic_review
+- agent_review
 - checkpoint
 - resource_exhausted
 - timeout

@@ -475,7 +475,7 @@ def test_import_boundaries():
 **What this layer imports:**
 - `jeeves_protocols` — Python protocols and type definitions
   - `AgentConfig`, `PipelineConfig`, `RoutingRule`, `ToolAccess`
-  - `UnifiedAgent`, `UnifiedRuntime`
+  - `UnifiedAgent`, `Runtime`
   - `GenericEnvelope`, `ProcessingRecord`
   - All protocols (`LLMProviderProtocol`, `ToolProtocol`, etc.)
   - `ContextBounds`, `WorkingMemory`
@@ -492,7 +492,7 @@ def test_import_boundaries():
 
 1. **contracts_core.py** — Re-exports centralized types for capabilities
    - `AgentConfig`, `PipelineConfig`, `RoutingRule`, `ToolAccess`
-   - `UnifiedAgent`, `UnifiedRuntime`, `create_runtime_from_config`
+   - `UnifiedAgent`, `Runtime`, `create_runtime_from_config`
    - `GenericEnvelope`, `ProcessingRecord`, `create_generic_envelope`
    - All protocols from jeeves_protocols (LoggerProtocol, ToolExecutorProtocol, etc.)
    - `AgentProfile`, `LLMProfile`, `ThresholdProfile` (generic per-agent config)
@@ -523,7 +523,7 @@ AgentConfig           # Declarative agent definition
 PipelineConfig        # Pipeline with ordered agents
 UnifiedAgent          # Single agent class for all types
 GenericEnvelope       # Dynamic output slots (outputs dict)
-UnifiedRuntime        # Executes pipelines from config
+Runtime               # Executes pipelines from config
 ContextBounds         # Resource limits
 ```
 
@@ -539,7 +539,7 @@ Settings              # Configuration
 ```python
 # Centralized agent types (re-exported from core)
 AgentConfig, PipelineConfig, RoutingRule, ToolAccess
-UnifiedAgent, UnifiedRuntime, create_runtime_from_config
+UnifiedAgent, Runtime, create_runtime_from_config
 GenericEnvelope, ProcessingRecord, create_generic_envelope
 TerminalReason, LoopVerdict, RiskApproval
 

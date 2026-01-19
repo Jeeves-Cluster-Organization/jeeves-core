@@ -998,8 +998,8 @@ class EventEmitter:
     ) -> Optional[str]:
         """Emit critic_decision event when Critic evaluates a response.
 
-        REINTENT Architecture: action is 'approved', 'reintent', or 'next_stage'.
-        feedback is the refine_intent_hint for REINTENT verdict.
+        Loop-back Architecture: action is 'approved', 'loop_back', or 'next_stage'.
+        feedback is the refine_intent_hint for loop_back verdict.
         """
         return await self.emit(
             aggregate_type="workflow",

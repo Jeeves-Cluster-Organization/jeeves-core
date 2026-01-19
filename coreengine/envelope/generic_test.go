@@ -329,14 +329,14 @@ func TestIncrementIteration(t *testing.T) {
 }
 
 func TestIncrementIterationWithFeedback(t *testing.T) {
-	// Test incrementing with critic feedback.
+	// Test incrementing with loop feedback.
 	envelope := CreateGenericEnvelope("Test", "user-1", "sess-1", nil, nil, nil)
 
 	feedback := "Need more context"
 	envelope.IncrementIteration(&feedback)
 
 	assert.Equal(t, 1, envelope.Iteration)
-	assert.Contains(t, envelope.CriticFeedback, "Need more context")
+	assert.Contains(t, envelope.LoopFeedback, "Need more context")
 }
 
 func TestIncrementIterationStoresPriorPlan(t *testing.T) {
@@ -584,15 +584,15 @@ func TestSetSystemErrorInterrupt(t *testing.T) {
 }
 
 // =============================================================================
-// DAG SERIALIZATION TESTS
+// PARALLEL EXECUTION SERIALIZATION TESTS
 // =============================================================================
 
-func TestDAGStateRoundtrip(t *testing.T) {
-	// Test that DAG state fields are preserved through serialization.
+func TestParallelStateRoundtrip(t *testing.T) {
+	// Test that parallel execution state fields are preserved through serialization.
 	original := CreateGenericEnvelope("Test", "user-1", "sess-1", nil, nil, nil)
 
-	// Set DAG mode and state
-	original.DAGMode = true
+	// Set parallel mode and state
+	original.ParallelMode = true
 	original.StartStage("stage1")
 	original.StartStage("stage2")
 	original.CompleteStage("stage1")
@@ -602,24 +602,24 @@ func TestDAGStateRoundtrip(t *testing.T) {
 	state := original.ToStateDict()
 	restored := FromStateDict(state)
 
-	// Verify DAG fields preserved
-	assert.Equal(t, true, restored.DAGMode)
+	// Verify parallel execution fields preserved
+	assert.Equal(t, true, restored.ParallelMode)
 	assert.True(t, restored.ActiveStages["stage2"])
 	assert.True(t, restored.CompletedStageSet["stage1"])
 	assert.Equal(t, "connection error", restored.FailedStages["stage3"])
 }
 
-func TestToStateDictIncludesDAGFields(t *testing.T) {
-	// Test that ToStateDict includes all DAG fields.
+func TestToStateDictIncludesParallelFields(t *testing.T) {
+	// Test that ToStateDict includes all parallel execution fields.
 	envelope := CreateGenericEnvelope("Test", "user-1", "sess-1", nil, nil, nil)
-	envelope.DAGMode = true
+	envelope.ParallelMode = true
 	envelope.ActiveStages["active1"] = true
 	envelope.CompletedStageSet["done1"] = true
 	envelope.FailedStages["fail1"] = "error"
 
 	state := envelope.ToStateDict()
 
-	assert.Equal(t, true, state["dag_mode"])
+	assert.Equal(t, true, state["parallel_mode"])
 	assert.NotNil(t, state["active_stages"])
 	assert.NotNil(t, state["completed_stage_set"])
 	assert.NotNil(t, state["failed_stages"])
@@ -710,23 +710,23 @@ func TestCloneWithInterrupt(t *testing.T) {
 	assert.Equal(t, "What file?", original.Interrupt.Question)
 }
 
-func TestCloneWithDAGState(t *testing.T) {
-	// Test cloning envelope with DAG state.
+func TestCloneWithParallelState(t *testing.T) {
+	// Test cloning envelope with parallel execution state.
 	original := CreateGenericEnvelope("Test", "user-1", "sess-1", nil, nil, nil)
-	original.DAGMode = true
+	original.ParallelMode = true
 	original.ActiveStages["stage1"] = true
 	original.CompletedStageSet["stage0"] = true
 	original.FailedStages["stage2"] = "error"
 
 	clone := original.Clone()
 
-	// Verify DAG state copied
-	assert.True(t, clone.DAGMode)
+	// Verify parallel state copied
+	assert.True(t, clone.ParallelMode)
 	assert.True(t, clone.ActiveStages["stage1"])
 	assert.True(t, clone.CompletedStageSet["stage0"])
 	assert.Equal(t, "error", clone.FailedStages["stage2"])
 
-	// Modify clone's DAG state
+	// Modify clone's parallel state
 	clone.ActiveStages["stage1"] = false
 	clone.CompletedStageSet["new"] = true
 

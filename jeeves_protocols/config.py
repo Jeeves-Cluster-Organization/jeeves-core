@@ -5,9 +5,16 @@ Configuration is injected via AppContext (see jeeves_avionics/context.py).
 """
 
 from dataclasses import dataclass, field
+from enum import Enum
 from typing import Any, Callable, Dict, List, Optional, Set
 
 from jeeves_protocols.core import ToolAccess
+
+
+class RunMode(str, Enum):
+    """How the pipeline runs stages."""
+    SEQUENTIAL = "sequential"  # One stage at a time
+    PARALLEL = "parallel"      # Independent stages run concurrently
 
 
 @dataclass
@@ -63,6 +70,9 @@ class PipelineConfig:
     """Pipeline configuration."""
     name: str
     agents: List[AgentConfig] = field(default_factory=list)
+
+    # Run mode: sequential or parallel
+    default_run_mode: RunMode = RunMode.SEQUENTIAL
 
     # Global config
     max_iterations: int = 3

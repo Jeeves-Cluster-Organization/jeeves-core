@@ -24,7 +24,7 @@ from jeeves_protocols import (
     GenericEnvelope,
     PipelineConfig,
     AgentConfig,
-    UnifiedRuntime,
+    Runtime,
     LoggerProtocol,
 )
 from jeeves_avionics.logging import get_current_logger
@@ -96,7 +96,7 @@ class WorkerCoordinator:
         self,
         distributed_bus: DistributedBusProtocol,
         checkpoint_adapter: Optional[CheckpointProtocol] = None,
-        runtime: Optional[UnifiedRuntime] = None,
+        runtime: Optional[Runtime] = None,
         logger: Optional[LoggerProtocol] = None,
         control_tower: Optional["ControlTowerProtocol"] = None,
     ):
@@ -105,7 +105,7 @@ class WorkerCoordinator:
         Args:
             distributed_bus: DistributedBusProtocol implementation
             checkpoint_adapter: Optional CheckpointProtocol for state persistence
-            runtime: UnifiedRuntime for executing agents (required for workers)
+            runtime: Runtime for executing agents (required for workers)
             logger: Logger for DI
             control_tower: Optional Control Tower for process lifecycle and resource tracking
         """

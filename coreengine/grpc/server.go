@@ -31,7 +31,7 @@ type JeevesCoreServer struct {
 	pb.UnimplementedJeevesCoreServiceServer
 
 	logger  Logger
-	runtime *runtime.UnifiedRuntime
+	runtime *runtime.Runtime
 }
 
 // NewJeevesCoreServer creates a new gRPC server.
@@ -42,7 +42,7 @@ func NewJeevesCoreServer(logger Logger) *JeevesCoreServer {
 }
 
 // SetRuntime sets the runtime for pipeline execution.
-func (s *JeevesCoreServer) SetRuntime(r *runtime.UnifiedRuntime) {
+func (s *JeevesCoreServer) SetRuntime(r *runtime.Runtime) {
 	s.runtime = r
 }
 
@@ -167,7 +167,7 @@ func (s *JeevesCoreServer) ExecutePipeline(
 			return fmt.Errorf("failed to parse pipeline config: %w", err)
 		}
 		// Create runtime with config
-		rt, err := runtime.NewUnifiedRuntime(&cfg, nil, nil, s)
+		rt, err := runtime.NewRuntime(&cfg, nil, nil, s)
 		if err != nil {
 			return fmt.Errorf("failed to create runtime: %w", err)
 		}
@@ -325,7 +325,7 @@ func envelopeToProto(e *envelope.GenericEnvelope) *pb.Envelope {
 		}
 	}
 
-	// DAG state
+	// Parallel execution state
 	proto.ActiveStages = e.ActiveStages
 	proto.CompletedStageSet = e.CompletedStageSet
 	proto.FailedStages = e.FailedStages
@@ -396,7 +396,7 @@ func protoToEnvelope(p *pb.Envelope) *envelope.GenericEnvelope {
 		}
 	}
 
-	// DAG state
+	// Parallel execution state
 	e.ActiveStages = p.ActiveStages
 	e.CompletedStageSet = p.CompletedStageSet
 	e.FailedStages = p.FailedStages

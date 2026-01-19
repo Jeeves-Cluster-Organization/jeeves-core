@@ -134,15 +134,15 @@ type GenericEnvelope struct {
 	Iteration     int      `json:"iteration"`
 	MaxIterations int      `json:"max_iterations"`
 
-	// DAG Execution State (for parallel execution)
+	// Parallel Execution State
 	// ActiveStages: stages currently executing (may be multiple in parallel)
 	ActiveStages map[string]bool `json:"active_stages,omitempty"`
 	// CompletedStageSet: stages that have completed successfully
 	CompletedStageSet map[string]bool `json:"completed_stage_set,omitempty"`
 	// FailedStages: stages that failed (with error messages)
 	FailedStages map[string]string `json:"failed_stages,omitempty"`
-	// DAGMode: whether running in DAG parallel mode
-	DAGMode bool `json:"dag_mode,omitempty"`
+	// ParallelMode: whether running stages concurrently via RunParallel()
+	ParallelMode bool `json:"parallel_mode,omitempty"`
 
 	// Bounds Tracking
 	LLMCallCount    int             `json:"llm_call_count"`
@@ -168,8 +168,8 @@ type GenericEnvelope struct {
 	GoalCompletionStatus map[string]string `json:"goal_completion_status"`
 
 	// Retry Context
-	PriorPlans     []map[string]any `json:"prior_plans"`
-	CriticFeedback []string         `json:"critic_feedback"`
+	PriorPlans   []map[string]any `json:"prior_plans"`
+	LoopFeedback []string         `json:"loop_feedback"`
 
 	// Audit Trail
 	ProcessingHistory []ProcessingRecord `json:"processing_history"`
@@ -201,7 +201,7 @@ func NewGenericEnvelope() *GenericEnvelope {
 		ActiveStages:         make(map[string]bool),
 		CompletedStageSet:    make(map[string]bool),
 		FailedStages:         make(map[string]string),
-		DAGMode:              false,
+		ParallelMode:              false,
 		LLMCallCount:         0,
 		MaxLLMCalls:          10,
 		AgentHopCount:        0,
@@ -215,8 +215,8 @@ func NewGenericEnvelope() *GenericEnvelope {
 		AllGoals:             []string{},
 		RemainingGoals:       []string{},
 		GoalCompletionStatus: make(map[string]string),
-		PriorPlans:           []map[string]any{},
-		CriticFeedback:       []string{},
+		PriorPlans:   []map[string]any{},
+		LoopFeedback: []string{},
 		ProcessingHistory:    []ProcessingRecord{},
 		Errors:               []map[string]any{},
 		CreatedAt:            now,
@@ -225,7 +225,7 @@ func NewGenericEnvelope() *GenericEnvelope {
 }
 
 // =============================================================================
-// DAG Execution Helpers
+// Parallel Execution Helpers
 // =============================================================================
 
 // StartStage marks a stage as actively executing.
@@ -484,7 +484,7 @@ func (e *GenericEnvelope) Clone() *GenericEnvelope {
 		// Control flow
 		Terminated:       e.Terminated,
 		InterruptPending: e.InterruptPending,
-		DAGMode:          e.DAGMode,
+		ParallelMode:          e.ParallelMode,
 
 		// Multi-stage
 		CurrentStageNumber: e.CurrentStageNumber,
@@ -498,7 +498,7 @@ func (e *GenericEnvelope) Clone() *GenericEnvelope {
 	clone.StageOrder = copyStringSlice(e.StageOrder)
 	clone.AllGoals = copyStringSlice(e.AllGoals)
 	clone.RemainingGoals = copyStringSlice(e.RemainingGoals)
-	clone.CriticFeedback = copyStringSlice(e.CriticFeedback)
+	clone.LoopFeedback = copyStringSlice(e.LoopFeedback)
 	clone.CompletedStages = deepCopyMapSlice(e.CompletedStages)
 	clone.PriorPlans = deepCopyMapSlice(e.PriorPlans)
 	clone.Errors = deepCopyMapSlice(e.Errors)
@@ -767,7 +767,7 @@ func (e *GenericEnvelope) GetStageContext() map[string]any {
 func (e *GenericEnvelope) IncrementIteration(feedback *string) {
 	e.Iteration++
 	if feedback != nil {
-		e.CriticFeedback = append(e.CriticFeedback, *feedback)
+		e.LoopFeedback = append(e.LoopFeedback, *feedback)
 	}
 	// Store current plan
 	if plan, exists := e.Outputs["plan"]; exists {
@@ -922,11 +922,11 @@ func (e *GenericEnvelope) ToStateDict() map[string]any {
 		"iteration":              e.Iteration,
 		"llm_call_count":         e.LLMCallCount,
 		"agent_hop_count":        e.AgentHopCount,
-		// DAG execution state
+		// Parallel execution state
 		"active_stages":         e.ActiveStages,
 		"completed_stage_set":   e.CompletedStageSet,
 		"failed_stages":         e.FailedStages,
-		"dag_mode":              e.DAGMode,
+		"parallel_mode":              e.ParallelMode,
 		"terminated":             e.Terminated,
 		"termination_reason":     e.TerminationReason,
 		"terminal_reason":        terminalReasonStr,
@@ -937,8 +937,8 @@ func (e *GenericEnvelope) ToStateDict() map[string]any {
 		"all_goals":              e.AllGoals,
 		"remaining_goals":        e.RemainingGoals,
 		"goal_completion_status": e.GoalCompletionStatus,
-		"prior_plans":            e.PriorPlans,
-		"critic_feedback":        e.CriticFeedback,
+		"prior_plans":   e.PriorPlans,
+		"loop_feedback": e.LoopFeedback,
 		"errors":                 e.Errors,
 		"completed_at":           completedAtStr,
 		"metadata":               e.Metadata,
@@ -1039,8 +1039,8 @@ func FromStateDict(state map[string]any) *GenericEnvelope {
 			}
 		}
 	}
-	if v, ok := state["dag_mode"].(bool); ok {
-		e.DAGMode = v
+	if v, ok := state["parallel_mode"].(bool); ok {
+		e.ParallelMode = v
 	}
 	if v, ok := state["terminated"].(bool); ok {
 		e.Terminated = v
@@ -1158,13 +1158,13 @@ func FromStateDict(state map[string]any) *GenericEnvelope {
 			}
 		}
 	}
-	if v, ok := state["critic_feedback"].([]string); ok {
-		e.CriticFeedback = v
-	} else if v, ok := state["critic_feedback"].([]any); ok {
-		e.CriticFeedback = make([]string, len(v))
+	if v, ok := state["loop_feedback"].([]string); ok {
+		e.LoopFeedback = v
+	} else if v, ok := state["loop_feedback"].([]any); ok {
+		e.LoopFeedback = make([]string, len(v))
 		for i, s := range v {
 			if str, ok := s.(string); ok {
-				e.CriticFeedback[i] = str
+				e.LoopFeedback[i] = str
 			}
 		}
 	}

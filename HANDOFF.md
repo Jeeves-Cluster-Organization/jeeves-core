@@ -295,38 +295,38 @@ class UnifiedAgent:
         ...
 ```
 
-### 5.2 UnifiedRuntime
+### 5.2 Runtime
 
 The runtime orchestrates agent execution:
 
 ```python
 @dataclass
-class UnifiedRuntime:
+class Runtime:
     config: PipelineConfig
     llm_factory: Optional[LLMProviderFactory] = None
     tool_executor: Optional[ToolExecutor] = None
     logger: Optional[Logger] = None
     persistence: Optional[Persistence] = None
 
-    # Sequential execution
+    # Main entry point
     async def run(self, envelope: GenericEnvelope, thread_id: str = "") -> GenericEnvelope:
-        """Execute pipeline sequentially until completion or termination."""
+        """Execute pipeline sequentially."""
         ...
 
-    # Parallel execution (NEW)
+    # Parallel execution
     async def run_parallel(self, envelope: GenericEnvelope, thread_id: str = "") -> GenericEnvelope:
-        """Execute independent stages concurrently using goroutines."""
+        """Execute independent stages concurrently."""
         ...
 
     # Streaming execution
-    async def run_streaming(self, envelope: GenericEnvelope,
-                           thread_id: str = "") -> AsyncIterator[Tuple[str, Dict]]:
+    async def run_with_stream(self, envelope: GenericEnvelope,
+                              thread_id: str = "") -> AsyncIterator[Tuple[str, Dict]]:
         """Execute with streaming updates."""
         ...
 
     # Resume after interrupt
     async def resume(self, envelope: GenericEnvelope, thread_id: str = "") -> GenericEnvelope:
-        """Resume after interrupt using configured resume stages."""
+        """Resume after interrupt."""
         ...
 ```
 
@@ -609,17 +609,17 @@ The Go engine is **AUTHORITATIVE** for:
 ### 12.2 Execution Modes
 
 ```go
-// Sequential execution (one stage at a time)
-func (r *UnifiedRuntime) Run(ctx context.Context, env *GenericEnvelope, threadID string) (*GenericEnvelope, error)
+// Main entry point with options
+func (r *Runtime) Execute(ctx context.Context, env *GenericEnvelope, opts RunOptions) (*GenericEnvelope, <-chan StageOutput, error)
 
-// Parallel execution (independent stages run concurrently)
-func (r *UnifiedRuntime) RunParallel(ctx context.Context, env *GenericEnvelope, threadID string) (*GenericEnvelope, error)
+// Convenience methods
+func (r *Runtime) Run(ctx, env, threadID) (*GenericEnvelope, error)         // Sequential
+func (r *Runtime) RunParallel(ctx, env, threadID) (*GenericEnvelope, error) // Parallel
+func (r *Runtime) RunWithStream(ctx, env, threadID) (<-chan StageOutput, error)
+func (r *Runtime) Resume(ctx, env, response, threadID) (*GenericEnvelope, error)
 
-// Streaming execution
-func (r *UnifiedRuntime) RunStreaming(ctx context.Context, env *GenericEnvelope, threadID string) <-chan StageOutput
-
-// Resume after interrupt
-func (r *UnifiedRuntime) Resume(ctx context.Context, env *GenericEnvelope, response InterruptResponse, threadID string) (*GenericEnvelope, error)
+// Run mode can be configured in PipelineConfig
+type RunMode string // "sequential" or "parallel"
 ```
 
 ### 12.3 Parallel Execution
@@ -815,7 +815,7 @@ async def test_pipeline():
 from jeeves_protocols import (
     AgentConfig, PipelineConfig, GenericEnvelope, RoutingRule,
     ContextBounds, LoopVerdict, InterruptKind,
-    UnifiedAgent, UnifiedRuntime,
+    UnifiedAgent, Runtime,
     create_runtime_from_config, create_generic_envelope,
 )
 

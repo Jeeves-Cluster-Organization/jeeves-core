@@ -78,7 +78,7 @@ class MissionRuntime:
     mock_provider: Optional[LLMProviderProtocol]
 
     # NOTE: create_agent_runtime removed in v4.0
-    # Use UnifiedRuntime + PipelineConfig instead:
+    # Use Runtime + PipelineConfig instead:
     #   from jeeves_mission_system.contracts_core import create_runtime_from_config
     #   runtime = create_runtime_from_config(config, llm_factory, ...)
 

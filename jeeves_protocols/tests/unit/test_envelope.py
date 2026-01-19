@@ -224,13 +224,13 @@ class TestEnvelopeMultiStage:
         assert sample_envelope.goal_completion_status["Goal 1"] == "completed"
 
     def test_prior_plans_and_feedback(self, sample_envelope):
-        """Test prior plans and critic feedback."""
+        """Test prior plans and loop feedback."""
         sample_envelope.prior_plans.append({
             "plan_id": 1,
             "steps": ["Step 1", "Step 2"],
         })
-        sample_envelope.critic_feedback.append("Plan needs more detail")
+        sample_envelope.loop_feedback.append("Plan needs more detail")
 
         assert len(sample_envelope.prior_plans) == 1
-        assert len(sample_envelope.critic_feedback) == 1
-        assert sample_envelope.critic_feedback[0] == "Plan needs more detail"
+        assert len(sample_envelope.loop_feedback) == 1
+        assert sample_envelope.loop_feedback[0] == "Plan needs more detail"

@@ -1,7 +1,7 @@
 """Unified Agent Runtime - Go-backed pipeline execution.
 
 Architecture:
-    Go (coreengine/)     - Envelope state, bounds checking, DAG structure
+    Go (coreengine/)     - Envelope state, bounds checking, pipeline graph
     Python (this file)   - Agent execution, LLM calls, tool execution
     Bridge (client.py)   - JSON-over-stdio communication
 """
@@ -332,11 +332,11 @@ class UnifiedAgent:
 
 
 # =============================================================================
-# UNIFIED RUNTIME
+# RUNTIME
 # =============================================================================
 
 @dataclass
-class UnifiedRuntime:
+class Runtime:
     """Pipeline runtime - orchestrates agent execution.
 
     Uses Go for envelope state/bounds when available.
@@ -546,9 +546,9 @@ def create_runtime_from_config(
     persistence: Optional[Persistence] = None,
     prompt_registry: Optional[PromptRegistry] = None,
     use_mock: bool = False,
-) -> UnifiedRuntime:
-    """Factory to create UnifiedRuntime from pipeline config."""
-    return UnifiedRuntime(
+) -> Runtime:
+    """Factory to create Runtime from pipeline config."""
+    return Runtime(
         config=config,
         llm_factory=llm_provider_factory,
         tool_executor=tool_executor,

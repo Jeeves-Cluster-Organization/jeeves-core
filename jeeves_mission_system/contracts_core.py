@@ -54,7 +54,7 @@ from jeeves_protocols import (
 
 # Unified runtime
 from jeeves_protocols import (
-    UnifiedRuntime,
+    Runtime,
     create_runtime_from_config,
 )
 
@@ -81,7 +81,7 @@ from jeeves_protocols import (
     normalize_string_list,
 )
 
-# NOTE: AgentRuntime removed in v4.0 - use UnifiedRuntime + UnifiedAgent
+# NOTE: AgentRuntime removed in v4.0 - use Runtime + UnifiedAgent
 # UnifiedAgent handles all agent-level services (logging, events, persistence)
 
 # Config registry
@@ -129,7 +129,7 @@ __all__ = [
     "ProcessingRecord",
     "create_generic_envelope",
     # Unified runtime
-    "UnifiedRuntime",
+    "Runtime",
     "create_runtime_from_config",
     # Enums
     "TerminalReason",
