@@ -210,16 +210,32 @@ async def generate_text(prompt: str) -> str:
 - Database connection management via `DatabaseClientProtocol`
 - Backend registry for swappable implementations
 - pgvector extension for embeddings (via `VectorStorageProtocol`)
+- Graph storage via `GraphStorageProtocol`
 - Session state persistence
 - Event log storage
 - Transaction management
 
-**Contract:** Implements `DatabaseClientProtocol` and `VectorStorageProtocol` from commbus.
+**Contract:** Implements `DatabaseClientProtocol`, `VectorStorageProtocol`, and `GraphStorageProtocol` from protocols.
 
 **Key Components:**
 - `registry.py` — Backend registration and factory
 - `postgres_client.py` — PostgreSQL implementation
+- `postgres_graph.py` — PostgresGraphAdapter implementing GraphStorageProtocol
 - `client.py` — Protocol re-exports and utilities
+
+**Graph Storage (L5):**
+```python
+from jeeves_avionics.database import PostgresGraphAdapter
+
+# Create adapter with database client
+adapter = PostgresGraphAdapter(db_client, logger)
+await adapter.ensure_tables()  # Create tables if needed
+
+# Use graph operations
+await adapter.add_node("file:main.py", "file", {"path": "main.py"})
+await adapter.add_edge("file:main.py", "file:utils.py", "imports")
+path = await adapter.find_path("file:main.py", "file:base.py")
+```
 
 **Rules:**
 - Connection pooling required

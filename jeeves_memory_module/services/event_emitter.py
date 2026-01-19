@@ -7,9 +7,13 @@ Provides:
 - Async emission (non-blocking)
 - Correlation ID propagation
 - Session-scoped deduplication (v0.14 Phase 3)
+- CommBus event publishing for observability (P0 wiring)
+
+Constitutional Reference:
+- Memory Module CONSTITUTION P4: Memory operations publish events via CommBus
 """
 
-from typing import Dict, Any, Optional, List, Set
+from typing import Dict, Any, Optional, List, Set, TYPE_CHECKING
 from datetime import datetime, timezone
 from uuid import uuid4
 import asyncio
@@ -19,6 +23,9 @@ import json
 from jeeves_memory_module.repositories.event_repository import EventRepository, DomainEvent
 from jeeves_shared import get_component_logger
 from jeeves_protocols import LoggerProtocol, FeatureFlagsProtocol
+
+if TYPE_CHECKING:
+    from jeeves_control_tower.ipc.commbus import InMemoryCommBus
 
 
 class SessionDedupCache:
@@ -191,7 +198,8 @@ class EventEmitter:
         event_repository: EventRepository,
         feature_flags: Optional[FeatureFlagsProtocol] = None,
         dedup_cache: Optional[SessionDedupCache] = None,
-        logger: Optional[LoggerProtocol] = None
+        logger: Optional[LoggerProtocol] = None,
+        commbus: Optional["InMemoryCommBus"] = None,
     ):
         """
         Initialize event emitter.
@@ -201,11 +209,25 @@ class EventEmitter:
             feature_flags: Feature flags protocol for checking if event sourcing is enabled
             dedup_cache: Optional custom deduplication cache (uses global if not provided)
             logger: Optional logger instance (ADR-001 DI)
+            commbus: Optional CommBus for event publishing (P0 wiring)
         """
         self._logger = get_component_logger("event_emitter", logger)
         self.repository = event_repository
         self._feature_flags = feature_flags
         self._dedup_cache = dedup_cache or _get_global_dedup_cache()
+        self._commbus = commbus
+
+    @property
+    def commbus(self) -> Optional["InMemoryCommBus"]:
+        """Get the CommBus instance (lazy initialization if not provided)."""
+        if self._commbus is None:
+            try:
+                from jeeves_control_tower.ipc.commbus import get_commbus
+                self._commbus = get_commbus()
+            except ImportError:
+                # CommBus not available, continue without it
+                pass
+        return self._commbus
 
     @property
     def enabled(self) -> bool:
@@ -311,6 +333,18 @@ class EventEmitter:
                 aggregate_id=aggregate_id,
                 session_id=session_id
             )
+
+            # P0 wiring: Publish to CommBus for observability
+            await self._publish_to_commbus(
+                event_id=event_id,
+                aggregate_type=aggregate_type,
+                aggregate_id=aggregate_id,
+                event_type=event_type,
+                payload=payload,
+                user_id=user_id,
+                session_id=session_id,
+            )
+
             return event_id
 
         except Exception as e:
@@ -321,6 +355,55 @@ class EventEmitter:
             )
             # Don't fail the operation if event emission fails
             return None
+
+    async def _publish_to_commbus(
+        self,
+        event_id: str,
+        aggregate_type: str,
+        aggregate_id: str,
+        event_type: str,
+        payload: Dict[str, Any],
+        user_id: str,
+        session_id: Optional[str] = None,
+    ) -> None:
+        """Publish event to CommBus for observability.
+
+        Uses the typed message classes from jeeves_memory_module.messages.
+        Non-blocking - errors are logged but don't fail the main operation.
+        """
+        if self.commbus is None:
+            return
+
+        try:
+            from jeeves_memory_module.messages import MemoryStored
+
+            # Create typed CommBus event
+            commbus_event = MemoryStored(
+                item_id=event_id,
+                layer="L2",  # Event log layer
+                user_id=user_id,
+                item_type=event_type,
+                metadata={
+                    "aggregate_type": aggregate_type,
+                    "aggregate_id": aggregate_id,
+                    "session_id": session_id,
+                    **payload,
+                },
+            )
+
+            await self.commbus.publish(commbus_event)
+            self._logger.debug(
+                "event_published_to_commbus",
+                event_id=event_id,
+                event_type=event_type,
+            )
+        except Exception as e:
+            # Log but don't fail - CommBus publishing is observability, not critical path
+            self._logger.warning(
+                "commbus_publish_failed",
+                event_id=event_id,
+                error=str(e),
+            )
 
     async def emit_async(
         self,

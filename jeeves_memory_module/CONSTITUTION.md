@@ -78,21 +78,18 @@ jeeves_memory_module/
 │   ├── session_state_service.py
 │   ├── chunk_service.py     # L3 semantic chunking
 │   ├── embedding_service.py # Embedding generation
-│   ├── event_emitter.py     # Event emission
+│   ├── event_emitter.py     # Event emission (CommBus wired)
 │   ├── trace_recorder.py
-│   ├── timeline_service.py
 │   ├── tool_health_service.py
 │   ├── nli_service.py
 │   ├── code_indexer.py
-│   ├── edge_extractor.py
-│   ├── summarization_service.py
-│   ├── xref_manager.py
-│   └── graph_service.py
+│   └── xref_manager.py
 ├── repositories/            # Persistence layer
 │   ├── __init__.py
 │   ├── chunk_repository.py  # L3 semantic chunks
 │   ├── event_repository.py  # L2 event log
-│   ├── graph_repository.py  # L5 entity graph
+│   ├── graph_stub.py        # L5 in-memory stub (GraphStorageProtocol)
+│   ├── skill_stub.py        # L6 in-memory stub (SkillStorageProtocol)
 │   ├── session_state_repository.py  # L4 working memory
 │   ├── trace_repository.py
 │   ├── pgvector_repository.py
@@ -113,12 +110,35 @@ jeeves_memory_module/
 | Layer | Name | Scope | Implementation |
 |-------|------|-------|----------------|
 | **L1** | Episodic | Per-request | `GenericEnvelope` (core_engine) |
-| **L2** | Events | Append-only log | `EventRepository` |
+| **L2** | Events | Append-only log | `EventRepository` + `EventEmitter` (CommBus wired) |
 | **L3** | Semantic | Embeddings/search | `ChunkService` + `PgVectorRepository` |
-| **L4** | Working | Per-session state | `SessionStateAdapter` |
-| **L5** | Graph | Entity relationships | `GraphRepository` + `GraphService` |
-| **L6** | Skills | Learned patterns | Not yet implemented |
+| **L4** | Working | Per-session state | `SessionStateService` |
+| **L5** | Graph | Entity relationships | `GraphStorageProtocol` + `InMemoryGraphStorage` (stub) |
+| **L6** | Skills | Learned patterns | `SkillStorageProtocol` + `InMemorySkillStorage` (stub) |
 | **L7** | Meta | Tool metrics | `ToolHealthService` |
+
+### L5-L6 Extension Points
+
+L5 (Graph) and L6 (Skills) use protocol-first design for extensibility:
+
+```python
+from jeeves_protocols import GraphStorageProtocol, SkillStorageProtocol
+from jeeves_memory_module.repositories import InMemoryGraphStorage, InMemorySkillStorage
+
+# Development/Testing: Use in-memory stubs
+graph = InMemoryGraphStorage()
+skills = InMemorySkillStorage()
+
+# Production: Use PostgresGraphAdapter from avionics (L3)
+from jeeves_avionics.database import PostgresGraphAdapter
+graph = PostgresGraphAdapter(db_client)
+await graph.ensure_tables()
+```
+
+**Architecture Note**: PostgreSQL-specific implementations live in `jeeves_avionics`
+(L3 infrastructure layer), not in the memory module. This follows Dependency
+Inversion: core depends on abstractions (protocols), infrastructure provides
+concrete implementations.
 
 ---
 

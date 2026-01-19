@@ -38,6 +38,15 @@ from jeeves_shared.uuid_utils import (
     UUIDStr,
     OptionalUUIDStr,
 )
+from jeeves_shared.fuzzy_matcher import FuzzyMatcher, MatchScore, fuzzy_match_score
+from jeeves_shared.id_generator import (
+    UUIDGenerator,
+    DeterministicIdGenerator,
+    SequentialIdGenerator,
+    TimestampIdGenerator,
+    get_id_generator,
+    reset_id_generator,
+)
 
 __all__ = [
     # Logging
@@ -66,4 +75,15 @@ __all__ = [
     "convert_uuids_to_strings",
     "UUIDStr",
     "OptionalUUIDStr",
+    # Fuzzy Matching
+    "FuzzyMatcher",
+    "MatchScore",
+    "fuzzy_match_score",
+    # ID Generation
+    "UUIDGenerator",
+    "DeterministicIdGenerator",
+    "SequentialIdGenerator",
+    "TimestampIdGenerator",
+    "get_id_generator",
+    "reset_id_generator",
 ]

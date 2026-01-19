@@ -18,7 +18,7 @@ Usage:
 """
 
 from jeeves_mission_system.prompts.core.registry import PromptRegistry, PromptVersion, register_prompt
-from jeeves_mission_system.prompts.core.core import IDENTITY_BLOCK, STYLE_BLOCK, ROLE_INVARIANTS, SAFETY_BLOCK
+from jeeves_mission_system.prompts.core.blocks import IDENTITY_BLOCK, STYLE_BLOCK, ROLE_INVARIANTS, SAFETY_BLOCK
 
 __all__ = [
     "PromptRegistry",

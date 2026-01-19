@@ -14,10 +14,7 @@ Infrastructure Services:
 - EventEmitter: L2 event log
 - TraceRecorder: Agent trace recording
 - ToolHealthService: L7 tool metrics
-- GraphService: L5 entity graph
 - CodeIndexer: Code indexing for semantic search
-- SummarizationService: Content summarization
-- EdgeExtractor: Relationship extraction
 
 Memory Module Audit (2025-12-09):
 - Moved from jeeves_avionics/memory/services/
@@ -28,15 +25,11 @@ from jeeves_memory_module.services.nli_service import NLIService, get_nli_servic
 from jeeves_memory_module.services.xref_manager import CrossRefManager
 from jeeves_memory_module.services.event_emitter import EventEmitter
 from jeeves_memory_module.services.trace_recorder import TraceRecorder
-from jeeves_memory_module.services.timeline_service import TimelineService
 from jeeves_memory_module.services.session_state_service import SessionStateService
 from jeeves_memory_module.services.session_state_adapter import SessionStateAdapter
 from jeeves_memory_module.services.chunk_service import ChunkService
 from jeeves_memory_module.services.tool_health_service import ToolHealthService
 from jeeves_memory_module.services.code_indexer import CodeIndexer
-from jeeves_memory_module.services.graph_service import GraphService
-from jeeves_memory_module.services.summarization_service import SummarizationService
-from jeeves_memory_module.services.edge_extractor import EdgeExtractor
 
 __all__ = [
     # Protocol Adapters (implements Core protocols)
@@ -48,12 +41,8 @@ __all__ = [
     "CrossRefManager",
     "EventEmitter",
     "TraceRecorder",
-    "TimelineService",
     "SessionStateService",
     "ChunkService",
     "ToolHealthService",
     "CodeIndexer",
-    "GraphService",
-    "SummarizationService",
-    "EdgeExtractor",
 ]

@@ -66,7 +66,6 @@ from jeeves_protocols import (
     MemoryServiceProtocol,
     IdGeneratorProtocol,
     ToolExecutorProtocol,
-    EventContextProtocol,
     ConfigRegistryProtocol,
 )
 
@@ -160,7 +159,6 @@ __all__ = [
     "MemoryServiceProtocol",
     "IdGeneratorProtocol",
     "ToolExecutorProtocol",
-    "EventContextProtocol",
     "ConfigRegistryProtocol",
 
     # ─── Configuration (access bounds via AppContext.get_context_bounds()) ───

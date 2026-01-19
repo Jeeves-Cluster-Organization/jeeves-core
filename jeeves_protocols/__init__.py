@@ -124,7 +124,6 @@ from jeeves_protocols.protocols import (
     SearchResult,
     # Event protocols
     EventBusProtocol,
-    EventContextProtocol,
     # Intent parsing and claim verification
     IntentParsingProtocol,
     ClaimVerificationProtocol,
@@ -150,6 +149,9 @@ from jeeves_protocols.protocols import (
     AgentToolAccessProtocol,
     # Language config
     LanguageConfigProtocol,
+    # Memory layer protocols (L5-L6)
+    GraphStorageProtocol,
+    SkillStorageProtocol,
 )
 
 # =============================================================================
@@ -313,7 +315,6 @@ __all__ = [
     "SessionStateProtocol",
     "SearchResult",
     "EventBusProtocol",
-    "EventContextProtocol",
     "IntentParsingProtocol",
     "ClaimVerificationProtocol",
     "CheckpointProtocol",
@@ -330,6 +331,9 @@ __all__ = [
     "FeatureFlagsProviderProtocol",
     "AgentToolAccessProtocol",
     "LanguageConfigProtocol",
+    # Memory layer protocols (L5-L6)
+    "GraphStorageProtocol",
+    "SkillStorageProtocol",
 
     # ─── Capability Registration ───
     "ToolCatalogEntry",
