@@ -35,7 +35,7 @@ const (
 	InterruptKind_RESOURCE_EXHAUSTED         InterruptKind = 4
 	InterruptKind_TIMEOUT                    InterruptKind = 5
 	InterruptKind_SYSTEM_ERROR               InterruptKind = 6
-	InterruptKind_CRITIC_REVIEW              InterruptKind = 7
+	InterruptKind_AGENT_REVIEW               InterruptKind = 7
 )
 
 // ExecutionEventType enum

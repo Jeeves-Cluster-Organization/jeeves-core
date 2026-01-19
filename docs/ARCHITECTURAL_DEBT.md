@@ -3,11 +3,43 @@
 **Created:** 2026-01-18
 **Updated:** 2026-01-18
 **Severity:** Medium
-**Status:** Documented, pending refactoring
+**Status:** RESOLVED - Clean break refactoring complete
 
 ---
 
-## Problem Statement
+## Resolution Summary
+
+The following changes were made to remove domain-specific concepts from the core layer:
+
+### Go Core Layer Changes
+
+| File | Change |
+|------|--------|
+| `coreengine/envelope/enums.go` | Renamed `CriticVerdict` → `LoopVerdict`, `CriticVerdictApproved` → `LoopVerdictProceed`, `CriticVerdictReintent` → `LoopVerdictLoopBack`, `CriticVerdictNextStage` → `LoopVerdictAdvance`, `TerminalReasonMaxCriticFiresExceeded` → `TerminalReasonMaxLoopExceeded` |
+| `coreengine/envelope/generic.go` | Renamed `InterruptKindCriticReview` → `InterruptKindAgentReview` |
+| `coreengine/agents/contracts.go` | Renamed `AgentOutcomeReintent` → `AgentOutcomeLoopBack` |
+| `coreengine/config/core_config.go` | Renamed `EnableCriticLoop` → `EnableLoopBack`, `MaxCriticRejections` → `MaxLoopBackRejections`, removed `EnableSynthesizer` and `SkipPlannerIfSimpleIntent` |
+| `coreengine/config/pipeline.go` | Added `ClarificationResumeStage`, `ConfirmationResumeStage`, `AgentReviewResumeStage` fields |
+| `coreengine/runtime/runtime.go` | Changed hardcoded resume stages to use configurable `PipelineConfig` fields |
+| `coreengine/proto/jeeves_core.proto` | Renamed `CRITIC_REVIEW` → `AGENT_REVIEW` |
+
+### Python Protocol Changes
+
+| File | Change |
+|------|--------|
+| `jeeves_protocols/core.py` | Renamed `CriticVerdict` → `LoopVerdict` with generic values |
+| `jeeves_protocols/interrupts.py` | Renamed `CRITIC_REVIEW` → `AGENT_REVIEW` |
+| `jeeves_control_tower/services/interrupt_service.py` | Updated to use `AGENT_REVIEW` |
+| `jeeves_avionics/database/schemas/002_unified_interrupts.sql` | Updated to use `agent_review` |
+
+### Breaking Changes
+
+All changes are **clean breaks** with no backward compatibility aliases.
+Existing code using old names will fail to compile/run.
+
+---
+
+## Original Problem Statement
 
 The core layer (`coreengine/`, `jeeves_protocols/`) contains domain-specific concepts that should belong in the capability layer. This violates the principle that **core should be generic** and only the capability layer should define domain-specific agents, stages, and workflows.
 

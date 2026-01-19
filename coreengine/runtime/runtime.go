@@ -282,18 +282,28 @@ func (r *UnifiedRuntime) Resume(ctx context.Context, env *envelope.GenericEnvelo
 	env.ResolveInterrupt(response)
 
 	// Determine resume stage based on interrupt kind
+	// Use configurable stages from PipelineConfig, or stay at current stage
 	switch kind {
 	case envelope.InterruptKindClarification:
-		env.CurrentStage = "intent"
+		if r.Config.ClarificationResumeStage != "" {
+			env.CurrentStage = r.Config.ClarificationResumeStage
+		}
+		// If not configured, stay at current stage
 	case envelope.InterruptKindConfirmation:
 		if response.Approved != nil && *response.Approved {
-			env.CurrentStage = "executor"
+			if r.Config.ConfirmationResumeStage != "" {
+				env.CurrentStage = r.Config.ConfirmationResumeStage
+			}
+			// If not configured, stay at current stage
 		} else {
 			env.Terminate("User denied confirmation", nil)
 			return env, nil
 		}
-	case envelope.InterruptKindCriticReview:
-		env.CurrentStage = "intent"
+	case envelope.InterruptKindAgentReview:
+		if r.Config.AgentReviewResumeStage != "" {
+			env.CurrentStage = r.Config.AgentReviewResumeStage
+		}
+		// If not configured, stay at current stage
 	default:
 		// For other interrupt types, stay at current stage
 	}

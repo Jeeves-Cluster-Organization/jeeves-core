@@ -88,17 +88,17 @@ class TestTerminalReason:
         assert TerminalReason.POLICY_VIOLATION is not None
 
 
-class TestCriticVerdict:
-    """Tests for CriticVerdict enum."""
+class TestLoopVerdict:
+    """Tests for LoopVerdict enum."""
 
-    def test_critic_verdict_values(self):
-        """Test CriticVerdict enum values exist."""
-        from jeeves_protocols import CriticVerdict
+    def test_loop_verdict_values(self):
+        """Test LoopVerdict enum values exist."""
+        from jeeves_protocols import LoopVerdict
 
-        assert CriticVerdict.SATISFIED is not None
-        assert CriticVerdict.RETRY is not None
-        assert CriticVerdict.REPLAN is not None
-        assert CriticVerdict.ESCALATE is not None
+        assert LoopVerdict.PROCEED is not None
+        assert LoopVerdict.LOOP_BACK is not None
+        assert LoopVerdict.ADVANCE is not None
+        assert LoopVerdict.ESCALATE is not None
 
 
 class TestRiskApproval:

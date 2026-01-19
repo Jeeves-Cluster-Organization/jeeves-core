@@ -82,12 +82,12 @@ class TerminalReason(str, Enum):
     POLICY_VIOLATION = "policy_violation"
 
 
-class CriticVerdict(str, Enum):
-    """Critic agent verdicts."""
-    SATISFIED = "satisfied"
-    RETRY = "retry"
-    REPLAN = "replan"
-    ESCALATE = "escalate"
+class LoopVerdict(str, Enum):
+    """Agent loop control verdicts - generic routing decisions."""
+    PROCEED = "proceed"      # Continue to next stage
+    LOOP_BACK = "loop_back"  # Return to an earlier stage
+    ADVANCE = "advance"      # Skip ahead to a later stage
+    ESCALATE = "escalate"    # Escalate to human
 
 
 class RiskApproval(str, Enum):

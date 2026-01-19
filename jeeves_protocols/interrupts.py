@@ -14,7 +14,7 @@ class InterruptKind(str, Enum):
     """Type of flow interrupt."""
     CLARIFICATION = "clarification"
     CONFIRMATION = "confirmation"
-    CRITIC_REVIEW = "critic_review"
+    AGENT_REVIEW = "agent_review"
     CHECKPOINT = "checkpoint"
     RESOURCE_EXHAUSTED = "resource_exhausted"
     TIMEOUT = "timeout"

@@ -35,16 +35,14 @@ func TestDefaultCoreConfig(t *testing.T) {
 	assert.Equal(t, 0.5, config.MetaValidationDelay)
 
 	// Feature Flags
-	assert.True(t, config.EnableCriticLoop)
+	assert.True(t, config.EnableLoopBack)
 	assert.True(t, config.EnableArbiter)
-	assert.True(t, config.EnableSynthesizer)
-	assert.False(t, config.SkipPlannerIfSimpleIntent)
 	assert.True(t, config.SkipArbiterForReadOnly)
 	assert.True(t, config.RequireConfirmationForDestructive)
 
 	// Loop Control
 	assert.Equal(t, 3, config.MaxReplanIterations)
-	assert.Equal(t, 2, config.MaxCriticRejections)
+	assert.Equal(t, 2, config.MaxLoopBackRejections)
 	assert.True(t, config.ReplanOnPartialSuccess)
 
 	// Determinism
@@ -114,13 +112,13 @@ func TestCoreConfigFromMapWithFloats(t *testing.T) {
 func TestCoreConfigFromMapBools(t *testing.T) {
 	// Test boolean values.
 	configMap := map[string]any{
-		"enable_critic_loop": false,
-		"enable_arbiter":     false,
+		"enable_loop_back": false,
+		"enable_arbiter":   false,
 	}
 
 	config := CoreConfigFromMap(configMap)
 
-	assert.False(t, config.EnableCriticLoop)
+	assert.False(t, config.EnableLoopBack)
 	assert.False(t, config.EnableArbiter)
 }
 
@@ -149,7 +147,7 @@ func TestCoreConfigToMap(t *testing.T) {
 
 	assert.Equal(t, 20, configMap["max_plan_steps"])
 	assert.Equal(t, 120, configMap["llm_timeout"])
-	assert.Equal(t, true, configMap["enable_critic_loop"])
+	assert.Equal(t, true, configMap["enable_loop_back"])
 	assert.Equal(t, "INFO", configMap["log_level"])
 }
 
@@ -211,7 +209,7 @@ func TestConfigRoundtrip(t *testing.T) {
 	original := DefaultCoreConfig()
 	original.MaxPlanSteps = 35
 	original.LLMTimeout = 200
-	original.EnableCriticLoop = false
+	original.EnableLoopBack = false
 	seed := 123
 	original.LLMSeed = &seed
 
@@ -220,7 +218,7 @@ func TestConfigRoundtrip(t *testing.T) {
 
 	assert.Equal(t, original.MaxPlanSteps, restored.MaxPlanSteps)
 	assert.Equal(t, original.LLMTimeout, restored.LLMTimeout)
-	assert.Equal(t, original.EnableCriticLoop, restored.EnableCriticLoop)
+	assert.Equal(t, original.EnableLoopBack, restored.EnableLoopBack)
 	assert.NotNil(t, restored.LLMSeed)
 	assert.Equal(t, *original.LLMSeed, *restored.LLMSeed)
 }

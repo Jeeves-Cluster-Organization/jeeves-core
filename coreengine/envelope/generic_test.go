@@ -498,23 +498,23 @@ func TestInterruptKindValues(t *testing.T) {
 	// Test all 7 InterruptKind enum values.
 	assert.Equal(t, InterruptKind("clarification"), InterruptKindClarification)
 	assert.Equal(t, InterruptKind("confirmation"), InterruptKindConfirmation)
-	assert.Equal(t, InterruptKind("critic_review"), InterruptKindCriticReview)
+	assert.Equal(t, InterruptKind("agent_review"), InterruptKindAgentReview)
 	assert.Equal(t, InterruptKind("checkpoint"), InterruptKindCheckpoint)
 	assert.Equal(t, InterruptKind("resource_exhausted"), InterruptKindResourceExhausted)
 	assert.Equal(t, InterruptKind("timeout"), InterruptKindTimeout)
 	assert.Equal(t, InterruptKind("system_error"), InterruptKindSystemError)
 }
 
-func TestSetCriticReviewInterrupt(t *testing.T) {
-	// Test setting a critic review interrupt.
+func TestSetAgentReviewInterrupt(t *testing.T) {
+	// Test setting an agent review interrupt.
 	envelope := CreateGenericEnvelope("Test", "user-1", "sess-1", nil, nil, nil)
 
-	envelope.SetInterrupt(InterruptKindCriticReview, "critic-1",
+	envelope.SetInterrupt(InterruptKindAgentReview, "review-1",
 		WithMessage("Review this plan"),
 		WithInterruptData(map[string]any{"plan_id": "plan-123"}))
 
 	assert.True(t, envelope.InterruptPending)
-	assert.Equal(t, InterruptKindCriticReview, envelope.Interrupt.Kind)
+	assert.Equal(t, InterruptKindAgentReview, envelope.Interrupt.Kind)
 	assert.Equal(t, "Review this plan", envelope.Interrupt.Message)
 	assert.Equal(t, "plan-123", envelope.Interrupt.Data["plan_id"])
 
@@ -629,11 +629,11 @@ func TestToStateDictIncludesDAGFields(t *testing.T) {
 // ENUM TESTS
 // =============================================================================
 
-func TestCriticVerdictValues(t *testing.T) {
-	// Test CriticVerdict enum values.
-	assert.Equal(t, CriticVerdict("approved"), CriticVerdictApproved)
-	assert.Equal(t, CriticVerdict("reintent"), CriticVerdictReintent)
-	assert.Equal(t, CriticVerdict("next_stage"), CriticVerdictNextStage)
+func TestLoopVerdictValues(t *testing.T) {
+	// Test LoopVerdict enum values.
+	assert.Equal(t, LoopVerdict("proceed"), LoopVerdictProceed)
+	assert.Equal(t, LoopVerdict("loop_back"), LoopVerdictLoopBack)
+	assert.Equal(t, LoopVerdict("advance"), LoopVerdictAdvance)
 }
 
 func TestTerminalReasonValues(t *testing.T) {

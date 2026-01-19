@@ -74,9 +74,9 @@ DEFAULT_INTERRUPT_CONFIGS: Dict[InterruptKind, InterruptConfig] = {
         webhook_event="interrupt.confirmation_needed",
         allowed_responses=["approved"],
     ),
-    InterruptKind.CRITIC_REVIEW: InterruptConfig(
+    InterruptKind.AGENT_REVIEW: InterruptConfig(
         default_ttl=timedelta(minutes=30),
-        webhook_event="interrupt.critic_review",
+        webhook_event="interrupt.agent_review",
         allowed_responses=["decision"],
     ),
     InterruptKind.CHECKPOINT: InterruptConfig(

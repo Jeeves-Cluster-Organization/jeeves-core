@@ -92,7 +92,7 @@ class TestInterruptKindEnum:
         """Verify all 7 interrupt kinds are defined."""
         assert InterruptKind.CLARIFICATION.value == "clarification"
         assert InterruptKind.CONFIRMATION.value == "confirmation"
-        assert InterruptKind.CRITIC_REVIEW.value == "critic_review"
+        assert InterruptKind.AGENT_REVIEW.value == "agent_review"
         assert InterruptKind.CHECKPOINT.value == "checkpoint"
         assert InterruptKind.RESOURCE_EXHAUSTED.value == "resource_exhausted"
         assert InterruptKind.TIMEOUT.value == "timeout"
@@ -186,7 +186,7 @@ class TestFlowInterrupt:
         """Test roundtrip through database format."""
         original = FlowInterrupt(
             id="int-123",
-            kind=InterruptKind.CRITIC_REVIEW,
+            kind=InterruptKind.AGENT_REVIEW,
             request_id="req-456",
             user_id="user-789",
             session_id="sess-abc",
@@ -238,10 +238,10 @@ class TestInterruptServiceCreateInterrupt:
         assert interrupt.status == InterruptStatus.PENDING
 
     @pytest.mark.asyncio
-    async def test_create_critic_review_interrupt(self, service):
-        """Test creating a critic review interrupt."""
+    async def test_create_agent_review_interrupt(self, service):
+        """Test creating an agent review interrupt."""
         interrupt = await service.create_interrupt(
-            kind=InterruptKind.CRITIC_REVIEW,
+            kind=InterruptKind.AGENT_REVIEW,
             request_id="req-123",
             user_id="user-456",
             session_id="sess-789",
@@ -249,7 +249,7 @@ class TestInterruptServiceCreateInterrupt:
             data={"plan_summary": "Execute 5 tool calls"},
         )
 
-        assert interrupt.kind == InterruptKind.CRITIC_REVIEW
+        assert interrupt.kind == InterruptKind.AGENT_REVIEW
         assert interrupt.message == "Review this execution plan"
         assert interrupt.data["plan_summary"] == "Execute 5 tool calls"
 
@@ -409,10 +409,10 @@ class TestInterruptServiceRespond:
         assert resolved.response.approved is True
 
     @pytest.mark.asyncio
-    async def test_respond_to_critic_review(self, service):
-        """Test responding to a critic review interrupt."""
+    async def test_respond_to_agent_review(self, service):
+        """Test responding to an agent review interrupt."""
         interrupt = await service.create_interrupt(
-            kind=InterruptKind.CRITIC_REVIEW,
+            kind=InterruptKind.AGENT_REVIEW,
             request_id="req-123",
             user_id="user-456",
             session_id="sess-789",
@@ -731,11 +731,11 @@ class TestDefaultInterruptConfigs:
         assert config.default_ttl == timedelta(hours=1)
         assert config.webhook_event == "interrupt.confirmation_needed"
 
-    def test_critic_review_config(self):
-        """Test critic review default config."""
-        config = DEFAULT_INTERRUPT_CONFIGS[InterruptKind.CRITIC_REVIEW]
+    def test_agent_review_config(self):
+        """Test agent review default config."""
+        config = DEFAULT_INTERRUPT_CONFIGS[InterruptKind.AGENT_REVIEW]
         assert config.default_ttl == timedelta(minutes=30)
-        assert config.webhook_event == "interrupt.critic_review"
+        assert config.webhook_event == "interrupt.agent_review"
 
     def test_checkpoint_config(self):
         """Test checkpoint default config."""

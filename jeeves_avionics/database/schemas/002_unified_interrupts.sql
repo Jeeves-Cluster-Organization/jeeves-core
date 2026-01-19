@@ -21,7 +21,7 @@ CREATE TABLE IF NOT EXISTS flow_interrupts (
     kind TEXT NOT NULL CHECK (kind IN (
         'clarification',
         'confirmation',
-        'critic_review',
+        'agent_review',
         'checkpoint',
         'resource_exhausted',
         'timeout',
@@ -105,7 +105,7 @@ COMMENT ON TABLE flow_interrupts IS
     'Replaces pending_confirmations and pending_clarifications tables.';
 
 COMMENT ON COLUMN flow_interrupts.kind IS
-    'Type of interrupt: clarification, confirmation, critic_review, checkpoint, '
+    'Type of interrupt: clarification, confirmation, agent_review, checkpoint, '
     'resource_exhausted, timeout, system_error';
 
 COMMENT ON COLUMN flow_interrupts.data IS

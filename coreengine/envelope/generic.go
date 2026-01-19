@@ -20,6 +20,7 @@ import (
 // =============================================================================
 
 // InterruptKind represents the type of flow interrupt.
+// These are GENERIC interrupt types - capability layer defines specific usage.
 type InterruptKind string
 
 const (
@@ -27,8 +28,8 @@ const (
 	InterruptKindClarification InterruptKind = "clarification"
 	// InterruptKindConfirmation is for user confirmation requests.
 	InterruptKindConfirmation InterruptKind = "confirmation"
-	// InterruptKindCriticReview is for critic decision requests.
-	InterruptKindCriticReview InterruptKind = "critic_review"
+	// InterruptKindAgentReview is for agent review requests (e.g., human-in-the-loop).
+	InterruptKindAgentReview InterruptKind = "agent_review"
 	// InterruptKindCheckpoint is for checkpoint pauses.
 	InterruptKindCheckpoint InterruptKind = "checkpoint"
 	// InterruptKindResourceExhausted is for rate limit/resource exhaustion.

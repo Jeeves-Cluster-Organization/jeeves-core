@@ -11,6 +11,7 @@ import (
 
 	"google.golang.org/grpc"
 
+	"github.com/jeeves-cluster-organization/codeanalysis/coreengine/agents"
 	"github.com/jeeves-cluster-organization/codeanalysis/coreengine/config"
 	"github.com/jeeves-cluster-organization/codeanalysis/coreengine/envelope"
 	pb "github.com/jeeves-cluster-organization/codeanalysis/coreengine/proto"
@@ -272,7 +273,7 @@ func (s *JeevesCoreServer) Error(msg string, keysAndValues ...any) {
 	s.logger.Error(msg, keysAndValues...)
 }
 
-func (s *JeevesCoreServer) Bind(fields ...any) interface{ Debug(string, ...any) } {
+func (s *JeevesCoreServer) Bind(fields ...any) agents.Logger {
 	return s
 }
 
@@ -551,8 +552,8 @@ func interruptKindToProto(k envelope.InterruptKind) pb.InterruptKind {
 		return pb.InterruptKind_TIMEOUT
 	case envelope.InterruptKindSystemError:
 		return pb.InterruptKind_SYSTEM_ERROR
-	case envelope.InterruptKindCriticReview:
-		return pb.InterruptKind_CRITIC_REVIEW
+	case envelope.InterruptKindAgentReview:
+		return pb.InterruptKind_AGENT_REVIEW
 	default:
 		return pb.InterruptKind_INTERRUPT_KIND_UNSPECIFIED
 	}
@@ -572,8 +573,8 @@ func protoToInterruptKind(k pb.InterruptKind) envelope.InterruptKind {
 		return envelope.InterruptKindTimeout
 	case pb.InterruptKind_SYSTEM_ERROR:
 		return envelope.InterruptKindSystemError
-	case pb.InterruptKind_CRITIC_REVIEW:
-		return envelope.InterruptKindCriticReview
+	case pb.InterruptKind_AGENT_REVIEW:
+		return envelope.InterruptKindAgentReview
 	default:
 		return envelope.InterruptKindClarification
 	}

@@ -48,7 +48,7 @@ from jeeves_protocols import (
     create_generic_envelope,
     # Enums
     TerminalReason,
-    CriticVerdict,
+    LoopVerdict,
     RiskApproval,
 )
 
@@ -133,7 +133,7 @@ __all__ = [
     "create_runtime_from_config",
     # Enums
     "TerminalReason",
-    "CriticVerdict",
+    "LoopVerdict",
     "RiskApproval",
 
     # ─── Working memory ───
