@@ -77,7 +77,7 @@ class GenericEnvelope:
 
     # Retry
     prior_plans: List[Dict[str, Any]] = field(default_factory=list)
-    critic_feedback: List[str] = field(default_factory=list)
+    loop_feedback: List[str] = field(default_factory=list)
 
     # Audit
     processing_history: List[ProcessingRecord] = field(default_factory=list)
@@ -255,7 +255,7 @@ class GenericEnvelope:
             "goal_completion_status": self.goal_completion_status,
             # Retry
             "prior_plans": self.prior_plans,
-            "critic_feedback": self.critic_feedback,
+            "loop_feedback": self.loop_feedback,
             # Audit
             "processing_history": serialized_history,
             "errors": self.errors,

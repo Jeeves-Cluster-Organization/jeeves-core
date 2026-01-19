@@ -59,7 +59,7 @@ from jeeves_mission_system.tests.fixtures.agents import (
     envelope_with_critic,
     # Special state fixtures
     envelope_with_clarification,
-    envelope_with_reintent,
+    envelope_with_loop_back,
 )
 
 __all__ = [
@@ -94,5 +94,5 @@ __all__ = [
     "envelope_with_synthesizer",
     "envelope_with_critic",
     "envelope_with_clarification",
-    "envelope_with_reintent",
+    "envelope_with_loop_back",
 ]

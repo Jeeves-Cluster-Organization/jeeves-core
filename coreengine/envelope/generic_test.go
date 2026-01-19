@@ -329,14 +329,14 @@ func TestIncrementIteration(t *testing.T) {
 }
 
 func TestIncrementIterationWithFeedback(t *testing.T) {
-	// Test incrementing with critic feedback.
+	// Test incrementing with loop feedback.
 	envelope := CreateGenericEnvelope("Test", "user-1", "sess-1", nil, nil, nil)
 
 	feedback := "Need more context"
 	envelope.IncrementIteration(&feedback)
 
 	assert.Equal(t, 1, envelope.Iteration)
-	assert.Contains(t, envelope.CriticFeedback, "Need more context")
+	assert.Contains(t, envelope.LoopFeedback, "Need more context")
 }
 
 func TestIncrementIterationStoresPriorPlan(t *testing.T) {

@@ -21,7 +21,7 @@ from typing import TypedDict, Optional, List, Dict, Any
 REDUCER_FIELDS = [
     "step_results",
     "prior_plans",
-    "critic_feedback",
+    "loop_feedback",
     "completed_stages",
     "confidence_history",
     "routing_decisions",
@@ -81,11 +81,11 @@ class JeevesState(TypedDict, total=False):
 
     # ─── Retry Context ───
     prior_plans: List[Dict[str, Any]]  # Reducer field
-    critic_feedback: List[str]  # Reducer field
+    loop_feedback: List[str]  # Reducer field (feedback for loop_back routing)
 
-    # ─── Reintent Context (REINTENT architecture) ───
-    reintent_count: int  # Number of reintent loops executed
-    critic_feedback_for_intent: Optional[Dict[str, Any]]  # Critic hints for Intent
+    # ─── Loop Context (loop_back architecture) ───
+    loop_count: int  # Number of loop_back iterations executed
+    loop_feedback_for_intent: Optional[Dict[str, Any]]  # Hints for Intent on loop_back
 
     # ─── Multi-Stage Execution ───
     completed_stages: List[Dict[str, Any]]  # Reducer field
@@ -161,10 +161,10 @@ def create_initial_state(
         terminated=False,
         terminal_reason=None,
         prior_plans=[],
-        critic_feedback=[],
-        # Reintent context (REINTENT architecture)
-        reintent_count=0,
-        critic_feedback_for_intent=None,
+        loop_feedback=[],
+        # Loop context (loop_back architecture)
+        loop_count=0,
+        loop_feedback_for_intent=None,
         # Multi-stage execution
         completed_stages=[],
         current_stage=1,
