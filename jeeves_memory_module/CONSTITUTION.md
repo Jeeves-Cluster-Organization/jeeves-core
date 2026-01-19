@@ -113,12 +113,31 @@ jeeves_memory_module/
 | Layer | Name | Scope | Implementation |
 |-------|------|-------|----------------|
 | **L1** | Episodic | Per-request | `GenericEnvelope` (core_engine) |
-| **L2** | Events | Append-only log | `EventRepository` |
+| **L2** | Events | Append-only log | `EventRepository` + `EventEmitter` (CommBus wired) |
 | **L3** | Semantic | Embeddings/search | `ChunkService` + `PgVectorRepository` |
-| **L4** | Working | Per-session state | `SessionStateAdapter` |
-| **L5** | Graph | Entity relationships | `GraphRepository` + `GraphService` |
-| **L6** | Skills | Learned patterns | Not yet implemented |
+| **L4** | Working | Per-session state | `SessionStateService` |
+| **L5** | Graph | Entity relationships | `GraphStorageProtocol` + `InMemoryGraphStorage` (stub) |
+| **L6** | Skills | Learned patterns | `SkillStorageProtocol` + `InMemorySkillStorage` (stub) |
 | **L7** | Meta | Tool metrics | `ToolHealthService` |
+
+### L5-L6 Extension Points
+
+L5 (Graph) and L6 (Skills) use protocol-first design for extensibility:
+
+```python
+from jeeves_protocols import GraphStorageProtocol, SkillStorageProtocol
+from jeeves_memory_module.repositories import InMemoryGraphStorage, InMemorySkillStorage
+
+# Development: Use in-memory stubs
+graph = InMemoryGraphStorage()
+skills = InMemorySkillStorage()
+
+# Production: Implement custom adapters
+class Neo4jGraphStorage:
+    """Neo4j adapter implementing GraphStorageProtocol."""
+    async def add_node(self, ...): ...
+    # Override all protocol methods
+```
 
 ---
 
