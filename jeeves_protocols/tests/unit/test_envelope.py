@@ -132,56 +132,86 @@ class TestEnvelopeControlFlow:
 
     def test_clarification_interrupt(self, sample_envelope):
         """Test clarification via unified interrupt system."""
+        from jeeves_protocols import FlowInterrupt, InterruptKind, InterruptStatus
+
+        interrupt = FlowInterrupt(
+            id="int-123",
+            kind=InterruptKind.CLARIFICATION,
+            request_id=sample_envelope.request_id,
+            user_id=sample_envelope.user_id,
+            session_id=sample_envelope.session_id,
+            question="What file do you mean?",
+        )
         sample_envelope.interrupt_pending = True
-        sample_envelope.interrupt = {
-            "kind": "clarification",
-            "question": "What file do you mean?",
-            "response": None,
-        }
+        sample_envelope.interrupt = interrupt
 
         assert sample_envelope.interrupt_pending is True
-        assert sample_envelope.interrupt["kind"] == "clarification"
-        assert sample_envelope.interrupt["question"] == "What file do you mean?"
-        assert sample_envelope.interrupt.get("response") is None
+        assert sample_envelope.interrupt.kind == InterruptKind.CLARIFICATION
+        assert sample_envelope.interrupt.question == "What file do you mean?"
+        assert sample_envelope.interrupt.response is None
 
     def test_clarification_resolved(self, sample_envelope):
         """Test clarification response via unified interrupt system."""
+        from jeeves_protocols import (
+            FlowInterrupt, InterruptKind, InterruptStatus, InterruptResponse
+        )
+
+        interrupt = FlowInterrupt(
+            id="int-123",
+            kind=InterruptKind.CLARIFICATION,
+            request_id=sample_envelope.request_id,
+            user_id=sample_envelope.user_id,
+            session_id=sample_envelope.session_id,
+            question="What file do you mean?",
+            response=InterruptResponse(text="The main.py file"),
+            status=InterruptStatus.RESOLVED,
+        )
         sample_envelope.interrupt_pending = False
-        sample_envelope.interrupt = {
-            "kind": "clarification",
-            "question": "What file do you mean?",
-            "response": "The main.py file",
-        }
+        sample_envelope.interrupt = interrupt
 
         assert sample_envelope.interrupt_pending is False
-        assert sample_envelope.interrupt["response"] == "The main.py file"
+        assert sample_envelope.interrupt.response.text == "The main.py file"
 
     def test_confirmation_interrupt(self, sample_envelope):
         """Test confirmation via unified interrupt system."""
+        from jeeves_protocols import FlowInterrupt, InterruptKind
+
+        interrupt = FlowInterrupt(
+            id="confirm-123",
+            kind=InterruptKind.CONFIRMATION,
+            request_id=sample_envelope.request_id,
+            user_id=sample_envelope.user_id,
+            session_id=sample_envelope.session_id,
+            message="Delete all files?",
+        )
         sample_envelope.interrupt_pending = True
-        sample_envelope.interrupt = {
-            "kind": "confirmation",
-            "id": "confirm-123",
-            "message": "Delete all files?",
-            "response": None,
-        }
+        sample_envelope.interrupt = interrupt
 
         assert sample_envelope.interrupt_pending is True
-        assert sample_envelope.interrupt["kind"] == "confirmation"
-        assert sample_envelope.interrupt["id"] == "confirm-123"
-        assert sample_envelope.interrupt.get("response") is None
+        assert sample_envelope.interrupt.kind == InterruptKind.CONFIRMATION
+        assert sample_envelope.interrupt.id == "confirm-123"
+        assert sample_envelope.interrupt.response is None
 
     def test_confirmation_resolved(self, sample_envelope):
         """Test confirmation response via unified interrupt system."""
+        from jeeves_protocols import (
+            FlowInterrupt, InterruptKind, InterruptStatus, InterruptResponse
+        )
+
+        interrupt = FlowInterrupt(
+            id="confirm-123",
+            kind=InterruptKind.CONFIRMATION,
+            request_id=sample_envelope.request_id,
+            user_id=sample_envelope.user_id,
+            session_id=sample_envelope.session_id,
+            response=InterruptResponse(approved=True),
+            status=InterruptStatus.RESOLVED,
+        )
         sample_envelope.interrupt_pending = False
-        sample_envelope.interrupt = {
-            "kind": "confirmation",
-            "id": "confirm-123",
-            "response": True,
-        }
+        sample_envelope.interrupt = interrupt
 
         assert sample_envelope.interrupt_pending is False
-        assert sample_envelope.interrupt["response"] is True
+        assert sample_envelope.interrupt.response.approved is True
 
     def test_termination_state(self, sample_envelope):
         """Test termination state."""
