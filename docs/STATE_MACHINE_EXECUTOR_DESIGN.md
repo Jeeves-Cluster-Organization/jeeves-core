@@ -1,14 +1,47 @@
 # StateMachineExecutor Design Document
 
 **Created:** 2026-01-06
-**Status:** Architectural Design (Pre-Implementation)
-**Decision:** D6-D9 from FUTURE_PLAN.md
+**Updated:** 2026-01-18
+**Status:** Partially Implemented
+
+---
+
+## Implementation Status
+
+| Feature | Status | Location |
+|---------|--------|----------|
+| **Cyclic Execution (REINTENT)** | ✅ IMPLEMENTED | `runtime.go`, `unified.go` |
+| **Routing Rules** | ✅ IMPLEMENTED | `unified.go:evaluateRouting()` |
+| **EdgeLimits** | ✅ IMPLEMENTED | `pipeline.go` |
+| **Iteration Tracking** | ✅ IMPLEMENTED | `generic.go:IncrementIteration()` |
+| **gRPC Server** | ✅ IMPLEMENTED | `grpc/server.go` |
+| **gRPC Python Client** | ⚠️ STUB ONLY | `grpc_client.py` (uses local fallbacks) |
+| **Parallel DAG Execution** | ❌ NOT IMPLEMENTED | Infrastructure exists, not wired |
+| **StateMachineExecutor (unified)** | ❌ PLANNED | This document describes future work |
+
+> **Note:** The current `UnifiedRuntime` in `runtime.go` already supports cyclic execution
+> via routing rules. This design document describes a future refactoring to unify
+> sequential and parallel execution into a single `StateMachineExecutor`.
 
 ---
 
 ## Executive Summary
 
-This document specifies the `StateMachineExecutor` - the **only** Go executor. It replaces `DAGExecutor` (deleted, not deprecated).
+This document specifies the `StateMachineExecutor` - a planned unified executor that will 
+replace the current `UnifiedRuntime`. The goal is to add parallel DAG execution while 
+maintaining the existing cyclic execution support.
+
+**What's Already Implemented:**
+- Cyclic execution via `RoutingRules` (e.g., Critic → Intent loops)
+- `EdgeLimits` for per-edge cycle control
+- `MaxIterations` for global cycle bounds
+- `IncrementIteration()` with feedback/prior plan storage
+- gRPC server with full envelope operations
+
+**What This Document Plans:**
+- Parallel execution of independent stages
+- Unified executor replacing both sequential and DAG modes
+- Full gRPC integration (replacing Python fallbacks)
 
 **Key Principles:**
 1. **Go is authoritative** - Python is a thin gRPC client, nothing else

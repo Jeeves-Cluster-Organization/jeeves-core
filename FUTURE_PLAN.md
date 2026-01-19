@@ -61,11 +61,15 @@ This document captures gaps identified during the 2026-01-06 architecture review
 ```
 Current graph structure (NOT a DAG):
 
-Perception → Intent → Planner → Executor → Synthesizer → Critic
-                ↑         ↑                                  │
-                │         └────────[REPLAN]──────────────────┤
-                └────────────────[REINTENT]──────────────────┘
+StageA → StageB → StageC → StageD → StageE → StageF
+           ↑         ↑                          │
+           │         └────────[replan]──────────┤
+           └────────────────[loop_back]─────────┘
 ```
+
+> **Note:** Current codebase uses domain-specific names like "Critic → Intent" for these
+> loops. This is architectural debt - core should use generic stage names.
+> See `docs/ARCHITECTURAL_DEBT.md` for the cleanup plan.
 
 **Impact:**
 - Misleading terminology

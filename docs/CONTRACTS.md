@@ -376,7 +376,7 @@ if quota_exceeded:
 
 ---
 
-## Contract 13: Core Doesn't Reject Cycles
+## Contract 13: Core Doesn't Reject Cycles (Cyclic Routing)
 
 ### Rule
 Core does NOT validate or reject cycles. Capability layer defines the graph via routing rules.
@@ -386,8 +386,8 @@ If capability defines cycles, they MUST be bounded by:
 
 ### Rationale
 ```
-Capability defines:  Critic -> [reintent] -> Intent   (cycle exists)
-       or:           Critic -> end                     (no cycle)
+Capability defines:  StageC -> [loop_back] -> StageA   (cycle exists)
+       or:           StageC -> end                     (no cycle)
 ```
 
 Core's job: Execute the graph. Enforce bounds. Not judge the graph structure.
@@ -397,10 +397,13 @@ Core's job: Execute the graph. Enforce bounds. Not judge the graph structure.
 cfg := &PipelineConfig{
     MaxIterations: 5,  // Global cap
     EdgeLimits: []EdgeLimit{
-        {From: "critic", To: "intent", MaxCount: 3},  // Max 3 REINTENT loops
+        {From: "stageC", To: "stageA", MaxCount: 3},  // Max 3 loops on this edge
     },
 }
 ```
+
+> **Terminology Note:** Current codebase uses domain-specific terms like "reintent", "critic".
+> These should be generic ("loop_back", "stageC"). See `ARCHITECTURAL_DEBT.md` for cleanup plan.
 
 ### Invariants
 

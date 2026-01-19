@@ -32,7 +32,7 @@ This document provides everything needed to build a new capability (such as a fi
 
 Jeeves-core is a **layered agentic runtime** combining Python application logic with a Go orchestration engine. It provides:
 
-- **Pipeline Orchestration**: Sequential and DAG-based agent execution
+- **Pipeline Orchestration**: Cyclic agent execution with routing rules (REINTENT architecture)
 - **LLM Provider Abstraction**: OpenAI, Anthropic, Azure, LlamaServer, LlamaCpp
 - **Four-Layer Memory**: Episodic → Event Log → Working Memory → Persistent Cache
 - **Tool Registry**: Risk-classified tools with per-agent access control
@@ -77,7 +77,7 @@ Jeeves-core is a **layered agentic runtime** combining Python application logic 
 │     - Shared utilities (UUID, logging, serialization)           │
 ├─────────────────────────────────────────────────────────────────┤
 │ GO: coreengine + commbus                                        │
-│     - Pipeline orchestration (DAG executor)                     │
+│     - Pipeline orchestration (cyclic execution with routing)    │
 │     - Unified agent execution, communication bus                │
 └─────────────────────────────────────────────────────────────────┘
 ```
@@ -1105,9 +1105,12 @@ result = await executor.execute_resilient("read_file", params)
 ### 12.1 Architecture
 
 The Go engine provides:
-- **Pipeline orchestration** (sequential and DAG)
+- **Pipeline orchestration** (cyclic execution via routing rules)
 - **Envelope state management**
 - **Communication bus** (pub/sub, query/response)
+
+> **Note:** Cyclic execution (loops) is fully supported via `RoutingRules` that can
+> route to earlier stages. Parallel DAG execution is infrastructure-only (not wired).
 
 ### 12.2 CLI Interface
 
@@ -1178,7 +1181,7 @@ type UnifiedRuntime struct {
     ToolExecutor  ToolExecutor
     Logger        Logger
     Persistence   PersistenceAdapter
-    dagExecutor   *DAGExecutor
+    // Note: dagExecutor field exists but parallel DAG is not implemented
 }
 
 func (r *UnifiedRuntime) Run(ctx context.Context, env *GenericEnvelope, threadID string) (*GenericEnvelope, error)
@@ -1186,18 +1189,30 @@ func (r *UnifiedRuntime) RunStreaming(ctx context.Context, env *GenericEnvelope,
 func (r *UnifiedRuntime) Resume(ctx context.Context, env *GenericEnvelope, response *InterruptResponse, threadID string) (*GenericEnvelope, error)
 ```
 
-### 12.5 DAG Executor
+### 12.5 Cyclic Execution (REINTENT Architecture)
+
+The Go runtime supports cyclic execution via routing rules:
 
 ```go
-// DAGExecutor for parallel execution
-type DAGExecutor struct {
-    agents      map[string]*UnifiedAgent
-    pipeline    *PipelineConfig
-    maxParallel int
+// RoutingRules can route to ANY stage, including earlier ones
+RoutingRules: []RoutingRule{
+    {Condition: "verdict", Value: "reintent", Target: "intent"},  // Loop back!
+    {Condition: "verdict", Value: "approved", Target: "end"},
 }
 
-func (d *DAGExecutor) Execute(ctx context.Context, env *GenericEnvelope) (*GenericEnvelope, error)
+// EdgeLimits control per-edge cycle counts
+EdgeLimits: []EdgeLimit{
+    {From: "critic", To: "intent", MaxCount: 3},  // Max 3 REINTENT loops
+}
+
+// Iteration tracking
+func (e *GenericEnvelope) IncrementIteration(feedback *string)
 ```
+
+> **Note on Parallel DAG:** The envelope has `ActiveStages`, `CompletedStageSet`, and `DAGMode` 
+> fields for parallel execution, but this is NOT YET IMPLEMENTED. The current runtime executes 
+> stages sequentially within each cycle. See `docs/STATE_MACHINE_EXECUTOR_DESIGN.md` for the 
+> planned parallel execution design.
 
 ---
 

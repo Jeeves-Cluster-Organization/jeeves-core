@@ -1,4 +1,38 @@
 // Package config provides pipeline and agent configuration for Go-native orchestration.
+//
+// # Execution Model
+//
+// This package supports CYCLIC ROUTING which enables looping execution flows:
+//
+//   - RoutingRules allow agents to route to ANY stage, including earlier ones
+//   - EdgeLimits control how many times a specific edge can be traversed
+//   - MaxIterations provides a global bound on pipeline loop iterations
+//
+// Example cyclic flow (capability-defined, not core concepts):
+//
+//	StageA → StageB → StageC → [loop_back] → StageA → ...
+//	                     ↓
+//	                [proceed] → end
+//
+// Cycles are EXPECTED and SUPPORTED. The runtime does not reject cyclic graphs.
+// Bounds (EdgeLimits, MaxIterations, MaxLLMCalls, MaxAgentHops) prevent infinite loops.
+//
+// # Core vs Capability Layer
+//
+// Core provides GENERIC routing primitives. The capability layer defines:
+//   - Stage names (e.g., "planner", "executor", "critic")
+//   - Routing conditions (e.g., "verdict", "approved")
+//   - EdgeLimits for domain-specific edges
+//
+// See docs/ARCHITECTURAL_DEBT.md for known violations of this principle.
+//
+// # Parallel Execution
+//
+// Parallel DAG execution (running independent stages concurrently) is NOT YET IMPLEMENTED.
+// The infrastructure exists (ActiveStages, CompletedStageSet, DAGMode fields in envelope)
+// but the runtime currently executes stages sequentially within each cycle.
+//
+// See docs/STATE_MACHINE_EXECUTOR_DESIGN.md for the planned parallel execution design.
 package config
 
 import (
@@ -43,7 +77,7 @@ const (
 
 // EdgeLimit configures per-edge transition limits.
 // Capability layer defines these to control how many times
-// a specific transition (e.g., critic -> intent) can occur.
+// a specific transition can occur (e.g., StageC -> StageA).
 // Core doesn't judge graph structure - capability defines it.
 type EdgeLimit struct {
 	From     string `json:"from"`      // Source stage
