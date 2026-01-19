@@ -1,4 +1,4 @@
-// Package runtime tests for UnifiedRuntime
+// Package runtime tests for Runtime
 package runtime
 
 import (
@@ -28,7 +28,7 @@ func (m *MockLogger) Bind(fields ...any) agents.Logger {
 }
 
 // createTestRuntime creates a minimal runtime for testing.
-func createTestRuntime(t *testing.T) *UnifiedRuntime {
+func createTestRuntime(t *testing.T) *Runtime {
 	cfg := &config.PipelineConfig{
 		Name:          "test-pipeline",
 		MaxIterations: 3,
@@ -37,7 +37,7 @@ func createTestRuntime(t *testing.T) *UnifiedRuntime {
 		Agents:        []*config.AgentConfig{},
 	}
 
-	runtime, err := NewUnifiedRuntime(cfg, nil, nil, &MockLogger{})
+	runtime, err := NewRuntime(cfg, nil, nil, &MockLogger{})
 	require.NoError(t, err)
 	return runtime
 }

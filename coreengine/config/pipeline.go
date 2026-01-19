@@ -26,7 +26,7 @@
 //
 // # Parallel Execution
 //
-// Parallel execution is available via UnifiedRuntime.RunParallel().
+// Parallel execution is available via Runtime.RunParallel().
 // This executes independent stages concurrently using goroutines.
 // The ParallelMode flag in envelope indicates parallel execution mode.
 package config
@@ -158,10 +158,25 @@ func (c *AgentConfig) HasDependencies() bool {
 	return len(c.Requires) > 0 || len(c.After) > 0
 }
 
+// RunMode determines how pipeline stages run.
+// Sequential: one stage at a time following routing rules.
+// Parallel: independent stages run concurrently.
+type RunMode string
+
+const (
+	RunModeSequential RunMode = "sequential"
+	RunModeParallel   RunMode = "parallel"
+)
+
 // PipelineConfig defines an ordered sequence of agents.
 type PipelineConfig struct {
 	Name   string         `json:"name"`   // Pipeline name for logging/metrics
 	Agents []*AgentConfig `json:"agents"` // Ordered list of agent configs
+
+	// Run Mode - how stages run
+	// "sequential" (default): one stage at a time
+	// "parallel": independent stages run concurrently
+	DefaultRunMode RunMode `json:"default_run_mode,omitempty"`
 
 	// Bounds - Go enforces these authoritatively
 	MaxIterations         int `json:"max_iterations"`          // Max pipeline loop iterations

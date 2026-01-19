@@ -12,7 +12,7 @@ Package Structure:
     - core.py: Core enums (RiskLevel, ToolAccess, OperationStatus, etc.)
     - config.py: Configuration types (AgentConfig, PipelineConfig, etc.)
     - envelope.py: GenericEnvelope and ProcessingRecord
-    - agents.py: UnifiedAgent, UnifiedRuntime, factories
+    - agents.py: UnifiedAgent, Runtime, factories
     - protocols.py: Protocol definitions (LoggerProtocol, etc.)
     - capability.py: CapabilityResourceRegistry for dynamic registration
     - memory.py: WorkingMemory, Finding, and memory operations
@@ -21,7 +21,7 @@ Package Structure:
 
 Usage by Capability Layers:
     from jeeves_protocols import (
-        AgentConfig, PipelineConfig, GenericEnvelope, UnifiedRuntime,
+        AgentConfig, PipelineConfig, GenericEnvelope, Runtime,
         RiskLevel, ToolAccess, ToolCategory, OperationStatus,
         CapabilityResourceRegistry, get_capability_resource_registry,
         LoggerProtocol, NodeProfile, AgentLLMConfig
@@ -74,7 +74,7 @@ from jeeves_protocols.agents import (
     UnifiedAgent,
     AgentCapability,
     # Runtime
-    UnifiedRuntime,
+    Runtime,
     # Factories
     create_runtime_from_config,
     create_generic_envelope,
@@ -269,7 +269,7 @@ __all__ = [
     # ─── Agent Runtime ───
     "UnifiedAgent",
     "AgentCapability",
-    "UnifiedRuntime",
+    "Runtime",
     "create_runtime_from_config",
     "create_generic_envelope",
     "LLMProvider",

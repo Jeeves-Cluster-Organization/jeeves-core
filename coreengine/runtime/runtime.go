@@ -1,4 +1,4 @@
-// Package runtime provides the UnifiedRuntime - pipeline orchestration engine.
+// Package runtime provides the Runtime - pipeline orchestration engine.
 package runtime
 
 import (
@@ -12,6 +12,26 @@ import (
 	"github.com/jeeves-cluster-organization/codeanalysis/coreengine/envelope"
 )
 
+// RunMode from config package.
+type RunMode = config.RunMode
+
+const (
+	RunModeSequential = config.RunModeSequential
+	RunModeParallel   = config.RunModeParallel
+)
+
+// RunOptions configures how the pipeline runs.
+type RunOptions struct {
+	// Mode: sequential or parallel. Default: sequential.
+	Mode RunMode
+
+	// Stream: send stage outputs to a channel as they complete.
+	Stream bool
+
+	// ThreadID for state persistence. Empty disables persistence.
+	ThreadID string
+}
+
 // LLMProviderFactory creates LLM providers by role.
 type LLMProviderFactory func(role string) agents.LLMProvider
 
@@ -21,8 +41,8 @@ type PersistenceAdapter interface {
 	LoadState(ctx context.Context, threadID string) (map[string]any, error)
 }
 
-// UnifiedRuntime executes pipelines from configuration.
-type UnifiedRuntime struct {
+// Runtime executes pipelines from configuration.
+type Runtime struct {
 	Config         *config.PipelineConfig
 	LLMFactory     LLMProviderFactory
 	ToolExecutor   agents.ToolExecutor
@@ -35,18 +55,18 @@ type UnifiedRuntime struct {
 	eventCtx agents.EventContext
 }
 
-// NewUnifiedRuntime creates a new UnifiedRuntime.
-func NewUnifiedRuntime(
+// NewRuntime creates a new Runtime.
+func NewRuntime(
 	cfg *config.PipelineConfig,
 	llmFactory LLMProviderFactory,
 	toolExecutor agents.ToolExecutor,
 	logger agents.Logger,
-) (*UnifiedRuntime, error) {
+) (*Runtime, error) {
 	if err := cfg.Validate(); err != nil {
 		return nil, err
 	}
 
-	runtime := &UnifiedRuntime{
+	runtime := &Runtime{
 		Config:       cfg,
 		LLMFactory:   llmFactory,
 		ToolExecutor: toolExecutor,
@@ -62,7 +82,7 @@ func NewUnifiedRuntime(
 	return runtime, nil
 }
 
-func (r *UnifiedRuntime) buildAgents() error {
+func (r *Runtime) buildAgents() error {
 	for _, agentConfig := range r.Config.Agents {
 		// Get LLM provider if needed
 		var llm agents.LLMProvider
@@ -96,55 +116,147 @@ func (r *UnifiedRuntime) buildAgents() error {
 }
 
 // SetEventContext sets the event context for all agents.
-func (r *UnifiedRuntime) SetEventContext(ctx agents.EventContext) {
+func (r *Runtime) SetEventContext(ctx agents.EventContext) {
 	r.eventCtx = ctx
 	for _, agent := range r.agents {
 		agent.SetEventContext(ctx)
 	}
 }
 
-// Run executes the pipeline on an envelope.
-func (r *UnifiedRuntime) Run(ctx context.Context, env *envelope.GenericEnvelope, threadID string) (*envelope.GenericEnvelope, error) {
-	startTime := time.Now()
+// =============================================================================
+// UNIFIED EXECUTION
+// =============================================================================
 
-	// Set stage order on envelope
+// Execute runs the pipeline with the given options.
+func (r *Runtime) Execute(ctx context.Context, env *envelope.GenericEnvelope, opts RunOptions) (*envelope.GenericEnvelope, <-chan StageOutput, error) {
+	// Apply defaults from config
+	if opts.Mode == "" {
+		if r.Config.DefaultRunMode != "" {
+			opts.Mode = RunMode(r.Config.DefaultRunMode)
+		} else {
+			opts.Mode = RunModeSequential
+		}
+	}
+
+	// Initialize envelope
+	r.initializeEnvelope(env)
+
+	// Set parallel mode flag
+	if opts.Mode == RunModeParallel {
+		env.ParallelMode = true
+	}
+
+	startTime := time.Now()
+	logEvent := "pipeline_started"
+	if opts.Mode == RunModeParallel {
+		logEvent = "pipeline_parallel_started"
+	}
+
+	r.Logger.Info(logEvent,
+		"envelope_id", env.EnvelopeID,
+		"request_id", env.RequestID,
+		"mode", string(opts.Mode),
+		"stream", opts.Stream,
+		"stage_order", env.StageOrder,
+	)
+
+	// Create output channel if streaming
+	var outputChan chan StageOutput
+	if opts.Stream {
+		outputChan = make(chan StageOutput, len(r.Config.Agents)+1)
+	}
+
+	// Run based on mode
+	var resultEnv *envelope.GenericEnvelope
+	var err error
+
+	switch opts.Mode {
+	case RunModeParallel:
+		resultEnv, err = r.runParallelCore(ctx, env, opts, outputChan)
+	default:
+		resultEnv, err = r.runSequentialCore(ctx, env, opts, outputChan)
+	}
+
+	// Close output channel and send end marker
+	if outputChan != nil {
+		outputChan <- StageOutput{
+			Stage:  "__end__",
+			Output: map[string]any{"terminated": resultEnv.Terminated},
+		}
+		close(outputChan)
+	}
+
+	// Log completion
+	durationMS := int(time.Since(startTime).Milliseconds())
+	completeEvent := "pipeline_completed"
+	if opts.Mode == RunModeParallel {
+		completeEvent = "pipeline_parallel_completed"
+	}
+
+	r.Logger.Info(completeEvent,
+		"envelope_id", resultEnv.EnvelopeID,
+		"request_id", resultEnv.RequestID,
+		"final_stage", resultEnv.CurrentStage,
+		"terminated", resultEnv.Terminated,
+		"duration_ms", durationMS,
+	)
+
+	return resultEnv, outputChan, err
+}
+
+// initializeEnvelope sets up the envelope with pipeline configuration.
+func (r *Runtime) initializeEnvelope(env *envelope.GenericEnvelope) {
 	env.StageOrder = r.Config.GetStageOrder()
 	if len(env.StageOrder) > 0 {
 		env.CurrentStage = env.StageOrder[0]
 	} else {
 		env.CurrentStage = "end"
 	}
-
-	// Apply bounds from config
 	env.MaxIterations = r.Config.MaxIterations
 	env.MaxLLMCalls = r.Config.MaxLLMCalls
 	env.MaxAgentHops = r.Config.MaxAgentHops
+}
 
-	r.Logger.Info("pipeline_started",
-		"envelope_id", env.EnvelopeID,
-		"request_id", env.RequestID,
-		"stage_order", env.StageOrder,
-	)
+// shouldContinue checks if execution should continue (shared by all modes).
+func (r *Runtime) shouldContinue(env *envelope.GenericEnvelope) (bool, string) {
+	if !env.CanContinue() {
+		r.Logger.Warn("pipeline_bounds_exceeded",
+			"envelope_id", env.EnvelopeID,
+			"terminal_reason", env.TerminalReason_,
+		)
+		return false, "bounds_exceeded"
+	}
 
+	if env.InterruptPending {
+		r.Logger.Info("pipeline_interrupt",
+			"envelope_id", env.EnvelopeID,
+			"interrupt_kind", env.GetInterruptKind(),
+		)
+		return false, "interrupt_pending"
+	}
+
+	return true, ""
+}
+
+// persistState saves state if persistence is configured.
+func (r *Runtime) persistState(ctx context.Context, env *envelope.GenericEnvelope, threadID string) {
+	if r.Persistence != nil && threadID != "" {
+		if persistErr := r.Persistence.SaveState(ctx, threadID, env.ToStateDict()); persistErr != nil {
+			r.Logger.Warn("state_persist_error",
+				"thread_id", threadID,
+				"error", persistErr.Error(),
+			)
+		}
+	}
+}
+
+// runSequentialCore runs stages one at a time following routing rules.
+func (r *Runtime) runSequentialCore(ctx context.Context, env *envelope.GenericEnvelope, opts RunOptions, outputChan chan StageOutput) (*envelope.GenericEnvelope, error) {
 	var err error
 
-	// Execute pipeline loop
 	for env.CurrentStage != "end" && !env.Terminated {
-		// Check bounds
-		if !env.CanContinue() {
-			r.Logger.Warn("pipeline_bounds_exceeded",
-				"envelope_id", env.EnvelopeID,
-				"terminal_reason", env.TerminalReason_,
-			)
-			break
-		}
-
-		// Handle pending interrupt
-		if env.InterruptPending {
-			r.Logger.Info("pipeline_interrupt",
-				"envelope_id", env.EnvelopeID,
-				"interrupt_kind", env.GetInterruptKind(),
-			)
+		// Check if we should continue
+		if cont, _ := r.shouldContinue(env); !cont {
 			break
 		}
 
@@ -159,6 +271,8 @@ func (r *UnifiedRuntime) Run(ctx context.Context, env *envelope.GenericEnvelope,
 			env.Terminate(fmt.Sprintf("Unknown stage: %s", env.CurrentStage), &reason)
 			break
 		}
+
+		stageName := env.CurrentStage
 
 		// Execute agent
 		env, err = agent.Process(ctx, env)
@@ -178,207 +292,34 @@ func (r *UnifiedRuntime) Run(ctx context.Context, env *envelope.GenericEnvelope,
 			break
 		}
 
-		// Persist state if configured
-		if r.Persistence != nil && threadID != "" {
-			if persistErr := r.Persistence.SaveState(ctx, threadID, env.ToStateDict()); persistErr != nil {
-				r.Logger.Warn("state_persist_error",
-					"thread_id", threadID,
-					"error", persistErr.Error(),
-				)
-			}
+		// Send output to channel if streaming
+		if outputChan != nil {
+			output := env.GetOutput(stageName)
+			outputChan <- StageOutput{Stage: stageName, Output: output}
 		}
+
+		// Persist state
+		r.persistState(ctx, env, opts.ThreadID)
 	}
-
-	// Mark complete
-	durationMS := int(time.Since(startTime).Milliseconds())
-
-	r.Logger.Info("pipeline_completed",
-		"envelope_id", env.EnvelopeID,
-		"request_id", env.RequestID,
-		"final_stage", env.CurrentStage,
-		"terminated", env.Terminated,
-		"duration_ms", durationMS,
-	)
 
 	return env, nil
 }
 
-// RunStreaming executes pipeline with streaming updates via channel.
-func (r *UnifiedRuntime) RunStreaming(ctx context.Context, env *envelope.GenericEnvelope, threadID string) (<-chan StageOutput, error) {
-	outputChan := make(chan StageOutput, len(r.Config.Agents)+1)
-
-	go func() {
-		defer close(outputChan)
-
-		env.StageOrder = r.Config.GetStageOrder()
-		if len(env.StageOrder) > 0 {
-			env.CurrentStage = env.StageOrder[0]
-		} else {
-			env.CurrentStage = "end"
-		}
-
-		env.MaxIterations = r.Config.MaxIterations
-		env.MaxLLMCalls = r.Config.MaxLLMCalls
-		env.MaxAgentHops = r.Config.MaxAgentHops
-
-		r.Logger.Info("pipeline_streaming_started",
-			"envelope_id", env.EnvelopeID,
-			"request_id", env.RequestID,
-		)
-
-		var err error
-
-		for env.CurrentStage != "end" && !env.Terminated {
-			if !env.CanContinue() {
-				break
-			}
-
-			if env.InterruptPending {
-				break
-			}
-
-			agent, exists := r.agents[env.CurrentStage]
-			if !exists {
-				reason := envelope.TerminalReasonToolFailedFatally
-				env.Terminate(fmt.Sprintf("Unknown stage: %s", env.CurrentStage), &reason)
-				break
-			}
-
-			stageName := env.CurrentStage
-
-			env, err = agent.Process(ctx, env)
-			if err != nil {
-				reason := envelope.TerminalReasonToolFailedFatally
-				env.Terminate(err.Error(), &reason)
-				break
-			}
-
-			output := env.GetOutput(stageName)
-			outputChan <- StageOutput{Stage: stageName, Output: output}
-
-			if r.Persistence != nil && threadID != "" {
-				_ = r.Persistence.SaveState(ctx, threadID, env.ToStateDict())
-			}
-		}
-
-		outputChan <- StageOutput{
-			Stage:  "__end__",
-			Output: map[string]any{"terminated": env.Terminated},
-		}
-	}()
-
-	return outputChan, nil
-}
-
-// Resume resumes pipeline execution after interrupt.
-func (r *UnifiedRuntime) Resume(ctx context.Context, env *envelope.GenericEnvelope, response envelope.InterruptResponse, threadID string) (*envelope.GenericEnvelope, error) {
-	if !env.InterruptPending || env.Interrupt == nil {
-		return env, fmt.Errorf("no pending interrupt to resume")
-	}
-
-	// Store the interrupt kind before resolving
-	kind := env.Interrupt.Kind
-
-	// Resolve the interrupt with the response
-	env.ResolveInterrupt(response)
-
-	// Determine resume stage based on interrupt kind
-	// Use configurable stages from PipelineConfig, or stay at current stage
-	switch kind {
-	case envelope.InterruptKindClarification:
-		if r.Config.ClarificationResumeStage != "" {
-			env.CurrentStage = r.Config.ClarificationResumeStage
-		}
-		// If not configured, stay at current stage
-	case envelope.InterruptKindConfirmation:
-		if response.Approved != nil && *response.Approved {
-			if r.Config.ConfirmationResumeStage != "" {
-				env.CurrentStage = r.Config.ConfirmationResumeStage
-			}
-			// If not configured, stay at current stage
-		} else {
-			env.Terminate("User denied confirmation", nil)
-			return env, nil
-		}
-	case envelope.InterruptKindAgentReview:
-		if r.Config.AgentReviewResumeStage != "" {
-			env.CurrentStage = r.Config.AgentReviewResumeStage
-		}
-		// If not configured, stay at current stage
-	default:
-		// For other interrupt types, stay at current stage
-	}
-
-	r.Logger.Info("pipeline_resumed",
-		"envelope_id", env.EnvelopeID,
-		"interrupt_kind", kind,
-		"resume_stage", env.CurrentStage,
-	)
-
-	return r.Run(ctx, env, threadID)
-}
-
-// GetState gets persisted state for a thread.
-func (r *UnifiedRuntime) GetState(ctx context.Context, threadID string) (map[string]any, error) {
-	if r.Persistence == nil {
-		return nil, nil
-	}
-	return r.Persistence.LoadState(ctx, threadID)
-}
-
-// StageOutput represents output from a pipeline stage.
-type StageOutput struct {
-	Stage  string
-	Output map[string]any
-	Error  error
-}
-
-// RunParallel executes pipeline with parallel stage execution.
-// Independent stages (no dependencies between them) run concurrently.
-// Sets ParallelMode=true on the envelope during execution.
-func (r *UnifiedRuntime) RunParallel(ctx context.Context, env *envelope.GenericEnvelope, threadID string) (*envelope.GenericEnvelope, error) {
-	startTime := time.Now()
-
-	// Initialize envelope
-	env.StageOrder = r.Config.GetStageOrder()
-	env.MaxIterations = r.Config.MaxIterations
-	env.MaxLLMCalls = r.Config.MaxLLMCalls
-	env.MaxAgentHops = r.Config.MaxAgentHops
-
-	r.Logger.Info("pipeline_parallel_started",
-		"envelope_id", env.EnvelopeID,
-		"request_id", env.RequestID,
-		"stage_order", env.StageOrder,
-	)
-
+// runParallelCore runs independent stages concurrently.
+func (r *Runtime) runParallelCore(ctx context.Context, env *envelope.GenericEnvelope, opts RunOptions, outputChan chan StageOutput) (*envelope.GenericEnvelope, error) {
 	// Track completed stages
 	completed := make(map[string]bool)
 	var mu sync.Mutex
 
-	// Execute until all stages done or terminated
 	for !env.Terminated {
-		// Check bounds
-		if !env.CanContinue() {
-			r.Logger.Warn("pipeline_bounds_exceeded",
-				"envelope_id", env.EnvelopeID,
-				"terminal_reason", env.TerminalReason_,
-			)
+		// Check if we should continue
+		if cont, _ := r.shouldContinue(env); !cont {
 			break
 		}
 
-		// Handle pending interrupt
-		if env.InterruptPending {
-			r.Logger.Info("pipeline_interrupt",
-				"envelope_id", env.EnvelopeID,
-				"interrupt_kind", env.GetInterruptKind(),
-			)
-			break
-		}
-
-		// Find stages ready to execute
+		// Find stages ready to execute (dependencies satisfied)
 		readyStages := r.Config.GetReadyStages(completed)
 		if len(readyStages) == 0 {
-			// No more stages to execute
 			break
 		}
 
@@ -447,6 +388,11 @@ func (r *UnifiedRuntime) RunParallel(ctx context.Context, env *envelope.GenericE
 			completed[result.Stage] = true
 			mu.Unlock()
 
+			// Send output to channel if streaming
+			if outputChan != nil {
+				outputChan <- result
+			}
+
 			r.Logger.Debug("stage_completed",
 				"envelope_id", env.EnvelopeID,
 				"stage", result.Stage,
@@ -458,35 +404,132 @@ func (r *UnifiedRuntime) RunParallel(ctx context.Context, env *envelope.GenericE
 		}
 
 		// Persist state after each batch
-		if r.Persistence != nil && threadID != "" {
-			if persistErr := r.Persistence.SaveState(ctx, threadID, env.ToStateDict()); persistErr != nil {
-				r.Logger.Warn("state_persist_error",
-					"thread_id", threadID,
-					"error", persistErr.Error(),
-				)
-			}
-		}
+		r.persistState(ctx, env, opts.ThreadID)
 	}
-
-	durationMS := int(time.Since(startTime).Milliseconds())
-
-	r.Logger.Info("pipeline_parallel_completed",
-		"envelope_id", env.EnvelopeID,
-		"request_id", env.RequestID,
-		"stages_completed", len(completed),
-		"terminated", env.Terminated,
-		"duration_ms", durationMS,
-	)
 
 	return env, nil
 }
 
-// CreateRuntimeFromConfig is a factory function to create UnifiedRuntime.
-func CreateRuntimeFromConfig(
-	cfg *config.PipelineConfig,
-	llmFactory LLMProviderFactory,
-	toolExecutor agents.ToolExecutor,
-	logger agents.Logger,
-) (*UnifiedRuntime, error) {
-	return NewUnifiedRuntime(cfg, llmFactory, toolExecutor, logger)
+// =============================================================================
+// CONVENIENCE METHODS
+// =============================================================================
+
+// Run runs the pipeline sequentially.
+func (r *Runtime) Run(ctx context.Context, env *envelope.GenericEnvelope, threadID string) (*envelope.GenericEnvelope, error) {
+	result, _, err := r.Execute(ctx, env, RunOptions{
+		Mode:     RunModeSequential,
+		ThreadID: threadID,
+	})
+	return result, err
 }
+
+// RunWithStream runs the pipeline and streams stage outputs to a channel.
+func (r *Runtime) RunWithStream(ctx context.Context, env *envelope.GenericEnvelope, threadID string) (<-chan StageOutput, error) {
+	outputChan := make(chan StageOutput, len(r.Config.Agents)+1)
+
+	go func() {
+		defer close(outputChan)
+
+		r.initializeEnvelope(env)
+
+		r.Logger.Info("pipeline_streaming_started",
+			"envelope_id", env.EnvelopeID,
+			"request_id", env.RequestID,
+		)
+
+		opts := RunOptions{
+			Mode:     RunModeSequential,
+			Stream:   true,
+			ThreadID: threadID,
+		}
+
+		resultEnv, _ := r.runSequentialCore(ctx, env, opts, outputChan)
+
+		outputChan <- StageOutput{
+			Stage:  "__end__",
+			Output: map[string]any{"terminated": resultEnv.Terminated},
+		}
+	}()
+
+	return outputChan, nil
+}
+
+// RunParallel runs the pipeline with parallel stage execution.
+func (r *Runtime) RunParallel(ctx context.Context, env *envelope.GenericEnvelope, threadID string) (*envelope.GenericEnvelope, error) {
+	result, _, err := r.Execute(ctx, env, RunOptions{
+		Mode:     RunModeParallel,
+		ThreadID: threadID,
+	})
+	return result, err
+}
+
+// Resume resumes pipeline execution after interrupt.
+func (r *Runtime) Resume(ctx context.Context, env *envelope.GenericEnvelope, response envelope.InterruptResponse, threadID string) (*envelope.GenericEnvelope, error) {
+	if !env.InterruptPending || env.Interrupt == nil {
+		return env, fmt.Errorf("no pending interrupt to resume")
+	}
+
+	// Store the interrupt kind before resolving
+	kind := env.Interrupt.Kind
+
+	// Resolve the interrupt with the response
+	env.ResolveInterrupt(response)
+
+	// Determine resume stage based on interrupt kind
+	// Use configurable stages from PipelineConfig, or stay at current stage
+	switch kind {
+	case envelope.InterruptKindClarification:
+		if r.Config.ClarificationResumeStage != "" {
+			env.CurrentStage = r.Config.ClarificationResumeStage
+		}
+	case envelope.InterruptKindConfirmation:
+		if response.Approved != nil && *response.Approved {
+			if r.Config.ConfirmationResumeStage != "" {
+				env.CurrentStage = r.Config.ConfirmationResumeStage
+			}
+		} else {
+			env.Terminate("User denied confirmation", nil)
+			return env, nil
+		}
+	case envelope.InterruptKindAgentReview:
+		if r.Config.AgentReviewResumeStage != "" {
+			env.CurrentStage = r.Config.AgentReviewResumeStage
+		}
+	default:
+		// For other interrupt types, stay at current stage
+	}
+
+	r.Logger.Info("pipeline_resumed",
+		"envelope_id", env.EnvelopeID,
+		"interrupt_kind", kind,
+		"resume_stage", env.CurrentStage,
+	)
+
+	// Resume uses the same mode as the original run
+	mode := RunModeSequential
+	if env.ParallelMode {
+		mode = RunModeParallel
+	}
+
+	result, _, err := r.Execute(ctx, env, RunOptions{
+		Mode:     mode,
+		ThreadID: threadID,
+	})
+	return result, err
+}
+
+// GetState gets persisted state for a thread.
+func (r *Runtime) GetState(ctx context.Context, threadID string) (map[string]any, error) {
+	if r.Persistence == nil {
+		return nil, nil
+	}
+	return r.Persistence.LoadState(ctx, threadID)
+}
+
+// StageOutput represents output from a pipeline stage.
+type StageOutput struct {
+	Stage  string
+	Output map[string]any
+	Error  error
+}
+
