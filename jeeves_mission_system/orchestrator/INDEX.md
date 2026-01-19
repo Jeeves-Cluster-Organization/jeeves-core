@@ -73,7 +73,7 @@ Multi-Stage: Critic can trigger stage_transition for complex queries
 The orchestrator integrates with the unified interrupt system via `jeeves_protocols.interrupts`:
 - `InterruptKind.CLARIFICATION` - User clarification needed
 - `InterruptKind.CONFIRMATION` - Approval required
-- `InterruptKind.CRITIC_REVIEW` - Critic decision point
+- `InterruptKind.AGENT_REVIEW` - Agent review decision point
 - `InterruptKind.CHECKPOINT` - Checkpoint save point
 
 ---
