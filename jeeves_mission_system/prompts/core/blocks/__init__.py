@@ -12,6 +12,8 @@ Blocks:
 
 Usage:
     from jeeves_mission_system.prompts.core import IDENTITY_BLOCK, STYLE_BLOCK, ROLE_INVARIANTS, SAFETY_BLOCK
+    # or
+    from jeeves_mission_system.prompts.core.blocks import IDENTITY_BLOCK
 
     prompt = f'''
     {IDENTITY_BLOCK}
