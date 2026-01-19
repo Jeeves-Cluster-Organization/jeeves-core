@@ -1,24 +1,18 @@
 """gRPC client for Go runtime.
 
-This is the ONLY Python -> Go IPC mechanism.
-Go is authoritative for all envelope operations and bounds checking.
-
-DESIGN PRINCIPLES:
-- FAIL LOUD: No silent fallbacks. If Go is unreachable, raise immediately.
-- SINGLE SOURCE OF TRUTH: Go runtime is authoritative. Python does not duplicate logic.
-- EXPLICIT ERRORS: All failures surface with clear error messages.
+Go gRPC server is REQUIRED. No fallbacks.
+If Go server is not running, operations fail immediately.
 """
 
+import json
 from dataclasses import dataclass
 from typing import Any, Dict, Iterator, Optional
 
-# gRPC import - REQUIRED, not optional
 try:
     import grpc
 except ImportError as e:
     raise ImportError(
-        "grpcio is REQUIRED for jeeves_protocols. "
-        "Install with: pip install grpcio grpcio-tools"
+        "grpcio is REQUIRED. Install with: pip install grpcio grpcio-tools"
     ) from e
 
 from jeeves_protocols.envelope import GenericEnvelope
@@ -60,14 +54,10 @@ class ExecutionEvent:
 
 
 class GrpcGoClient:
-    """gRPC client for Go runtime operations.
-
-    All operations go through Go. No local fallbacks.
-    If Go server is not available, methods raise immediately.
-    """
+    """gRPC client for Go runtime. Go server is REQUIRED."""
 
     DEFAULT_ADDRESS = "localhost:50051"
-    CONNECT_TIMEOUT = 5.0  # seconds
+    CONNECT_TIMEOUT = 5.0
 
     def __init__(self, address: Optional[str] = None, timeout: float = 30.0):
         """Initialize gRPC client.
@@ -75,15 +65,11 @@ class GrpcGoClient:
         Args:
             address: gRPC server address (default: localhost:50051)
             timeout: Default timeout for RPC calls in seconds
-
-        Raises:
-            GoServerNotRunningError: If Go server is not reachable
         """
         self._address = address or self.DEFAULT_ADDRESS
         self._timeout = timeout
         self._channel: Optional[grpc.Channel] = None
         self._stub: Any = None
-        self._connected = False
 
     def connect(self) -> None:
         """Establish connection to Go server.
@@ -91,13 +77,12 @@ class GrpcGoClient:
         Raises:
             GoServerNotRunningError: If connection fails
         """
-        if self._connected:
+        if self._channel is not None:
             return
 
         self._channel = grpc.insecure_channel(self._address)
 
         try:
-            # Wait for channel to be ready
             grpc.channel_ready_future(self._channel).result(
                 timeout=self.CONNECT_TIMEOUT
             )
@@ -116,7 +101,6 @@ class GrpcGoClient:
                 f"Failed to connect to Go server at {self._address}: {e}"
             ) from e
 
-        # Import and create stub
         try:
             from jeeves_protocols import grpc_stub
             self._stub = grpc_stub.JeevesCoreServiceStub(self._channel)
@@ -127,15 +111,9 @@ class GrpcGoClient:
                 "coreengine/proto/jeeves_core.proto"
             ) from e
 
-        self._connected = True
-
     def _require_connection(self) -> None:
-        """Ensure connected, raise if not.
-
-        Raises:
-            GoServerNotRunningError: If not connected and cannot connect
-        """
-        if not self._connected:
+        """Ensure connected."""
+        if self._channel is None:
             self.connect()
 
     def create_envelope(
@@ -147,26 +125,7 @@ class GrpcGoClient:
         metadata: Optional[Dict[str, str]] = None,
         stage_order: Optional[list] = None,
     ) -> GenericEnvelope:
-        """Create envelope via Go runtime.
-
-        Go is authoritative for envelope creation - ensures consistent
-        ID generation and timestamp handling.
-
-        Args:
-            raw_input: User's raw input text
-            user_id: User identifier
-            session_id: Session identifier
-            request_id: Optional request ID (Go generates if not provided)
-            metadata: Optional metadata dict
-            stage_order: Optional stage execution order
-
-        Returns:
-            GenericEnvelope created by Go
-
-        Raises:
-            GoServerNotRunningError: If Go server not available
-            GrpcCallError: If the RPC fails
-        """
+        """Create envelope via Go runtime."""
         self._require_connection()
 
         try:
@@ -185,20 +144,7 @@ class GrpcGoClient:
             raise GrpcCallError(f"CreateEnvelope failed: {e.details()}") from e
 
     def check_bounds(self, envelope: GenericEnvelope) -> BoundsResult:
-        """Check bounds - Go is authoritative.
-
-        This MUST go through Go. Python does not duplicate bounds logic.
-
-        Args:
-            envelope: Envelope to check
-
-        Returns:
-            BoundsResult with can_continue and remaining counts
-
-        Raises:
-            GoServerNotRunningError: If Go server not available
-            GrpcCallError: If the RPC fails
-        """
+        """Check bounds - Go is authoritative."""
         self._require_connection()
 
         try:
@@ -218,20 +164,7 @@ class GrpcGoClient:
             raise GrpcCallError(f"CheckBounds failed: {e.details()}") from e
 
     def clone_envelope(self, envelope: GenericEnvelope) -> GenericEnvelope:
-        """Clone envelope via Go.
-
-        Go handles deep copy to ensure consistency.
-
-        Args:
-            envelope: Envelope to clone
-
-        Returns:
-            Deep copy of envelope
-
-        Raises:
-            GoServerNotRunningError: If Go server not available
-            GrpcCallError: If the RPC fails
-        """
+        """Clone envelope via Go."""
         self._require_connection()
 
         try:
@@ -250,27 +183,11 @@ class GrpcGoClient:
         thread_id: str,
         pipeline_config: Optional[Dict[str, Any]] = None,
     ) -> Iterator[ExecutionEvent]:
-        """Execute pipeline with streaming events.
-
-        Go orchestrates the pipeline. Python receives events.
-
-        Args:
-            envelope: Starting envelope
-            thread_id: Thread ID for persistence
-            pipeline_config: Optional pipeline configuration
-
-        Yields:
-            ExecutionEvent for each stage transition
-
-        Raises:
-            GoServerNotRunningError: If Go server not available
-            GrpcCallError: If the RPC fails
-        """
+        """Execute pipeline with streaming events."""
         self._require_connection()
 
         try:
             from jeeves_protocols import grpc_stub
-            import json
 
             request = grpc_stub.ExecuteRequest(
                 envelope=self._envelope_to_proto(envelope),
@@ -295,7 +212,6 @@ class GrpcGoClient:
             self._channel.close()
             self._channel = None
             self._stub = None
-            self._connected = False
 
     def __enter__(self):
         self.connect()
@@ -304,14 +220,9 @@ class GrpcGoClient:
     def __exit__(self, *args):
         self.close()
 
-    # =========================================================================
-    # Proto conversion helpers
-    # =========================================================================
-
     def _envelope_to_proto(self, envelope: GenericEnvelope) -> Any:
         """Convert Python envelope to proto message."""
         from jeeves_protocols import grpc_stub
-        import json
 
         return grpc_stub.Envelope(
             envelope_id=envelope.envelope_id,
@@ -335,7 +246,6 @@ class GrpcGoClient:
 
     def _envelope_from_proto(self, proto: Any) -> GenericEnvelope:
         """Convert proto message to Python envelope."""
-        import json
         from jeeves_shared.serialization import utc_now
 
         return GenericEnvelope(
@@ -359,74 +269,3 @@ class GrpcGoClient:
             received_at=utc_now(),
             created_at=utc_now(),
         )
-
-
-# =============================================================================
-# Module-level singleton - lazy connection
-# =============================================================================
-
-_default_client: Optional[GrpcGoClient] = None
-
-
-def get_client() -> GrpcGoClient:
-    """Get default gRPC client instance.
-
-    Raises:
-        GoServerNotRunningError: On first call if Go server not available
-    """
-    global _default_client
-    if _default_client is None:
-        _default_client = GrpcGoClient()
-    return _default_client
-
-
-def require_go_server() -> GrpcGoClient:
-    """Get client and verify Go server is running.
-
-    Use this at application startup to fail fast.
-
-    Raises:
-        GoServerNotRunningError: If Go server not available
-    """
-    client = get_client()
-    client.connect()
-    return client
-
-
-def create_envelope(
-    raw_input: str,
-    user_id: str,
-    session_id: str = "",
-    request_id: str = "",
-    metadata: Optional[Dict[str, str]] = None,
-) -> GenericEnvelope:
-    """Create envelope via Go gRPC.
-
-    Raises:
-        GoServerNotRunningError: If Go server not available
-    """
-    return get_client().create_envelope(
-        raw_input=raw_input,
-        user_id=user_id,
-        session_id=session_id,
-        request_id=request_id if request_id else None,
-        metadata=metadata,
-    )
-
-
-def check_bounds(envelope: GenericEnvelope) -> BoundsResult:
-    """Check bounds via Go gRPC.
-
-    Raises:
-        GoServerNotRunningError: If Go server not available
-    """
-    return get_client().check_bounds(envelope)
-
-
-def clone_envelope(envelope: GenericEnvelope) -> GenericEnvelope:
-    """Clone envelope via Go gRPC.
-
-    Raises:
-        GoServerNotRunningError: If Go server not available
-    """
-    return get_client().clone_envelope(envelope)
