@@ -19,7 +19,7 @@ from pathlib import Path
 PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
 sys.path.insert(0, str(PROJECT_ROOT))
 
-from jeeves_mission_system.scripts.database.init import DatabaseInitializer  # noqa: E402
+from scripts.database.init import DatabaseInitializer  # noqa: E402
 
 
 async def reset_database(verify: bool) -> None:
