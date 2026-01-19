@@ -398,13 +398,7 @@ class ControlTower(ControlTowerProtocol):
 
         # Set envelope interrupt state
         envelope.interrupt_pending = True
-        envelope.interrupt = {
-            "kind": interrupt_kind.value,
-            "id": flow_interrupt.id,
-            "question": flow_interrupt.question,
-            "message": flow_interrupt.message,
-            "created_at": flow_interrupt.created_at.isoformat(),
-        }
+        envelope.interrupt = flow_interrupt
 
         return envelope
 
@@ -488,14 +482,9 @@ class ControlTower(ControlTowerProtocol):
             current_stage=pcb.current_stage,
         )
 
-        # Clear interrupt pending and store response in envelope
+        # Clear interrupt pending and store resolved interrupt in envelope
         envelope.interrupt_pending = False
-        envelope.interrupt = {
-            "kind": resolved.kind.value,
-            "id": resolved.id,
-            "response": resolved.response.to_dict() if resolved.response else None,
-            "status": resolved.status.value,
-        }
+        envelope.interrupt = resolved
 
         # Re-execute
         return await self._execute_process(pid, envelope)

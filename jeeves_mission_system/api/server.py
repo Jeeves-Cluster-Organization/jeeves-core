@@ -543,7 +543,12 @@ async def submit_request(body: SubmitRequestBody) -> SubmitRequestResponse:
 
         # Check for clarification (EventBridge handles WebSocket broadcast)
         # Use unified interrupt mechanism
-        clarification_needed = result_envelope.interrupt_pending and result_envelope.interrupt and result_envelope.interrupt.get("type") == "clarification"
+        from jeeves_protocols import InterruptKind
+        clarification_needed = (
+            result_envelope.interrupt_pending
+            and result_envelope.interrupt
+            and result_envelope.interrupt.kind == InterruptKind.CLARIFICATION
+        )
 
         # Determine status
         if clarification_needed:
@@ -638,7 +643,12 @@ async def submit_clarification(body: ClarificationBody) -> SubmitRequestResponse
 
         # Check for further clarification (EventBridge handles WebSocket broadcast)
         # Use unified interrupt mechanism
-        clarification_needed = result_envelope.interrupt_pending and result_envelope.interrupt and result_envelope.interrupt.get("type") == "clarification"
+        from jeeves_protocols import InterruptKind
+        clarification_needed = (
+            result_envelope.interrupt_pending
+            and result_envelope.interrupt
+            and result_envelope.interrupt.kind == InterruptKind.CLARIFICATION
+        )
 
         # Determine status
         if clarification_needed:

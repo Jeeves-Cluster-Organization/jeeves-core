@@ -491,18 +491,20 @@ class Runtime:
         Resume stages are determined by PipelineConfig, not hardcoded.
         This allows different capabilities to define their own resume behavior.
         """
+        from jeeves_protocols.interrupts import InterruptKind
+
         # Handle unified interrupt mechanism
-        if envelope.interrupt and envelope.interrupt.get("type") == "clarification":
+        if envelope.interrupt and envelope.interrupt.kind == InterruptKind.CLARIFICATION:
             envelope.interrupt_pending = False
             envelope.interrupt = None
             # Use config-defined resume stage (capability determines this)
             envelope.current_stage = self.config.get_clarification_resume_stage()
 
-        if envelope.interrupt and envelope.interrupt.get("type") == "confirmation":
+        if envelope.interrupt and envelope.interrupt.kind == InterruptKind.CONFIRMATION:
             envelope.interrupt_pending = False
-            confirmation_response = envelope.interrupt.get("response")
+            confirmation_response = envelope.interrupt.response
             envelope.interrupt = None
-            if confirmation_response:
+            if confirmation_response and confirmation_response.approved:
                 # Use config-defined resume stage (capability determines this)
                 envelope.current_stage = self.config.get_confirmation_resume_stage()
             else:
