@@ -53,6 +53,8 @@ from jeeves_protocols.config import (
     AgentConfig,
     PipelineConfig,
     RoutingRule,
+    EdgeLimit,
+    JoinStrategy,
     ContextBounds,
     CoreConfig,
     OrchestrationFlags,
@@ -123,8 +125,9 @@ from jeeves_protocols.protocols import (
     # Event protocols
     EventBusProtocol,
     EventContextProtocol,
-    # NLI protocol
-    NLIServiceProtocol,
+    # Intent parsing and claim verification
+    IntentParsingProtocol,
+    ClaimVerificationProtocol,
     # Checkpoint protocol
     CheckpointProtocol,
     CheckpointRecord,
@@ -221,6 +224,10 @@ from jeeves_protocols.utils import (
     JSONRepairKit,
     normalize_string_list,
     truncate_string,
+    # Datetime utilities (L0-safe, no jeeves_shared dependency)
+    utc_now,
+    utc_now_iso,
+    parse_datetime,
 )
 
 # =============================================================================
@@ -258,6 +265,8 @@ __all__ = [
     "AgentConfig",
     "PipelineConfig",
     "RoutingRule",
+    "EdgeLimit",
+    "JoinStrategy",
     "ContextBounds",
     "CoreConfig",
     "OrchestrationFlags",
@@ -305,7 +314,8 @@ __all__ = [
     "SearchResult",
     "EventBusProtocol",
     "EventContextProtocol",
-    "NLIServiceProtocol",
+    "IntentParsingProtocol",
+    "ClaimVerificationProtocol",
     "CheckpointProtocol",
     "CheckpointRecord",
     "DistributedBusProtocol",
@@ -367,6 +377,9 @@ __all__ = [
     "JSONRepairKit",
     "normalize_string_list",
     "truncate_string",
+    "utc_now",
+    "utc_now_iso",
+    "parse_datetime",
 
     # ─── Interrupts & Rate Limiting ───
     "InterruptKind",

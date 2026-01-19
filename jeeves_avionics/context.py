@@ -21,6 +21,7 @@ Usage:
 """
 
 from dataclasses import dataclass, field
+from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional, TYPE_CHECKING
 
 from jeeves_protocols import (
@@ -44,19 +45,17 @@ if TYPE_CHECKING:
 class SystemClock:
     """Default system clock implementation.
 
-    Provides real wall-clock time for production use.
+    Implements ClockProtocol for real wall-clock time.
     Can be replaced with a mock for testing.
     """
 
-    def now_utc(self) -> float:
-        """Get current UTC timestamp as float."""
-        import time
-        return time.time()
+    def now(self) -> datetime:
+        """Get current local datetime."""
+        return datetime.now()
 
-    def now_iso(self) -> str:
-        """Get current UTC time as ISO 8601 string."""
-        from datetime import datetime, timezone
-        return datetime.now(timezone.utc).isoformat()
+    def utcnow(self) -> datetime:
+        """Get current UTC datetime with timezone info."""
+        return datetime.now(timezone.utc)
 
 
 @dataclass

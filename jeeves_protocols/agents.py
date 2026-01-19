@@ -568,7 +568,7 @@ def create_generic_envelope(
 ) -> GenericEnvelope:
     """Factory to create GenericEnvelope."""
     import uuid
-    from jeeves_shared.serialization import utc_now
+    from jeeves_protocols.utils import utc_now
 
     return GenericEnvelope(
         envelope_id=str(uuid.uuid4()),

@@ -40,6 +40,19 @@ The codebase follows a strict layered architecture where each layer may only dep
 | L1 (control_tower) | L0 only |
 | L0 (shared/protocols) | Nothing (base layer) |
 
+### Documented Exceptions
+
+**Memory Module → Avionics (L2 → L3):**
+The Memory Module CONSTITUTION explicitly allows importing from `jeeves_avionics.database.factory` for database connection pooling. This is a controlled exception because:
+- Database connection management requires avionics infrastructure
+- The import is limited to factory functions, not domain logic
+- Memory Module implementations need database access for persistence
+
+```python
+# Allowed exception per jeeves_memory_module/CONSTITUTION.md
+from jeeves_avionics.database.factory import get_async_pool
+```
+
 ---
 
 ## Contract 1: Protocol-Based State Management
@@ -436,6 +449,10 @@ if isCycleEdge(from, to) {
 ---
 
 ## Changelog
+
+### 2026-01-19 - v1.3.0 (Architecture Audit)
+- Documented Memory Module → Avionics exception (L2 → L3 for database.factory)
+- Clarified import rules with exceptions section
 
 ### 2026-01-06 - v1.2.0 (Hardening Review)
 - Added Contract 11: Envelope Sync (Go <-> Python round-trip tests)
