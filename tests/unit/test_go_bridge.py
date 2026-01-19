@@ -1,7 +1,8 @@
 """Tests for Go bridge module.
 
-These tests verify the Python-Go interoperability layer works correctly,
-including fallback behavior when Go binaries are not available.
+These tests verify the Python-Go interoperability layer works correctly.
+The bridge uses EXPLICIT mode - caller must choose Go or Python mode.
+No auto-detection. No silent fallbacks.
 """
 
 import json
@@ -39,6 +40,20 @@ class TestGoBridge:
         mock_which.return_value = "/usr/local/bin/go-envelope"
         bridge = GoBridge("go-envelope")
         assert bridge.is_available() is True
+
+    def test_require_available_raises_when_not_found(self):
+        """Test require_available raises when binary not found."""
+        bridge = GoBridge("nonexistent-binary")
+        with pytest.raises(GoNotAvailableError) as exc_info:
+            bridge.require_available()
+        assert "not found in PATH" in str(exc_info.value)
+
+    @patch("shutil.which")
+    def test_require_available_succeeds_when_found(self, mock_which):
+        """Test require_available succeeds when binary found."""
+        mock_which.return_value = "/usr/local/bin/go-envelope"
+        bridge = GoBridge("go-envelope")
+        bridge.require_available()  # Should not raise
 
     @patch("subprocess.run")
     @patch("shutil.which")
@@ -107,17 +122,39 @@ class TestGoBridge:
 
         assert exc_info.value.code == "exit_error"
 
+    def test_call_raises_when_not_available(self):
+        """Test call raises GoNotAvailableError when binary not found."""
+        bridge = GoBridge("nonexistent-binary")
+        with pytest.raises(GoNotAvailableError):
+            bridge.call("process", {})
+
 
 class TestGoEnvelopeBridge:
     """Tests for GoEnvelopeBridge class."""
 
-    def test_init_with_python_fallback(self):
-        """Test initialization with Python fallback."""
+    def test_init_python_mode(self):
+        """Test initialization in Python mode."""
         bridge = GoEnvelopeBridge(use_go=False)
         assert bridge._use_go is False
+        assert bridge.using_go is False
 
-    def test_create_envelope_python_fallback(self):
-        """Test create_envelope with Python fallback."""
+    @patch("shutil.which")
+    def test_init_go_mode_raises_when_not_available(self, mock_which):
+        """Test initialization in Go mode raises when binary not available."""
+        mock_which.return_value = None
+        with pytest.raises(GoNotAvailableError):
+            GoEnvelopeBridge(use_go=True)
+
+    @patch("shutil.which")
+    def test_init_go_mode_succeeds_when_available(self, mock_which):
+        """Test initialization in Go mode succeeds when binary available."""
+        mock_which.return_value = "/usr/local/bin/go-envelope"
+        bridge = GoEnvelopeBridge(use_go=True)
+        assert bridge._use_go is True
+        assert bridge.using_go is True
+
+    def test_create_envelope_python_mode(self):
+        """Test create_envelope in Python mode."""
         bridge = GoEnvelopeBridge(use_go=False)
 
         result = bridge.create_envelope(
@@ -131,11 +168,10 @@ class TestGoEnvelopeBridge:
         assert result["user_id"] == "user123"
         assert result["session_id"] == "sess456"
 
-    def test_can_continue_python_fallback(self):
-        """Test can_continue with Python fallback."""
+    def test_can_continue_python_mode(self):
+        """Test can_continue in Python mode."""
         bridge = GoEnvelopeBridge(use_go=False)
 
-        # Create envelope first
         envelope = bridge.create_envelope(
             raw_input="Test",
             user_id="u1",
@@ -148,8 +184,8 @@ class TestGoEnvelopeBridge:
         assert result["iteration"] == 0
         assert result["llm_call_count"] == 0
 
-    def test_get_result_python_fallback(self):
-        """Test get_result with Python fallback."""
+    def test_get_result_python_mode(self):
+        """Test get_result in Python mode."""
         bridge = GoEnvelopeBridge(use_go=False)
 
         envelope = bridge.create_envelope(
@@ -164,8 +200,8 @@ class TestGoEnvelopeBridge:
         assert "request_id" in result
         assert result["terminated"] is False
 
-    def test_validate_python_fallback(self):
-        """Test validate with Python fallback."""
+    def test_validate_python_mode(self):
+        """Test validate in Python mode."""
         bridge = GoEnvelopeBridge(use_go=False)
 
         result = bridge.validate({"envelope_id": "env_123", "user_id": "u1"})
@@ -184,7 +220,7 @@ class TestGoEnvelopeBridge:
 
     @patch("subprocess.run")
     @patch("shutil.which")
-    def test_create_envelope_go_success(self, mock_which, mock_run):
+    def test_create_envelope_go_mode_success(self, mock_which, mock_run):
         """Test create_envelope using Go binary."""
         mock_which.return_value = "/usr/local/bin/go-envelope"
         mock_run.return_value = MagicMock(
@@ -207,29 +243,25 @@ class TestGoEnvelopeBridge:
 
         assert result["envelope_id"] == "env_go_123"
 
+    @patch("subprocess.run")
     @patch("shutil.which")
-    def test_auto_detect_go_not_available(self, mock_which):
-        """Test auto-detection when Go not available."""
-        mock_which.return_value = None
-
-        bridge = GoEnvelopeBridge(use_go=None)
-
-        # Force initialization
-        _ = bridge.using_go
-
-        assert bridge._use_go is False
-
-    @patch("shutil.which")
-    def test_auto_detect_go_available(self, mock_which):
-        """Test auto-detection when Go available."""
+    def test_create_envelope_go_mode_error_raises(self, mock_which, mock_run):
+        """Test create_envelope in Go mode raises on error."""
         mock_which.return_value = "/usr/local/bin/go-envelope"
+        mock_run.return_value = MagicMock(
+            returncode=0,
+            stdout='{"error": true, "code": "validation", "message": "Invalid input"}',
+            stderr="",
+        )
 
-        bridge = GoEnvelopeBridge(use_go=None)
-
-        # Force initialization
-        _ = bridge.using_go
-
-        assert bridge._use_go is True
+        bridge = GoEnvelopeBridge(use_go=True)
+        with pytest.raises(GoExecutionError) as exc_info:
+            bridge.create_envelope(
+                raw_input="Hello",
+                user_id="u1",
+                session_id="s1",
+            )
+        assert "Invalid input" in str(exc_info.value)
 
 
 class TestGoResult:
@@ -256,17 +288,16 @@ class TestGoResult:
         assert result.error_code == "parse_error"
 
 
-class TestIntegration:
-    """Integration tests that run if Go binary is available."""
+class TestPythonModeIntegration:
+    """Integration tests using Python mode (always available)."""
 
     @pytest.fixture
     def bridge(self):
-        """Create bridge for testing."""
-        return GoEnvelopeBridge()
+        """Create bridge in Python mode for testing."""
+        return GoEnvelopeBridge(use_go=False)
 
     def test_roundtrip_envelope(self, bridge):
-        """Test full envelope roundtrip."""
-        # This test works whether Go is available or not (uses fallback)
+        """Test full envelope roundtrip in Python mode."""
         envelope = bridge.create_envelope(
             raw_input="What is this codebase about?",
             user_id="integration_test_user",
@@ -282,3 +313,7 @@ class TestIntegration:
         # Get result
         result = bridge.get_result(envelope)
         assert result["envelope_id"] == envelope["envelope_id"]
+
+        # Validate
+        validation = bridge.validate(envelope)
+        assert validation["valid"] is True
