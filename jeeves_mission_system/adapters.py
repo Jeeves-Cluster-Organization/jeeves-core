@@ -359,7 +359,7 @@ def create_nli_service(
         enabled: Whether NLI verification is enabled
 
     Returns:
-        NLIService instance implementing NLIServiceProtocol
+        NLIService instance implementing ClaimVerificationProtocol
 
     Constitutional compliance:
         Apps access infrastructure via adapters, not direct avionics imports.

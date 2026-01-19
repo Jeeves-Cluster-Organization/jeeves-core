@@ -1,10 +1,16 @@
 """Utility functions and classes.
 
-JSON repair, string normalization, and other helpers.
+JSON repair, string normalization, datetime helpers, and other utilities.
+
+Note: This module provides datetime utilities (utc_now, utc_now_iso) that are
+also available in jeeves_shared. Having them here allows jeeves_protocols to
+remain at L0 without depending on jeeves_shared (which sits above protocols
+in the constitutional hierarchy).
 """
 
 import json
 import re
+from datetime import datetime, timezone
 from typing import Any, List, Optional, Union
 
 
@@ -137,3 +143,55 @@ def truncate_string(text: str, max_length: int = 100, suffix: str = "...") -> st
     if len(text) <= max_length:
         return text
     return text[:max_length - len(suffix)] + suffix
+
+
+# =============================================================================
+# DATETIME UTILITIES
+# =============================================================================
+
+def utc_now() -> datetime:
+    """Return timezone-aware UTC datetime.
+
+    This function is provided in jeeves_protocols to allow L0 modules to
+    get the current UTC time without depending on jeeves_shared.
+
+    Returns:
+        Current UTC datetime with timezone info
+    """
+    return datetime.now(timezone.utc)
+
+
+def utc_now_iso() -> str:
+    """Return current UTC time as ISO format string.
+
+    Returns:
+        ISO format string of current UTC time
+    """
+    return utc_now().isoformat()
+
+
+def parse_datetime(value: Any) -> Optional[datetime]:
+    """Parse a datetime value from various formats.
+
+    Handles:
+    - ISO format strings with "Z" suffix (Zulu/UTC time)
+    - ISO format strings with timezone offset
+    - datetime objects (pass-through)
+    - None values
+
+    Args:
+        value: Value to parse (str, datetime, or None)
+
+    Returns:
+        Parsed datetime or None if input is None
+    """
+    if value is None:
+        return None
+    if isinstance(value, datetime):
+        return value
+    if isinstance(value, str):
+        # Handle "Z" suffix for UTC times
+        if value.endswith("Z"):
+            value = value[:-1] + "+00:00"
+        return datetime.fromisoformat(value)
+    return None

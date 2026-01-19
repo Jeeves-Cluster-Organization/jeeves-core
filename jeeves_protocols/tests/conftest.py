@@ -154,11 +154,15 @@ def sample_entity_ref():
 @pytest.fixture
 def sample_agent_config():
     """Create a sample AgentConfig for testing."""
-    from jeeves_protocols import AgentConfig
+    from jeeves_protocols import AgentConfig, ToolAccess
 
     return AgentConfig(
         name="perception",
-        model="llama3.1:8b",
+        stage_order=1,
+        has_llm=True,
+        has_tools=True,
+        tool_access=ToolAccess.READ,
+        model_role="analyzer",
         temperature=0.1,
         max_tokens=2000,
         timeout_seconds=60,
@@ -171,11 +175,10 @@ def sample_context_bounds():
     from jeeves_protocols import ContextBounds
 
     return ContextBounds(
-        max_llm_calls=10,
-        max_tool_calls=50,
-        max_agent_hops=21,
-        max_iterations=3,
-        timeout_seconds=300,
+        max_input_tokens=4096,
+        max_output_tokens=2048,
+        max_context_tokens=16384,
+        reserved_tokens=512,
     )
 
 

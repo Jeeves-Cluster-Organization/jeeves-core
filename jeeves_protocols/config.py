@@ -17,6 +17,12 @@ class RunMode(str, Enum):
     PARALLEL = "parallel"      # Independent stages run concurrently
 
 
+class JoinStrategy(str, Enum):
+    """How to handle multiple prerequisites in parallel execution."""
+    ALL = "all"  # Wait for ALL prerequisites (default)
+    ANY = "any"  # Proceed when ANY prerequisite completes
+
+
 @dataclass
 class RoutingRule:
     """Routing rule for conditional transitions."""
@@ -26,10 +32,23 @@ class RoutingRule:
 
 
 @dataclass
+class EdgeLimit:
+    """Per-edge transition limit for cyclic routing control."""
+    from_stage: str
+    to_stage: str
+    max_count: int
+
+
+@dataclass
 class AgentConfig:
-    """Declarative agent configuration."""
+    """Declarative agent configuration - mirrors Go coreengine/config.AgentConfig."""
     name: str
     stage_order: int = 0
+
+    # Dependencies (for parallel execution)
+    requires: List[str] = field(default_factory=list)  # Hard dependencies
+    after: List[str] = field(default_factory=list)     # Soft ordering
+    join_strategy: JoinStrategy = JoinStrategy.ALL
 
     # Capabilities
     has_llm: bool = False
@@ -59,7 +78,7 @@ class AgentConfig:
     timeout_seconds: Optional[int] = None
     max_retries: int = 0
 
-    # Processing hooks (optional callables for custom behavior)
+    # Processing hooks (Python-only, not in Go)
     pre_process: Optional[Callable] = None
     post_process: Optional[Callable] = None
     mock_handler: Optional[Callable] = None
@@ -67,52 +86,54 @@ class AgentConfig:
 
 @dataclass
 class PipelineConfig:
-    """Pipeline configuration."""
+    """Pipeline configuration - mirrors Go coreengine/config.PipelineConfig."""
     name: str
     agents: List[AgentConfig] = field(default_factory=list)
 
     # Run mode: sequential or parallel
     default_run_mode: RunMode = RunMode.SEQUENTIAL
 
-    # Global config
+    # Bounds - Go enforces these authoritatively
     max_iterations: int = 3
     max_llm_calls: int = 10
     max_agent_hops: int = 21
     default_timeout_seconds: int = 300
 
-    # Feature flags
-    enable_arbiter: bool = True
-    skip_arbiter_for_read_only: bool = True
+    # Edge limits for cyclic routing control
+    edge_limits: List[EdgeLimit] = field(default_factory=list)
 
-    # Interrupt resume stages (capability-defined, not hardcoded in runtime)
-    # If None, defaults to second stage in pipeline for clarification,
-    # or stage with has_tools=True for confirmation
+    # Interrupt resume stages (capability-defined)
     clarification_resume_stage: Optional[str] = None
     confirmation_resume_stage: Optional[str] = None
+    agent_review_resume_stage: Optional[str] = None
 
     def get_stage_order(self) -> List[str]:
         """Get ordered list of agent names."""
         return [a.name for a in sorted(self.agents, key=lambda x: x.stage_order)]
 
-    def get_clarification_resume_stage(self) -> str:
-        """Get stage to resume after clarification interrupt."""
-        if self.clarification_resume_stage:
-            return self.clarification_resume_stage
-        # Default: second stage in pipeline (index 1)
-        stages = self.get_stage_order()
-        return stages[1] if len(stages) > 1 else stages[0] if stages else "end"
+    def get_edge_limit(self, from_stage: str, to_stage: str) -> int:
+        """Get cycle limit for an edge, or 0 if no limit."""
+        for limit in self.edge_limits:
+            if limit.from_stage == from_stage and limit.to_stage == to_stage:
+                return limit.max_count
+        return 0
 
-    def get_confirmation_resume_stage(self) -> str:
-        """Get stage to resume after confirmation interrupt."""
-        if self.confirmation_resume_stage:
-            return self.confirmation_resume_stage
-        # Default: first stage with has_tools=True
+    def get_ready_stages(self, completed: Dict[str, bool]) -> List[str]:
+        """Get stages ready to execute given completed stages."""
+        ready = []
         for agent in self.agents:
-            if agent.has_tools:
-                return agent.name
-        # Fallback: third stage (typical executor position)
-        stages = self.get_stage_order()
-        return stages[3] if len(stages) > 3 else stages[-1] if stages else "end"
+            if completed.get(agent.name):
+                continue
+            # Check requires (hard dependencies)
+            requires_ok = all(completed.get(r) for r in agent.requires)
+            # Check after (soft ordering)
+            after_ok = all(completed.get(a) for a in agent.after)
+            # For JoinAny, only need one require satisfied
+            if agent.join_strategy == JoinStrategy.ANY and agent.requires:
+                requires_ok = any(completed.get(r) for r in agent.requires)
+            if requires_ok and after_ok:
+                ready.append(agent.name)
+        return ready
 
 
 @dataclass

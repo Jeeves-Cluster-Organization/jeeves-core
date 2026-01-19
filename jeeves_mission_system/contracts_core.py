@@ -25,7 +25,8 @@ from jeeves_protocols import (
     PersistenceProtocol,
     LLMProviderProtocol,
     ToolRegistryProtocol,
-    NLIServiceProtocol,
+    IntentParsingProtocol,
+    ClaimVerificationProtocol,
     # Risk level
     RiskLevel,
 )
@@ -149,7 +150,8 @@ __all__ = [
     "PersistenceProtocol",
     "LLMProviderProtocol",
     "ToolRegistryProtocol",
-    "NLIServiceProtocol",
+    "IntentParsingProtocol",
+    "ClaimVerificationProtocol",
     "RiskLevel",
 
     # ─── Core protocols (from core_engine) ───

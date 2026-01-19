@@ -375,11 +375,23 @@ class DistributedBusProtocol(Protocol):
 # =============================================================================
 
 @runtime_checkable
-class NLIServiceProtocol(Protocol):
-    """Natural language interface service."""
+class IntentParsingProtocol(Protocol):
+    """Intent parsing service for natural language understanding."""
 
     async def parse_intent(self, text: str) -> Dict[str, Any]: ...
     async def generate_response(self, intent: Dict[str, Any], context: Dict[str, Any]) -> str: ...
+
+
+@runtime_checkable
+class ClaimVerificationProtocol(Protocol):
+    """Claim verification service using Natural Language Inference.
+
+    Verifies that claims are entailed by their cited evidence.
+    Used by memory_module.services.nli_service.NLIService.
+    """
+
+    def verify_claim(self, claim: str, evidence: str) -> Any: ...
+    def verify_claims_batch(self, claims: List[tuple]) -> List[Any]: ...
 
 
 # =============================================================================

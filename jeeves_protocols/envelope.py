@@ -2,9 +2,12 @@
 
 from dataclasses import dataclass, field
 from datetime import datetime
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, TYPE_CHECKING
 
 from jeeves_protocols.core import TerminalReason
+
+if TYPE_CHECKING:
+    from jeeves_protocols.interrupts import FlowInterrupt
 
 
 @dataclass
@@ -59,7 +62,7 @@ class GenericEnvelope:
 
     # Unified Interrupt Handling (matches Go GenericEnvelope)
     interrupt_pending: bool = False
-    interrupt: Optional[Dict[str, Any]] = None
+    interrupt: Optional["FlowInterrupt"] = None
 
     # Parallel execution state (matches Go GenericEnvelope)
     active_stages: Dict[str, bool] = field(default_factory=dict)
@@ -93,6 +96,8 @@ class GenericEnvelope:
     @classmethod
     def from_dict(cls, data: Dict[str, Any]) -> "GenericEnvelope":
         """Create envelope from dictionary (Go JSON response)."""
+        from jeeves_protocols.interrupts import FlowInterrupt
+
         env = cls()
         for key, value in data.items():
             if hasattr(env, key):
@@ -100,6 +105,10 @@ class GenericEnvelope:
                 if key == "terminal_reason" and value is not None:
                     if isinstance(value, str):
                         value = TerminalReason(value)
+                # Handle FlowInterrupt conversion
+                elif key == "interrupt" and value is not None:
+                    if isinstance(value, dict):
+                        value = FlowInterrupt.from_db_row(value)
                 setattr(env, key, value)
         return env
 
@@ -179,7 +188,7 @@ class GenericEnvelope:
             "termination_reason": self.termination_reason,
             # Unified interrupt fields
             "interrupt_pending": self.interrupt_pending,
-            "interrupt": self.interrupt,
+            "interrupt": self.interrupt.to_dict() if self.interrupt else None,
             # Parallel execution state
             "active_stages": self.active_stages,
             "completed_stage_set": self.completed_stage_set,
@@ -240,7 +249,7 @@ class GenericEnvelope:
             "termination_reason": self.termination_reason,
             # Unified interrupt fields
             "interrupt_pending": self.interrupt_pending,
-            "interrupt": self.interrupt,
+            "interrupt": self.interrupt.to_dict() if self.interrupt else None,
             # Parallel execution state
             "active_stages": self.active_stages,
             "completed_stage_set": self.completed_stage_set,

@@ -246,7 +246,7 @@ class GrpcGoClient:
 
     def _envelope_from_proto(self, proto: Any) -> GenericEnvelope:
         """Convert proto message to Python envelope."""
-        from jeeves_shared.serialization import utc_now
+        from jeeves_protocols.utils import utc_now
 
         return GenericEnvelope(
             envelope_id=proto.envelope_id,

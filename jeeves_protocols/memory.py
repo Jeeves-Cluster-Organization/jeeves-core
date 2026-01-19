@@ -117,7 +117,7 @@ class ClarificationContext:
 # Pure functions for working memory operations
 def create_working_memory(session_id: str, user_id: str) -> WorkingMemory:
     """Factory to create new working memory."""
-    from jeeves_shared.serialization import utc_now
+    from jeeves_protocols.utils import utc_now
     return WorkingMemory(
         session_id=session_id,
         user_id=user_id,
@@ -128,7 +128,7 @@ def create_working_memory(session_id: str, user_id: str) -> WorkingMemory:
 
 def merge_working_memory(base: WorkingMemory, update: WorkingMemory) -> WorkingMemory:
     """Merge two working memory instances."""
-    from jeeves_shared.serialization import utc_now
+    from jeeves_protocols.utils import utc_now
     return WorkingMemory(
         session_id=base.session_id,
         user_id=base.user_id,
