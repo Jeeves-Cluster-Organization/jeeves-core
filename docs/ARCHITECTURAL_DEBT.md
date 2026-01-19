@@ -266,4 +266,33 @@ The system works. This is technical debt for future refactoring, not a blocking 
 
 ---
 
+## Appendix: Parallel Execution Status
+
+**Status:** Infrastructure complete, execution loop not wired
+
+The parallel execution infrastructure is **fully implemented**:
+
+| Component | Status | Location |
+|-----------|--------|----------|
+| `ActiveStages` map | ✅ Exists | `envelope/generic.go` |
+| `CompletedStageSet` map | ✅ Exists | `envelope/generic.go` |
+| `DAGMode` flag | ✅ Exists | `envelope/generic.go` |
+| `StartStage()` method | ✅ Exists | `envelope/generic.go` |
+| `CompleteStage()` method | ✅ Exists | `envelope/generic.go` |
+| `FailStage()` method | ✅ Exists | `envelope/generic.go` |
+| `Requires` dependency field | ✅ Exists | `config/pipeline.go` |
+| `After` ordering field | ✅ Exists | `config/pipeline.go` |
+| `GetAllDependencies()` | ✅ Exists | `config/pipeline.go` |
+| `adjacencyList` built | ✅ Exists | `config/pipeline.go` |
+| **Parallel execution loop** | ❌ Missing | `runtime/runtime.go` |
+
+**Work remaining:** ~50-100 lines of goroutine coordination:
+1. `getExecutableStages()` - find stages with satisfied dependencies (~50 lines)
+2. Goroutine spawning with `sync.WaitGroup` (~30 lines)
+3. Result collection and output merging (~20 lines)
+
+This is a small implementation task, not a design or infrastructure gap.
+
+---
+
 *This document tracks architectural debt. Fixes should be prioritized based on capability layer development needs.*
