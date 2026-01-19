@@ -78,21 +78,18 @@ jeeves_memory_module/
 │   ├── session_state_service.py
 │   ├── chunk_service.py     # L3 semantic chunking
 │   ├── embedding_service.py # Embedding generation
-│   ├── event_emitter.py     # Event emission
+│   ├── event_emitter.py     # Event emission (CommBus wired)
 │   ├── trace_recorder.py
-│   ├── timeline_service.py
 │   ├── tool_health_service.py
 │   ├── nli_service.py
 │   ├── code_indexer.py
-│   ├── edge_extractor.py
-│   ├── summarization_service.py
-│   ├── xref_manager.py
-│   └── graph_service.py
+│   └── xref_manager.py
 ├── repositories/            # Persistence layer
 │   ├── __init__.py
 │   ├── chunk_repository.py  # L3 semantic chunks
 │   ├── event_repository.py  # L2 event log
-│   ├── graph_repository.py  # L5 entity graph
+│   ├── graph_stub.py        # L5 in-memory stub (GraphStorageProtocol)
+│   ├── skill_stub.py        # L6 in-memory stub (SkillStorageProtocol)
 │   ├── session_state_repository.py  # L4 working memory
 │   ├── trace_repository.py
 │   ├── pgvector_repository.py
@@ -128,16 +125,20 @@ L5 (Graph) and L6 (Skills) use protocol-first design for extensibility:
 from jeeves_protocols import GraphStorageProtocol, SkillStorageProtocol
 from jeeves_memory_module.repositories import InMemoryGraphStorage, InMemorySkillStorage
 
-# Development: Use in-memory stubs
+# Development/Testing: Use in-memory stubs
 graph = InMemoryGraphStorage()
 skills = InMemorySkillStorage()
 
-# Production: Implement custom adapters
-class Neo4jGraphStorage:
-    """Neo4j adapter implementing GraphStorageProtocol."""
-    async def add_node(self, ...): ...
-    # Override all protocol methods
+# Production: Use PostgresGraphAdapter from avionics (L3)
+from jeeves_avionics.database import PostgresGraphAdapter
+graph = PostgresGraphAdapter(db_client)
+await graph.ensure_tables()
 ```
+
+**Architecture Note**: PostgreSQL-specific implementations live in `jeeves_avionics`
+(L3 infrastructure layer), not in the memory module. This follows Dependency
+Inversion: core depends on abstractions (protocols), infrastructure provides
+concrete implementations.
 
 ---
 

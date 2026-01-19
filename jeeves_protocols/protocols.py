@@ -438,26 +438,6 @@ class ToolExecutorProtocol(Protocol):
 
 
 # =============================================================================
-# EVENT CONTEXT
-# =============================================================================
-
-@runtime_checkable
-class EventContextProtocol(Protocol):
-    """Event context for tracking request lifecycle."""
-
-    @property
-    def request_id(self) -> str: ...
-
-    @property
-    def session_id(self) -> str: ...
-
-    @property
-    def user_id(self) -> str: ...
-
-    def emit(self, event_type: str, data: Dict[str, Any]) -> None: ...
-
-
-# =============================================================================
 # CONFIG REGISTRY
 # =============================================================================
 

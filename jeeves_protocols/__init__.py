@@ -124,7 +124,6 @@ from jeeves_protocols.protocols import (
     SearchResult,
     # Event protocols
     EventBusProtocol,
-    EventContextProtocol,
     # Intent parsing and claim verification
     IntentParsingProtocol,
     ClaimVerificationProtocol,
@@ -316,7 +315,6 @@ __all__ = [
     "SessionStateProtocol",
     "SearchResult",
     "EventBusProtocol",
-    "EventContextProtocol",
     "IntentParsingProtocol",
     "ClaimVerificationProtocol",
     "CheckpointProtocol",

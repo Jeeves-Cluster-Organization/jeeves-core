@@ -51,21 +51,21 @@ class Message(Protocol):
 
 
 @runtime_checkable
-class Event(Message):
-    """Event message - fan-out to all subscribers."""
-    pass
+class Event(Protocol):
+    """Event message protocol - fan-out to all subscribers."""
+    category: str
 
 
 @runtime_checkable
-class Command(Message):
-    """Command message - fire-and-forget to single handler."""
-    pass
+class Command(Protocol):
+    """Command message protocol - fire-and-forget to single handler."""
+    category: str
 
 
 @runtime_checkable
-class Query(Message):
-    """Query message - request-response with single handler."""
-    pass
+class Query(Protocol):
+    """Query message protocol - request-response with single handler."""
+    category: str
 
 
 # Type for handlers

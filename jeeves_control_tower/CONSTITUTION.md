@@ -252,7 +252,7 @@ class ResourceUsage:
 
 ### CommBusCoordinator
 
-Routes requests to registered services:
+Routes requests to registered services and provides IPC via InMemoryCommBus:
 
 ```python
 @dataclass
@@ -261,6 +261,38 @@ class ServiceDescriptor:
     service_type: str
     handler: Callable[[GenericEnvelope], Awaitable[EnvelopeResult]]
     resource_quota: Optional[ResourceQuota] = None
+```
+
+**InMemoryCommBus** (`jeeves_control_tower/ipc/commbus.py`):
+
+The CommBus provides three messaging patterns matching the Go implementation:
+
+| Pattern | Method | Semantics |
+|---------|--------|-----------|
+| **Publish** | `await bus.publish(event)` | Fan-out to all subscribers |
+| **Send** | `await bus.send(command)` | Fire-and-forget to single handler |
+| **Query** | `await bus.query(query)` | Request-response with timeout |
+
+```python
+from jeeves_control_tower.ipc import get_commbus, InMemoryCommBus
+
+# Get singleton CommBus instance
+bus = get_commbus()
+
+# Subscribe to events
+unsubscribe = bus.subscribe("MemoryStored", handle_memory_event)
+
+# Register query handler
+bus.register_handler("GetSessionState", handle_get_session_state)
+
+# Publish event (fan-out to all subscribers)
+await bus.publish(MemoryStored(item_id="123", layer="L2"))
+
+# Send command (fire-and-forget)
+await bus.send(ClearSession(session_id="abc"))
+
+# Query with response (request-response)
+state = await bus.query(GetSessionState(session_id="abc"))
 ```
 
 ### EventAggregator

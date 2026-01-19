@@ -283,18 +283,21 @@ def create_event_emitter(persistence: PersistenceProtocol) -> Any:
     return EventEmitter(event_repository)
 
 
-def create_graph_repository(persistence: PersistenceProtocol) -> Any:
+def create_graph_storage(persistence: PersistenceProtocol) -> Any:
     """
-    Create L5 graph repository for dependency edges.
+    Create L5 graph storage for entity relationships.
+
+    Uses PostgresGraphAdapter from avionics for production.
+    For testing, use InMemoryGraphStorage from jeeves_memory_module.
 
     Args:
         persistence: Database client
 
     Returns:
-        GraphRepository instance
+        PostgresGraphAdapter instance implementing GraphStorageProtocol
     """
-    from jeeves_memory_module.repositories.graph_repository import GraphRepository
-    return GraphRepository(persistence)
+    from jeeves_avionics.database.postgres_graph import PostgresGraphAdapter
+    return PostgresGraphAdapter(persistence)
 
 
 def create_embedding_service() -> Any:
@@ -439,7 +442,7 @@ __all__ = [
     "get_feature_flags",
     # Memory layer factories
     "create_event_emitter",
-    "create_graph_repository",
+    "create_graph_storage",
     "create_embedding_service",
     "create_code_indexer",
     "create_tool_health_service",
