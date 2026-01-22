@@ -218,21 +218,27 @@ func (r *Runtime) initializeEnvelope(env *envelope.GenericEnvelope) {
 }
 
 // shouldContinue checks if execution should continue (shared by all modes).
+// Note: CanContinue() already checks for InterruptPending, Terminated, and bounds.
 func (r *Runtime) shouldContinue(env *envelope.GenericEnvelope) (bool, string) {
 	if !env.CanContinue() {
-		r.Logger.Warn("pipeline_bounds_exceeded",
-			"envelope_id", env.EnvelopeID,
-			"terminal_reason", env.TerminalReason_,
-		)
-		return false, "bounds_exceeded"
-	}
-
-	if env.InterruptPending {
-		r.Logger.Info("pipeline_interrupt",
-			"envelope_id", env.EnvelopeID,
-			"interrupt_kind", env.GetInterruptKind(),
-		)
-		return false, "interrupt_pending"
+		// CanContinue returns false for: Terminated, InterruptPending, or bounds exceeded
+		reason := "cannot_continue"
+		if env.Terminated {
+			reason = "terminated"
+		} else if env.InterruptPending {
+			reason = "interrupt_pending"
+			r.Logger.Info("pipeline_interrupt",
+				"envelope_id", env.EnvelopeID,
+				"interrupt_kind", env.GetInterruptKind(),
+			)
+		} else if env.TerminalReason_ != nil {
+			reason = "bounds_exceeded"
+			r.Logger.Warn("pipeline_bounds_exceeded",
+				"envelope_id", env.EnvelopeID,
+				"terminal_reason", env.TerminalReason_,
+			)
+		}
+		return false, reason
 	}
 
 	return true, ""

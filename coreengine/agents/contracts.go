@@ -71,33 +71,6 @@ const (
 	AgentOutcomePartial   AgentOutcome = "partial"
 )
 
-// FromString parses an outcome string.
-func AgentOutcomeFromString(value string) (AgentOutcome, error) {
-	normalized := strings.ToLower(strings.TrimSpace(value))
-	switch normalized {
-	case "success":
-		return AgentOutcomeSuccess, nil
-	case "error":
-		return AgentOutcomeError, nil
-	case "clarify":
-		return AgentOutcomeClarify, nil
-	case "confirm":
-		return AgentOutcomeConfirm, nil
-	case "replan":
-		return AgentOutcomeReplan, nil
-	case "loop_back":
-		return AgentOutcomeLoopBack, nil
-	case "terminate":
-		return AgentOutcomeTerminate, nil
-	case "skip":
-		return AgentOutcomeSkip, nil
-	case "partial":
-		return AgentOutcomePartial, nil
-	default:
-		return "", fmt.Errorf("invalid agent outcome '%s'. Must be one of: success, error, clarify, confirm, replan, loop_back, terminate, skip, partial", value)
-	}
-}
-
 // IsTerminal checks if this outcome terminates the pipeline.
 func (o AgentOutcome) IsTerminal() bool {
 	return o == AgentOutcomeError ||
@@ -352,16 +325,6 @@ type Evidence struct {
 	Content    string  `json:"content"`
 	Relevance  string  `json:"relevance"`
 	Confidence float64 `json:"confidence"`
-}
-
-// NewEvidence creates a new Evidence with defaults.
-func NewEvidence(location, content string) *Evidence {
-	return &Evidence{
-		Location:   location,
-		Content:    content,
-		Relevance:  "",
-		Confidence: 0.9,
-	}
 }
 
 // ToolResultData represents standardized tool output structure.

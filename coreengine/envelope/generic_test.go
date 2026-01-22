@@ -2,6 +2,7 @@ package envelope
 
 import (
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -767,4 +768,614 @@ func TestCloneNilFields(t *testing.T) {
 	assert.Nil(t, clone.TerminalReason_)
 	assert.Nil(t, clone.TerminationReason)
 	assert.Nil(t, clone.CompletedAt)
+}
+
+// =============================================================================
+// WithExpiry Option Tests
+// =============================================================================
+
+func TestWithExpiry(t *testing.T) {
+	env := CreateGenericEnvelope("Test", "user-1", "sess-1", nil, nil, nil)
+
+	// Set interrupt with expiry
+	env.SetInterrupt(InterruptKindConfirmation, "int-exp-1", WithExpiry(time.Hour))
+
+	// ExpiresAt should be set to approximately 1 hour from now
+	assert.NotNil(t, env.Interrupt)
+	assert.NotNil(t, env.Interrupt.ExpiresAt)
+	// Check it's roughly an hour from now (within 1 second tolerance)
+	expectedExpiry := time.Now().UTC().Add(time.Hour)
+	assert.WithinDuration(t, expectedExpiry, *env.Interrupt.ExpiresAt, time.Second)
+}
+
+// =============================================================================
+// Stage Query Method Tests
+// =============================================================================
+
+func TestIsStageCompleted(t *testing.T) {
+	env := CreateGenericEnvelope("Test", "user-1", "sess-1", nil, nil, nil)
+
+	// Initially no stages are completed
+	assert.False(t, env.IsStageCompleted("stage1"))
+
+	// Start and complete a stage
+	env.StartStage("stage1")
+	assert.False(t, env.IsStageCompleted("stage1"))
+
+	env.CompleteStage("stage1")
+	assert.True(t, env.IsStageCompleted("stage1"))
+
+	// Non-existent stage
+	assert.False(t, env.IsStageCompleted("nonexistent"))
+}
+
+func TestIsStageCompletedNilMap(t *testing.T) {
+	env := &GenericEnvelope{
+		CompletedStageSet: nil,
+	}
+	// Should not panic with nil map
+	assert.False(t, env.IsStageCompleted("any"))
+}
+
+func TestIsStageActive(t *testing.T) {
+	env := CreateGenericEnvelope("Test", "user-1", "sess-1", nil, nil, nil)
+
+	// Initially no stages are active
+	assert.False(t, env.IsStageActive("stage1"))
+
+	// Start a stage
+	env.StartStage("stage1")
+	assert.True(t, env.IsStageActive("stage1"))
+
+	// Complete it
+	env.CompleteStage("stage1")
+	assert.False(t, env.IsStageActive("stage1"))
+}
+
+func TestIsStageActiveNilMap(t *testing.T) {
+	env := &GenericEnvelope{
+		ActiveStages: nil,
+	}
+	// Should not panic with nil map
+	assert.False(t, env.IsStageActive("any"))
+}
+
+func TestIsStageFailed(t *testing.T) {
+	env := CreateGenericEnvelope("Test", "user-1", "sess-1", nil, nil, nil)
+
+	// Initially no stages are failed
+	assert.False(t, env.IsStageFailed("stage1"))
+
+	// Start and fail a stage
+	env.StartStage("stage1")
+	assert.False(t, env.IsStageFailed("stage1"))
+
+	env.FailStage("stage1", "some error")
+	assert.True(t, env.IsStageFailed("stage1"))
+
+	// Non-existent stage
+	assert.False(t, env.IsStageFailed("nonexistent"))
+}
+
+func TestIsStageFailedNilMap(t *testing.T) {
+	env := &GenericEnvelope{
+		FailedStages: nil,
+	}
+	// Should not panic with nil map
+	assert.False(t, env.IsStageFailed("any"))
+}
+
+func TestGetActiveStageCount(t *testing.T) {
+	env := CreateGenericEnvelope("Test", "user-1", "sess-1", nil, nil, nil)
+
+	// Initially zero
+	assert.Equal(t, 0, env.GetActiveStageCount())
+
+	// Start a stage
+	env.StartStage("stage1")
+	assert.Equal(t, 1, env.GetActiveStageCount())
+
+	// Start another
+	env.StartStage("stage2")
+	assert.Equal(t, 2, env.GetActiveStageCount())
+
+	// Complete one
+	env.CompleteStage("stage1")
+	assert.Equal(t, 1, env.GetActiveStageCount())
+}
+
+func TestGetActiveStageCountNilMap(t *testing.T) {
+	env := &GenericEnvelope{
+		ActiveStages: nil,
+	}
+	assert.Equal(t, 0, env.GetActiveStageCount())
+}
+
+func TestGetCompletedStageCount(t *testing.T) {
+	env := CreateGenericEnvelope("Test", "user-1", "sess-1", nil, nil, nil)
+
+	// Initially zero
+	assert.Equal(t, 0, env.GetCompletedStageCount())
+
+	// Start and complete stages
+	env.StartStage("stage1")
+	env.CompleteStage("stage1")
+	assert.Equal(t, 1, env.GetCompletedStageCount())
+
+	env.StartStage("stage2")
+	env.CompleteStage("stage2")
+	assert.Equal(t, 2, env.GetCompletedStageCount())
+}
+
+func TestGetCompletedStageCountNilMap(t *testing.T) {
+	env := &GenericEnvelope{
+		CompletedStageSet: nil,
+	}
+	assert.Equal(t, 0, env.GetCompletedStageCount())
+}
+
+func TestAllStagesComplete(t *testing.T) {
+	env := CreateGenericEnvelope("Test", "user-1", "sess-1", nil, nil, nil)
+
+	// Empty StageOrder returns false
+	assert.False(t, env.AllStagesComplete())
+
+	// Set stage order
+	env.StageOrder = []string{"stage1", "stage2", "stage3"}
+
+	// Not all complete
+	assert.False(t, env.AllStagesComplete())
+
+	// Complete some
+	env.StartStage("stage1")
+	env.CompleteStage("stage1")
+	assert.False(t, env.AllStagesComplete())
+
+	env.StartStage("stage2")
+	env.CompleteStage("stage2")
+	assert.False(t, env.AllStagesComplete())
+
+	// Complete all
+	env.StartStage("stage3")
+	env.CompleteStage("stage3")
+	assert.True(t, env.AllStagesComplete())
+}
+
+func TestHasFailures(t *testing.T) {
+	env := CreateGenericEnvelope("Test", "user-1", "sess-1", nil, nil, nil)
+
+	// Initially no failures
+	assert.False(t, env.HasFailures())
+
+	// Fail a stage
+	env.StartStage("stage1")
+	env.FailStage("stage1", "error happened")
+	assert.True(t, env.HasFailures())
+}
+
+// =============================================================================
+// Interrupt Query Method Tests
+// =============================================================================
+
+func TestHasPendingInterrupt(t *testing.T) {
+	env := CreateGenericEnvelope("Test", "user-1", "sess-1", nil, nil, nil)
+
+	// Initially no interrupt
+	assert.False(t, env.HasPendingInterrupt())
+
+	// Set an interrupt
+	env.SetInterrupt(InterruptKindClarification, "int-pending-1", WithQuestion("What now?"))
+	assert.True(t, env.HasPendingInterrupt())
+
+	// Resolve it
+	text := "My response"
+	env.ResolveInterrupt(InterruptResponse{Text: &text})
+	assert.False(t, env.HasPendingInterrupt())
+}
+
+func TestGetInterruptKind(t *testing.T) {
+	env := CreateGenericEnvelope("Test", "user-1", "sess-1", nil, nil, nil)
+
+	// No interrupt - returns empty string
+	assert.Equal(t, InterruptKind(""), env.GetInterruptKind())
+
+	// Set clarification interrupt
+	env.SetInterrupt(InterruptKindClarification, "int-kind-1", WithQuestion("Clarify?"))
+	assert.Equal(t, InterruptKindClarification, env.GetInterruptKind())
+
+	// Clear and set confirmation
+	env.ClearInterrupt()
+	env.SetInterrupt(InterruptKindConfirmation, "int-kind-2", WithMessage("Confirm this?"))
+	assert.Equal(t, InterruptKindConfirmation, env.GetInterruptKind())
+}
+
+// =============================================================================
+// FlowInterrupt Clone Tests (all branches)
+// =============================================================================
+
+func TestFlowInterruptCloneWithExpiry(t *testing.T) {
+	expiry := time.Now().Add(time.Hour)
+	interrupt := &FlowInterrupt{
+		Kind:      InterruptKindConfirmation,
+		ID:        "int-1",
+		Message:   "Confirm?",
+		CreatedAt: time.Now(),
+		ExpiresAt: &expiry,
+	}
+
+	clone := interrupt.Clone()
+
+	assert.NotSame(t, interrupt.ExpiresAt, clone.ExpiresAt)
+	assert.Equal(t, *interrupt.ExpiresAt, *clone.ExpiresAt)
+}
+
+func TestFlowInterruptCloneWithData(t *testing.T) {
+	interrupt := &FlowInterrupt{
+		Kind:      InterruptKindAgentReview,
+		ID:        "int-2",
+		CreatedAt: time.Now(),
+		Data:      map[string]any{"key": "value", "nested": map[string]any{"a": 1}},
+	}
+
+	clone := interrupt.Clone()
+
+	// Data should be deep copied
+	assert.Equal(t, interrupt.Data, clone.Data)
+	// Modify original's data
+	interrupt.Data["key"] = "modified"
+	// Clone should be unchanged
+	assert.Equal(t, "value", clone.Data["key"])
+}
+
+func TestFlowInterruptCloneWithResponse(t *testing.T) {
+	text := "response text"
+	approved := true
+	decision := "option_a"
+	interrupt := &FlowInterrupt{
+		Kind:      InterruptKindClarification,
+		ID:        "int-3",
+		Question:  "What?",
+		CreatedAt: time.Now(),
+		Response: &InterruptResponse{
+			Text:       &text,
+			Approved:   &approved,
+			Decision:   &decision,
+			Data:       map[string]any{"resp_key": "resp_value"},
+			ReceivedAt: time.Now(),
+		},
+	}
+
+	clone := interrupt.Clone()
+
+	// Response should be deep copied
+	assert.NotSame(t, interrupt.Response, clone.Response)
+	assert.Equal(t, *interrupt.Response.Text, *clone.Response.Text)
+	assert.Equal(t, *interrupt.Response.Approved, *clone.Response.Approved)
+	assert.Equal(t, *interrupt.Response.Decision, *clone.Response.Decision)
+	assert.Equal(t, interrupt.Response.Data, clone.Response.Data)
+
+	// Modify original's response
+	newText := "changed"
+	interrupt.Response.Text = &newText
+	// Clone should be unchanged
+	assert.Equal(t, "response text", *clone.Response.Text)
+}
+
+// =============================================================================
+// ToResultDict Tests (all branches)
+// =============================================================================
+
+func TestToResultDictBasic(t *testing.T) {
+	env := CreateGenericEnvelope("Test", "user-1", "sess-1", nil, nil, nil)
+	env.CurrentStage = "stage1"
+	env.Iteration = 3
+
+	result := env.ToResultDict()
+
+	assert.Equal(t, env.EnvelopeID, result["envelope_id"])
+	assert.Equal(t, "user-1", result["user_id"])
+	assert.Equal(t, "sess-1", result["session_id"])
+	assert.Equal(t, "stage1", result["current_stage"])
+	assert.Equal(t, false, result["terminated"])
+	assert.Equal(t, 3, result["iteration"])
+}
+
+func TestToResultDictWithClarificationInterrupt(t *testing.T) {
+	env := CreateGenericEnvelope("Test", "user-1", "sess-1", nil, nil, nil)
+	env.SetInterrupt(InterruptKindClarification, "int-clarify-1", WithQuestion("Please clarify?"))
+
+	result := env.ToResultDict()
+
+	// Check interrupt is included
+	interrupt := result["interrupt"].(map[string]any)
+	assert.Equal(t, string(InterruptKindClarification), interrupt["kind"])
+	assert.Equal(t, "Please clarify?", interrupt["question"])
+
+	// Check backward-compat flags for clarification
+	assert.True(t, result["clarification_needed"].(bool))
+	assert.Equal(t, "Please clarify?", result["clarification_question"])
+}
+
+func TestToResultDictWithConfirmationInterrupt(t *testing.T) {
+	env := CreateGenericEnvelope("Test", "user-1", "sess-1", nil, nil, nil)
+	env.SetInterrupt(InterruptKindConfirmation, "int-confirm-1", WithMessage("Please confirm"))
+
+	result := env.ToResultDict()
+
+	// Check interrupt is included
+	interrupt := result["interrupt"].(map[string]any)
+	assert.Equal(t, string(InterruptKindConfirmation), interrupt["kind"])
+	assert.Equal(t, "Please confirm", interrupt["message"])
+
+	// Check backward-compat flags for confirmation
+	assert.True(t, result["confirmation_needed"].(bool))
+	assert.Equal(t, "Please confirm", result["confirmation_message"])
+	assert.NotEmpty(t, result["confirmation_id"])
+}
+
+// =============================================================================
+// ToStateDict Tests (comprehensive branches)
+// =============================================================================
+
+func TestToStateDictWithTerminalReason(t *testing.T) {
+	env := CreateGenericEnvelope("Test", "user-1", "sess-1", nil, nil, nil)
+	completed := TerminalReasonCompleted
+	env.Terminate("All done", &completed)
+
+	state := env.ToStateDict()
+
+	// terminal_reason is stored as *string in ToStateDict
+	terminalReason := state["terminal_reason"].(*string)
+	assert.Equal(t, "completed", *terminalReason)
+	assert.NotNil(t, state["completed_at"])
+}
+
+func TestToStateDictWithInterrupt(t *testing.T) {
+	env := CreateGenericEnvelope("Test", "user-1", "sess-1", nil, nil, nil)
+	expiry := time.Now().Add(time.Hour)
+	env.SetInterrupt(InterruptKindConfirmation, "int-state-1",
+		WithMessage("Confirm?"),
+		WithInterruptData(map[string]any{"key": "val"}),
+	)
+	env.Interrupt.ExpiresAt = &expiry
+
+	state := env.ToStateDict()
+
+	// Check interrupt dict is included
+	interruptDict := state["interrupt"].(map[string]any)
+	assert.Equal(t, string(InterruptKindConfirmation), interruptDict["kind"])
+	assert.Equal(t, "Confirm?", interruptDict["message"])
+	assert.NotNil(t, interruptDict["expires_at"])
+	assert.Equal(t, map[string]any{"key": "val"}, interruptDict["data"])
+}
+
+func TestToStateDictWithInterruptResponse(t *testing.T) {
+	env := CreateGenericEnvelope("Test", "user-1", "sess-1", nil, nil, nil)
+	env.SetInterrupt(InterruptKindClarification, "int-resp-1", WithQuestion("What?"))
+	text := "Answer"
+	env.ResolveInterrupt(InterruptResponse{Text: &text})
+
+	state := env.ToStateDict()
+
+	interruptDict := state["interrupt"].(map[string]any)
+	responseDict := interruptDict["response"].(map[string]any)
+	assert.Equal(t, "Answer", responseDict["text"])
+}
+
+func TestToStateDictBasicFields(t *testing.T) {
+	env := CreateGenericEnvelope("Test", "user-1", "sess-1", nil, nil, nil)
+	env.Iteration = 5
+	env.LLMCallCount = 10
+	env.AgentHopCount = 3
+
+	state := env.ToStateDict()
+
+	// Verify basic fields are correctly serialized
+	assert.Equal(t, "user-1", state["user_id"])
+	assert.Equal(t, "sess-1", state["session_id"])
+	assert.Equal(t, 5, state["iteration"])
+	assert.Equal(t, 10, state["llm_call_count"])
+	assert.Equal(t, 3, state["agent_hop_count"])
+}
+
+// =============================================================================
+// deepCopyValue Tests (all branches)
+// =============================================================================
+
+func TestDeepCopyValueTypes(t *testing.T) {
+	// Test via Clone which uses deepCopyValue internally
+	env := CreateGenericEnvelope("Test", "user-1", "sess-1", nil, nil, nil)
+
+	// Add outputs with various types to trigger all branches
+	env.Outputs["test"] = map[string]any{
+		"string":    "hello",
+		"int":       42,
+		"float":     3.14,
+		"bool":      true,
+		"nil":       nil,
+		"map":       map[string]any{"nested": "value"},
+		"slice":     []any{"a", "b", "c"},
+		"map_slice": []map[string]any{{"k": "v"}},
+	}
+
+	clone := env.Clone()
+
+	// Verify deep copy
+	assert.Equal(t, env.Outputs["test"], clone.Outputs["test"])
+
+	// Modify original's nested map
+	env.Outputs["test"]["map"].(map[string]any)["nested"] = "changed"
+	// Clone should be unchanged
+	assert.Equal(t, "value", clone.Outputs["test"]["map"].(map[string]any)["nested"])
+
+	// Modify original's slice
+	env.Outputs["test"]["slice"].([]any)[0] = "z"
+	// Clone should be unchanged
+	assert.Equal(t, "a", clone.Outputs["test"]["slice"].([]any)[0])
+}
+
+// =============================================================================
+// FromStateDict Tests (more branches)
+// =============================================================================
+
+func TestFromStateDictWithInterruptResponse(t *testing.T) {
+	state := map[string]any{
+		"envelope_id":      "env-1",
+		"request_id":       "req-1",
+		"user_id":          "user-1",
+		"session_id":       "sess-1",
+		"current_goal":     "goal",
+		"interrupt_pending": true,
+		"interrupt": map[string]any{
+			"kind":       "clarification",
+			"id":         "int-1",
+			"question":   "What?",
+			"created_at": time.Now().Format(time.RFC3339),
+			"response": map[string]any{
+				"text":        "Answer",
+				"received_at": time.Now().Format(time.RFC3339),
+			},
+		},
+	}
+
+	env := FromStateDict(state)
+
+	assert.True(t, env.InterruptPending)
+	assert.NotNil(t, env.Interrupt)
+	assert.Equal(t, InterruptKindClarification, env.Interrupt.Kind)
+	assert.NotNil(t, env.Interrupt.Response)
+	assert.Equal(t, "Answer", *env.Interrupt.Response.Text)
+}
+
+func TestFromStateDictWithInterruptExpiry(t *testing.T) {
+	expiry := time.Now().Add(time.Hour)
+	state := map[string]any{
+		"envelope_id":      "env-1",
+		"request_id":       "req-1",
+		"user_id":          "user-1",
+		"session_id":       "sess-1",
+		"current_goal":     "goal",
+		"interrupt_pending": true,
+		"interrupt": map[string]any{
+			"kind":       "confirmation",
+			"id":         "int-1",
+			"message":    "Confirm?",
+			"created_at": time.Now().Format(time.RFC3339),
+			"expires_at": expiry.Format(time.RFC3339),
+		},
+	}
+
+	env := FromStateDict(state)
+
+	assert.NotNil(t, env.Interrupt.ExpiresAt)
+	assert.WithinDuration(t, expiry, *env.Interrupt.ExpiresAt, time.Second)
+}
+
+func TestFromStateDictWithResponseApprovedAndDecision(t *testing.T) {
+	state := map[string]any{
+		"envelope_id":      "env-1",
+		"request_id":       "req-1",
+		"user_id":          "user-1",
+		"session_id":       "sess-1",
+		"current_goal":     "goal",
+		"interrupt_pending": true,
+		"interrupt": map[string]any{
+			"kind":       "agent_review",
+			"id":         "int-1",
+			"created_at": time.Now().Format(time.RFC3339),
+			"response": map[string]any{
+				"approved":    true,
+				"decision":    "option_b",
+				"data":        map[string]any{"extra": "info"},
+				"received_at": time.Now().Format(time.RFC3339),
+			},
+		},
+	}
+
+	env := FromStateDict(state)
+
+	assert.NotNil(t, env.Interrupt.Response)
+	assert.True(t, *env.Interrupt.Response.Approved)
+	assert.Equal(t, "option_b", *env.Interrupt.Response.Decision)
+	assert.Equal(t, "info", env.Interrupt.Response.Data["extra"])
+}
+
+// =============================================================================
+// TotalProcessingTimeMS edge cases
+// =============================================================================
+
+func TestTotalProcessingTimeMSEmpty(t *testing.T) {
+	env := CreateGenericEnvelope("Test", "user-1", "sess-1", nil, nil, nil)
+	// No processing history
+	assert.Equal(t, 0, env.TotalProcessingTimeMS())
+}
+
+// =============================================================================
+// GetFinalResponse branches
+// =============================================================================
+
+func TestGetFinalResponseFromOutputs(t *testing.T) {
+	env := CreateGenericEnvelope("Test", "user-1", "sess-1", nil, nil, nil)
+	env.Outputs["integration"] = map[string]any{
+		"final_response": "Hello from output!",
+	}
+
+	resp := env.GetFinalResponse()
+	require.NotNil(t, resp)
+	assert.Equal(t, "Hello from output!", *resp)
+}
+
+func TestGetFinalResponseNoResponse(t *testing.T) {
+	env := CreateGenericEnvelope("Test", "user-1", "sess-1", nil, nil, nil)
+	// No outputs at all
+	assert.Nil(t, env.GetFinalResponse())
+}
+
+func TestGetFinalResponseFromInterruptClarification(t *testing.T) {
+	env := CreateGenericEnvelope("Test", "user-1", "sess-1", nil, nil, nil)
+	env.SetInterrupt(InterruptKindClarification, "int-resp-2", WithQuestion("What do you mean?"))
+
+	resp := env.GetFinalResponse()
+	require.NotNil(t, resp)
+	assert.Equal(t, "What do you mean?", *resp)
+}
+
+func TestGetFinalResponseFromInterruptConfirmation(t *testing.T) {
+	env := CreateGenericEnvelope("Test", "user-1", "sess-1", nil, nil, nil)
+	env.SetInterrupt(InterruptKindConfirmation, "int-resp-3", WithMessage("Please confirm this action"))
+
+	resp := env.GetFinalResponse()
+	require.NotNil(t, resp)
+	assert.Equal(t, "Please confirm this action", *resp)
+}
+
+// =============================================================================
+// AdvanceStage error branch (already tested partially)
+// =============================================================================
+
+func TestAdvanceStageMaxStagesReached(t *testing.T) {
+	env := CreateGenericEnvelope("Test", "user-1", "sess-1", nil, nil, nil)
+	env.InitializeGoals([]string{"Goal 1", "Goal 2", "Goal 3"})
+	env.SetOutput("plan", map[string]any{"plan_id": "p1"})
+
+	// Set current stage to max
+	env.CurrentStageNumber = env.MaxStages
+
+	// AdvanceStage should return false when at max stages
+	canContinue := env.AdvanceStage([]string{"Goal 1"}, nil)
+	assert.False(t, canContinue)
+}
+
+func TestAdvanceStagePartialGoals(t *testing.T) {
+	env := CreateGenericEnvelope("Test", "user-1", "sess-1", nil, nil, nil)
+	env.InitializeGoals([]string{"Goal 1", "Goal 2", "Goal 3"})
+	env.SetOutput("plan", map[string]any{"plan_id": "p1"})
+
+	// Complete some goals, more remain
+	canContinue := env.AdvanceStage([]string{"Goal 1", "Goal 2"}, map[string]any{"result": "ok"})
+	assert.True(t, canContinue)
+	assert.Equal(t, 2, env.CurrentStageNumber)
+	assert.Equal(t, []string{"Goal 3"}, env.RemainingGoals)
+	// Plan/execution/critic outputs should be cleared
+	assert.Nil(t, env.Outputs["plan"])
 }
