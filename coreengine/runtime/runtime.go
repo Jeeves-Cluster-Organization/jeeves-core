@@ -263,6 +263,9 @@ func (r *Runtime) persistState(ctx context.Context, env *envelope.GenericEnvelop
 func (r *Runtime) runSequentialCore(ctx context.Context, env *envelope.GenericEnvelope, opts RunOptions, outputChan chan StageOutput) (*envelope.GenericEnvelope, error) {
 	var err error
 
+	// Track edge traversals for edge limit enforcement
+	edgeTraversals := make(map[string]int)
+
 	for env.CurrentStage != "end" && !env.Terminated {
 		// Check if we should continue
 		if cont, _ := r.shouldContinue(env); !cont {
@@ -282,10 +285,16 @@ func (r *Runtime) runSequentialCore(ctx context.Context, env *envelope.GenericEn
 		}
 
 		stageName := env.CurrentStage
+		fromStage := env.CurrentStage
 
 		// Execute agent
 		env, err = agent.Process(ctx, env)
 		if err != nil {
+			// Check if error is due to context cancellation
+			if ctx.Err() != nil {
+				return env, ctx.Err()
+			}
+
 			r.Logger.Error("pipeline_agent_error",
 				"envelope_id", env.EnvelopeID,
 				"agent", agent.Name,
@@ -299,6 +308,51 @@ func (r *Runtime) runSequentialCore(ctx context.Context, env *envelope.GenericEn
 			reason := envelope.TerminalReasonToolFailedFatally
 			env.Terminate(err.Error(), &reason)
 			break
+		}
+
+		toStage := env.CurrentStage
+
+		// Track edge traversal and check edge limits
+		if toStage != fromStage && toStage != "end" {
+			edgeKey := fromStage + "->" + toStage
+			edgeTraversals[edgeKey]++
+
+			// Detect loop-back BEFORE checking limits (to increment iteration even if limit hit)
+			toIndex := -1
+			fromIndex := -1
+			for i, stage := range env.StageOrder {
+				if stage == toStage {
+					toIndex = i
+				}
+				if stage == fromStage {
+					fromIndex = i
+				}
+			}
+
+			if toIndex >= 0 && fromIndex >= 0 && toIndex < fromIndex {
+				// Loop-back detected - increment iteration
+				env.IncrementIteration(nil)
+				r.Logger.Debug("iteration_incremented",
+					"envelope_id", env.EnvelopeID,
+					"iteration", env.Iteration,
+					"edge", edgeKey,
+				)
+			}
+
+			// Now check edge limit
+			limit := r.Config.GetEdgeLimit(fromStage, toStage)
+			if limit > 0 && edgeTraversals[edgeKey] > limit {
+				r.Logger.Warn("edge_limit_exceeded",
+					"envelope_id", env.EnvelopeID,
+					"edge", edgeKey,
+					"limit", limit,
+					"traversals", edgeTraversals[edgeKey],
+				)
+				reason := envelope.TerminalReasonMaxLoopExceeded
+				env.Terminate(fmt.Sprintf("Edge limit exceeded: %s", edgeKey), &reason)
+				env.CurrentStage = "end"
+				break
+			}
 		}
 
 		// Send output to channel if streaming
@@ -416,6 +470,9 @@ func (r *Runtime) runParallelCore(ctx context.Context, env *envelope.GenericEnve
 		r.persistState(ctx, env, opts.ThreadID)
 	}
 
+	// Set final stage after parallel completion
+	env.CurrentStage = "end"
+
 	return env, nil
 }
 
@@ -524,6 +581,12 @@ func (r *Runtime) Resume(ctx context.Context, env *envelope.GenericEnvelope, res
 		Mode:     mode,
 		ThreadID: threadID,
 	})
+
+	// Persist state after resume execution
+	if err == nil && threadID != "" {
+		r.persistState(ctx, result, threadID)
+	}
+
 	return result, err
 }
 

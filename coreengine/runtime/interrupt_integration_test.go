@@ -574,5 +574,5 @@ func TestInterrupt_InterruptDataPreserved(t *testing.T) {
 	assert.NotNil(t, env.Interrupt)
 	assert.NotNil(t, env.Interrupt.Data)
 	assert.Equal(t, "high", env.Interrupt.Data["priority"])
-	assert.Equal(t, float64(42), env.Interrupt.Data["count"]) // JSON converts int to float64
+	assert.Equal(t, 42, env.Interrupt.Data["count"]) // Direct value, not JSON serialized
 }

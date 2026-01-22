@@ -103,14 +103,13 @@ func TestPipeline_CyclicRouting(t *testing.T) {
 	mockLLM.DefaultResponse = `{"verdict": "loop_back", "reasoning": "Need another iteration"}`
 
 	// Override Generate to return proceed after some calls
-	originalGenerate := mockLLM.Generate
 	mockLLM.GenerateFunc = func(ctx context.Context, model, prompt string, options map[string]any) (string, error) {
 		callCount++
 		// After enough iterations, return proceed
 		if callCount > 6 { // 2 loops * 3 stages = 6 calls
 			return `{"verdict": "proceed", "reasoning": "Done iterating"}`, nil
 		}
-		return originalGenerate(ctx, model, prompt, options)
+		return mockLLM.GenerateDefault(prompt)
 	}
 
 	llmFactory := func(role string) LLMProvider { return mockLLM }
