@@ -42,6 +42,10 @@ type MockLLMProvider struct {
 	// Calls records all calls for assertion.
 	Calls []LLMCall
 
+	// GenerateFunc allows custom generation logic.
+	// If set, this is called instead of using Responses.
+	GenerateFunc func(context.Context, string, string, map[string]any) (string, error)
+
 	mu sync.Mutex
 }
 
@@ -65,7 +69,13 @@ func (m *MockLLMProvider) Generate(ctx context.Context, model string, prompt str
 	m.mu.Lock()
 	m.CallCount++
 	m.Calls = append(m.Calls, LLMCall{Model: model, Prompt: prompt, Options: options})
+	customFunc := m.GenerateFunc
 	m.mu.Unlock()
+
+	// If custom function is set, use it
+	if customFunc != nil {
+		return customFunc(ctx, model, prompt, options)
+	}
 
 	if m.Delay > 0 {
 		select {
@@ -112,6 +122,31 @@ func (m *MockLLMProvider) GetCallCount() int {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	return m.CallCount
+}
+
+// GenerateDefault provides a simple response without context/delay simulation.
+// Useful for testing delegation patterns and mock setup.
+func (m *MockLLMProvider) GenerateDefault(prompt string) (string, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	if m.Error != nil {
+		return "", m.Error
+	}
+
+	// Check prefix matches
+	for prefix, response := range m.Responses {
+		if len(prompt) >= len(prefix) && prompt[:len(prefix)] == prefix {
+			return response, nil
+		}
+	}
+
+	// Default
+	if m.DefaultResponse != "" {
+		return m.DefaultResponse, nil
+	}
+
+	return fmt.Sprintf(`{"verdict": "proceed", "reasoning": "mock response"}`), nil
 }
 
 // Reset clears call history.
@@ -579,19 +614,119 @@ func NewTestPipelineConfigWithCycle(name string, maxLoops int, stages ...string)
 
 	if len(cfg.Agents) > 0 {
 		lastAgent := cfg.Agents[len(cfg.Agents)-1]
-		lastAgent.RoutingRules = []*config.RoutingRule{
+		lastAgent.RoutingRules = []config.RoutingRule{
 			{Condition: "verdict", Value: "proceed", Target: "end"},
 			{Condition: "verdict", Value: "loop_back", Target: stages[0]},
 		}
 		lastAgent.DefaultNext = "end"
 
 		// Add edge limit for the cycle
-		cfg.EdgeLimits = []*config.EdgeLimit{
-			{FromStage: stages[len(stages)-1], ToStage: stages[0], MaxCount: maxLoops},
+		cfg.EdgeLimits = []config.EdgeLimit{
+			{From: stages[len(stages)-1], To: stages[0], MaxCount: maxLoops},
 		}
 	}
 
 	return cfg
+}
+
+// NewEmptyPipelineConfig creates a pipeline config with no agents.
+// Useful for testing runtime behavior with empty pipelines or as a base for custom agents.
+func NewEmptyPipelineConfig(name string) *config.PipelineConfig {
+	cfg := &config.PipelineConfig{
+		Name:                     name,
+		MaxIterations:            5,
+		MaxLLMCalls:              20,
+		MaxAgentHops:             30,
+		Agents:                   []*config.AgentConfig{}, // Explicitly empty
+		DefaultRunMode:           config.RunModeSequential,
+		EdgeLimits:               []config.EdgeLimit{},
+		ClarificationResumeStage: "",
+		ConfirmationResumeStage:  "",
+	}
+	return cfg
+}
+
+// NewParallelPipelineConfig creates a pipeline config for parallel execution testing.
+// All stages have StageOrder=1 (execute concurrently).
+func NewParallelPipelineConfig(name string, stages ...string) *config.PipelineConfig {
+	if len(stages) == 0 {
+		stages = []string{"stageA", "stageB", "stageC"}
+	}
+
+	agentConfigs := make([]*config.AgentConfig, len(stages))
+	for i, stage := range stages {
+		agentConfigs[i] = &config.AgentConfig{
+			Name:         stage,
+			HasLLM:       true,
+			ModelRole:    "default",
+			ToolAccess:   config.ToolAccessNone,
+			StageOrder:   1, // All stages same order = parallel
+			DefaultNext:  "end",
+			RoutingRules: []config.RoutingRule{},
+			Requires:     []string{},
+		}
+	}
+
+	return &config.PipelineConfig{
+		Name:                     name,
+		MaxIterations:            5,
+		MaxLLMCalls:              20,
+		MaxAgentHops:             30,
+		Agents:                   agentConfigs,
+		DefaultRunMode:           config.RunModeParallel,
+		EdgeLimits:               []config.EdgeLimit{},
+		ClarificationResumeStage: "",
+		ConfirmationResumeStage:  "",
+	}
+}
+
+// NewBoundedPipelineConfig creates a pipeline with custom iteration/LLM/hop bounds.
+// Uses linear routing (A → B → C → end).
+func NewBoundedPipelineConfig(name string, maxIterations, maxLLMCalls, maxAgentHops int, stages ...string) *config.PipelineConfig {
+	cfg := NewTestPipelineConfig(name, stages...)
+	cfg.MaxIterations = maxIterations
+	cfg.MaxLLMCalls = maxLLMCalls
+	cfg.MaxAgentHops = maxAgentHops
+	return cfg
+}
+
+// NewDependencyChainConfig creates a pipeline where each stage depends on the previous one.
+// Useful for testing parallel execution with sequential dependencies (Run Mode: Parallel, but stages wait).
+func NewDependencyChainConfig(name string, stages ...string) *config.PipelineConfig {
+	if len(stages) == 0 {
+		stages = []string{"stageA", "stageB", "stageC"}
+	}
+
+	agentConfigs := make([]*config.AgentConfig, len(stages))
+	for i, stage := range stages {
+		requires := []string{}
+		if i > 0 {
+			requires = []string{stages[i-1]} // Depend on previous stage
+		}
+
+		agentConfigs[i] = &config.AgentConfig{
+			Name:         stage,
+			HasLLM:       true,
+			ModelRole:    "default",
+			ToolAccess:   config.ToolAccessNone,
+			StageOrder:   1, // All same order for parallel mode
+			DefaultNext:  "end",
+			RoutingRules: []config.RoutingRule{},
+			Requires:     requires,
+		}
+	}
+
+	return &config.PipelineConfig{
+		Name:                     name,
+		MaxIterations:            5,
+		MaxLLMCalls:              20,
+		MaxAgentHops:             30,
+		Agents:                   agentConfigs,
+		DefaultRunMode:           config.RunModeParallel,
+		EdgeLimits:               []config.EdgeLimit{},
+		ClarificationResumeStage: "",
+		ConfirmationResumeStage:  "",
+	}
 }
 
 // =============================================================================

@@ -13,7 +13,7 @@
 // versions:
 // - protoc-gen-go-grpc v1.6.0
 // - protoc             v5.28.3
-// source: coreengine/proto/jeeves_core.proto
+// source: jeeves_core.proto
 
 package proto
 
@@ -338,5 +338,5 @@ var JeevesCoreService_ServiceDesc = grpc.ServiceDesc{
 			ServerStreams: true,
 		},
 	},
-	Metadata: "coreengine/proto/jeeves_core.proto",
+	Metadata: "jeeves_core.proto",
 }

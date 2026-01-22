@@ -15,6 +15,9 @@ import (
 // RunMode from config package.
 type RunMode = config.RunMode
 
+// LLMProvider type alias for convenience in tests.
+type LLMProvider = agents.LLMProvider
+
 const (
 	RunModeSequential = config.RunModeSequential
 	RunModeParallel   = config.RunModeParallel

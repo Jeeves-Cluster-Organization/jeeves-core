@@ -104,7 +104,7 @@ func TestPipeline_CyclicRouting(t *testing.T) {
 
 	// Override Generate to return proceed after some calls
 	originalGenerate := mockLLM.Generate
-	mockLLM.Generate = func(ctx context.Context, model, prompt string, options map[string]any) (string, error) {
+	mockLLM.GenerateFunc = func(ctx context.Context, model, prompt string, options map[string]any) (string, error) {
 		callCount++
 		// After enough iterations, return proceed
 		if callCount > 6 { // 2 loops * 3 stages = 6 calls
@@ -136,8 +136,8 @@ func TestPipeline_CyclicRoutingEdgeLimitEnforced(t *testing.T) {
 		MaxIterations: 10,
 		MaxLLMCalls:   50,
 		MaxAgentHops:  100,
-		EdgeLimits: []*config.EdgeLimit{
-			{FromStage: "stageC", ToStage: "stageA", MaxCount: 2},
+		EdgeLimits: []config.EdgeLimit{
+			{From: "stageC", To: "stageA", MaxCount: 2},
 		},
 		Agents: []*config.AgentConfig{
 			{Name: "stageA", StageOrder: 1, HasLLM: true, ModelRole: "default", DefaultNext: "stageB"},
@@ -147,7 +147,7 @@ func TestPipeline_CyclicRoutingEdgeLimitEnforced(t *testing.T) {
 				StageOrder: 3,
 				HasLLM:     true,
 				ModelRole:  "default",
-				RoutingRules: []*config.RoutingRule{
+				RoutingRules: []config.RoutingRule{
 					{Condition: "verdict", Value: "loop_back", Target: "stageA"},
 				},
 				DefaultNext: "end",
@@ -190,7 +190,7 @@ func TestPipeline_RoutingRulesVerdictProceed(t *testing.T) {
 				StageOrder: 1,
 				HasLLM:     true,
 				ModelRole:  "default",
-				RoutingRules: []*config.RoutingRule{
+				RoutingRules: []config.RoutingRule{
 					{Condition: "verdict", Value: "proceed", Target: "stageB"},
 					{Condition: "verdict", Value: "skip", Target: "stageC"},
 				},
@@ -233,7 +233,7 @@ func TestPipeline_RoutingRulesDefaultNext(t *testing.T) {
 				StageOrder: 1,
 				HasLLM:     true,
 				ModelRole:  "default",
-				RoutingRules: []*config.RoutingRule{
+				RoutingRules: []config.RoutingRule{
 					{Condition: "verdict", Value: "never_matches", Target: "stageC"},
 				},
 				DefaultNext: "stageB", // This should be used
@@ -278,7 +278,7 @@ func TestPipeline_BoundsMaxIterations(t *testing.T) {
 				StageOrder: 1,
 				HasLLM:     true,
 				ModelRole:  "default",
-				RoutingRules: []*config.RoutingRule{
+				RoutingRules: []config.RoutingRule{
 					{Condition: "verdict", Value: "loop_back", Target: "stageA"},
 				},
 				DefaultNext: "end",

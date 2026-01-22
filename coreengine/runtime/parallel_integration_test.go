@@ -49,9 +49,9 @@ func TestParallel_IndependentStagesRunConcurrently(t *testing.T) {
 	mockLLM.DefaultResponse = `{"verdict": "proceed"}`
 	mockLLM.Delay = 50 * time.Millisecond
 
-	// Wrap Generate to track concurrency
-	originalGenerate := mockLLM.Generate
-	mockLLM.Generate = func(ctx context.Context, model, prompt string, options map[string]any) (string, error) {
+	// Wrap GenerateFunc to track concurrency
+	originalGenerate := mockLLM.GenerateDefault
+	mockLLM.GenerateFunc = func(ctx context.Context, model, prompt string, options map[string]any) (string, error) {
 		current := atomic.AddInt32(&runningCount, 1)
 
 		mu.Lock()
@@ -60,7 +60,7 @@ func TestParallel_IndependentStagesRunConcurrently(t *testing.T) {
 		}
 		mu.Unlock()
 
-		result, err := originalGenerate(ctx, model, prompt, options)
+		result, err := originalGenerate(prompt)
 
 		atomic.AddInt32(&runningCount, -1)
 		return result, err
@@ -134,7 +134,7 @@ func TestParallel_DependencyOrdering(t *testing.T) {
 	mockLLM.DefaultResponse = `{"verdict": "proceed"}`
 
 	callCount := 0
-	mockLLM.Generate = func(ctx context.Context, model, prompt string, options map[string]any) (string, error) {
+	mockLLM.GenerateFunc = func(ctx context.Context, model, prompt string, options map[string]any) (string, error) {
 		mu.Lock()
 		callCount++
 		// Determine which stage based on call count (hacky but works for test)
@@ -284,7 +284,7 @@ func TestParallel_JoinStrategyAll(t *testing.T) {
 
 	callCount := 0
 	var mu sync.Mutex
-	mockLLM.Generate = func(ctx context.Context, model, prompt string, options map[string]any) (string, error) {
+	mockLLM.GenerateFunc = func(ctx context.Context, model, prompt string, options map[string]any) (string, error) {
 		mu.Lock()
 		callCount++
 		currentCall := callCount
@@ -342,7 +342,7 @@ func TestParallel_PartialFailureOneStage(t *testing.T) {
 	var mu sync.Mutex
 
 	mockLLM := testutil.NewMockLLMProvider()
-	mockLLM.Generate = func(ctx context.Context, model, prompt string, options map[string]any) (string, error) {
+	mockLLM.GenerateFunc = func(ctx context.Context, model, prompt string, options map[string]any) (string, error) {
 		mu.Lock()
 		callCount++
 		currentCall := callCount
