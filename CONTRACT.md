@@ -1,7 +1,7 @@
 # Jeeves Core Runtime Contract
 
-**Version:** 1.3
-**Last Updated:** 2026-01-06
+**Version:** 1.4
+**Last Updated:** 2026-01-22
 
 This document serves as the **Source of Truth** for capabilities built on top of `jeeves-core`. Capabilities should reference this contract rather than inspecting core internals.
 
@@ -178,6 +178,31 @@ from jeeves_avionics.logging import (
 
 # NEVER import core internals that aren't exported
 # from jeeves_mission_system.internal import ...  # FORBIDDEN
+```
+
+### gRPC Client Imports
+
+```python
+# gRPC client for Go runtime (Go server REQUIRED)
+from jeeves_protocols.grpc_client import (
+    GrpcGoClient,
+    BoundsResult,
+    ExecutionEvent,
+    AgentResult,
+    # Convenience functions
+    get_client,
+    create_envelope,
+    update_envelope,
+    check_bounds,
+    clone_envelope,
+    # Exceptions
+    GrpcConnectionError,
+    GrpcCallError,
+    GoServerNotRunningError,
+)
+
+# gRPC stub re-exports (for advanced usage)
+from jeeves_protocols import grpc_stub
 ```
 
 ---
@@ -794,10 +819,71 @@ COPY jeeves-core/jeeves_mission_system/ ./jeeves_mission_system/
 
 ---
 
+## gRPC Client Contract
+
+The `GrpcGoClient` provides Python access to the Go runtime. **Go server is REQUIRED** - there are no fallbacks.
+
+### Connection
+
+```python
+from jeeves_protocols.grpc_client import GrpcGoClient, GoServerNotRunningError
+
+# Context manager (recommended)
+with GrpcGoClient() as client:
+    envelope = client.create_envelope(
+        raw_input="User query",
+        user_id="user-123",
+        session_id="session-456",
+    )
+
+# Manual connection
+client = GrpcGoClient(address="localhost:50051")
+try:
+    client.connect()  # Raises GoServerNotRunningError if server unavailable
+except GoServerNotRunningError:
+    # Handle missing Go server - NO FALLBACKS
+    raise
+```
+
+### Core Operations
+
+| Method | Description |
+|--------|-------------|
+| `create_envelope()` | Create envelope via Go runtime |
+| `update_envelope()` | Update envelope after agent execution |
+| `check_bounds()` | Check bounds - Go is authoritative (Contract 12) |
+| `clone_envelope()` | Deep copy envelope via Go |
+| `execute_agent()` | Execute single agent via Go |
+| `execute_pipeline()` | Execute pipeline with streaming events |
+
+### Bounds Checking (Contract 12 Compliance)
+
+```python
+from jeeves_protocols.grpc_client import check_bounds
+
+bounds = check_bounds(envelope)
+if not bounds.can_continue:
+    # Go says stop - Python must respect this
+    logger.info("bounds_exceeded", reason=bounds.terminal_reason)
+```
+
+### Pipeline Execution with Streaming
+
+```python
+for event in client.execute_pipeline(envelope, thread_id="t-123"):
+    if event.type == "STAGE_COMPLETED":
+        logger.info("stage_done", stage=event.stage)
+    elif event.type == "INTERRUPT_RAISED":
+        handle_interrupt(event.payload)
+```
+
+---
+
 ## Version History
 
 | Version | Date | Changes |
 |---------|------|---------|
+| 1.4 | 2026-01-22 | Added gRPC client documentation; removed dead code from contracts.go |
 | 1.3 | 2026-01-06 | ToolId is now CAPABILITY-OWNED; removed ToolId/ToolCatalog from contracts_core exports |
 | 1.2 | 2025-12-16 | Updated adapters exports (removed deprecated factory), added doc references |
 | 1.1 | 2025-12-13 | Added Docker configuration section |

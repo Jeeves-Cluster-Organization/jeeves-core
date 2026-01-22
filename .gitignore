@@ -41,6 +41,13 @@ htmlcov/
 .tox/
 .nox/
 
+# Go coverage files
+cover
+coverage
+envelope_cover
+*.out
+*.test
+
 # mypy
 .mypy_cache/
 
