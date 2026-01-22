@@ -919,11 +919,9 @@ func TestCircuitBreakerWithMiddlewareChain(t *testing.T) {
 
 	logging := NewLoggingMiddleware("DEBUG")
 	cb := NewCircuitBreakerMiddleware(2, 100*time.Millisecond, []string{})
-	telemetry := NewTelemetryMiddleware()
 
 	bus.AddMiddleware(logging)
 	bus.AddMiddleware(cb)
-	bus.AddMiddleware(telemetry)
 
 	_ = bus.RegisterHandler("GetSettings", failingHandler("error"))
 
@@ -933,11 +931,6 @@ func TestCircuitBreakerWithMiddlewareChain(t *testing.T) {
 
 	// Circuit should be open
 	assert.Equal(t, "open", cb.GetStates()["GetSettings"])
-
-	// Telemetry should have recorded the attempts
-	stats := telemetry.GetStats()
-	counts := stats["counts"].(map[string]int)
-	assert.Greater(t, counts["GetSettings"], 0)
 }
 
 // =============================================================================
@@ -1019,18 +1012,17 @@ func TestQueryTimeoutWithMiddleware(t *testing.T) {
 	bus := NewInMemoryCommBus(50 * time.Millisecond)
 	ctx := context.Background()
 
-	telemetry := NewTelemetryMiddleware()
-	bus.AddMiddleware(telemetry)
+	// Use error tracking middleware to verify After is called with error
+	mw := &errorTrackingMiddleware{}
+	bus.AddMiddleware(mw)
 
 	_ = bus.RegisterHandler("GetSettings", slowHandler(200*time.Millisecond))
 
 	_, err := bus.QuerySync(ctx, &GetSettings{})
 	require.Error(t, err)
 
-	// Telemetry should have recorded the error
-	stats := telemetry.GetStats()
-	errors := stats["errors"].(map[string]int)
-	assert.Greater(t, errors["GetSettings"], 0)
+	// Verify middleware After was called with error
+	assert.NotNil(t, mw.capturedError, "Middleware After should see the timeout error")
 }
 
 func TestConcurrentQueryTimeouts(t *testing.T) {

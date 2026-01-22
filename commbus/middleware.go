@@ -5,8 +5,12 @@
 //
 // Available Middleware:
 //   - LoggingMiddleware: Structured logging of all messages
-//   - TelemetryMiddleware: Metrics and timing
-//   - CircuitBreakerMiddleware: Failure protection
+//   - CircuitBreakerMiddleware: Failure protection for message types
+//
+// Architectural Note (Path A - Pipeline OS):
+//   Go Core owns pipeline orchestration, bounds, and CommBus circuit breakers.
+//   Python App owns LLM provider retry, observability/metrics, and tool resilience.
+//   See HANDOFF.md for Path B extension points if full OS mode is needed later.
 //
 // Constitutional Reference:
 //   - Core Engine P3: Bounded Efficiency (circuit breaker)
@@ -51,108 +55,6 @@ func (m *LoggingMiddleware) After(ctx context.Context, message Message, result a
 		log.Printf("CommBus: %s completed", msgType)
 	}
 	return result, nil
-}
-
-// =============================================================================
-// TELEMETRY MIDDLEWARE
-// =============================================================================
-
-// TelemetryMiddleware collects telemetry data.
-//
-// Tracks:
-//   - Message counts by type
-//   - Execution times
-//   - Error counts
-type TelemetryMiddleware struct {
-	counts     map[string]int
-	times      map[string]float64
-	errors     map[string]int
-	startTimes map[uintptr]time.Time
-	mu         sync.Mutex
-}
-
-// NewTelemetryMiddleware creates a new TelemetryMiddleware.
-func NewTelemetryMiddleware() *TelemetryMiddleware {
-	return &TelemetryMiddleware{
-		counts:     make(map[string]int),
-		times:      make(map[string]float64),
-		errors:     make(map[string]int),
-		startTimes: make(map[uintptr]time.Time),
-	}
-}
-
-// Before records start time.
-func (m *TelemetryMiddleware) Before(ctx context.Context, message Message) (Message, error) {
-	msgType := GetMessageType(message)
-
-	m.mu.Lock()
-	defer m.mu.Unlock()
-
-	m.counts[msgType]++
-	// Use a simple ID based on the message pointer
-	msgID := uintptr(0) // placeholder - in real impl would use unique ID
-	m.startTimes[msgID] = time.Now()
-	return message, nil
-}
-
-// After records completion time and errors.
-func (m *TelemetryMiddleware) After(ctx context.Context, message Message, result any, err error) (any, error) {
-	msgType := GetMessageType(message)
-
-	m.mu.Lock()
-	defer m.mu.Unlock()
-
-	// Record time
-	msgID := uintptr(0) // placeholder
-	if start, ok := m.startTimes[msgID]; ok {
-		elapsed := time.Since(start).Seconds()
-		m.times[msgType] += elapsed
-		delete(m.startTimes, msgID)
-	}
-
-	// Record error
-	if err != nil {
-		m.errors[msgType]++
-	}
-
-	return result, nil
-}
-
-// GetStats returns telemetry statistics.
-func (m *TelemetryMiddleware) GetStats() map[string]any {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-
-	countsCopy := make(map[string]int)
-	for k, v := range m.counts {
-		countsCopy[k] = v
-	}
-
-	timesCopy := make(map[string]float64)
-	for k, v := range m.times {
-		timesCopy[k] = v
-	}
-
-	errorsCopy := make(map[string]int)
-	for k, v := range m.errors {
-		errorsCopy[k] = v
-	}
-
-	return map[string]any{
-		"counts":      countsCopy,
-		"total_times": timesCopy,
-		"errors":      errorsCopy,
-	}
-}
-
-// Reset resets telemetry counters.
-func (m *TelemetryMiddleware) Reset() {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-
-	m.counts = make(map[string]int)
-	m.times = make(map[string]float64)
-	m.errors = make(map[string]int)
 }
 
 // =============================================================================
@@ -301,74 +203,8 @@ func (m *CircuitBreakerMiddleware) Reset(msgType *string) {
 	}
 }
 
-// =============================================================================
-// RETRY MIDDLEWARE
-// =============================================================================
-
-// RetryMiddleware adds retry capability for queries.
-// Note: Only retries queries, not events/commands.
-//
-// Constitutional Reference: Core Engine P3 (Bounded Efficiency)
-type RetryMiddleware struct {
-	maxRetries      int // Constitutional: max 2 retries
-	retryDelay      time.Duration
-	retryableErrors map[string]struct{}
-	retryCounts     map[uintptr]int
-	mu              sync.Mutex
-}
-
-// NewRetryMiddleware creates a new RetryMiddleware.
-func NewRetryMiddleware(maxRetries int, retryDelay time.Duration, retryableErrors []string) *RetryMiddleware {
-	errors := make(map[string]struct{})
-	for _, e := range retryableErrors {
-		errors[e] = struct{}{}
-	}
-
-	return &RetryMiddleware{
-		maxRetries:      maxRetries,
-		retryDelay:      retryDelay,
-		retryableErrors: errors,
-		retryCounts:     make(map[uintptr]int),
-	}
-}
-
-// Before initializes retry count.
-func (m *RetryMiddleware) Before(ctx context.Context, message Message) (Message, error) {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-
-	msgID := uintptr(0) // placeholder
-	m.retryCounts[msgID] = 0
-	return message, nil
-}
-
-// After handles retries for failed queries.
-func (m *RetryMiddleware) After(ctx context.Context, message Message, result any, err error) (any, error) {
-	// Only retry queries
-	category := message.Category()
-	if category != string(MessageCategoryQuery) {
-		m.mu.Lock()
-		msgID := uintptr(0) // placeholder
-		delete(m.retryCounts, msgID)
-		m.mu.Unlock()
-		return result, nil
-	}
-
-	// Note: Actual retry logic would need bus reference
-	// This is a placeholder showing the pattern
-
-	m.mu.Lock()
-	msgID := uintptr(0) // placeholder
-	delete(m.retryCounts, msgID)
-	m.mu.Unlock()
-
-	return result, nil
-}
-
 // Ensure all middleware types implement Middleware interface.
 var (
 	_ Middleware = (*LoggingMiddleware)(nil)
-	_ Middleware = (*TelemetryMiddleware)(nil)
 	_ Middleware = (*CircuitBreakerMiddleware)(nil)
-	_ Middleware = (*RetryMiddleware)(nil)
 )

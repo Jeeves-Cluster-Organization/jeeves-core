@@ -1,8 +1,9 @@
-# README - Test Coverage & Infrastructure
+# README - Jeeves Core Runtime
 
 **Status:** ✅ PRODUCTION READY  
-**Coverage:** 91% (Core Packages)  
-**Tests:** 403 passing, 0 failing
+**Coverage:** 84.2% (Core Packages)  
+**Tests:** 400+ passing, 0 failing  
+**Last Updated:** 2026-01-23
 
 ---
 
@@ -23,57 +24,63 @@ go test ./coreengine/runtime -v
 
 ## Documentation Structure
 
-### Core Documents (This Directory)
+### Current Documents
 
-1. **TEST_COVERAGE_REPORT.md** - Complete test coverage analysis
-   - Final metrics (91% coverage, 403 tests)
-   - All fixes implemented (27 → 0 failures)
-   - Test infrastructure improvements
-   - Future work roadmap
+1. **HANDOFF.md** - Complete system handoff documentation
+   - Architecture overview (Go + Python hybrid)
+   - Protocol definitions
+   - Integration patterns
+   - Building new capabilities
 
-2. **TEST_FIXTURE_AUDIT.md** - Test duplication analysis
-   - 240 lines of duplication identified
-   - Refactoring strategy
-   - Helper usage guide
+2. **COMMBUS_IMPLEMENTATION_RESULTS.md** - CommBus test coverage report
+   - Coverage improvement details (39.2% → 79.4%)
+   - 48 new tests added
+   - 2 production bugs fixed
+   - Architectural decisions (middleware ownership)
 
-3. **CONTRACT.md** - API contracts and interfaces
-   - Critical for integration
+3. **COVERAGE_ANALYSIS_COMPLETE.md** - Full system coverage analysis
+   - All packages analyzed
+   - 84.2% weighted average coverage
+   - Production readiness assessment
 
-4. **HANDOFF.md** - Project handoff documentation
-   - Historical context
+4. **TEST_FIXTURE_AUDIT.md** - Test infrastructure analysis
+   - Test duplication analysis
+   - Helper function recommendations
+   - Refactoring strategies
 
-### Constitutional Documents (Subdirectories)
+5. **TEST_COVERAGE_REPORT.md** - Detailed test results
+   - Per-package coverage breakdowns
+   - Test categories and patterns
+   - Future improvements
 
-- `jeeves_avionics/CONSTITUTION.md`
-- `jeeves_control_tower/CONSTITUTION.md`
-- `jeeves_memory_module/CONSTITUTION.md`
-- `jeeves_mission_system/CONSTITUTION.md`
+6. **CONTRACT.md** - System contracts and protocols
 
-**All changes verified against constitutional principles.**
+### Constitutional Documents
+
+- `jeeves_avionics/CONSTITUTION.md` - Infrastructure layer principles
+- `jeeves_control_tower/CONSTITUTION.md` - Kernel layer principles
+- `jeeves_memory_module/CONSTITUTION.md` - Memory layer principles
+- `jeeves_mission_system/CONSTITUTION.md` - Orchestration layer principles
 
 ---
 
 ## What's Been Achieved
 
-### Phase 1: Test Fixes ✅
-- Fixed 27 test failures → 0 failures
-- Improved coverage from ~75% → 91%
-- Implemented missing features:
-  - Edge limit tracking
-  - Iteration increment
-  - Parallel CurrentStage semantics
-  - Context cancellation propagation
+### CommBus Hardening ✅
+- Raised coverage from 39.2% to 79.4%
+- Added 48 comprehensive tests
+- Fixed 2 production bugs:
+  - Circuit breaker threshold=0 bug
+  - Middleware After error propagation bug
+- Achieved 100% critical path coverage
+- Zero race conditions detected
 
-### Phase 2: Protobuf Generation ✅
-- Installed protoc 28.3 for Windows
-- Generated proper `.pb.go` files
-- All 52 gRPC tests passing
-
-### Phase 3: Test Infrastructure ✅
-- Added 4 new config helper functions
-- Created 15 tests for helpers (best practice!)
-- Audited 240 lines of test duplication
-- Documented safe refactoring strategy
+### Go/Python Architecture Clarity ✅
+- Clear ownership boundaries documented
+- Go: Pipeline orchestration, bounds, circuit breakers
+- Python: Metrics, retry logic, tool resilience
+- TelemetryMiddleware → Python (jeeves_avionics/observability)
+- RetryMiddleware → Python (LLM provider level)
 
 ---
 
@@ -110,12 +117,14 @@ We created 15 tests for our 4 helper functions, ensuring:
 |---------|----------|--------|
 | tools | 100.0% | ✅ Perfect |
 | config | 95.5% | ✅ Excellent |
-| runtime | 91.4% | ✅ Excellent |
+| runtime | 90.9% | ✅ Excellent |
 | agents | 86.7% | ✅ Good |
 | envelope | 85.4% | ✅ Good |
-| grpc | 72.8% | ✅ Good |
+| commbus | 79.4% | ✅ Good |
+| grpc | 72.8% | ✅ Acceptable |
 | testutil | 43.3% | ✅ Expected |
-| commbus | 39.2% | ⚠️ Needs review |
+
+**Weighted Average:** 84.2% (excluding generated code)
 
 ---
 
@@ -166,21 +175,29 @@ We created 15 tests for our 4 helper functions, ensuring:
 
 ## For More Details
 
-See **TEST_COVERAGE_REPORT.md** for:
-- Complete fix documentation
-- Detailed coverage analysis
-- Architecture verification
-- Best practices guide
-- Future work roadmap
+See **HANDOFF.md** for:
+- Complete architecture overview
+- Protocol definitions
+- Integration patterns
+- Building new capabilities
+
+See **COMMBUS_IMPLEMENTATION_RESULTS.md** for:
+- Detailed CommBus coverage improvements
+- Test implementation details
+- Bug fixes and architectural decisions
+
+See **COVERAGE_ANALYSIS_COMPLETE.md** for:
+- Complete coverage analysis
+- Risk assessment
+- Production readiness evaluation
 
 See **TEST_FIXTURE_AUDIT.md** for:
-- Duplication analysis
-- Refactoring strategy
+- Test duplication analysis
+- Refactoring recommendations
 - Helper usage patterns
-- Dead code investigation
 
 ---
 
 **Ready for Production ✅**  
-**All Objectives Achieved ✅**  
-**Test Infrastructure: SOLID ✅**
+**All Critical Paths Tested ✅**  
+**Architecture: Go (Core) + Python (App) ✅**

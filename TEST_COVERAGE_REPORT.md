@@ -1,6 +1,6 @@
 # Test Coverage & Infrastructure - Complete Report
 
-**Date:** 2026-01-22  
+**Date:** 2026-01-22 (Updated: 2026-01-23)  
 **Status:** ✅ PRODUCTION READY
 
 ---
@@ -32,12 +32,14 @@
 |---------|----------|---------|-------|
 | **tools** | 100.0% | Perfect ✅ | Complete test coverage |
 | **config** | 95.5% | Excellent ✅ | Near-perfect |
-| **runtime** | 91.4% | Excellent ✅ | Core logic fully tested |
+| **runtime** | 90.9% | Excellent ✅ | Core logic fully tested |
 | **agents** | 86.7% | Good ✅ | Agent processing covered |
 | **envelope** | 85.4% | Good ✅ | State management tested |
+| **commbus** | 79.4% | Good ✅ | Hardened (was 39.2%) |
 | **grpc** | 72.8% | Good ✅ | Interface layer |
-| **testutil** | 43.3% | Expected ✅ | Test helpers (new!) |
-| **commbus** | 39.2% | Needs Review ⚠️ | Future audit target |
+| **testutil** | 43.3% | Expected ✅ | Test helpers |
+
+**Overall Weighted Average:** 84.2% (excluding proto/testutil)
 
 ---
 
