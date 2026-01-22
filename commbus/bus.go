@@ -195,7 +195,11 @@ func (b *InMemoryCommBus) QuerySync(ctx context.Context, query Query) (any, erro
 		return nil, err
 	case res := <-resultCh:
 		// Run middleware after
-		finalResult, _ := b.runMiddlewareAfter(ctx, query, res.value, res.err)
+		finalResult, middlewareErr := b.runMiddlewareAfter(ctx, query, res.value, res.err)
+		// If middleware returned error, use that instead of handler error
+		if middlewareErr != nil {
+			return finalResult, middlewareErr
+		}
 		return finalResult, res.err
 	}
 }

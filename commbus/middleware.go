@@ -259,8 +259,8 @@ func (m *CircuitBreakerMiddleware) After(ctx context.Context, message Message, r
 			// Failed during half-open, reopen
 			state.State = "open"
 			log.Printf("Circuit reopened for %s", msgType)
-		} else if state.Failures >= m.failureThreshold {
-			// Threshold reached, open circuit
+		} else if m.failureThreshold > 0 && state.Failures >= m.failureThreshold {
+			// Threshold reached, open circuit (threshold=0 means never open)
 			state.State = "open"
 			log.Printf("Circuit opened for %s after %d failures", msgType, state.Failures)
 		}
