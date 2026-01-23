@@ -24,6 +24,7 @@ from jeeves_avionics.llm.providers.base import TokenChunk
 from jeeves_avionics.settings import Settings
 from jeeves_avionics.logging import get_current_logger
 from jeeves_protocols import LoggerProtocol
+from jeeves_avionics.observability.metrics import record_llm_call, record_llm_tokens
 
 # Type alias for resource tracking callback
 # Callback signature: (tokens_in: int, tokens_out: int) -> Optional[str]
@@ -346,11 +347,22 @@ class LLMGateway:
         model_name = model or self._get_model_for_agent(agent_name)
 
         # Call provider using legacy interface
-        llm_result = await provider.generate(
-            model=model_name,
-            prompt=prompt_text,
-            options=options
-        )
+        try:
+            llm_result = await provider.generate(
+                model=model_name,
+                prompt=prompt_text,
+                options=options
+            )
+        except Exception as e:
+            # Record error metrics
+            latency_ms = (time.time() - start_time) * 1000
+            record_llm_call(
+                provider=provider_name,
+                model=model_name,
+                status="error",
+                duration_seconds=latency_ms / 1000.0
+            )
+            raise
 
         # Calculate latency
         latency_ms = (time.time() - start_time) * 1000
@@ -363,6 +375,20 @@ class LLMGateway:
         # Calculate cost
         model_used = model_name
         cost_metrics = self.cost_calculator.calculate_cost(
+            provider=provider_name,
+            model=model_used,
+            prompt_tokens=prompt_tokens,
+            completion_tokens=completion_tokens
+        )
+
+        # Record metrics
+        record_llm_call(
+            provider=provider_name,
+            model=model_used,
+            status="success",
+            duration_seconds=latency_ms / 1000.0
+        )
+        record_llm_tokens(
             provider=provider_name,
             model=model_used,
             prompt_tokens=prompt_tokens,

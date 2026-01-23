@@ -19,6 +19,7 @@ Constitutional Compliance:
 from __future__ import annotations
 
 import os
+import time
 from contextlib import asynccontextmanager
 from typing import AsyncIterator
 
@@ -29,6 +30,7 @@ from fastapi.templating import Jinja2Templates
 from fastapi.responses import HTMLResponse, JSONResponse
 from fastapi import Request
 import json
+from prometheus_client import make_asgi_app
 
 from jeeves_avionics.gateway.grpc_client import GrpcClientManager, set_grpc_client, get_grpc_client
 from jeeves_avionics.gateway.websocket import (
@@ -143,6 +145,28 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+# Metrics middleware
+from jeeves_avionics.observability.metrics import record_http_request
+
+@app.middleware("http")
+async def metrics_middleware(request: Request, call_next):
+    """Record Prometheus metrics for all HTTP requests."""
+    start_time = time.time()
+
+    # Process request
+    response = await call_next(request)
+
+    # Record metrics
+    duration_seconds = time.time() - start_time
+    record_http_request(
+        method=request.method,
+        path=request.url.path,
+        status_code=response.status_code,
+        duration_seconds=duration_seconds
+    )
+
+    return response
+
 # Mount static files (for UI templates)
 try:
     app.mount("/static", StaticFiles(directory="static"), name="static")
@@ -253,6 +277,15 @@ from jeeves_avionics.gateway.routers import chat, governance, interrupts
 app.include_router(chat.router, prefix="/api/v1/chat", tags=["chat"])
 app.include_router(governance.router, prefix="/api/v1/governance", tags=["governance"])
 app.include_router(interrupts.router, prefix="/api/v1", tags=["interrupts"])
+
+
+# =============================================================================
+# Metrics Endpoint
+# =============================================================================
+
+# Mount Prometheus metrics endpoint
+metrics_app = make_asgi_app()
+app.mount("/metrics", metrics_app)
 
 
 # =============================================================================

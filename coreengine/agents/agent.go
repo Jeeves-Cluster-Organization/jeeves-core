@@ -9,6 +9,7 @@ import (
 
 	"github.com/jeeves-cluster-organization/codeanalysis/coreengine/config"
 	"github.com/jeeves-cluster-organization/codeanalysis/coreengine/envelope"
+	"github.com/jeeves-cluster-organization/codeanalysis/coreengine/observability"
 )
 
 // LLMProvider is the interface for LLM providers.
@@ -115,11 +116,13 @@ func (a *Agent) Process(ctx context.Context, env *envelope.Envelope) (*envelope.
 	defer func() {
 		durationMS := int(time.Since(startTime).Milliseconds())
 		if err != nil {
+			observability.RecordAgentExecution(a.Name, "error", durationMS)
 			a.Logger.Error(fmt.Sprintf("%s_error", a.Name), "error", err.Error(), "duration_ms", durationMS)
 			errStr := err.Error()
 			env.RecordAgentComplete(a.Name, "error", &errStr, llmCalls, durationMS)
 			a.emitCompleted("error", durationMS, err)
 		} else {
+			observability.RecordAgentExecution(a.Name, "success", durationMS)
 			a.Logger.Info(fmt.Sprintf("%s_completed", a.Name), "duration_ms", durationMS, "next_stage", env.CurrentStage)
 			env.RecordAgentComplete(a.Name, "success", nil, llmCalls, durationMS)
 			a.emitCompleted("success", durationMS, nil)

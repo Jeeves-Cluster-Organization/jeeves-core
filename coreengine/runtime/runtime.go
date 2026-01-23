@@ -10,6 +10,7 @@ import (
 	"github.com/jeeves-cluster-organization/codeanalysis/coreengine/agents"
 	"github.com/jeeves-cluster-organization/codeanalysis/coreengine/config"
 	"github.com/jeeves-cluster-organization/codeanalysis/coreengine/envelope"
+	"github.com/jeeves-cluster-organization/codeanalysis/coreengine/observability"
 )
 
 // RunMode from config package.
@@ -191,6 +192,16 @@ func (r *PipelineRunner) Execute(ctx context.Context, env *envelope.Envelope, op
 
 	// Log completion
 	durationMS := int(time.Since(startTime).Milliseconds())
+
+	// Record metrics
+	status := "success"
+	if err != nil {
+		status = "error"
+	} else if resultEnv.Terminated {
+		status = "terminated"
+	}
+	observability.RecordPipelineExecution(r.Config.Name, status, durationMS)
+
 	completeEvent := "pipeline_completed"
 	if opts.Mode == RunModeParallel {
 		completeEvent = "pipeline_parallel_completed"
