@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net"
+	"sync"
 	"time"
 
 	"google.golang.org/grpc"
@@ -27,11 +28,13 @@ type Logger interface {
 }
 
 // JeevesCoreServer implements the gRPC service.
+// Thread-safe: all mutable fields are protected by runtimeMu.
 type JeevesCoreServer struct {
 	pb.UnimplementedJeevesCoreServiceServer
 
-	logger  Logger
-	runtime *runtime.Runtime
+	logger    Logger
+	runtime   *runtime.Runtime
+	runtimeMu sync.RWMutex // Protects runtime field
 }
 
 // NewJeevesCoreServer creates a new gRPC server.
@@ -42,8 +45,19 @@ func NewJeevesCoreServer(logger Logger) *JeevesCoreServer {
 }
 
 // SetRuntime sets the runtime for pipeline execution.
+// Thread-safe: can be called concurrently with other methods.
 func (s *JeevesCoreServer) SetRuntime(r *runtime.Runtime) {
+	s.runtimeMu.Lock()
+	defer s.runtimeMu.Unlock()
 	s.runtime = r
+}
+
+// getRuntime returns the current runtime.
+// Thread-safe: protected by RWMutex.
+func (s *JeevesCoreServer) getRuntime() *runtime.Runtime {
+	s.runtimeMu.RLock()
+	defer s.runtimeMu.RUnlock()
+	return s.runtime
 }
 
 // =============================================================================
@@ -171,10 +185,11 @@ func (s *JeevesCoreServer) ExecutePipeline(
 		if err != nil {
 			return fmt.Errorf("failed to create runtime: %w", err)
 		}
-		s.runtime = rt
+		s.SetRuntime(rt)
 	}
 
-	if s.runtime == nil {
+	rt := s.getRuntime()
+	if rt == nil {
 		return fmt.Errorf("no runtime configured")
 	}
 
@@ -188,8 +203,8 @@ func (s *JeevesCoreServer) ExecutePipeline(
 		return err
 	}
 
-	// Execute pipeline
-	result, err := s.runtime.Run(ctx, env, req.ThreadId)
+	// Execute pipeline using the local rt variable (thread-safe)
+	result, err := rt.Run(ctx, env, req.ThreadId)
 	if err != nil {
 		// Send error event
 		payload, _ := json.Marshal(map[string]any{"error": err.Error()})

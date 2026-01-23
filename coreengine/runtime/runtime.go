@@ -267,6 +267,19 @@ func (r *Runtime) runSequentialCore(ctx context.Context, env *envelope.GenericEn
 	edgeTraversals := make(map[string]int)
 
 	for env.CurrentStage != "end" && !env.Terminated {
+		// Check context cancellation early in each iteration
+		select {
+		case <-ctx.Done():
+			r.Logger.Info("pipeline_cancelled",
+				"envelope_id", env.EnvelopeID,
+				"stage", env.CurrentStage,
+				"reason", ctx.Err().Error(),
+			)
+			return env, ctx.Err()
+		default:
+			// Continue processing
+		}
+
 		// Check if we should continue
 		if cont, _ := r.shouldContinue(env); !cont {
 			break
@@ -375,6 +388,19 @@ func (r *Runtime) runParallelCore(ctx context.Context, env *envelope.GenericEnve
 	var mu sync.Mutex
 
 	for !env.Terminated {
+		// Check context cancellation early in each iteration
+		select {
+		case <-ctx.Done():
+			r.Logger.Info("pipeline_parallel_cancelled",
+				"envelope_id", env.EnvelopeID,
+				"completed_stages", len(completed),
+				"reason", ctx.Err().Error(),
+			)
+			return env, ctx.Err()
+		default:
+			// Continue processing
+		}
+
 		// Check if we should continue
 		if cont, _ := r.shouldContinue(env); !cont {
 			break

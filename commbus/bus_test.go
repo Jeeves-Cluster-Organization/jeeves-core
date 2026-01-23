@@ -281,9 +281,9 @@ func TestUnsubscribe(t *testing.T) {
 	bus := newTestBus()
 	ctx := context.Background()
 
-	captured := make([]*AgentStarted, 0)
+	var callCount int32
 	unsubscribe := bus.Subscribe("AgentStarted", func(ctx context.Context, msg Message) (any, error) {
-		captured = append(captured, msg.(*AgentStarted))
+		atomic.AddInt32(&callCount, 1)
 		return nil, nil
 	})
 
@@ -296,12 +296,12 @@ func TestUnsubscribe(t *testing.T) {
 	}
 	_ = bus.Publish(ctx, event1)
 	time.Sleep(10 * time.Millisecond)
-	assert.Len(t, captured, 1)
+	assert.Equal(t, int32(1), atomic.LoadInt32(&callCount))
 
 	// Unsubscribe
 	unsubscribe()
 
-	// Second event should not be captured
+	// Second event should NOT be captured - unsubscribe now works correctly with ID-based tracking
 	event2 := &AgentStarted{
 		AgentName:  "critic",
 		SessionID:  "s1",
@@ -310,8 +310,119 @@ func TestUnsubscribe(t *testing.T) {
 	}
 	_ = bus.Publish(ctx, event2)
 	time.Sleep(10 * time.Millisecond)
-	// Still 1 - the unsubscribe doesn't work perfectly due to function pointer comparison
-	// In practice, for Go you'd use a different approach (like IDs)
+	// Should still be 1 - the handler was unsubscribed
+	assert.Equal(t, int32(1), atomic.LoadInt32(&callCount), "Unsubscribe should prevent further delivery")
+}
+
+func TestUnsubscribeMultiple(t *testing.T) {
+	// Multiple subscribers can be independently unsubscribed.
+	bus := newTestBus()
+	ctx := context.Background()
+
+	var counts [3]int32
+	unsubs := make([]func(), 3)
+
+	for i := 0; i < 3; i++ {
+		idx := i
+		unsubs[i] = bus.Subscribe("AgentStarted", func(ctx context.Context, msg Message) (any, error) {
+			atomic.AddInt32(&counts[idx], 1)
+			return nil, nil
+		})
+	}
+
+	// First publish - all 3 should receive
+	_ = bus.Publish(ctx, &AgentStarted{AgentName: "test"})
+	time.Sleep(20 * time.Millisecond)
+	assert.Equal(t, int32(1), atomic.LoadInt32(&counts[0]))
+	assert.Equal(t, int32(1), atomic.LoadInt32(&counts[1]))
+	assert.Equal(t, int32(1), atomic.LoadInt32(&counts[2]))
+
+	// Unsubscribe middle one
+	unsubs[1]()
+
+	// Second publish - only first and third should receive
+	_ = bus.Publish(ctx, &AgentStarted{AgentName: "test2"})
+	time.Sleep(20 * time.Millisecond)
+	assert.Equal(t, int32(2), atomic.LoadInt32(&counts[0]), "First handler should receive")
+	assert.Equal(t, int32(1), atomic.LoadInt32(&counts[1]), "Middle handler was unsubscribed")
+	assert.Equal(t, int32(2), atomic.LoadInt32(&counts[2]), "Third handler should receive")
+
+	// Unsubscribe first
+	unsubs[0]()
+
+	// Third publish - only third should receive
+	_ = bus.Publish(ctx, &AgentStarted{AgentName: "test3"})
+	time.Sleep(20 * time.Millisecond)
+	assert.Equal(t, int32(2), atomic.LoadInt32(&counts[0]), "First handler was unsubscribed")
+	assert.Equal(t, int32(1), atomic.LoadInt32(&counts[1]), "Middle still unsubscribed")
+	assert.Equal(t, int32(3), atomic.LoadInt32(&counts[2]), "Third handler should receive")
+}
+
+func TestUnsubscribeIdempotent(t *testing.T) {
+	// Calling unsubscribe multiple times should be safe (no panic).
+	bus := newTestBus()
+
+	var callCount int32
+	unsubscribe := bus.Subscribe("AgentStarted", func(ctx context.Context, msg Message) (any, error) {
+		atomic.AddInt32(&callCount, 1)
+		return nil, nil
+	})
+
+	// First publish
+	_ = bus.Publish(context.Background(), &AgentStarted{AgentName: "test"})
+	time.Sleep(10 * time.Millisecond)
+	assert.Equal(t, int32(1), atomic.LoadInt32(&callCount))
+
+	// Unsubscribe multiple times - should not panic
+	unsubscribe()
+	unsubscribe()
+	unsubscribe()
+
+	// Verify no more calls
+	_ = bus.Publish(context.Background(), &AgentStarted{AgentName: "test2"})
+	time.Sleep(10 * time.Millisecond)
+	assert.Equal(t, int32(1), atomic.LoadInt32(&callCount))
+}
+
+func TestUnsubscribeRace(t *testing.T) {
+	// Concurrent unsubscribe and publish should not race.
+	bus := newTestBus()
+	ctx := context.Background()
+
+	var callCount int32
+	unsubs := make([]func(), 10)
+
+	// Subscribe 10 handlers
+	for i := 0; i < 10; i++ {
+		unsubs[i] = bus.Subscribe("AgentStarted", func(ctx context.Context, msg Message) (any, error) {
+			atomic.AddInt32(&callCount, 1)
+			return nil, nil
+		})
+	}
+
+	// Concurrent publish and unsubscribe
+	var wg sync.WaitGroup
+	wg.Add(20)
+
+	// 10 goroutines publishing
+	for i := 0; i < 10; i++ {
+		go func() {
+			defer wg.Done()
+			_ = bus.Publish(ctx, &AgentStarted{AgentName: "concurrent"})
+		}()
+	}
+
+	// 10 goroutines unsubscribing
+	for i := 0; i < 10; i++ {
+		idx := i
+		go func() {
+			defer wg.Done()
+			unsubs[idx]()
+		}()
+	}
+
+	wg.Wait()
+	// No panic = success; we don't assert on count since timing is non-deterministic
 }
 
 // =============================================================================

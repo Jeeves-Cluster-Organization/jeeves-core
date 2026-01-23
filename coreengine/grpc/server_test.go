@@ -7,6 +7,7 @@ package grpc
 
 import (
 	"context"
+	"sync"
 	"testing"
 	"time"
 
@@ -690,18 +691,18 @@ func TestNewJeevesCoreServer(t *testing.T) {
 	server := NewJeevesCoreServer(logger)
 
 	assert.NotNil(t, server)
-	assert.Nil(t, server.runtime) // Runtime not set yet
+	assert.Nil(t, server.getRuntime()) // Runtime not set yet
 }
 
 func TestSetRuntime(t *testing.T) {
 	// Test setting runtime on server.
 	server, _ := createTestServer()
-	assert.Nil(t, server.runtime)
+	assert.Nil(t, server.getRuntime())
 
 	// We can't easily create a real runtime in tests, but we can verify the method exists
 	// and doesn't panic with nil
 	server.SetRuntime(nil)
-	assert.Nil(t, server.runtime)
+	assert.Nil(t, server.getRuntime())
 }
 
 // =============================================================================
@@ -720,4 +721,46 @@ func TestServerImplementsLoggerInterface(t *testing.T) {
 
 	logger := server.Bind("key", "value")
 	assert.Equal(t, server, logger)
+}
+
+// =============================================================================
+// THREAD SAFETY TESTS
+// =============================================================================
+
+func TestSetRuntimeThreadSafe(t *testing.T) {
+	// Test that SetRuntime is thread-safe.
+	server, _ := createTestServer()
+
+	// Concurrent SetRuntime calls should not race
+	var wg sync.WaitGroup
+	for i := 0; i < 100; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			server.SetRuntime(nil)
+		}()
+	}
+	wg.Wait()
+	// No panic = success
+}
+
+func TestGetRuntimeThreadSafe(t *testing.T) {
+	// Test that getRuntime is thread-safe.
+	server, _ := createTestServer()
+
+	// Concurrent SetRuntime and getRuntime calls should not race
+	var wg sync.WaitGroup
+	for i := 0; i < 50; i++ {
+		wg.Add(2)
+		go func() {
+			defer wg.Done()
+			server.SetRuntime(nil)
+		}()
+		go func() {
+			defer wg.Done()
+			_ = server.getRuntime()
+		}()
+	}
+	wg.Wait()
+	// No panic = success
 }
