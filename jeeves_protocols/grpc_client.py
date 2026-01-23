@@ -21,8 +21,8 @@ except ImportError as e:
         "grpcio is REQUIRED. Install with: pip install grpcio grpcio-tools"
     ) from e
 
-from jeeves_protocols.envelope import GenericEnvelope
-from jeeves_protocols.core import TerminalReason
+from jeeves_protocols.envelope import Envelope
+from jeeves_protocols.enums import TerminalReason
 
 if TYPE_CHECKING:
     from jeeves_protocols import grpc_stub as stub_types
@@ -70,7 +70,7 @@ class ExecutionEvent:
     stage: str
     timestamp_ms: int
     payload: Optional[Dict[str, Any]]
-    envelope: Optional[GenericEnvelope]
+    envelope: Optional[Envelope]
 
 
 @dataclass
@@ -81,7 +81,7 @@ class AgentResult:
     error: Optional[str]
     duration_ms: int
     llm_calls: int
-    envelope: Optional[GenericEnvelope]
+    envelope: Optional[Envelope]
 
 
 # =============================================================================
@@ -191,14 +191,14 @@ class GrpcGoClient:
 
         try:
             from jeeves_protocols import grpc_stub
-            from coreengine.proto import jeeves_core_pb2
-            self._stub = grpc_stub.JeevesCoreServiceStub(self._channel)
-            self._pb2 = jeeves_core_pb2
+            from coreengine.proto import engine_pb2
+            self._stub = grpc_stub.EngineServiceStub(self._channel)
+            self._pb2 = engine_pb2
         except ImportError as e:
             raise ImportError(
                 "gRPC stubs not generated. Run: "
                 "python -m grpc_tools.protoc -I. --python_out=. --grpc_python_out=. "
-                "coreengine/proto/jeeves_core.proto"
+                "coreengine/proto/engine.proto"
             ) from e
 
     def _require_connection(self) -> None:
@@ -214,7 +214,7 @@ class GrpcGoClient:
         request_id: Optional[str] = None,
         metadata: Optional[Dict[str, str]] = None,
         stage_order: Optional[list] = None,
-    ) -> GenericEnvelope:
+    ) -> Envelope:
         """Create envelope via Go runtime.
         
         Args:
@@ -226,7 +226,7 @@ class GrpcGoClient:
             stage_order: Optional stage execution order
             
         Returns:
-            GenericEnvelope created by Go
+            Envelope created by Go
         """
         self._require_connection()
 
@@ -248,11 +248,11 @@ class GrpcGoClient:
 
     def update_envelope(
         self,
-        envelope: GenericEnvelope,
+        envelope: Envelope,
         agent_name: Optional[str] = None,
         output: Optional[Dict[str, Any]] = None,
         llm_calls_made: int = 0,
-    ) -> GenericEnvelope:
+    ) -> Envelope:
         """Update envelope after agent execution.
 
         Updates the envelope state and syncs to Go. If agent_name is provided,
@@ -286,7 +286,7 @@ class GrpcGoClient:
         except grpc.RpcError as e:
             raise GrpcCallError(f"UpdateEnvelope failed: {e.details()}") from e
 
-    def check_bounds(self, envelope: GenericEnvelope) -> BoundsResult:
+    def check_bounds(self, envelope: Envelope) -> BoundsResult:
         """Check bounds - Go is authoritative (Contract 12).
         
         Args:
@@ -316,7 +316,7 @@ class GrpcGoClient:
         except grpc.RpcError as e:
             raise GrpcCallError(f"CheckBounds failed: {e.details()}") from e
 
-    def clone_envelope(self, envelope: GenericEnvelope) -> GenericEnvelope:
+    def clone_envelope(self, envelope: Envelope) -> Envelope:
         """Clone envelope via Go.
         
         Args:
@@ -340,7 +340,7 @@ class GrpcGoClient:
 
     def execute_agent(
         self,
-        envelope: GenericEnvelope,
+        envelope: Envelope,
         agent_name: str,
         agent_config: Optional[Dict[str, Any]] = None,
     ) -> AgentResult:
@@ -385,7 +385,7 @@ class GrpcGoClient:
 
     def execute_pipeline(
         self,
-        envelope: GenericEnvelope,
+        envelope: Envelope,
         thread_id: str,
         pipeline_config: Optional[Dict[str, Any]] = None,
     ) -> Iterator[ExecutionEvent]:
@@ -461,7 +461,7 @@ class GrpcGoClient:
     # Envelope Conversion (Contract 11: Lossless round-trip)
     # =========================================================================
 
-    def _envelope_to_proto(self, envelope: GenericEnvelope) -> Any:
+    def _envelope_to_proto(self, envelope: Envelope) -> Any:
         """Convert Python envelope to proto message.
         
         Contract 11 compliance: All fields must be serialized for lossless round-trip.
@@ -547,7 +547,7 @@ class GrpcGoClient:
         
         return proto
 
-    def _envelope_from_proto(self, proto: Any) -> GenericEnvelope:
+    def _envelope_from_proto(self, proto: Any) -> Envelope:
         """Convert proto message to Python envelope.
         
         Contract 11 compliance: All fields must be deserialized for lossless round-trip.
@@ -600,7 +600,7 @@ class GrpcGoClient:
                     except (json.JSONDecodeError, UnicodeDecodeError):
                         pass
         
-        return GenericEnvelope(
+        return Envelope(
             # Identification
             envelope_id=proto.envelope_id,
             request_id=proto.request_id,
@@ -675,7 +675,7 @@ def create_envelope(
     request_id: Optional[str] = None,
     metadata: Optional[Dict[str, str]] = None,
     stage_order: Optional[list] = None,
-) -> GenericEnvelope:
+) -> Envelope:
     """Create envelope via Go gRPC (convenience function)."""
     return get_client().create_envelope(
         raw_input=raw_input,
@@ -688,11 +688,11 @@ def create_envelope(
 
 
 def update_envelope(
-    envelope: GenericEnvelope,
+    envelope: Envelope,
     agent_name: Optional[str] = None,
     output: Optional[Dict[str, Any]] = None,
     llm_calls_made: int = 0,
-) -> GenericEnvelope:
+) -> Envelope:
     """Update envelope via Go gRPC (convenience function)."""
     return get_client().update_envelope(
         envelope=envelope,
@@ -702,11 +702,11 @@ def update_envelope(
     )
 
 
-def check_bounds(envelope: GenericEnvelope) -> BoundsResult:
+def check_bounds(envelope: Envelope) -> BoundsResult:
     """Check bounds via Go gRPC (convenience function)."""
     return get_client().check_bounds(envelope)
 
 
-def clone_envelope(envelope: GenericEnvelope) -> GenericEnvelope:
+def clone_envelope(envelope: Envelope) -> Envelope:
     """Clone envelope via Go gRPC (convenience function)."""
     return get_client().clone_envelope(envelope)

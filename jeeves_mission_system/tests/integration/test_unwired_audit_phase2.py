@@ -829,7 +829,7 @@ class TestWorkerCoordinatorIntegration:
     ):
         """Test that submit_envelope creates PCB in Control Tower."""
         from jeeves_mission_system.services.worker_coordinator import WorkerCoordinator
-        from jeeves_protocols import GenericEnvelope
+        from jeeves_protocols import Envelope
 
         coordinator = WorkerCoordinator(
             distributed_bus=mock_distributed_bus,
@@ -837,7 +837,7 @@ class TestWorkerCoordinatorIntegration:
             logger=MagicMock(),
         )
 
-        envelope = GenericEnvelope(
+        envelope = Envelope(
             envelope_id="env-123",
             request_id="req-123",
             user_id="user-1",
@@ -862,7 +862,7 @@ class TestWorkerCoordinatorIntegration:
     ):
         """Test that submit_envelope allocates resources."""
         from jeeves_mission_system.services.worker_coordinator import WorkerCoordinator
-        from jeeves_protocols import GenericEnvelope
+        from jeeves_protocols import Envelope
         from jeeves_control_tower.types import ResourceQuota
 
         coordinator = WorkerCoordinator(
@@ -871,7 +871,7 @@ class TestWorkerCoordinatorIntegration:
             logger=MagicMock(),
         )
 
-        envelope = GenericEnvelope(
+        envelope = Envelope(
             envelope_id="env-456",
             request_id="req-456",
             user_id="user-1",

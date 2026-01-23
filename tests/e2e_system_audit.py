@@ -339,7 +339,7 @@ class SystemAudit:
         phase.tests.append(result)
         self.log_test(result.name, result.passed, result.message)
 
-        # 2.4 GenericEnvelope creation
+        # 2.4 Envelope creation
         result = self._test_envelope_creation()
         phase.tests.append(result)
         self.log_test(result.name, result.passed, result.message)
@@ -436,7 +436,7 @@ class SystemAudit:
             from unittest.mock import MagicMock
             from jeeves_control_tower.lifecycle.manager import LifecycleManager
             from jeeves_control_tower.types import ProcessState, ResourceQuota
-            from jeeves_protocols import GenericEnvelope
+            from jeeves_protocols import Envelope
 
             logger = MagicMock()
             logger.bind.return_value = logger
@@ -444,7 +444,7 @@ class SystemAudit:
             lm = LifecycleManager(logger=logger)
 
             # Create envelope
-            envelope = GenericEnvelope(
+            envelope = Envelope(
                 envelope_id="test-env-1",
                 request_id="req-1",
                 user_id="user-1",
@@ -484,12 +484,12 @@ class SystemAudit:
             )
 
     def _test_envelope_creation(self) -> TestResult:
-        """Test GenericEnvelope creation and serialization."""
+        """Test Envelope creation and serialization."""
         try:
-            from jeeves_protocols import GenericEnvelope, create_generic_envelope
+            from jeeves_protocols import Envelope, create_envelope
 
             # Create via factory
-            envelope = create_generic_envelope(
+            envelope = create_envelope(
                 raw_input="Analyze this code",
                 user_id="user-123",
                 session_id="session-456",
@@ -509,18 +509,18 @@ class SystemAudit:
             assert state_dict["raw_input"] == "Analyze this code"
 
             # Test deserialization
-            restored = GenericEnvelope.from_dict(state_dict)
+            restored = Envelope.from_dict(state_dict)
             assert restored.raw_input == envelope.raw_input
             assert restored.envelope_id == envelope.envelope_id
 
             return TestResult(
-                name="GenericEnvelope creation/serialization",
+                name="Envelope creation/serialization",
                 passed=True,
                 message="Factory, to_state_dict, from_state_dict all work"
             )
         except Exception as e:
             return TestResult(
-                name="GenericEnvelope creation/serialization",
+                name="Envelope creation/serialization",
                 passed=False,
                 message=str(e)
             )
@@ -580,7 +580,7 @@ class SystemAudit:
         phase.tests.append(result)
         self.log_test(result.name, result.passed, result.message)
 
-        # 3.2 ResourceQuota ↔ CoreConfig mapping
+        # 3.2 ResourceQuota ↔ ExecutionConfig mapping
         result = self._test_quota_config_mapping()
         phase.tests.append(result)
         self.log_test(result.name, result.passed, result.message)
@@ -599,10 +599,10 @@ class SystemAudit:
         return phase
 
     def _test_envelope_state_mapping(self) -> TestResult:
-        """Test GenericEnvelope ↔ ProcessState mapping."""
+        """Test Envelope ↔ ProcessState mapping."""
         try:
             from jeeves_control_tower.types import ProcessState
-            from jeeves_protocols import GenericEnvelope
+            from jeeves_protocols import Envelope
 
             # Map of ProcessState to envelope conditions
             mappings = {
@@ -612,7 +612,7 @@ class SystemAudit:
             }
 
             # Test each mapping
-            envelope = GenericEnvelope(
+            envelope = Envelope(
                 envelope_id="test",
                 request_id="req",
                 user_id="user",
@@ -633,25 +633,25 @@ class SystemAudit:
             assert mappings[ProcessState.TERMINATED](envelope)
 
             return TestResult(
-                name="GenericEnvelope ↔ ProcessState mapping",
+                name="Envelope ↔ ProcessState mapping",
                 passed=True,
                 message="All state mappings verified"
             )
         except Exception as e:
             return TestResult(
-                name="GenericEnvelope ↔ ProcessState mapping",
+                name="Envelope ↔ ProcessState mapping",
                 passed=False,
                 message=str(e)
             )
 
     def _test_quota_config_mapping(self) -> TestResult:
-        """Test ResourceQuota ↔ CoreConfig mapping."""
+        """Test ResourceQuota ↔ ExecutionConfig mapping."""
         try:
             from jeeves_control_tower.types import ResourceQuota
-            from jeeves_protocols import CoreConfig, ContextBounds
+            from jeeves_protocols import ExecutionConfig, ContextBounds
 
-            # Create CoreConfig
-            core_config = CoreConfig(
+            # Create ExecutionConfig
+            core_config = ExecutionConfig(
                 context_bounds=ContextBounds(
                     max_input_tokens=4096,
                     max_output_tokens=2048,
@@ -679,13 +679,13 @@ class SystemAudit:
             assert quota.max_agent_hops == 21
 
             return TestResult(
-                name="ResourceQuota ↔ CoreConfig mapping",
+                name="ResourceQuota ↔ ExecutionConfig mapping",
                 passed=True,
                 message="All fields map correctly"
             )
         except Exception as e:
             return TestResult(
-                name="ResourceQuota ↔ CoreConfig mapping",
+                name="ResourceQuota ↔ ExecutionConfig mapping",
                 passed=False,
                 message=str(e)
             )
@@ -693,9 +693,9 @@ class SystemAudit:
     def _test_interrupt_envelope_mapping(self) -> TestResult:
         """Test InterruptKind ↔ Envelope flags mapping."""
         try:
-            from jeeves_protocols import GenericEnvelope
+            from jeeves_protocols import Envelope
 
-            envelope = GenericEnvelope(
+            envelope = Envelope(
                 envelope_id="test",
                 request_id="req",
                 user_id="user",
@@ -735,9 +735,9 @@ class SystemAudit:
     def _test_outputs_flow(self) -> TestResult:
         """Test outputs dictionary flows through pipeline."""
         try:
-            from jeeves_protocols import GenericEnvelope
+            from jeeves_protocols import Envelope
 
-            envelope = GenericEnvelope(
+            envelope = Envelope(
                 envelope_id="test",
                 request_id="req",
                 user_id="user",
@@ -759,7 +759,7 @@ class SystemAudit:
 
             # Test serialization preserves outputs
             state = envelope.to_dict()
-            restored = GenericEnvelope.from_dict(state)
+            restored = Envelope.from_dict(state)
 
             for stage in stages:
                 assert restored.outputs.get(stage) is not None
@@ -1336,12 +1336,12 @@ class SystemAudit:
     def _test_invalid_envelope_handling(self) -> TestResult:
         """Test invalid envelope data is handled."""
         try:
-            from jeeves_protocols import GenericEnvelope
+            from jeeves_protocols import Envelope
 
-            # GenericEnvelope is a dataclass with defaults, so empty is allowed
+            # Envelope is a dataclass with defaults, so empty is allowed
             # Test that invalid field types are rejected
             try:
-                envelope = GenericEnvelope(
+                envelope = Envelope(
                     envelope_id="test",
                     iteration="not an int",  # Invalid type
                 )
@@ -1350,7 +1350,7 @@ class SystemAudit:
                 pass  # Some stricter validation
 
             # Test that envelope can be created with minimal fields
-            envelope = GenericEnvelope(
+            envelope = Envelope(
                 envelope_id="test-123",
                 raw_input="test message",
             )
@@ -1372,9 +1372,9 @@ class SystemAudit:
     def _test_terminal_reason_propagation(self) -> TestResult:
         """Test terminal reason propagates through envelope."""
         try:
-            from jeeves_protocols import GenericEnvelope, TerminalReason
+            from jeeves_protocols import Envelope, TerminalReason
 
-            envelope = GenericEnvelope(
+            envelope = Envelope(
                 envelope_id="test",
                 request_id="req",
                 user_id="user",
@@ -1389,7 +1389,7 @@ class SystemAudit:
 
             # Serialize and restore
             state = envelope.to_dict()
-            restored = GenericEnvelope.from_dict(state)
+            restored = Envelope.from_dict(state)
 
             # Verify propagation
             assert restored.terminated is True
@@ -1495,7 +1495,7 @@ class SystemAudit:
     def _test_context_bounds(self) -> TestResult:
         """Test context bounds configuration."""
         try:
-            from jeeves_protocols import ContextBounds, CoreConfig
+            from jeeves_protocols import ContextBounds, ExecutionConfig
 
             # Default bounds
             bounds = ContextBounds()
@@ -1504,7 +1504,7 @@ class SystemAudit:
             assert bounds.max_output_tokens > 0
 
             # Core config with bounds
-            config = CoreConfig(
+            config = ExecutionConfig(
                 context_bounds=bounds,
                 max_llm_calls=10,
                 max_agent_hops=21,

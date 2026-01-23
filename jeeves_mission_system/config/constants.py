@@ -27,7 +27,7 @@ PLATFORM_VERSION = "4.0.0"
 PLATFORM_DESCRIPTION = "AI-powered agent platform with centralized architecture"
 
 # Agent architecture description
-AGENT_ARCHITECTURE = "7-agent pipeline (UnifiedAgent)"
+AGENT_ARCHITECTURE = "7-agent pipeline (Agent)"
 AGENT_COUNT = 7
 
 

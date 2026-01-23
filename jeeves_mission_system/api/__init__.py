@@ -79,8 +79,8 @@ class MissionRuntime:
 
     # NOTE: create_agent_runtime removed in v4.0
     # Use Runtime + PipelineConfig instead:
-    #   from jeeves_mission_system.contracts_core import create_runtime_from_config
-    #   runtime = create_runtime_from_config(config, llm_factory, ...)
+    #   from jeeves_mission_system.contracts_core import create_pipeline_runner
+    #   runtime = create_pipeline_runner(config, llm_factory, ...)
 
     @property
     def use_mock(self) -> bool:

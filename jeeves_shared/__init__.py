@@ -4,13 +4,13 @@ This package provides common utilities that can be used by all layers
 without creating circular dependencies. It sits at L0 alongside jeeves_protocols.
 
 Exports:
-- Logging: get_component_logger, get_current_logger, set_current_logger, JeevesLogger
+- Logging: get_component_logger, get_current_logger, set_current_logger, Logger
 - Serialization: parse_datetime, to_json, from_json, utc_now
 - UUID: uuid_str, uuid_read, convert_uuids_to_strings, UUIDStr, OptionalUUIDStr
 """
 
 from jeeves_shared.logging import (
-    JeevesLogger,
+    Logger,
     configure_logging,
     create_logger,
     create_agent_logger,
@@ -50,7 +50,7 @@ from jeeves_shared.id_generator import (
 
 __all__ = [
     # Logging
-    "JeevesLogger",
+    "Logger",
     "configure_logging",
     "create_logger",
     "create_agent_logger",

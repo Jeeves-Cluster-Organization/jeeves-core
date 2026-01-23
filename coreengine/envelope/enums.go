@@ -1,12 +1,12 @@
-// Package envelope provides envelope enums and the GenericEnvelope implementation.
+// Package envelope provides envelope enums and the Envelope implementation.
 //
 // Centralized Architecture (v4.0):
-//   - Stage tracking is now string-based (via GenericEnvelope.CurrentStage)
+//   - Stage tracking is now string-based (via Envelope.CurrentStage)
 //   - EnvelopeStage enum removed - stages are defined in PipelineConfig
 //   - Kept: TerminalReason, LoopVerdict, RiskApproval
 //
-// NOTE: This package uses GENERIC terminology. Domain-specific concepts like
-// "Critic" or "Intent" belong in the capability layer, not here.
+// NOTE: Domain-specific concepts like "Critic" or "Intent" belong in
+// the capability layer, not here.
 package envelope
 
 // TerminalReason represents why processing terminated - exactly one per request.

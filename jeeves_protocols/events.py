@@ -47,7 +47,7 @@ class EventSeverity(Enum):
 
 
 @dataclass
-class UnifiedEvent:
+class Event:
     """
     CONSTITUTIONAL EVENT SCHEMA
 
@@ -60,7 +60,7 @@ class UnifiedEvent:
     - Severity-based filtering (severity enum)
 
     Usage:
-        event = UnifiedEvent(
+        event = Event(
             event_id=str(uuid.uuid4()),
             event_type="agent.started",
             category=EventCategory.AGENT_LIFECYCLE,
@@ -121,7 +121,7 @@ class UnifiedEvent:
         }
 
     @classmethod
-    def from_dict(cls, data: Dict[str, Any]) -> "UnifiedEvent":
+    def from_dict(cls, data: Dict[str, Any]) -> "Event":
         """
         Parse from dict.
 
@@ -129,7 +129,7 @@ class UnifiedEvent:
             data: Dictionary with event fields
 
         Returns:
-            UnifiedEvent instance
+            Event instance
         """
         return cls(
             event_id=data["event_id"],
@@ -159,7 +159,7 @@ class UnifiedEvent:
         severity: EventSeverity = EventSeverity.INFO,
         source: str = "unknown",
         correlation_id: Optional[str] = None,
-    ) -> "UnifiedEvent":
+    ) -> "Event":
         """
         Factory method to create event with current timestamp.
 
@@ -175,7 +175,7 @@ class UnifiedEvent:
             correlation_id: Optional causation chain ID
 
         Returns:
-            UnifiedEvent with auto-generated ID and current timestamp
+            Event with auto-generated ID and current timestamp
         """
         now = datetime.now(timezone.utc)
         return cls(
@@ -203,26 +203,26 @@ class EventEmitterProtocol(Protocol):
     changing consumer code (Avionics R4: Swappable Implementations).
     """
 
-    async def emit(self, event: UnifiedEvent) -> None:
+    async def emit(self, event: Event) -> None:
         """
         Emit a unified event.
 
         Args:
-            event: UnifiedEvent to emit
+            event: Event to emit
         """
         ...
 
     async def subscribe(
         self,
         pattern: str,
-        handler: Callable[[UnifiedEvent], Awaitable[None]],
+        handler: Callable[[Event], Awaitable[None]],
     ) -> str:
         """
         Subscribe to events matching pattern.
 
         Args:
             pattern: Event type pattern (supports wildcards like "agent.*")
-            handler: Async callback that receives UnifiedEvent
+            handler: Async callback that receives Event
 
         Returns:
             Subscription ID for later unsubscription

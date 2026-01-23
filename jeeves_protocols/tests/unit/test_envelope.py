@@ -1,4 +1,4 @@
-"""Unit tests for GenericEnvelope and ProcessingRecord.
+"""Unit tests for Envelope and ProcessingRecord.
 
 Tests envelope creation, serialization, deserialization, and state management.
 """
@@ -7,14 +7,14 @@ import pytest
 from datetime import datetime, timezone
 
 
-class TestGenericEnvelope:
-    """Tests for GenericEnvelope dataclass."""
+class TestEnvelope:
+    """Tests for Envelope dataclass."""
 
     def test_create_envelope_with_defaults(self):
         """Test creating envelope with default values."""
-        from jeeves_protocols import GenericEnvelope
+        from jeeves_protocols import Envelope
 
-        env = GenericEnvelope()
+        env = Envelope()
 
         assert env.envelope_id == ""
         assert env.request_id == ""
@@ -36,9 +36,9 @@ class TestGenericEnvelope:
 
     def test_envelope_from_dict(self, sample_envelope_dict):
         """Test creating envelope from dictionary."""
-        from jeeves_protocols import GenericEnvelope
+        from jeeves_protocols import Envelope
 
-        env = GenericEnvelope.from_dict(sample_envelope_dict)
+        env = Envelope.from_dict(sample_envelope_dict)
 
         assert env.envelope_id == "env-123"
         assert env.request_id == "req-456"
@@ -47,9 +47,9 @@ class TestGenericEnvelope:
 
     def test_envelope_from_dict_with_empty_dict(self):
         """Test creating envelope from empty dictionary."""
-        from jeeves_protocols import GenericEnvelope
+        from jeeves_protocols import Envelope
 
-        env = GenericEnvelope.from_dict({})
+        env = Envelope.from_dict({})
 
         assert env.envelope_id == ""
         assert env.current_stage == "start"

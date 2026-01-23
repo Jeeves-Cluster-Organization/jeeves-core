@@ -9,6 +9,10 @@ Constitutional Amendments:
 - WorkerCoordinator: Horizontal scaling (Amendment XXIV)
 """
 
+from jeeves_mission_system.services.chat_service import (
+    ChatService,
+)
+
 from jeeves_mission_system.services.debug_api import (
     DebugAPIService,
     ExecutionTimeline,
@@ -24,6 +28,8 @@ from jeeves_mission_system.services.worker_coordinator import (
 )
 
 __all__ = [
+    # Chat Service
+    "ChatService",
     # Amendment XXIII: Time-Travel Debugging
     "DebugAPIService",
     "ExecutionTimeline",

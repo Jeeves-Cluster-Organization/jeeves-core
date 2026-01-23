@@ -9,7 +9,7 @@ Architecture:
                   → mission_system.adapters (infrastructure)
 
 Centralized Architecture (v4.0):
-    All imports like `from jeeves_mission_system.contracts import GenericEnvelope`
+    All imports like `from jeeves_mission_system.contracts import Envelope`
     work correctly. The core contracts are re-exported via * import from contracts_core.
 
 Layer Extraction Compliant:

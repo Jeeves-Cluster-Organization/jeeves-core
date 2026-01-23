@@ -284,7 +284,7 @@ def create_llm_provider(provider: str) -> LLMProtocol:
 **Contract:** Implements `MemoryServiceProtocol` from core.
 
 **Storage:**
-- L1 — In-memory (GenericEnvelope)
+- L1 — In-memory (Envelope)
 - L2 — PostgreSQL (events table)
 - L3 — PostgreSQL (sessions table)
 - L4 — PostgreSQL + pgvector (embeddings)

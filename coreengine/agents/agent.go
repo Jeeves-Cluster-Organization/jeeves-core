@@ -1,4 +1,4 @@
-// Package agents provides the UnifiedAgent - single agent class driven by configuration.
+// Package agents provides the Agent - single agent class driven by configuration.
 package agents
 
 import (
@@ -42,16 +42,16 @@ type PromptRegistry interface {
 }
 
 // ProcessHook is a function called during processing.
-type ProcessHook func(env *envelope.GenericEnvelope) (*envelope.GenericEnvelope, error)
+type ProcessHook func(env *envelope.Envelope) (*envelope.Envelope, error)
 
 // OutputHook is a function called with output.
-type OutputHook func(env *envelope.GenericEnvelope, output map[string]any) (*envelope.GenericEnvelope, error)
+type OutputHook func(env *envelope.Envelope, output map[string]any) (*envelope.Envelope, error)
 
 // MockHandler generates mock output for testing.
-type MockHandler func(env *envelope.GenericEnvelope) (map[string]any, error)
+type MockHandler func(env *envelope.Envelope) (map[string]any, error)
 
-// UnifiedAgent is the single agent class that handles all agent types via configuration.
-type UnifiedAgent struct {
+// Agent is the single agent class that handles all agent types via configuration.
+type Agent struct {
 	Config         *config.AgentConfig
 	Name           string
 	Logger         Logger
@@ -67,13 +67,13 @@ type UnifiedAgent struct {
 	MockHandler MockHandler
 }
 
-// NewUnifiedAgent creates a new UnifiedAgent.
-func NewUnifiedAgent(
+// NewAgent creates a new Agent.
+func NewAgent(
 	cfg *config.AgentConfig,
 	logger Logger,
 	llm LLMProvider,
 	tools ToolExecutor,
-) (*UnifiedAgent, error) {
+) (*Agent, error) {
 	if err := cfg.Validate(); err != nil {
 		return nil, err
 	}
@@ -85,7 +85,7 @@ func NewUnifiedAgent(
 		return nil, fmt.Errorf("agent '%s' has_tools=true but no tool_executor", cfg.Name)
 	}
 
-	return &UnifiedAgent{
+	return &Agent{
 		Config: cfg,
 		Name:   cfg.Name,
 		Logger: logger.Bind("agent", cfg.Name),
@@ -95,12 +95,12 @@ func NewUnifiedAgent(
 }
 
 // SetEventContext sets the event context for this agent.
-func (a *UnifiedAgent) SetEventContext(ctx EventContext) {
+func (a *Agent) SetEventContext(ctx EventContext) {
 	a.EventCtx = ctx
 }
 
 // Process processes an envelope through this agent.
-func (a *UnifiedAgent) Process(ctx context.Context, env *envelope.GenericEnvelope) (*envelope.GenericEnvelope, error) {
+func (a *Agent) Process(ctx context.Context, env *envelope.Envelope) (*envelope.Envelope, error) {
 	startTime := time.Now()
 	llmCalls := 0
 
@@ -173,7 +173,7 @@ func (a *UnifiedAgent) Process(ctx context.Context, env *envelope.GenericEnvelop
 	return env, nil
 }
 
-func (a *UnifiedAgent) llmProcess(ctx context.Context, env *envelope.GenericEnvelope) (map[string]any, error) {
+func (a *Agent) llmProcess(ctx context.Context, env *envelope.Envelope) (map[string]any, error) {
 	// Build prompt
 	prompt := a.buildPrompt(env)
 
@@ -214,7 +214,7 @@ func (a *UnifiedAgent) llmProcess(ctx context.Context, env *envelope.GenericEnve
 	return output, nil
 }
 
-func (a *UnifiedAgent) toolProcess(ctx context.Context, env *envelope.GenericEnvelope) (map[string]any, error) {
+func (a *Agent) toolProcess(ctx context.Context, env *envelope.Envelope) (map[string]any, error) {
 	plan := env.GetOutput("plan")
 	if plan == nil {
 		return map[string]any{
@@ -300,13 +300,13 @@ func (a *UnifiedAgent) toolProcess(ctx context.Context, env *envelope.GenericEnv
 	}, nil
 }
 
-func (a *UnifiedAgent) serviceProcess(ctx context.Context, env *envelope.GenericEnvelope) (map[string]any, error) {
+func (a *Agent) serviceProcess(ctx context.Context, env *envelope.Envelope) (map[string]any, error) {
 	// Default service processing returns empty output
 	// Capability layer hooks add actual logic
 	return map[string]any{}, nil
 }
 
-func (a *UnifiedAgent) buildPrompt(env *envelope.GenericEnvelope) string {
+func (a *Agent) buildPrompt(env *envelope.Envelope) string {
 	// Registry lookup
 	if a.PromptRegistry != nil && a.Config.PromptKey != "" {
 		context := a.extractPromptContext(env)
@@ -321,7 +321,7 @@ func (a *UnifiedAgent) buildPrompt(env *envelope.GenericEnvelope) string {
 	return fmt.Sprintf("Process this request: %s", env.RawInput)
 }
 
-func (a *UnifiedAgent) extractPromptContext(env *envelope.GenericEnvelope) map[string]any {
+func (a *Agent) extractPromptContext(env *envelope.Envelope) map[string]any {
 	context := map[string]any{
 		"raw_input":  env.RawInput,
 		"user_id":    env.UserID,
@@ -336,7 +336,7 @@ func (a *UnifiedAgent) extractPromptContext(env *envelope.GenericEnvelope) map[s
 	return context
 }
 
-func (a *UnifiedAgent) canAccessTool(toolName string) bool {
+func (a *Agent) canAccessTool(toolName string) bool {
 	if a.Config.ToolAccess == config.ToolAccessNone {
 		return false
 	}
@@ -349,7 +349,7 @@ func (a *UnifiedAgent) canAccessTool(toolName string) bool {
 	return true
 }
 
-func (a *UnifiedAgent) validateOutput(output map[string]any) error {
+func (a *Agent) validateOutput(output map[string]any) error {
 	for _, field := range a.Config.RequiredOutputFields {
 		if _, exists := output[field]; !exists {
 			return fmt.Errorf("agent '%s' output missing required field: %s", a.Name, field)
@@ -358,7 +358,7 @@ func (a *UnifiedAgent) validateOutput(output map[string]any) error {
 	return nil
 }
 
-func (a *UnifiedAgent) evaluateRouting(output map[string]any) string {
+func (a *Agent) evaluateRouting(output map[string]any) string {
 	// Evaluate rules in order
 	for _, rule := range a.Config.RoutingRules {
 		value, exists := output[rule.Condition]
@@ -379,7 +379,7 @@ func (a *UnifiedAgent) evaluateRouting(output map[string]any) string {
 	return "end"
 }
 
-func (a *UnifiedAgent) handleError(env *envelope.GenericEnvelope, err error) (*envelope.GenericEnvelope, error) {
+func (a *Agent) handleError(env *envelope.Envelope, err error) (*envelope.Envelope, error) {
 	// Record error
 	env.Errors = append(env.Errors, map[string]any{
 		"agent":      a.Name,
@@ -397,13 +397,13 @@ func (a *UnifiedAgent) handleError(env *envelope.GenericEnvelope, err error) (*e
 	return env, err
 }
 
-func (a *UnifiedAgent) emitStarted() {
+func (a *Agent) emitStarted() {
 	if a.EventCtx != nil {
 		_ = a.EventCtx.EmitAgentStarted(a.Name)
 	}
 }
 
-func (a *UnifiedAgent) emitCompleted(status string, durationMS int, err error) {
+func (a *Agent) emitCompleted(status string, durationMS int, err error) {
 	if a.EventCtx != nil {
 		_ = a.EventCtx.EmitAgentCompleted(a.Name, status, durationMS, err)
 	}

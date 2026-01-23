@@ -47,10 +47,10 @@ def pytest_configure(config):
 
 @pytest.fixture
 def sample_envelope():
-    """Create a sample GenericEnvelope for testing."""
-    from jeeves_protocols import GenericEnvelope
+    """Create a sample Envelope for testing."""
+    from jeeves_protocols import Envelope
 
-    return GenericEnvelope(
+    return Envelope(
         envelope_id="env-123",
         request_id="req-456",
         user_id="user-789",

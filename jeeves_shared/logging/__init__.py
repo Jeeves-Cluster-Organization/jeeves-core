@@ -41,7 +41,7 @@ _current_logger: ContextVar[Optional[LoggerProtocol]] = ContextVar(
 )
 
 
-class JeevesLogger:
+class Logger:
     """LoggerProtocol implementation backed by structlog.
 
     This is the primary logger implementation used throughout Jeeves.
@@ -89,10 +89,10 @@ class JeevesLogger:
         """Log exception with traceback."""
         self._logger.exception(msg, **kwargs)
 
-    def bind(self, **kwargs: Any) -> "JeevesLogger":
+    def bind(self, **kwargs: Any) -> "Logger":
         """Create child logger with additional context."""
         new_context = {**self._context, **kwargs}
-        return JeevesLogger(
+        return Logger(
             base_logger=structlog.get_logger(),
             context=new_context,
         )
@@ -183,7 +183,7 @@ def create_logger(
     Returns:
         LoggerProtocol implementation
     """
-    return JeevesLogger(context={"component": component, **context})
+    return Logger(context={"component": component, **context})
 
 
 def create_agent_logger(
@@ -206,7 +206,7 @@ def create_agent_logger(
         context["envelope_id"] = envelope_id
     if request_id:
         context["request_id"] = request_id
-    return JeevesLogger(context=context)
+    return Logger(context=context)
 
 
 def create_capability_logger(
@@ -238,7 +238,7 @@ def create_capability_logger(
         context["request_id"] = request_id
     if repo_path:
         context["repo_path"] = repo_path
-    return JeevesLogger(context=context)
+    return Logger(context=context)
 
 
 def create_tool_logger(
@@ -261,7 +261,7 @@ def create_tool_logger(
         context["caller_agent"] = agent_name
     if request_id:
         context["request_id"] = request_id
-    return JeevesLogger(context=context)
+    return Logger(context=context)
 
 
 def get_current_logger() -> LoggerProtocol:
@@ -272,7 +272,7 @@ def get_current_logger() -> LoggerProtocol:
     """
     logger = _current_logger.get()
     if logger is None:
-        return JeevesLogger()
+        return Logger()
     return logger
 
 
@@ -361,7 +361,7 @@ __all__ = [
     "create_tool_logger",
     "get_component_logger",
     # Types
-    "JeevesLogger",
+    "Logger",
     # Context
     "get_current_logger",
     "set_current_logger",

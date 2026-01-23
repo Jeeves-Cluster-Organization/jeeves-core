@@ -1,24 +1,24 @@
-// Jeeves Core gRPC Service - Python <-> Go runtime bridge
+// Engine gRPC Service - Python <-> Go runtime bridge
 //
 // This is the primary IPC mechanism between Python orchestration
 // and Go execution engine. Replaces subprocess-based JSON IPC.
 //
 // Compile Go:
-//   protoc --go_out=. --go-grpc_out=. coreengine/proto/jeeves_core.proto
+//   protoc --go_out=. --go-grpc_out=. coreengine/proto/engine.proto
 //
 // Compile Python:
-//   python -m grpc_tools.protoc -I. --python_out=. --grpc_python_out=. coreengine/proto/jeeves_core.proto
+//   python -m grpc_tools.protoc -I. --python_out=. --grpc_python_out=. coreengine/proto/engine.proto
 
 syntax = "proto3";
 
-package jeeves.core.v1;
+package jeeves.engine.v1;
 
 option go_package = "github.com/jeeves-cluster-organization/codeanalysis/coreengine/proto";
 
 // =============================================================================
-// JeevesCoreService - Go runtime operations
+// EngineService - Go runtime operations
 // =============================================================================
-service JeevesCoreService {
+service EngineService {
     // Envelope lifecycle
     rpc CreateEnvelope(CreateEnvelopeRequest) returns (Envelope);
     rpc UpdateEnvelope(UpdateEnvelopeRequest) returns (Envelope);
@@ -205,4 +205,3 @@ message AgentResult {
     int32 llm_calls = 5;
     Envelope envelope = 6;              // Updated envelope
 }
-

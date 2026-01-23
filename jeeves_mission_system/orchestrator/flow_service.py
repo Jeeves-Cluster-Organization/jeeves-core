@@ -1,5 +1,5 @@
 """
-JeevesFlowServicer - gRPC servicer that delegates to Code Analysis pipeline.
+FlowServicer - gRPC servicer that delegates to Code Analysis pipeline.
 
 This module provides the gRPC interface for the Code Analysis Agent.
 All requests are handled by the 6-agent Code Analysis pipeline.
@@ -39,7 +39,7 @@ except ImportError:
 
 if _GRPC_AVAILABLE:
 
-    class JeevesFlowServicer(jeeves_pb2_grpc.JeevesFlowServiceServicer):
+    class FlowServicer(jeeves_pb2_grpc.JeevesFlowServiceServicer):
         """
         gRPC implementation of JeevesFlowService.
 

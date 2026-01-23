@@ -32,7 +32,7 @@ from typing import Dict, List, Optional, TYPE_CHECKING
 
 from jeeves_protocols import (
     AgentLLMConfig,
-    CapabilityLLMConfigRegistryProtocol,
+    DomainLLMRegistryProtocol,
     LoggerProtocol,
 )
 from jeeves_shared import get_component_logger
@@ -41,10 +41,10 @@ if TYPE_CHECKING:
     pass
 
 
-class CapabilityLLMConfigRegistry:
+class DomainLLMRegistry:
     """Registry for capability-owned agent LLM configurations.
 
-    Implements CapabilityLLMConfigRegistryProtocol.
+    Implements DomainLLMRegistryProtocol.
 
     This registry allows capabilities to own their agent configurations
     while infrastructure remains capability-agnostic. The registry supports
@@ -228,25 +228,25 @@ class CapabilityLLMConfigRegistry:
 # GLOBAL REGISTRY (Lazy Initialization)
 # =============================================================================
 
-_registry: Optional[CapabilityLLMConfigRegistry] = None
+_registry: Optional[DomainLLMRegistry] = None
 
 
-def get_capability_registry() -> CapabilityLLMConfigRegistry:
+def get_capability_registry() -> DomainLLMRegistry:
     """Get the global capability registry instance.
 
     Creates a new instance lazily if none exists.
     Prefer dependency injection over this global getter for testability.
 
     Returns:
-        Global CapabilityLLMConfigRegistry instance
+        Global DomainLLMRegistry instance
     """
     global _registry
     if _registry is None:
-        _registry = CapabilityLLMConfigRegistry()
+        _registry = DomainLLMRegistry()
     return _registry
 
 
-def set_capability_registry(registry: CapabilityLLMConfigRegistry) -> None:
+def set_capability_registry(registry: DomainLLMRegistry) -> None:
     """Set the global capability registry instance.
 
     Use at bootstrap time to inject a pre-configured registry.
@@ -271,6 +271,6 @@ def reset_capability_registry() -> None:
 
 # Type assertion for protocol compliance
 def _assert_protocol_compliance() -> None:
-    """Static assertion that CapabilityLLMConfigRegistry implements the protocol."""
-    registry: CapabilityLLMConfigRegistryProtocol = CapabilityLLMConfigRegistry()
+    """Static assertion that DomainLLMRegistry implements the protocol."""
+    registry: DomainLLMRegistryProtocol = DomainLLMRegistry()
     _ = registry  # Suppress unused variable warning

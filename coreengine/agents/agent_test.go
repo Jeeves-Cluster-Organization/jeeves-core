@@ -1,4 +1,4 @@
-// Package agents tests for UnifiedAgent.
+// Package agents tests for Agent.
 package agents
 
 import (
@@ -103,12 +103,12 @@ func createTestAgentConfig(name string) *config.AgentConfig {
 // CREATION TESTS
 // =============================================================================
 
-func TestNewUnifiedAgentBasic(t *testing.T) {
+func TestNewAgentBasic(t *testing.T) {
 	// Test creating a basic agent.
 	cfg := createTestAgentConfig("test_agent")
 	logger := &MockLogger{}
 
-	agent, err := NewUnifiedAgent(cfg, logger, nil, nil)
+	agent, err := NewAgent(cfg, logger, nil, nil)
 
 	require.NoError(t, err)
 	assert.NotNil(t, agent)
@@ -116,7 +116,7 @@ func TestNewUnifiedAgentBasic(t *testing.T) {
 	assert.Equal(t, cfg, agent.Config)
 }
 
-func TestNewUnifiedAgentWithLLM(t *testing.T) {
+func TestNewAgentWithLLM(t *testing.T) {
 	// Test creating an agent with LLM.
 	cfg := createTestAgentConfig("llm_agent")
 	cfg.HasLLM = true
@@ -125,14 +125,14 @@ func TestNewUnifiedAgentWithLLM(t *testing.T) {
 	logger := &MockLogger{}
 	llm := &MockLLMProvider{response: `{"result": "success"}`}
 
-	agent, err := NewUnifiedAgent(cfg, logger, llm, nil)
+	agent, err := NewAgent(cfg, logger, llm, nil)
 
 	require.NoError(t, err)
 	assert.NotNil(t, agent)
 	assert.NotNil(t, agent.LLM)
 }
 
-func TestNewUnifiedAgentWithTools(t *testing.T) {
+func TestNewAgentWithTools(t *testing.T) {
 	// Test creating an agent with tools.
 	cfg := createTestAgentConfig("tool_agent")
 	cfg.HasTools = true
@@ -141,14 +141,14 @@ func TestNewUnifiedAgentWithTools(t *testing.T) {
 	logger := &MockLogger{}
 	tools := &MockToolExecutor{}
 
-	agent, err := NewUnifiedAgent(cfg, logger, nil, tools)
+	agent, err := NewAgent(cfg, logger, nil, tools)
 
 	require.NoError(t, err)
 	assert.NotNil(t, agent)
 	assert.NotNil(t, agent.Tools)
 }
 
-func TestNewUnifiedAgentLLMRequiredButMissing(t *testing.T) {
+func TestNewAgentLLMRequiredButMissing(t *testing.T) {
 	// Test that creating an agent with has_llm=true but no llm fails.
 	cfg := createTestAgentConfig("llm_agent")
 	cfg.HasLLM = true
@@ -156,21 +156,21 @@ func TestNewUnifiedAgentLLMRequiredButMissing(t *testing.T) {
 
 	logger := &MockLogger{}
 
-	agent, err := NewUnifiedAgent(cfg, logger, nil, nil)
+	agent, err := NewAgent(cfg, logger, nil, nil)
 
 	require.Error(t, err)
 	assert.Nil(t, agent)
 	assert.Contains(t, err.Error(), "has_llm=true but no llm_provider")
 }
 
-func TestNewUnifiedAgentToolsRequiredButMissing(t *testing.T) {
+func TestNewAgentToolsRequiredButMissing(t *testing.T) {
 	// Test that creating an agent with has_tools=true but no tools fails.
 	cfg := createTestAgentConfig("tool_agent")
 	cfg.HasTools = true
 
 	logger := &MockLogger{}
 
-	agent, err := NewUnifiedAgent(cfg, logger, nil, nil)
+	agent, err := NewAgent(cfg, logger, nil, nil)
 
 	require.Error(t, err)
 	assert.Nil(t, agent)
@@ -187,9 +187,9 @@ func TestProcessServiceAgent(t *testing.T) {
 	cfg.DefaultNext = "next_stage"
 	logger := &MockLogger{}
 
-	agent, _ := NewUnifiedAgent(cfg, logger, nil, nil)
+	agent, _ := NewAgent(cfg, logger, nil, nil)
 
-	env := envelope.CreateGenericEnvelope("Test input", "user", "session", nil, nil, nil)
+	env := envelope.CreateEnvelope("Test input", "user", "session", nil, nil, nil)
 
 	result, err := agent.Process(context.Background(), env)
 
@@ -205,16 +205,16 @@ func TestProcessWithPreProcessHook(t *testing.T) {
 	cfg.DefaultNext = "end"
 	logger := &MockLogger{}
 
-	agent, _ := NewUnifiedAgent(cfg, logger, nil, nil)
+	agent, _ := NewAgent(cfg, logger, nil, nil)
 
 	preProcessCalled := false
-	agent.PreProcess = func(env *envelope.GenericEnvelope) (*envelope.GenericEnvelope, error) {
+	agent.PreProcess = func(env *envelope.Envelope) (*envelope.Envelope, error) {
 		preProcessCalled = true
 		env.SetOutput("pre_process", map[string]any{"called": true})
 		return env, nil
 	}
 
-	env := envelope.CreateGenericEnvelope("Test", "user", "session", nil, nil, nil)
+	env := envelope.CreateEnvelope("Test", "user", "session", nil, nil, nil)
 	result, err := agent.Process(context.Background(), env)
 
 	require.NoError(t, err)
@@ -228,16 +228,16 @@ func TestProcessWithPostProcessHook(t *testing.T) {
 	cfg.DefaultNext = "end"
 	logger := &MockLogger{}
 
-	agent, _ := NewUnifiedAgent(cfg, logger, nil, nil)
+	agent, _ := NewAgent(cfg, logger, nil, nil)
 
 	postProcessCalled := false
-	agent.PostProcess = func(env *envelope.GenericEnvelope, output map[string]any) (*envelope.GenericEnvelope, error) {
+	agent.PostProcess = func(env *envelope.Envelope, output map[string]any) (*envelope.Envelope, error) {
 		postProcessCalled = true
 		env.SetOutput("post_process", map[string]any{"called": true})
 		return env, nil
 	}
 
-	env := envelope.CreateGenericEnvelope("Test", "user", "session", nil, nil, nil)
+	env := envelope.CreateEnvelope("Test", "user", "session", nil, nil, nil)
 	result, err := agent.Process(context.Background(), env)
 
 	require.NoError(t, err)
@@ -251,13 +251,13 @@ func TestProcessPreProcessHookError(t *testing.T) {
 	cfg.ErrorNext = "error_stage"
 	logger := &MockLogger{}
 
-	agent, _ := NewUnifiedAgent(cfg, logger, nil, nil)
+	agent, _ := NewAgent(cfg, logger, nil, nil)
 
-	agent.PreProcess = func(env *envelope.GenericEnvelope) (*envelope.GenericEnvelope, error) {
+	agent.PreProcess = func(env *envelope.Envelope) (*envelope.Envelope, error) {
 		return env, errors.New("pre-process failed")
 	}
 
-	env := envelope.CreateGenericEnvelope("Test", "user", "session", nil, nil, nil)
+	env := envelope.CreateEnvelope("Test", "user", "session", nil, nil, nil)
 	result, err := agent.Process(context.Background(), env)
 
 	require.NoError(t, err) // Error routed to error_stage
@@ -275,13 +275,13 @@ func TestProcessWithMockHandler(t *testing.T) {
 	cfg.DefaultNext = "end"
 	logger := &MockLogger{}
 
-	agent, _ := NewUnifiedAgent(cfg, logger, nil, nil)
+	agent, _ := NewAgent(cfg, logger, nil, nil)
 	agent.UseMock = true
-	agent.MockHandler = func(env *envelope.GenericEnvelope) (map[string]any, error) {
+	agent.MockHandler = func(env *envelope.Envelope) (map[string]any, error) {
 		return map[string]any{"mocked": true, "result": "mock success"}, nil
 	}
 
-	env := envelope.CreateGenericEnvelope("Test", "user", "session", nil, nil, nil)
+	env := envelope.CreateEnvelope("Test", "user", "session", nil, nil, nil)
 	result, err := agent.Process(context.Background(), env)
 
 	require.NoError(t, err)
@@ -296,13 +296,13 @@ func TestProcessMockHandlerError(t *testing.T) {
 	cfg.ErrorNext = "error_stage"
 	logger := &MockLogger{}
 
-	agent, _ := NewUnifiedAgent(cfg, logger, nil, nil)
+	agent, _ := NewAgent(cfg, logger, nil, nil)
 	agent.UseMock = true
-	agent.MockHandler = func(env *envelope.GenericEnvelope) (map[string]any, error) {
+	agent.MockHandler = func(env *envelope.Envelope) (map[string]any, error) {
 		return nil, errors.New("mock error")
 	}
 
-	env := envelope.CreateGenericEnvelope("Test", "user", "session", nil, nil, nil)
+	env := envelope.CreateEnvelope("Test", "user", "session", nil, nil, nil)
 	result, err := agent.Process(context.Background(), env)
 
 	require.NoError(t, err) // Error routed
@@ -322,9 +322,9 @@ func TestProcessLLMAgent(t *testing.T) {
 	logger := &MockLogger{}
 	llm := &MockLLMProvider{response: `{"intent": "analyze", "confidence": 0.9}`}
 
-	agent, _ := NewUnifiedAgent(cfg, logger, llm, nil)
+	agent, _ := NewAgent(cfg, logger, llm, nil)
 
-	env := envelope.CreateGenericEnvelope("Analyze this code", "user", "session", nil, nil, nil)
+	env := envelope.CreateEnvelope("Analyze this code", "user", "session", nil, nil, nil)
 	result, err := agent.Process(context.Background(), env)
 
 	require.NoError(t, err)
@@ -342,9 +342,9 @@ func TestProcessLLMAgentInvalidJSON(t *testing.T) {
 	logger := &MockLogger{}
 	llm := &MockLLMProvider{response: "not valid json"} // Invalid JSON
 
-	agent, _ := NewUnifiedAgent(cfg, logger, llm, nil)
+	agent, _ := NewAgent(cfg, logger, llm, nil)
 
-	env := envelope.CreateGenericEnvelope("Test", "user", "session", nil, nil, nil)
+	env := envelope.CreateEnvelope("Test", "user", "session", nil, nil, nil)
 	result, err := agent.Process(context.Background(), env)
 
 	require.NoError(t, err) // Error routed
@@ -364,10 +364,10 @@ func TestProcessLLMAgentWithPromptRegistry(t *testing.T) {
 		prompts: map[string]string{"llm_prompt": "Custom prompt: {{raw_input}}"},
 	}
 
-	agent, _ := NewUnifiedAgent(cfg, logger, llm, nil)
+	agent, _ := NewAgent(cfg, logger, llm, nil)
 	agent.PromptRegistry = registry
 
-	env := envelope.CreateGenericEnvelope("Test input", "user", "session", nil, nil, nil)
+	env := envelope.CreateEnvelope("Test input", "user", "session", nil, nil, nil)
 	result, err := agent.Process(context.Background(), env)
 
 	require.NoError(t, err)
@@ -392,9 +392,9 @@ func TestProcessToolAgent(t *testing.T) {
 		},
 	}
 
-	agent, _ := NewUnifiedAgent(cfg, logger, nil, tools)
+	agent, _ := NewAgent(cfg, logger, nil, tools)
 
-	env := envelope.CreateGenericEnvelope("Read file", "user", "session", nil, nil, nil)
+	env := envelope.CreateEnvelope("Read file", "user", "session", nil, nil, nil)
 	env.SetOutput("plan", map[string]any{
 		"steps": []any{
 			map[string]any{"step_id": "s1", "tool": "read_file", "parameters": map[string]any{"path": "main.go"}},
@@ -418,9 +418,9 @@ func TestProcessToolAgentNoAccessDenied(t *testing.T) {
 	logger := &MockLogger{}
 	tools := &MockToolExecutor{}
 
-	agent, _ := NewUnifiedAgent(cfg, logger, nil, tools)
+	agent, _ := NewAgent(cfg, logger, nil, tools)
 
-	env := envelope.CreateGenericEnvelope("Read file", "user", "session", nil, nil, nil)
+	env := envelope.CreateEnvelope("Read file", "user", "session", nil, nil, nil)
 	env.SetOutput("plan", map[string]any{
 		"steps": []any{
 			map[string]any{"step_id": "s1", "tool": "read_file", "parameters": map[string]any{}},
@@ -446,9 +446,9 @@ func TestProcessToolAgentNoPlan(t *testing.T) {
 	logger := &MockLogger{}
 	tools := &MockToolExecutor{}
 
-	agent, _ := NewUnifiedAgent(cfg, logger, nil, tools)
+	agent, _ := NewAgent(cfg, logger, nil, tools)
 
-	env := envelope.CreateGenericEnvelope("Test", "user", "session", nil, nil, nil)
+	env := envelope.CreateEnvelope("Test", "user", "session", nil, nil, nil)
 	// No plan output
 
 	result, err := agent.Process(context.Background(), env)
@@ -474,13 +474,13 @@ func TestRoutingRules(t *testing.T) {
 	cfg.DefaultNext = "default_next"
 	logger := &MockLogger{}
 
-	agent, _ := NewUnifiedAgent(cfg, logger, nil, nil)
+	agent, _ := NewAgent(cfg, logger, nil, nil)
 	agent.UseMock = true
-	agent.MockHandler = func(env *envelope.GenericEnvelope) (map[string]any, error) {
+	agent.MockHandler = func(env *envelope.Envelope) (map[string]any, error) {
 		return map[string]any{"needs_clarification": true}, nil
 	}
 
-	env := envelope.CreateGenericEnvelope("Test", "user", "session", nil, nil, nil)
+	env := envelope.CreateEnvelope("Test", "user", "session", nil, nil, nil)
 	result, err := agent.Process(context.Background(), env)
 
 	require.NoError(t, err)
@@ -496,13 +496,13 @@ func TestRoutingDefaultNext(t *testing.T) {
 	cfg.DefaultNext = "default_stage"
 	logger := &MockLogger{}
 
-	agent, _ := NewUnifiedAgent(cfg, logger, nil, nil)
+	agent, _ := NewAgent(cfg, logger, nil, nil)
 	agent.UseMock = true
-	agent.MockHandler = func(env *envelope.GenericEnvelope) (map[string]any, error) {
+	agent.MockHandler = func(env *envelope.Envelope) (map[string]any, error) {
 		return map[string]any{"normal_output": true}, nil
 	}
 
-	env := envelope.CreateGenericEnvelope("Test", "user", "session", nil, nil, nil)
+	env := envelope.CreateEnvelope("Test", "user", "session", nil, nil, nil)
 	result, err := agent.Process(context.Background(), env)
 
 	require.NoError(t, err)
@@ -515,9 +515,9 @@ func TestRoutingNoDefaultEnds(t *testing.T) {
 	// No routing rules, no default next
 	logger := &MockLogger{}
 
-	agent, _ := NewUnifiedAgent(cfg, logger, nil, nil)
+	agent, _ := NewAgent(cfg, logger, nil, nil)
 
-	env := envelope.CreateGenericEnvelope("Test", "user", "session", nil, nil, nil)
+	env := envelope.CreateEnvelope("Test", "user", "session", nil, nil, nil)
 	result, err := agent.Process(context.Background(), env)
 
 	require.NoError(t, err)
@@ -535,13 +535,13 @@ func TestRequiredOutputFields(t *testing.T) {
 	cfg.ErrorNext = "error_stage"
 	logger := &MockLogger{}
 
-	agent, _ := NewUnifiedAgent(cfg, logger, nil, nil)
+	agent, _ := NewAgent(cfg, logger, nil, nil)
 	agent.UseMock = true
-	agent.MockHandler = func(env *envelope.GenericEnvelope) (map[string]any, error) {
+	agent.MockHandler = func(env *envelope.Envelope) (map[string]any, error) {
 		return map[string]any{"intent": "analyze"}, nil // Missing confidence
 	}
 
-	env := envelope.CreateGenericEnvelope("Test", "user", "session", nil, nil, nil)
+	env := envelope.CreateEnvelope("Test", "user", "session", nil, nil, nil)
 	result, err := agent.Process(context.Background(), env)
 
 	require.NoError(t, err) // Error routed
@@ -557,13 +557,13 @@ func TestRequiredOutputFieldsPass(t *testing.T) {
 	cfg.DefaultNext = "end"
 	logger := &MockLogger{}
 
-	agent, _ := NewUnifiedAgent(cfg, logger, nil, nil)
+	agent, _ := NewAgent(cfg, logger, nil, nil)
 	agent.UseMock = true
-	agent.MockHandler = func(env *envelope.GenericEnvelope) (map[string]any, error) {
+	agent.MockHandler = func(env *envelope.Envelope) (map[string]any, error) {
 		return map[string]any{"intent": "analyze", "confidence": 0.9}, nil
 	}
 
-	env := envelope.CreateGenericEnvelope("Test", "user", "session", nil, nil, nil)
+	env := envelope.CreateEnvelope("Test", "user", "session", nil, nil, nil)
 	result, err := agent.Process(context.Background(), env)
 
 	require.NoError(t, err)
@@ -582,10 +582,10 @@ func TestEventContextEmitsEvents(t *testing.T) {
 	logger := &MockLogger{}
 	events := &MockEventContext{}
 
-	agent, _ := NewUnifiedAgent(cfg, logger, nil, nil)
+	agent, _ := NewAgent(cfg, logger, nil, nil)
 	agent.SetEventContext(events)
 
-	env := envelope.CreateGenericEnvelope("Test", "user", "session", nil, nil, nil)
+	env := envelope.CreateEnvelope("Test", "user", "session", nil, nil, nil)
 	_, err := agent.Process(context.Background(), env)
 
 	require.NoError(t, err)

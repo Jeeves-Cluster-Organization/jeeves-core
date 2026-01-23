@@ -37,7 +37,7 @@ class PostgresCheckpointAdapter:
 
         # Load checkpoint for replay
         state = await adapter.load_checkpoint("ckpt_abc")
-        envelope = GenericEnvelope.from_state_dict(state)
+        envelope = Envelope.from_state_dict(state)
     """
 
     SCHEMA_SQL = """

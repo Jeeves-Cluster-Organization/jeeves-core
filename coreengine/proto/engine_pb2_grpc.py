@@ -3,7 +3,7 @@
 import grpc
 import warnings
 
-from coreengine.proto import jeeves_core_pb2 as coreengine_dot_proto_dot_jeeves__core__pb2
+from coreengine.proto import engine_pb2 as coreengine_dot_proto_dot_engine__pb2
 
 GRPC_GENERATED_VERSION = '1.76.0'
 GRPC_VERSION = grpc.__version__
@@ -18,16 +18,16 @@ except ImportError:
 if _version_not_supported:
     raise RuntimeError(
         f'The grpc package installed is at version {GRPC_VERSION},'
-        + ' but the generated code in coreengine/proto/jeeves_core_pb2_grpc.py depends on'
+        + ' but the generated code in coreengine/proto/engine_pb2_grpc.py depends on'
         + f' grpcio>={GRPC_GENERATED_VERSION}.'
         + f' Please upgrade your grpc module to grpcio>={GRPC_GENERATED_VERSION}'
         + f' or downgrade your generated code using grpcio-tools<={GRPC_VERSION}.'
     )
 
 
-class JeevesCoreServiceStub(object):
+class EngineServiceStub(object):
     """=============================================================================
-    JeevesCoreService - Go runtime operations
+    EngineService - Go runtime operations
     =============================================================================
     """
 
@@ -38,40 +38,40 @@ class JeevesCoreServiceStub(object):
             channel: A grpc.Channel.
         """
         self.CreateEnvelope = channel.unary_unary(
-                '/jeeves.core.v1.JeevesCoreService/CreateEnvelope',
-                request_serializer=coreengine_dot_proto_dot_jeeves__core__pb2.CreateEnvelopeRequest.SerializeToString,
-                response_deserializer=coreengine_dot_proto_dot_jeeves__core__pb2.Envelope.FromString,
+                '/jeeves.engine.v1.EngineService/CreateEnvelope',
+                request_serializer=coreengine_dot_proto_dot_engine__pb2.CreateEnvelopeRequest.SerializeToString,
+                response_deserializer=coreengine_dot_proto_dot_engine__pb2.Envelope.FromString,
                 _registered_method=True)
         self.UpdateEnvelope = channel.unary_unary(
-                '/jeeves.core.v1.JeevesCoreService/UpdateEnvelope',
-                request_serializer=coreengine_dot_proto_dot_jeeves__core__pb2.UpdateEnvelopeRequest.SerializeToString,
-                response_deserializer=coreengine_dot_proto_dot_jeeves__core__pb2.Envelope.FromString,
+                '/jeeves.engine.v1.EngineService/UpdateEnvelope',
+                request_serializer=coreengine_dot_proto_dot_engine__pb2.UpdateEnvelopeRequest.SerializeToString,
+                response_deserializer=coreengine_dot_proto_dot_engine__pb2.Envelope.FromString,
                 _registered_method=True)
         self.CheckBounds = channel.unary_unary(
-                '/jeeves.core.v1.JeevesCoreService/CheckBounds',
-                request_serializer=coreengine_dot_proto_dot_jeeves__core__pb2.Envelope.SerializeToString,
-                response_deserializer=coreengine_dot_proto_dot_jeeves__core__pb2.BoundsResult.FromString,
+                '/jeeves.engine.v1.EngineService/CheckBounds',
+                request_serializer=coreengine_dot_proto_dot_engine__pb2.Envelope.SerializeToString,
+                response_deserializer=coreengine_dot_proto_dot_engine__pb2.BoundsResult.FromString,
                 _registered_method=True)
         self.ExecutePipeline = channel.unary_stream(
-                '/jeeves.core.v1.JeevesCoreService/ExecutePipeline',
-                request_serializer=coreengine_dot_proto_dot_jeeves__core__pb2.ExecuteRequest.SerializeToString,
-                response_deserializer=coreengine_dot_proto_dot_jeeves__core__pb2.ExecutionEvent.FromString,
+                '/jeeves.engine.v1.EngineService/ExecutePipeline',
+                request_serializer=coreengine_dot_proto_dot_engine__pb2.ExecuteRequest.SerializeToString,
+                response_deserializer=coreengine_dot_proto_dot_engine__pb2.ExecutionEvent.FromString,
                 _registered_method=True)
         self.ExecuteAgent = channel.unary_unary(
-                '/jeeves.core.v1.JeevesCoreService/ExecuteAgent',
-                request_serializer=coreengine_dot_proto_dot_jeeves__core__pb2.ExecuteAgentRequest.SerializeToString,
-                response_deserializer=coreengine_dot_proto_dot_jeeves__core__pb2.AgentResult.FromString,
+                '/jeeves.engine.v1.EngineService/ExecuteAgent',
+                request_serializer=coreengine_dot_proto_dot_engine__pb2.ExecuteAgentRequest.SerializeToString,
+                response_deserializer=coreengine_dot_proto_dot_engine__pb2.AgentResult.FromString,
                 _registered_method=True)
         self.CloneEnvelope = channel.unary_unary(
-                '/jeeves.core.v1.JeevesCoreService/CloneEnvelope',
-                request_serializer=coreengine_dot_proto_dot_jeeves__core__pb2.CloneRequest.SerializeToString,
-                response_deserializer=coreengine_dot_proto_dot_jeeves__core__pb2.Envelope.FromString,
+                '/jeeves.engine.v1.EngineService/CloneEnvelope',
+                request_serializer=coreengine_dot_proto_dot_engine__pb2.CloneRequest.SerializeToString,
+                response_deserializer=coreengine_dot_proto_dot_engine__pb2.Envelope.FromString,
                 _registered_method=True)
 
 
-class JeevesCoreServiceServicer(object):
+class EngineServiceServicer(object):
     """=============================================================================
-    JeevesCoreService - Go runtime operations
+    EngineService - Go runtime operations
     =============================================================================
     """
 
@@ -116,49 +116,49 @@ class JeevesCoreServiceServicer(object):
         raise NotImplementedError('Method not implemented!')
 
 
-def add_JeevesCoreServiceServicer_to_server(servicer, server):
+def add_EngineServiceServicer_to_server(servicer, server):
     rpc_method_handlers = {
             'CreateEnvelope': grpc.unary_unary_rpc_method_handler(
                     servicer.CreateEnvelope,
-                    request_deserializer=coreengine_dot_proto_dot_jeeves__core__pb2.CreateEnvelopeRequest.FromString,
-                    response_serializer=coreengine_dot_proto_dot_jeeves__core__pb2.Envelope.SerializeToString,
+                    request_deserializer=coreengine_dot_proto_dot_engine__pb2.CreateEnvelopeRequest.FromString,
+                    response_serializer=coreengine_dot_proto_dot_engine__pb2.Envelope.SerializeToString,
             ),
             'UpdateEnvelope': grpc.unary_unary_rpc_method_handler(
                     servicer.UpdateEnvelope,
-                    request_deserializer=coreengine_dot_proto_dot_jeeves__core__pb2.UpdateEnvelopeRequest.FromString,
-                    response_serializer=coreengine_dot_proto_dot_jeeves__core__pb2.Envelope.SerializeToString,
+                    request_deserializer=coreengine_dot_proto_dot_engine__pb2.UpdateEnvelopeRequest.FromString,
+                    response_serializer=coreengine_dot_proto_dot_engine__pb2.Envelope.SerializeToString,
             ),
             'CheckBounds': grpc.unary_unary_rpc_method_handler(
                     servicer.CheckBounds,
-                    request_deserializer=coreengine_dot_proto_dot_jeeves__core__pb2.Envelope.FromString,
-                    response_serializer=coreengine_dot_proto_dot_jeeves__core__pb2.BoundsResult.SerializeToString,
+                    request_deserializer=coreengine_dot_proto_dot_engine__pb2.Envelope.FromString,
+                    response_serializer=coreengine_dot_proto_dot_engine__pb2.BoundsResult.SerializeToString,
             ),
             'ExecutePipeline': grpc.unary_stream_rpc_method_handler(
                     servicer.ExecutePipeline,
-                    request_deserializer=coreengine_dot_proto_dot_jeeves__core__pb2.ExecuteRequest.FromString,
-                    response_serializer=coreengine_dot_proto_dot_jeeves__core__pb2.ExecutionEvent.SerializeToString,
+                    request_deserializer=coreengine_dot_proto_dot_engine__pb2.ExecuteRequest.FromString,
+                    response_serializer=coreengine_dot_proto_dot_engine__pb2.ExecutionEvent.SerializeToString,
             ),
             'ExecuteAgent': grpc.unary_unary_rpc_method_handler(
                     servicer.ExecuteAgent,
-                    request_deserializer=coreengine_dot_proto_dot_jeeves__core__pb2.ExecuteAgentRequest.FromString,
-                    response_serializer=coreengine_dot_proto_dot_jeeves__core__pb2.AgentResult.SerializeToString,
+                    request_deserializer=coreengine_dot_proto_dot_engine__pb2.ExecuteAgentRequest.FromString,
+                    response_serializer=coreengine_dot_proto_dot_engine__pb2.AgentResult.SerializeToString,
             ),
             'CloneEnvelope': grpc.unary_unary_rpc_method_handler(
                     servicer.CloneEnvelope,
-                    request_deserializer=coreengine_dot_proto_dot_jeeves__core__pb2.CloneRequest.FromString,
-                    response_serializer=coreengine_dot_proto_dot_jeeves__core__pb2.Envelope.SerializeToString,
+                    request_deserializer=coreengine_dot_proto_dot_engine__pb2.CloneRequest.FromString,
+                    response_serializer=coreengine_dot_proto_dot_engine__pb2.Envelope.SerializeToString,
             ),
     }
     generic_handler = grpc.method_handlers_generic_handler(
-            'jeeves.core.v1.JeevesCoreService', rpc_method_handlers)
+            'jeeves.engine.v1.EngineService', rpc_method_handlers)
     server.add_generic_rpc_handlers((generic_handler,))
-    server.add_registered_method_handlers('jeeves.core.v1.JeevesCoreService', rpc_method_handlers)
+    server.add_registered_method_handlers('jeeves.engine.v1.EngineService', rpc_method_handlers)
 
 
  # This class is part of an EXPERIMENTAL API.
-class JeevesCoreService(object):
+class EngineService(object):
     """=============================================================================
-    JeevesCoreService - Go runtime operations
+    EngineService - Go runtime operations
     =============================================================================
     """
 
@@ -176,9 +176,9 @@ class JeevesCoreService(object):
         return grpc.experimental.unary_unary(
             request,
             target,
-            '/jeeves.core.v1.JeevesCoreService/CreateEnvelope',
-            coreengine_dot_proto_dot_jeeves__core__pb2.CreateEnvelopeRequest.SerializeToString,
-            coreengine_dot_proto_dot_jeeves__core__pb2.Envelope.FromString,
+            '/jeeves.engine.v1.EngineService/CreateEnvelope',
+            coreengine_dot_proto_dot_engine__pb2.CreateEnvelopeRequest.SerializeToString,
+            coreengine_dot_proto_dot_engine__pb2.Envelope.FromString,
             options,
             channel_credentials,
             insecure,
@@ -203,9 +203,9 @@ class JeevesCoreService(object):
         return grpc.experimental.unary_unary(
             request,
             target,
-            '/jeeves.core.v1.JeevesCoreService/UpdateEnvelope',
-            coreengine_dot_proto_dot_jeeves__core__pb2.UpdateEnvelopeRequest.SerializeToString,
-            coreengine_dot_proto_dot_jeeves__core__pb2.Envelope.FromString,
+            '/jeeves.engine.v1.EngineService/UpdateEnvelope',
+            coreengine_dot_proto_dot_engine__pb2.UpdateEnvelopeRequest.SerializeToString,
+            coreengine_dot_proto_dot_engine__pb2.Envelope.FromString,
             options,
             channel_credentials,
             insecure,
@@ -230,9 +230,9 @@ class JeevesCoreService(object):
         return grpc.experimental.unary_unary(
             request,
             target,
-            '/jeeves.core.v1.JeevesCoreService/CheckBounds',
-            coreengine_dot_proto_dot_jeeves__core__pb2.Envelope.SerializeToString,
-            coreengine_dot_proto_dot_jeeves__core__pb2.BoundsResult.FromString,
+            '/jeeves.engine.v1.EngineService/CheckBounds',
+            coreengine_dot_proto_dot_engine__pb2.Envelope.SerializeToString,
+            coreengine_dot_proto_dot_engine__pb2.BoundsResult.FromString,
             options,
             channel_credentials,
             insecure,
@@ -257,9 +257,9 @@ class JeevesCoreService(object):
         return grpc.experimental.unary_stream(
             request,
             target,
-            '/jeeves.core.v1.JeevesCoreService/ExecutePipeline',
-            coreengine_dot_proto_dot_jeeves__core__pb2.ExecuteRequest.SerializeToString,
-            coreengine_dot_proto_dot_jeeves__core__pb2.ExecutionEvent.FromString,
+            '/jeeves.engine.v1.EngineService/ExecutePipeline',
+            coreengine_dot_proto_dot_engine__pb2.ExecuteRequest.SerializeToString,
+            coreengine_dot_proto_dot_engine__pb2.ExecutionEvent.FromString,
             options,
             channel_credentials,
             insecure,
@@ -284,9 +284,9 @@ class JeevesCoreService(object):
         return grpc.experimental.unary_unary(
             request,
             target,
-            '/jeeves.core.v1.JeevesCoreService/ExecuteAgent',
-            coreengine_dot_proto_dot_jeeves__core__pb2.ExecuteAgentRequest.SerializeToString,
-            coreengine_dot_proto_dot_jeeves__core__pb2.AgentResult.FromString,
+            '/jeeves.engine.v1.EngineService/ExecuteAgent',
+            coreengine_dot_proto_dot_engine__pb2.ExecuteAgentRequest.SerializeToString,
+            coreengine_dot_proto_dot_engine__pb2.AgentResult.FromString,
             options,
             channel_credentials,
             insecure,
@@ -311,9 +311,9 @@ class JeevesCoreService(object):
         return grpc.experimental.unary_unary(
             request,
             target,
-            '/jeeves.core.v1.JeevesCoreService/CloneEnvelope',
-            coreengine_dot_proto_dot_jeeves__core__pb2.CloneRequest.SerializeToString,
-            coreengine_dot_proto_dot_jeeves__core__pb2.Envelope.FromString,
+            '/jeeves.engine.v1.EngineService/CloneEnvelope',
+            coreengine_dot_proto_dot_engine__pb2.CloneRequest.SerializeToString,
+            coreengine_dot_proto_dot_engine__pb2.Envelope.FromString,
             options,
             channel_credentials,
             insecure,

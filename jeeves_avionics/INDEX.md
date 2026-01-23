@@ -26,7 +26,7 @@ Avionics extends these with infrastructure-specific features (e.g., OpenTelemetr
 | `context_bounds.py` | ContextBounds adapter |
 | `wiring.py` | ToolExecutor, create_llm_provider_factory (lazy import) |
 | `runtime.py` | AgentRuntime, TimingContext |
-| `capability_registry.py` | CapabilityLLMConfigRegistry |
+| `capability_registry.py` | DomainLLMRegistry |
 
 ## Subdirectories
 

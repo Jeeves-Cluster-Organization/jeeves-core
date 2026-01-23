@@ -149,7 +149,7 @@ We created 15 tests for our 4 helper functions, ensuring:
 ### Production Code
 - `coreengine/runtime/runtime.go` (+60 lines)
 - `coreengine/testutil/testutil.go` (+100 lines)
-- `coreengine/envelope/generic.go` (minor fixes)
+- `coreengine/envelope/envelope.go` (minor fixes)
 
 ### Test Code
 - `coreengine/testutil/helpers_test.go` (+206 lines, NEW)

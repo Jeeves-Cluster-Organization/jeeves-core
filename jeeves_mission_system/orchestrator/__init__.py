@@ -26,8 +26,10 @@ from jeeves_mission_system.orchestrator.events import (
     create_event_orchestrator,
     AgentEventType,
     AgentEvent,
-    AgentEventEmitter,
-    AgentEventContext,
+    EventEmitter,
+    EventContext,
+    create_agent_event_emitter,
+    create_event_context,
 )
 
 __all__ = [
@@ -36,6 +38,9 @@ __all__ = [
     "create_event_orchestrator",
     "AgentEventType",
     "AgentEvent",
-    "AgentEventEmitter",
-    "AgentEventContext",
+    "EventEmitter",
+    "EventContext",
+    # Factory functions
+    "create_agent_event_emitter",
+    "create_event_context",
 ]

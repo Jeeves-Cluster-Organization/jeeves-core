@@ -1,6 +1,6 @@
-"""Contract tests for GenericEnvelope roundtrip serialization.
+"""Contract tests for Envelope roundtrip serialization.
 
-These tests verify that GenericEnvelope can be serialized and deserialized
+These tests verify that Envelope can be serialized and deserialized
 correctly between Python and Go (via proto) and Python and JSON.
 
 Contract: Envelope state must be preserved across serialization boundaries.
@@ -11,8 +11,8 @@ import json
 from datetime import datetime, timezone
 from copy import deepcopy
 
-from jeeves_protocols.envelope import GenericEnvelope
-from jeeves_protocols.core import TerminalReason
+from jeeves_protocols.envelope import Envelope
+from jeeves_protocols.enums import TerminalReason
 
 
 # =============================================================================
@@ -20,11 +20,11 @@ from jeeves_protocols.core import TerminalReason
 # =============================================================================
 
 class TestEnvelopeJsonRoundtrip:
-    """Test GenericEnvelope JSON serialization roundtrip."""
+    """Test Envelope JSON serialization roundtrip."""
 
     def test_empty_envelope_roundtrip(self):
         """Test roundtrip of minimal envelope."""
-        original = GenericEnvelope(
+        original = Envelope(
             envelope_id="env_test",
             request_id="req_test",
             user_id="user_001",
@@ -36,7 +36,7 @@ class TestEnvelopeJsonRoundtrip:
         data = original.to_dict()
         
         # Deserialize back
-        restored = GenericEnvelope.from_dict(data)
+        restored = Envelope.from_dict(data)
         
         # Core fields should match
         assert restored.envelope_id == original.envelope_id
@@ -49,7 +49,7 @@ class TestEnvelopeJsonRoundtrip:
         """Test roundtrip of fully populated envelope."""
         now = datetime.now(timezone.utc)
         
-        original = GenericEnvelope(
+        original = Envelope(
             envelope_id="env_full",
             request_id="req_full",
             user_id="user_002",
@@ -83,7 +83,7 @@ class TestEnvelopeJsonRoundtrip:
         
         # Serialize and deserialize
         data = original.to_dict()
-        restored = GenericEnvelope.from_dict(data)
+        restored = Envelope.from_dict(data)
         
         # Verify all fields
         assert restored.envelope_id == original.envelope_id
@@ -101,7 +101,7 @@ class TestEnvelopeJsonRoundtrip:
 
     def test_envelope_with_terminal_reason_roundtrip(self):
         """Test roundtrip preserves terminal_reason enum."""
-        original = GenericEnvelope(
+        original = Envelope(
             envelope_id="env_term",
             request_id="req_term",
             user_id="user",
@@ -112,14 +112,14 @@ class TestEnvelopeJsonRoundtrip:
         )
         
         data = original.to_dict()
-        restored = GenericEnvelope.from_dict(data)
+        restored = Envelope.from_dict(data)
         
         assert restored.terminated is True
         assert restored.terminal_reason == TerminalReason.max_llm_calls_exceeded
 
     def test_envelope_to_json_and_back(self):
         """Test full JSON string serialization."""
-        original = GenericEnvelope(
+        original = Envelope(
             envelope_id="env_json",
             request_id="req_json",
             user_id="user",
@@ -133,7 +133,7 @@ class TestEnvelopeJsonRoundtrip:
         
         # Parse back
         data = json.loads(json_str)
-        restored = GenericEnvelope.from_dict(data)
+        restored = Envelope.from_dict(data)
         
         assert restored.envelope_id == original.envelope_id
         assert restored.outputs == original.outputs
@@ -144,11 +144,11 @@ class TestEnvelopeJsonRoundtrip:
 # =============================================================================
 
 class TestEnvelopeStateDictRoundtrip:
-    """Test GenericEnvelope state dict serialization."""
+    """Test Envelope state dict serialization."""
 
     def test_to_state_dict_minimal(self):
         """Test to_state_dict with minimal envelope."""
-        envelope = GenericEnvelope(
+        envelope = Envelope(
             envelope_id="env_state",
             request_id="req_state",
             user_id="user",
@@ -164,7 +164,7 @@ class TestEnvelopeStateDictRoundtrip:
 
     def test_to_state_dict_captures_progress(self):
         """Test to_state_dict captures execution progress."""
-        envelope = GenericEnvelope(
+        envelope = Envelope(
             envelope_id="env_progress",
             request_id="req_progress",
             user_id="user",
@@ -191,7 +191,7 @@ class TestEnvelopeDeepCopy:
 
     def test_deepcopy_creates_independent_copy(self):
         """Test that deepcopy creates truly independent copy."""
-        original = GenericEnvelope(
+        original = Envelope(
             envelope_id="env_copy",
             request_id="req_copy",
             user_id="user",
@@ -217,7 +217,7 @@ class TestEnvelopeDeepCopy:
         """Test that deepcopy preserves all fields."""
         now = datetime.now(timezone.utc)
         
-        original = GenericEnvelope(
+        original = Envelope(
             envelope_id="env_full_copy",
             request_id="req_full_copy",
             user_id="user",
@@ -243,11 +243,11 @@ class TestEnvelopeDeepCopy:
 # =============================================================================
 
 class TestEnvelopeInvariants:
-    """Test GenericEnvelope invariants that must hold."""
+    """Test Envelope invariants that must hold."""
 
     def test_bounds_are_non_negative(self):
         """Test that bound values are non-negative."""
-        envelope = GenericEnvelope(
+        envelope = Envelope(
             envelope_id="env_bounds",
             request_id="req_bounds",
             user_id="user",
@@ -264,7 +264,7 @@ class TestEnvelopeInvariants:
 
     def test_terminated_envelope_has_reason(self):
         """Test convention: terminated envelopes should have a reason."""
-        envelope = GenericEnvelope(
+        envelope = Envelope(
             envelope_id="env_terminated",
             request_id="req_terminated",
             user_id="user",

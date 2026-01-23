@@ -1,4 +1,4 @@
-"""Unified Agent Runtime - Go-backed pipeline execution.
+"""Agent PipelineRunner - Go-backed pipeline execution.
 
 Architecture:
     Go (coreengine/)     - Envelope state, bounds checking, pipeline graph
@@ -10,7 +10,7 @@ from dataclasses import dataclass, field
 from typing import Any, Callable, Dict, List, Optional, Protocol, AsyncIterator, Tuple
 
 from jeeves_protocols.config import AgentConfig, PipelineConfig
-from jeeves_protocols.envelope import GenericEnvelope
+from jeeves_protocols.envelope import Envelope
 
 
 # =============================================================================
@@ -59,16 +59,16 @@ class EventContext(Protocol):
 # =============================================================================
 
 LLMProviderFactory = Callable[[str], LLMProvider]
-PreProcessHook = Callable[[GenericEnvelope, Optional["UnifiedAgent"]], GenericEnvelope]
-PostProcessHook = Callable[[GenericEnvelope, Dict[str, Any], Optional["UnifiedAgent"]], GenericEnvelope]
-MockHandler = Callable[[GenericEnvelope], Dict[str, Any]]
+PreProcessHook = Callable[[Envelope, Optional["Agent"]], Envelope]
+PostProcessHook = Callable[[Envelope, Dict[str, Any], Optional["Agent"]], Envelope]
+MockHandler = Callable[[Envelope], Dict[str, Any]]
 
 
 # =============================================================================
 # AGENT CAPABILITY FLAGS
 # =============================================================================
 
-class AgentCapability:
+class AgentFeatures:
     """Agent capability flags."""
     LLM = "llm"
     TOOLS = "tools"
@@ -80,7 +80,7 @@ class AgentCapability:
 # =============================================================================
 
 @dataclass
-class UnifiedAgent:
+class Agent:
     """Unified agent driven by configuration.
 
     Agents are configuration-driven - no subclassing required.
@@ -105,7 +105,7 @@ class UnifiedAgent:
     def set_event_context(self, ctx: EventContext) -> None:
         self.event_context = ctx
 
-    async def process(self, envelope: GenericEnvelope) -> GenericEnvelope:
+    async def process(self, envelope: Envelope) -> Envelope:
         """Process envelope through this agent."""
         self.logger.info(f"{self.name}_started", envelope_id=envelope.envelope_id)
 
@@ -170,7 +170,7 @@ class UnifiedAgent:
 
         return envelope
 
-    async def _call_llm(self, envelope: GenericEnvelope) -> Dict[str, Any]:
+    async def _call_llm(self, envelope: Envelope) -> Dict[str, Any]:
         """Call LLM with prompt from registry."""
         if not self.prompt_registry:
             raise ValueError(f"Agent {self.name} requires prompt_registry")
@@ -286,7 +286,7 @@ class UnifiedAgent:
             return result
         return {"response": response}
 
-    async def _execute_tools(self, envelope: GenericEnvelope, output: Dict[str, Any]) -> Dict[str, Any]:
+    async def _execute_tools(self, envelope: Envelope, output: Dict[str, Any]) -> Dict[str, Any]:
         """Execute tool calls from LLM output."""
         tool_calls = output.get("tool_calls", [])
         results = []
@@ -336,7 +336,7 @@ class UnifiedAgent:
 # =============================================================================
 
 @dataclass
-class Runtime:
+class PipelineRunner:
     """Pipeline runtime - orchestrates agent execution.
 
     Uses Go for envelope state/bounds when available.
@@ -350,7 +350,7 @@ class Runtime:
     prompt_registry: Optional[PromptRegistry] = None
     use_mock: bool = False
 
-    agents: Dict[str, UnifiedAgent] = field(default_factory=dict)
+    agents: Dict[str, Agent] = field(default_factory=dict)
     event_context: Optional[EventContext] = None
     _initialized: bool = field(default=False)
 
@@ -368,7 +368,7 @@ class Runtime:
 
             tools = self.tool_executor if agent_config.has_tools else None
 
-            agent = UnifiedAgent(
+            agent = Agent(
                 config=agent_config,
                 logger=self.logger.bind(agent=agent_config.name) if self.logger else _NullLogger(),
                 llm=llm,
@@ -390,7 +390,7 @@ class Runtime:
         for agent in self.agents.values():
             agent.set_event_context(ctx)
 
-    async def run(self, envelope: GenericEnvelope, thread_id: str = "") -> GenericEnvelope:
+    async def run(self, envelope: Envelope, thread_id: str = "") -> Envelope:
         """Execute pipeline on envelope."""
         envelope.max_iterations = self.config.max_iterations
         envelope.max_llm_calls = self.config.max_llm_calls
@@ -441,7 +441,7 @@ class Runtime:
 
         return envelope
 
-    async def run_streaming(self, envelope: GenericEnvelope, thread_id: str = "") -> AsyncIterator[Tuple[str, Dict[str, Any]]]:
+    async def run_streaming(self, envelope: Envelope, thread_id: str = "") -> AsyncIterator[Tuple[str, Dict[str, Any]]]:
         """Execute pipeline with streaming outputs."""
         envelope.max_iterations = self.config.max_iterations
         envelope.max_llm_calls = self.config.max_llm_calls
@@ -485,7 +485,7 @@ class Runtime:
 
         yield ("__end__", {"terminated": envelope.terminated})
 
-    async def resume(self, envelope: GenericEnvelope, thread_id: str = "") -> GenericEnvelope:
+    async def resume(self, envelope: Envelope, thread_id: str = "") -> Envelope:
         """Resume after interrupt.
 
         Resume stages are determined by PipelineConfig, not hardcoded.
@@ -519,7 +519,7 @@ class Runtime:
             return None
         return await self.persistence.load_state(thread_id)
 
-    def _can_continue(self, envelope: GenericEnvelope) -> bool:
+    def _can_continue(self, envelope: Envelope) -> bool:
         """Check bounds."""
         if envelope.iteration >= envelope.max_iterations:
             envelope.terminal_reason = "max_iterations_exceeded"
@@ -532,7 +532,7 @@ class Runtime:
             return False
         return True
 
-    def get_agent(self, name: str) -> Optional[UnifiedAgent]:
+    def get_agent(self, name: str) -> Optional[Agent]:
         return self.agents.get(name)
 
 
@@ -540,7 +540,7 @@ class Runtime:
 # FACTORY FUNCTIONS
 # =============================================================================
 
-def create_runtime_from_config(
+def create_pipeline_runner(
     config: PipelineConfig,
     llm_provider_factory: Optional[LLMProviderFactory] = None,
     tool_executor: Optional[ToolExecutor] = None,
@@ -548,9 +548,9 @@ def create_runtime_from_config(
     persistence: Optional[Persistence] = None,
     prompt_registry: Optional[PromptRegistry] = None,
     use_mock: bool = False,
-) -> Runtime:
-    """Factory to create Runtime from pipeline config."""
-    return Runtime(
+) -> PipelineRunner:
+    """Factory to create PipelineRunner from pipeline config."""
+    return PipelineRunner(
         config=config,
         llm_factory=llm_provider_factory,
         tool_executor=tool_executor,
@@ -561,18 +561,18 @@ def create_runtime_from_config(
     )
 
 
-def create_generic_envelope(
+def create_envelope(
     raw_input: str,
     user_id: str = "",
     session_id: str = "",
     request_id: str = "",
     metadata: Optional[Dict[str, Any]] = None,
-) -> GenericEnvelope:
-    """Factory to create GenericEnvelope."""
+) -> Envelope:
+    """Factory to create Envelope."""
     import uuid
     from jeeves_protocols.utils import utc_now
 
-    return GenericEnvelope(
+    return Envelope(
         envelope_id=str(uuid.uuid4()),
         request_id=request_id or str(uuid.uuid4()),
         user_id=user_id,

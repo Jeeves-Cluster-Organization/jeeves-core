@@ -252,9 +252,9 @@ class TestCrossLayerContracts:
     """Test contracts that span multiple layers."""
 
     def test_envelope_type_same_across_layers(self):
-        """Test that GenericEnvelope is the same type everywhere."""
-        from jeeves_protocols import GenericEnvelope as ProtocolEnvelope
-        from jeeves_protocols.envelope import GenericEnvelope as EnvelopeModule
+        """Test that Envelope is the same type everywhere."""
+        from jeeves_protocols import Envelope as ProtocolEnvelope
+        from jeeves_protocols.envelope import Envelope as EnvelopeModule
         
         # Should be the exact same class
         assert ProtocolEnvelope is EnvelopeModule
@@ -262,7 +262,7 @@ class TestCrossLayerContracts:
     def test_terminal_reason_enum_consistent(self):
         """Test that TerminalReason enum is consistent."""
         from jeeves_protocols import TerminalReason as ProtocolReason
-        from jeeves_protocols.core import TerminalReason as CoreReason
+        from jeeves_protocols.enums import TerminalReason as CoreReason
         
         # Should be the exact same enum
         assert ProtocolReason is CoreReason
@@ -298,7 +298,7 @@ class TestNoCyclicImports:
     def test_no_cycle_protocols_to_control_tower(self):
         """Test no cycle between protocols and control_tower."""
         # If this import works without hanging, no cycle exists
-        from jeeves_protocols import GenericEnvelope
+        from jeeves_protocols import Envelope
         from jeeves_control_tower.kernel import ControlTower
         assert True
 

@@ -15,8 +15,8 @@ Pure Python workflow orchestration providing the foundation for capability pipel
 | File | Description |
 |------|-------------|
 | `__init__.py` | Package exports |
-| `agent_events.py` | `AgentEventEmitter` - Agent lifecycle event emission |
-| `event_context.py` | `AgentEventContext` - Unified event emission facade |
+| `agent_events.py` | `EventEmitter` - Agent lifecycle event emission |
+| `event_context.py` | `EventContext` - Unified event emission facade |
 | `flow_service.py` | `FlowService` - Main orchestration service |
 | `governance_service.py` | `GovernanceService` - Tool access governance |
 | `vertical_service.py` | Vertical registration and management |
@@ -43,7 +43,7 @@ class FlowService:
 ### Event Context (`event_context.py`)
 Unified event emission (target for commbus migration):
 ```python
-class AgentEventContext:
+class EventContext:
     async def emit_agent_started(self, agent_name: str, **payload)
     async def emit_agent_completed(self, agent_name: str, status: str, ...)
     async def emit_tool_started(self, tool_name: str, ...)

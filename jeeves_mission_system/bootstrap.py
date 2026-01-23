@@ -30,7 +30,7 @@ from jeeves_avionics.context import AppContext, SystemClock
 from jeeves_avionics.logging import configure_logging
 from jeeves_avionics.settings import Settings, get_settings
 from jeeves_avionics.feature_flags import FeatureFlags, get_feature_flags
-from jeeves_protocols.config import CoreConfig, ContextBounds, OrchestrationFlags
+from jeeves_protocols.config import ExecutionConfig, ContextBounds, OrchestrationFlags
 from jeeves_protocols import get_capability_resource_registry
 
 from jeeves_control_tower import ControlTower, ResourceQuota
@@ -74,7 +74,7 @@ def get_request_pid() -> Optional[str]:
 if TYPE_CHECKING:
     from jeeves_protocols import (
         LanguageConfigProtocol,
-        NodeProfilesProtocol,
+        InferenceEndpointsProtocol,
         AgentToolAccessProtocol,
         ConfigRegistryProtocol,
     )
@@ -91,8 +91,8 @@ def _parse_optional_int(env_var: str) -> Optional[int]:
     return int(val) if val else None
 
 
-def create_core_config_from_env() -> CoreConfig:
-    """Create CoreConfig from environment variables.
+def create_core_config_from_env() -> ExecutionConfig:
+    """Create ExecutionConfig from environment variables.
 
     Environment Variables:
         CORE_MAX_ITERATIONS: Max pipeline iterations
@@ -107,9 +107,9 @@ def create_core_config_from_env() -> CoreConfig:
         CORE_RESERVED_TOKENS: Reserved tokens for system
 
     Returns:
-        CoreConfig with environment-parsed values
+        ExecutionConfig with environment-parsed values
     """
-    return CoreConfig(
+    return ExecutionConfig(
         max_iterations=int(os.getenv("CORE_MAX_ITERATIONS", "3")),
         max_llm_calls=int(os.getenv("CORE_MAX_LLM_CALLS", "10")),
         max_agent_hops=int(os.getenv("CORE_MAX_AGENT_HOPS", "21")),
@@ -149,14 +149,14 @@ def create_orchestration_flags_from_env() -> OrchestrationFlags:
     )
 
 
-def core_config_to_resource_quota(core_config: CoreConfig) -> ResourceQuota:
-    """Convert CoreConfig to Control Tower ResourceQuota.
+def core_config_to_resource_quota(core_config: ExecutionConfig) -> ResourceQuota:
+    """Convert ExecutionConfig to Control Tower ResourceQuota.
 
     Control Tower's ResourceQuota is the canonical source for resource limits.
-    This adapter ensures consistency with legacy CoreConfig values.
+    This adapter ensures consistency with legacy ExecutionConfig values.
 
     Args:
-        core_config: CoreConfig from environment/config
+        core_config: ExecutionConfig from environment/config
 
     Returns:
         ResourceQuota for Control Tower
@@ -166,7 +166,7 @@ def core_config_to_resource_quota(core_config: CoreConfig) -> ResourceQuota:
         max_output_tokens=core_config.context_bounds.max_output_tokens,
         max_context_tokens=core_config.context_bounds.max_context_tokens,
         max_llm_calls=core_config.max_llm_calls,
-        max_tool_calls=50,  # Default, not in CoreConfig
+        max_tool_calls=50,  # Default, not in ExecutionConfig
         max_agent_hops=core_config.max_agent_hops,
         max_iterations=core_config.max_iterations,
         timeout_seconds=300,  # Default timeout
@@ -177,7 +177,7 @@ def core_config_to_resource_quota(core_config: CoreConfig) -> ResourceQuota:
 def create_app_context(
     settings: Optional[Settings] = None,
     feature_flags: Optional[FeatureFlags] = None,
-    core_config: Optional[CoreConfig] = None,
+    core_config: Optional[ExecutionConfig] = None,
     orchestration_flags: Optional[OrchestrationFlags] = None,
 ) -> AppContext:
     """Create AppContext once per process.
@@ -188,7 +188,7 @@ def create_app_context(
     Args:
         settings: Optional pre-configured settings. Uses get_settings() if None.
         feature_flags: Optional pre-configured flags. Uses get_feature_flags() if None.
-        core_config: Optional CoreConfig. Parses from env if None.
+        core_config: Optional ExecutionConfig. Parses from env if None.
         orchestration_flags: Optional OrchestrationFlags. Parses from env if None.
 
     Returns:
@@ -200,7 +200,7 @@ def create_app_context(
 
         # Or with custom config
         app_context = create_app_context(
-            core_config=CoreConfig(max_iterations=5),
+            core_config=ExecutionConfig(max_iterations=5),
         )
     """
     # Build settings (from env/files)
@@ -255,7 +255,7 @@ def create_app_context(
             enabled=otel_adapter is not None and otel_adapter.enabled,
         )
 
-    # Build Control Tower with resource quota from CoreConfig
+    # Build Control Tower with resource quota from ExecutionConfig
     default_quota = core_config_to_resource_quota(core_config)
     control_tower_logger = create_logger("control_tower")
 
@@ -290,7 +290,7 @@ def create_app_context(
 def create_avionics_dependencies(
     app_context: AppContext,
     language_config: Optional["LanguageConfigProtocol"] = None,
-    node_profiles: Optional["NodeProfilesProtocol"] = None,
+    node_profiles: Optional["InferenceEndpointsProtocol"] = None,
     access_checker: Optional["AgentToolAccessProtocol"] = None,
 ):
     """Create and inject dependencies into avionics layer.
@@ -303,7 +303,7 @@ def create_avionics_dependencies(
     Args:
         app_context: The AppContext with core dependencies
         language_config: Optional LanguageConfigProtocol implementation
-        node_profiles: Optional NodeProfilesProtocol implementation
+        node_profiles: Optional InferenceEndpointsProtocol implementation
         access_checker: Optional AgentToolAccessProtocol implementation
 
     Returns:

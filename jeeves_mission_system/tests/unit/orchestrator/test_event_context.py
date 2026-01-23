@@ -1,24 +1,24 @@
 """
-Tests for the centralized AgentEventContext.
+Tests for the centralized EventContext.
 
 Verifies:
 - Event context creation
 - Agent event emission via context
 - Domain event emission via context
-- Integration with AgentEventEmitter
+- Integration with EventEmitter
 """
 
 import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
 
 from jeeves_mission_system.orchestrator.event_context import (
-    AgentEventContext,
+    EventContext,
     create_event_context,
 )
 
 
-class TestAgentEventContextCreation:
-    """Tests for AgentEventContext creation."""
+class TestEventContextCreation:
+    """Tests for EventContext creation."""
 
     def test_create_event_context_with_minimal_args(self):
         """Test creating context with only required args."""
@@ -64,7 +64,7 @@ class TestAgentEventContextCreation:
         assert context.domain_event_emitter == mock_domain_emitter
 
 
-class TestAgentEventContextAgentEvents:
+class TestEventContextAgentEvents:
     """Tests for agent lifecycle event emission."""
 
     @pytest.mark.asyncio
@@ -72,7 +72,7 @@ class TestAgentEventContextAgentEvents:
         """Test emitting agent started event when emitter is present."""
         mock_emitter = AsyncMock()
 
-        context = AgentEventContext(
+        context = EventContext(
             session_id="sess_123",
             request_id="req_456",
             user_id="user_789",
@@ -91,7 +91,7 @@ class TestAgentEventContextAgentEvents:
     @pytest.mark.asyncio
     async def test_emit_agent_started_without_emitter(self):
         """Test emitting agent started event when no emitter (no error)."""
-        context = AgentEventContext(
+        context = EventContext(
             session_id="sess_123",
             request_id="req_456",
             user_id="user_789",
@@ -105,7 +105,7 @@ class TestAgentEventContextAgentEvents:
         """Test emitting agent completed event when emitter is present."""
         mock_emitter = AsyncMock()
 
-        context = AgentEventContext(
+        context = EventContext(
             session_id="sess_123",
             request_id="req_456",
             user_id="user_789",
@@ -132,7 +132,7 @@ class TestAgentEventContextAgentEvents:
         """Test emitting agent completed event with error."""
         mock_emitter = AsyncMock()
 
-        context = AgentEventContext(
+        context = EventContext(
             session_id="sess_123",
             request_id="req_456",
             user_id="user_789",
@@ -154,7 +154,7 @@ class TestAgentEventContextAgentEvents:
         )
 
 
-class TestAgentEventContextDomainEvents:
+class TestEventContextDomainEvents:
     """Tests for domain event emission."""
 
     @pytest.mark.asyncio
@@ -163,7 +163,7 @@ class TestAgentEventContextDomainEvents:
         mock_domain_emitter = AsyncMock()
         mock_domain_emitter.emit_plan_created.return_value = "event_123"
 
-        context = AgentEventContext(
+        context = EventContext(
             session_id="sess_123",
             request_id="req_456",
             user_id="user_789",
@@ -185,7 +185,7 @@ class TestAgentEventContextDomainEvents:
     @pytest.mark.asyncio
     async def test_emit_plan_created_without_domain_emitter(self):
         """Test emitting plan_created when no domain emitter (returns None)."""
-        context = AgentEventContext(
+        context = EventContext(
             session_id="sess_123",
             request_id="req_456",
             user_id="user_789",
@@ -207,7 +207,7 @@ class TestAgentEventContextDomainEvents:
         mock_domain_emitter = AsyncMock()
         mock_domain_emitter.emit_critic_decision.return_value = "event_456"
 
-        context = AgentEventContext(
+        context = EventContext(
             session_id="sess_123",
             request_id="req_456",
             user_id="user_789",
@@ -231,7 +231,7 @@ class TestAgentEventContextDomainEvents:
         mock_domain_emitter = AsyncMock()
         mock_domain_emitter.emit_tool_executed.return_value = "event_789"
 
-        context = AgentEventContext(
+        context = EventContext(
             session_id="sess_123",
             request_id="req_456",
             user_id="user_789",
@@ -254,7 +254,7 @@ class TestAgentEventContextDomainEvents:
 
 
 @pytest.mark.skip(reason="orchestrator.agent_events module not implemented")
-class TestAgentEventContextFlowEvents:
+class TestEventContextFlowEvents:
     """Tests for flow lifecycle events."""
 
     @pytest.mark.asyncio
@@ -262,7 +262,7 @@ class TestAgentEventContextFlowEvents:
         """Test emitting flow started event."""
         mock_emitter = AsyncMock()
 
-        context = AgentEventContext(
+        context = EventContext(
             session_id="sess_123",
             request_id="req_456",
             user_id="user_789",
@@ -278,7 +278,7 @@ class TestAgentEventContextFlowEvents:
         """Test emitting flow completed event."""
         mock_emitter = AsyncMock()
 
-        context = AgentEventContext(
+        context = EventContext(
             session_id="sess_123",
             request_id="req_456",
             user_id="user_789",
@@ -294,7 +294,7 @@ class TestAgentEventContextFlowEvents:
         """Test emitting stage transition event."""
         mock_emitter = AsyncMock()
 
-        context = AgentEventContext(
+        context = EventContext(
             session_id="sess_123",
             request_id="req_456",
             user_id="user_789",
@@ -318,7 +318,7 @@ class TestAgentEventContextFlowEvents:
         )
 
 
-class TestAgentEventContextUtilities:
+class TestEventContextUtilities:
     """Tests for utility methods."""
 
     @pytest.mark.asyncio
@@ -326,7 +326,7 @@ class TestAgentEventContextUtilities:
         """Test closing the event context."""
         mock_emitter = AsyncMock()
 
-        context = AgentEventContext(
+        context = EventContext(
             session_id="sess_123",
             request_id="req_456",
             user_id="user_789",
@@ -343,7 +343,7 @@ class TestAgentEventContextUtilities:
         mock_event = MagicMock()
         mock_emitter.get_nowait.return_value = mock_event
 
-        context = AgentEventContext(
+        context = EventContext(
             session_id="sess_123",
             request_id="req_456",
             user_id="user_789",
@@ -357,7 +357,7 @@ class TestAgentEventContextUtilities:
 
     def test_get_event_nowait_without_emitter(self):
         """Test getting events when no emitter (returns None)."""
-        context = AgentEventContext(
+        context = EventContext(
             session_id="sess_123",
             request_id="req_456",
             user_id="user_789",

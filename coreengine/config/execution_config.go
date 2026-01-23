@@ -19,13 +19,13 @@ import (
 	"sync"
 )
 
-// CoreConfig holds core orchestration configuration.
+// ExecutionConfig holds core orchestration configuration.
 //
 // This configuration is infrastructure-agnostic and can be used
 // regardless of what backends (LLM, database) are being used.
 //
 // Feature flags control orchestration behavior without vertical involvement.
-type CoreConfig struct {
+type ExecutionConfig struct {
 	// Execution Limits
 	MaxPlanSteps     int `json:"max_plan_steps"`
 	MaxToolRetries   int `json:"max_tool_retries"`
@@ -71,9 +71,9 @@ type CoreConfig struct {
 	LogLevel string `json:"log_level"`
 }
 
-// DefaultCoreConfig returns a CoreConfig with default values.
-func DefaultCoreConfig() *CoreConfig {
-	return &CoreConfig{
+// DefaultExecutionConfig returns a ExecutionConfig with default values.
+func DefaultExecutionConfig() *ExecutionConfig {
+	return &ExecutionConfig{
 		// Execution Limits
 		MaxPlanSteps:      20,
 		MaxToolRetries:    2,
@@ -120,10 +120,10 @@ func DefaultCoreConfig() *CoreConfig {
 	}
 }
 
-// FromMap creates CoreConfig from a map.
+// FromMap creates ExecutionConfig from a map.
 // Unknown keys are ignored.
-func CoreConfigFromMap(config map[string]any) *CoreConfig {
-	c := DefaultCoreConfig()
+func ExecutionConfigFromMap(config map[string]any) *ExecutionConfig {
+	c := DefaultExecutionConfig()
 
 	if v, ok := config["max_plan_steps"].(int); ok {
 		c.MaxPlanSteps = v
@@ -233,7 +233,7 @@ func CoreConfigFromMap(config map[string]any) *CoreConfig {
 }
 
 // ToMap converts config to a map.
-func (c *CoreConfig) ToMap() map[string]any {
+func (c *ExecutionConfig) ToMap() map[string]any {
 	result := map[string]any{
 		"max_plan_steps":                     c.MaxPlanSteps,
 		"max_tool_retries":                   c.MaxToolRetries,
@@ -274,35 +274,35 @@ func (c *CoreConfig) ToMap() map[string]any {
 // ConfigProvider provides configuration values.
 // Use this interface for dependency injection instead of global state.
 type ConfigProvider interface {
-	// GetCoreConfig returns the core configuration.
-	GetCoreConfig() *CoreConfig
+	// GetExecutionConfig returns the core configuration.
+	GetExecutionConfig() *ExecutionConfig
 }
 
 // DefaultConfigProvider provides the global configuration.
 // This is the default implementation that uses the global singleton.
 type DefaultConfigProvider struct{}
 
-// GetCoreConfig returns the global core configuration.
-func (p *DefaultConfigProvider) GetCoreConfig() *CoreConfig {
-	return GetGlobalCoreConfig()
+// GetExecutionConfig returns the global core configuration.
+func (p *DefaultConfigProvider) GetExecutionConfig() *ExecutionConfig {
+	return GetGlobalExecutionConfig()
 }
 
 // StaticConfigProvider provides a static configuration.
 // Useful for testing with specific config values.
 type StaticConfigProvider struct {
-	Config *CoreConfig
+	Config *ExecutionConfig
 }
 
-// GetCoreConfig returns the static configuration.
-func (p *StaticConfigProvider) GetCoreConfig() *CoreConfig {
+// GetExecutionConfig returns the static configuration.
+func (p *StaticConfigProvider) GetExecutionConfig() *ExecutionConfig {
 	if p.Config == nil {
-		return DefaultCoreConfig()
+		return DefaultExecutionConfig()
 	}
 	return p.Config
 }
 
 // NewStaticConfigProvider creates a new StaticConfigProvider.
-func NewStaticConfigProvider(config *CoreConfig) *StaticConfigProvider {
+func NewStaticConfigProvider(config *ExecutionConfig) *StaticConfigProvider {
 	return &StaticConfigProvider{Config: config}
 }
 
@@ -311,43 +311,43 @@ func NewStaticConfigProvider(config *CoreConfig) *StaticConfigProvider {
 // =============================================================================
 
 var (
-	globalCoreConfig *CoreConfig
+	globalExecutionConfig *ExecutionConfig
 	configMu         sync.RWMutex
 )
 
-// GetGlobalCoreConfig gets the global core configuration instance.
+// GetGlobalExecutionConfig gets the global core configuration instance.
 // Returns the injected config or defaults.
 // Prefer using ConfigProvider interface for new code.
-func GetGlobalCoreConfig() *CoreConfig {
+func GetGlobalExecutionConfig() *ExecutionConfig {
 	configMu.RLock()
 	defer configMu.RUnlock()
 
-	if globalCoreConfig == nil {
-		return DefaultCoreConfig()
+	if globalExecutionConfig == nil {
+		return DefaultExecutionConfig()
 	}
-	return globalCoreConfig
+	return globalExecutionConfig
 }
 
-// GetCoreConfig gets the core configuration instance.
-// Deprecated: Use GetGlobalCoreConfig or inject ConfigProvider for testability.
-func GetCoreConfig() *CoreConfig {
-	return GetGlobalCoreConfig()
+// GetExecutionConfig gets the core configuration instance.
+// Deprecated: Use GetGlobalExecutionConfig or inject ConfigProvider for testability.
+func GetExecutionConfig() *ExecutionConfig {
+	return GetGlobalExecutionConfig()
 }
 
-// SetCoreConfig sets the core configuration instance.
+// SetExecutionConfig sets the core configuration instance.
 // Called by mission_system bootstrap after parsing environment variables.
-func SetCoreConfig(config *CoreConfig) {
+func SetExecutionConfig(config *ExecutionConfig) {
 	configMu.Lock()
 	defer configMu.Unlock()
 
-	globalCoreConfig = config
+	globalExecutionConfig = config
 }
 
-// ResetCoreConfig resets core config to nil (useful for testing).
-// After reset, GetCoreConfig() will return defaults.
-func ResetCoreConfig() {
+// ResetExecutionConfig resets core config to nil (useful for testing).
+// After reset, GetExecutionConfig() will return defaults.
+func ResetExecutionConfig() {
 	configMu.Lock()
 	defer configMu.Unlock()
 
-	globalCoreConfig = nil
+	globalExecutionConfig = nil
 }

@@ -1,12 +1,12 @@
-// Package envelope provides the GenericEnvelope - Dynamic output slots for centralized agent architecture.
+// Package envelope provides the Envelope - Dynamic output slots for centralized agent architecture.
 //
-// This replaces the hardcoded per-agent output fields in CoreEnvelope with
+// This replaces the hardcoded per-agent output fields with
 // a single dynamic `Outputs` map that any agent can write to.
 //
 // Design:
 //   - Outputs: map[string]map[string]any where key = agent output_key
 //   - Stage tracking uses string names, not enum
-//   - Unified interrupt handling via FlowInterrupt
+//   - Interrupt handling via FlowInterrupt
 package envelope
 
 import (
@@ -99,10 +99,10 @@ type ProcessingRecord struct {
 	LLMCalls    int        `json:"llm_calls"`
 }
 
-// GenericEnvelope is the envelope with dynamic output slots for centralized agent architecture.
+// Envelope is the envelope with dynamic output slots for centralized agent architecture.
 //
 // Unlike CoreEnvelope which has hardcoded fields (perception, intent, plan, etc.),
-// GenericEnvelope uses a single `Outputs` map where any agent can write results.
+// Envelope uses a single `Outputs` map where any agent can write results.
 //
 // Example:
 //
@@ -114,7 +114,7 @@ type ProcessingRecord struct {
 //   - Variable number of agents via configuration
 //   - Custom agents without schema changes
 //   - Any routing flow
-type GenericEnvelope struct {
+type Envelope struct {
 	// Identification
 	EnvelopeID string `json:"envelope_id"`
 	RequestID  string `json:"request_id"`
@@ -183,10 +183,10 @@ type GenericEnvelope struct {
 	Metadata map[string]any `json:"metadata"`
 }
 
-// NewGenericEnvelope creates a new GenericEnvelope with default values.
-func NewGenericEnvelope() *GenericEnvelope {
+// NewEnvelope creates a new Envelope with default values.
+func NewEnvelope() *Envelope {
 	now := time.Now().UTC()
-	return &GenericEnvelope{
+	return &Envelope{
 		EnvelopeID:           "env_" + uuid.New().String()[:16],
 		RequestID:            "req_" + uuid.New().String()[:16],
 		UserID:               "anonymous",
@@ -229,7 +229,7 @@ func NewGenericEnvelope() *GenericEnvelope {
 // =============================================================================
 
 // StartStage marks a stage as actively executing.
-func (e *GenericEnvelope) StartStage(stageName string) {
+func (e *Envelope) StartStage(stageName string) {
 	if e.ActiveStages == nil {
 		e.ActiveStages = make(map[string]bool)
 	}
@@ -237,7 +237,7 @@ func (e *GenericEnvelope) StartStage(stageName string) {
 }
 
 // CompleteStage marks a stage as successfully completed.
-func (e *GenericEnvelope) CompleteStage(stageName string) {
+func (e *Envelope) CompleteStage(stageName string) {
 	if e.CompletedStageSet == nil {
 		e.CompletedStageSet = make(map[string]bool)
 	}
@@ -246,7 +246,7 @@ func (e *GenericEnvelope) CompleteStage(stageName string) {
 }
 
 // FailStage marks a stage as failed with an error message.
-func (e *GenericEnvelope) FailStage(stageName string, errorMsg string) {
+func (e *Envelope) FailStage(stageName string, errorMsg string) {
 	if e.FailedStages == nil {
 		e.FailedStages = make(map[string]string)
 	}
@@ -255,7 +255,7 @@ func (e *GenericEnvelope) FailStage(stageName string, errorMsg string) {
 }
 
 // IsStageCompleted returns true if the stage has completed successfully.
-func (e *GenericEnvelope) IsStageCompleted(stageName string) bool {
+func (e *Envelope) IsStageCompleted(stageName string) bool {
 	if e.CompletedStageSet == nil {
 		return false
 	}
@@ -263,7 +263,7 @@ func (e *GenericEnvelope) IsStageCompleted(stageName string) bool {
 }
 
 // IsStageActive returns true if the stage is currently executing.
-func (e *GenericEnvelope) IsStageActive(stageName string) bool {
+func (e *Envelope) IsStageActive(stageName string) bool {
 	if e.ActiveStages == nil {
 		return false
 	}
@@ -271,7 +271,7 @@ func (e *GenericEnvelope) IsStageActive(stageName string) bool {
 }
 
 // IsStageFailed returns true if the stage has failed.
-func (e *GenericEnvelope) IsStageFailed(stageName string) bool {
+func (e *Envelope) IsStageFailed(stageName string) bool {
 	if e.FailedStages == nil {
 		return false
 	}
@@ -280,7 +280,7 @@ func (e *GenericEnvelope) IsStageFailed(stageName string) bool {
 }
 
 // GetActiveStageCount returns the number of currently active stages.
-func (e *GenericEnvelope) GetActiveStageCount() int {
+func (e *Envelope) GetActiveStageCount() int {
 	if e.ActiveStages == nil {
 		return 0
 	}
@@ -288,7 +288,7 @@ func (e *GenericEnvelope) GetActiveStageCount() int {
 }
 
 // GetCompletedStageCount returns the number of completed stages.
-func (e *GenericEnvelope) GetCompletedStageCount() int {
+func (e *Envelope) GetCompletedStageCount() int {
 	if e.CompletedStageSet == nil {
 		return 0
 	}
@@ -296,7 +296,7 @@ func (e *GenericEnvelope) GetCompletedStageCount() int {
 }
 
 // AllStagesComplete returns true if all stages in StageOrder are completed.
-func (e *GenericEnvelope) AllStagesComplete() bool {
+func (e *Envelope) AllStagesComplete() bool {
 	if len(e.StageOrder) == 0 {
 		return false
 	}
@@ -309,7 +309,7 @@ func (e *GenericEnvelope) AllStagesComplete() bool {
 }
 
 // HasFailures returns true if any stages have failed.
-func (e *GenericEnvelope) HasFailures() bool {
+func (e *Envelope) HasFailures() bool {
 	return len(e.FailedStages) > 0
 }
 
@@ -318,17 +318,17 @@ func (e *GenericEnvelope) HasFailures() bool {
 // =============================================================================
 
 // GetOutput gets agent output by key.
-func (e *GenericEnvelope) GetOutput(key string) map[string]any {
+func (e *Envelope) GetOutput(key string) map[string]any {
 	return e.Outputs[key]
 }
 
 // SetOutput sets agent output by key.
-func (e *GenericEnvelope) SetOutput(key string, value map[string]any) {
+func (e *Envelope) SetOutput(key string, value map[string]any) {
 	e.Outputs[key] = value
 }
 
 // HasOutput checks if output exists for key.
-func (e *GenericEnvelope) HasOutput(key string) bool {
+func (e *Envelope) HasOutput(key string) bool {
 	_, exists := e.Outputs[key]
 	return exists
 }
@@ -338,7 +338,7 @@ func (e *GenericEnvelope) HasOutput(key string) bool {
 // =============================================================================
 
 // RecordAgentStart records start of agent processing.
-func (e *GenericEnvelope) RecordAgentStart(agentName string, stageOrder int) {
+func (e *Envelope) RecordAgentStart(agentName string, stageOrder int) {
 	entry := ProcessingRecord{
 		Agent:      agentName,
 		StageOrder: stageOrder,
@@ -350,7 +350,7 @@ func (e *GenericEnvelope) RecordAgentStart(agentName string, stageOrder int) {
 }
 
 // RecordAgentComplete records completion of agent processing.
-func (e *GenericEnvelope) RecordAgentComplete(agentName string, status string, errorMsg *string, llmCalls int, durationMS int) {
+func (e *Envelope) RecordAgentComplete(agentName string, status string, errorMsg *string, llmCalls int, durationMS int) {
 	// Find the last entry for this agent
 	for i := len(e.ProcessingHistory) - 1; i >= 0; i-- {
 		entry := &e.ProcessingHistory[i]
@@ -376,7 +376,7 @@ func (e *GenericEnvelope) RecordAgentComplete(agentName string, status string, e
 // =============================================================================
 
 // CanContinue checks if processing can continue.
-func (e *GenericEnvelope) CanContinue() bool {
+func (e *Envelope) CanContinue() bool {
 	if e.Terminated {
 		return false
 	}
@@ -402,7 +402,7 @@ func (e *GenericEnvelope) CanContinue() bool {
 }
 
 // SetInterrupt sets a flow interrupt with the given kind and options.
-func (e *GenericEnvelope) SetInterrupt(kind InterruptKind, id string, opts ...InterruptOption) {
+func (e *Envelope) SetInterrupt(kind InterruptKind, id string, opts ...InterruptOption) {
 	e.InterruptPending = true
 	e.Interrupt = &FlowInterrupt{
 		Kind:      kind,
@@ -415,7 +415,7 @@ func (e *GenericEnvelope) SetInterrupt(kind InterruptKind, id string, opts ...In
 }
 
 // ResolveInterrupt marks the interrupt as resolved with the given response.
-func (e *GenericEnvelope) ResolveInterrupt(response InterruptResponse) {
+func (e *Envelope) ResolveInterrupt(response InterruptResponse) {
 	if e.Interrupt != nil {
 		response.ReceivedAt = time.Now().UTC()
 		e.Interrupt.Response = &response
@@ -424,18 +424,18 @@ func (e *GenericEnvelope) ResolveInterrupt(response InterruptResponse) {
 }
 
 // ClearInterrupt clears the interrupt state without a response.
-func (e *GenericEnvelope) ClearInterrupt() {
+func (e *Envelope) ClearInterrupt() {
 	e.InterruptPending = false
 	e.Interrupt = nil
 }
 
 // HasPendingInterrupt returns true if there is a pending interrupt.
-func (e *GenericEnvelope) HasPendingInterrupt() bool {
+func (e *Envelope) HasPendingInterrupt() bool {
 	return e.InterruptPending && e.Interrupt != nil
 }
 
 // GetInterruptKind returns the kind of pending interrupt, or empty string if none.
-func (e *GenericEnvelope) GetInterruptKind() InterruptKind {
+func (e *Envelope) GetInterruptKind() InterruptKind {
 	if e.Interrupt != nil {
 		return e.Interrupt.Kind
 	}
@@ -443,7 +443,7 @@ func (e *GenericEnvelope) GetInterruptKind() InterruptKind {
 }
 
 // Terminate marks envelope as terminated.
-func (e *GenericEnvelope) Terminate(reason string, terminalReason *TerminalReason) {
+func (e *Envelope) Terminate(reason string, terminalReason *TerminalReason) {
 	e.Terminated = true
 	e.TerminationReason = &reason
 	if terminalReason != nil {
@@ -458,8 +458,8 @@ func (e *GenericEnvelope) Terminate(reason string, terminalReason *TerminalReaso
 // =============================================================================
 
 // Clone creates a deep copy of the envelope for checkpointing.
-func (e *GenericEnvelope) Clone() *GenericEnvelope {
-	clone := &GenericEnvelope{
+func (e *Envelope) Clone() *Envelope {
+	clone := &Envelope{
 		// Identification (copy by value)
 		EnvelopeID: e.EnvelopeID,
 		RequestID:  e.RequestID,
@@ -684,7 +684,7 @@ func copyProcessingHistory(h []ProcessingRecord) []ProcessingRecord {
 // =============================================================================
 
 // InitializeGoals initializes goal tracking from intent output.
-func (e *GenericEnvelope) InitializeGoals(goals []string) {
+func (e *Envelope) InitializeGoals(goals []string) {
 	e.AllGoals = make([]string, len(goals))
 	copy(e.AllGoals, goals)
 	e.RemainingGoals = make([]string, len(goals))
@@ -697,7 +697,7 @@ func (e *GenericEnvelope) InitializeGoals(goals []string) {
 
 // AdvanceStage advances to next stage after critic assessment.
 // Returns true if there are more goals to process.
-func (e *GenericEnvelope) AdvanceStage(satisfiedGoals []string, stageSummary map[string]any) bool {
+func (e *Envelope) AdvanceStage(satisfiedGoals []string, stageSummary map[string]any) bool {
 	for _, goal := range satisfiedGoals {
 		e.GoalCompletionStatus[goal] = "satisfied"
 		// Remove from remaining goals
@@ -742,7 +742,7 @@ func (e *GenericEnvelope) AdvanceStage(satisfiedGoals []string, stageSummary map
 }
 
 // GetStageContext gets accumulated context from completed stages.
-func (e *GenericEnvelope) GetStageContext() map[string]any {
+func (e *Envelope) GetStageContext() map[string]any {
 	satisfiedGoals := make([]string, 0)
 	for goal, status := range e.GoalCompletionStatus {
 		if status == "satisfied" {
@@ -764,7 +764,7 @@ func (e *GenericEnvelope) GetStageContext() map[string]any {
 // =============================================================================
 
 // IncrementIteration increments iteration for retry.
-func (e *GenericEnvelope) IncrementIteration(feedback *string) {
+func (e *Envelope) IncrementIteration(feedback *string) {
 	e.Iteration++
 	if feedback != nil {
 		e.LoopFeedback = append(e.LoopFeedback, *feedback)
@@ -788,7 +788,7 @@ func (e *GenericEnvelope) IncrementIteration(feedback *string) {
 // =============================================================================
 
 // GetFinalResponse gets the final response text.
-func (e *GenericEnvelope) GetFinalResponse() *string {
+func (e *Envelope) GetFinalResponse() *string {
 	// If there's a pending interrupt with a question/message, return that
 	if e.InterruptPending && e.Interrupt != nil {
 		if e.Interrupt.Kind == InterruptKindClarification && e.Interrupt.Question != "" {
@@ -807,7 +807,7 @@ func (e *GenericEnvelope) GetFinalResponse() *string {
 }
 
 // ToResultDict converts to result dictionary for API responses.
-func (e *GenericEnvelope) ToResultDict() map[string]any {
+func (e *Envelope) ToResultDict() map[string]any {
 	result := map[string]any{
 		"envelope_id":        e.EnvelopeID,
 		"request_id":         e.RequestID,
@@ -854,7 +854,7 @@ func (e *GenericEnvelope) ToResultDict() map[string]any {
 }
 
 // TotalProcessingTimeMS calculates total processing time from history.
-func (e *GenericEnvelope) TotalProcessingTimeMS() int {
+func (e *Envelope) TotalProcessingTimeMS() int {
 	total := 0
 	for _, entry := range e.ProcessingHistory {
 		total += entry.DurationMS
@@ -867,7 +867,7 @@ func (e *GenericEnvelope) TotalProcessingTimeMS() int {
 // =============================================================================
 
 // ToStateDict converts to state dict for persistence/runtime.
-func (e *GenericEnvelope) ToStateDict() map[string]any {
+func (e *Envelope) ToStateDict() map[string]any {
 	var terminalReasonStr *string
 	if e.TerminalReason_ != nil {
 		s := string(*e.TerminalReason_)
@@ -951,8 +951,8 @@ func (e *GenericEnvelope) ToStateDict() map[string]any {
 }
 
 // FromStateDict creates envelope from state dict.
-func FromStateDict(state map[string]any) *GenericEnvelope {
-	e := NewGenericEnvelope()
+func FromStateDict(state map[string]any) *Envelope {
+	e := NewEnvelope()
 
 	if v, ok := state["envelope_id"].(string); ok {
 		e.EnvelopeID = v
@@ -1195,9 +1195,9 @@ func FromStateDict(state map[string]any) *GenericEnvelope {
 	return e
 }
 
-// CreateGenericEnvelope creates a new GenericEnvelope from user input.
-func CreateGenericEnvelope(userMessage, userID, sessionID string, requestID *string, metadata map[string]any, stageOrder []string) *GenericEnvelope {
-	e := NewGenericEnvelope()
+// CreateEnvelope creates a new Envelope from user input.
+func CreateEnvelope(userMessage, userID, sessionID string, requestID *string, metadata map[string]any, stageOrder []string) *Envelope {
+	e := NewEnvelope()
 	e.RawInput = userMessage
 	e.UserID = userID
 	e.SessionID = sessionID

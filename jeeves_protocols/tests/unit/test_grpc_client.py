@@ -22,8 +22,8 @@ from jeeves_protocols.grpc_client import (
     _terminal_reason_to_proto,
     _proto_to_terminal_reason,
 )
-from jeeves_protocols.envelope import GenericEnvelope
-from jeeves_protocols.core import TerminalReason
+from jeeves_protocols.envelope import Envelope
+from jeeves_protocols.enums import TerminalReason
 
 
 # =============================================================================
@@ -53,7 +53,7 @@ def mock_grpc():
 @pytest.fixture
 def mock_stub():
     """Mock gRPC stub with proto messages."""
-    with patch("jeeves_protocols.grpc_stub.JeevesCoreServiceStub") as mock_stub_class:
+    with patch("jeeves_protocols.grpc_stub.EngineServiceStub") as mock_stub_class:
         mock_stub_instance = MagicMock()
         mock_stub_class.return_value = mock_stub_instance
         yield mock_stub_instance
@@ -101,8 +101,8 @@ def mock_proto_envelope():
 
 @pytest.fixture
 def sample_envelope():
-    """Create a sample GenericEnvelope for testing."""
-    return GenericEnvelope(
+    """Create a sample Envelope for testing."""
+    return Envelope(
         envelope_id="env_test",
         request_id="req_test",
         user_id="user_123",
@@ -196,7 +196,7 @@ class TestGrpcGoClientCreateEnvelope:
         mock_stub_instance.CreateEnvelope.return_value = mock_proto_envelope
         
         with patch("jeeves_protocols.grpc_client.grpc", mock_grpc):
-            with patch("jeeves_protocols.grpc_stub.JeevesCoreServiceStub", return_value=mock_stub_instance):
+            with patch("jeeves_protocols.grpc_stub.EngineServiceStub", return_value=mock_stub_instance):
                 with patch("jeeves_protocols.grpc_stub.CreateEnvelopeRequest") as mock_request:
                     with patch.dict("sys.modules", {"coreengine.proto.jeeves_core_pb2": MagicMock()}):
                         client = GrpcGoClient()
@@ -223,7 +223,7 @@ class TestGrpcGoClientCreateEnvelope:
         mock_stub_instance.CreateEnvelope.side_effect = rpc_error
         
         with patch("jeeves_protocols.grpc_client.grpc", mock_grpc):
-            with patch("jeeves_protocols.grpc_stub.JeevesCoreServiceStub", return_value=mock_stub_instance):
+            with patch("jeeves_protocols.grpc_stub.EngineServiceStub", return_value=mock_stub_instance):
                 with patch("jeeves_protocols.grpc_stub.CreateEnvelopeRequest") as mock_request:
                     with patch.dict("sys.modules", {"coreengine.proto.jeeves_core_pb2": MagicMock()}):
                         client = GrpcGoClient()
@@ -256,7 +256,7 @@ class TestGrpcGoClientUpdateEnvelope:
         mock_stub_instance.UpdateEnvelope.return_value = mock_proto_envelope
         
         with patch("jeeves_protocols.grpc_client.grpc", mock_grpc):
-            with patch("jeeves_protocols.grpc_stub.JeevesCoreServiceStub", return_value=mock_stub_instance):
+            with patch("jeeves_protocols.grpc_stub.EngineServiceStub", return_value=mock_stub_instance):
                 with patch("jeeves_protocols.grpc_stub.UpdateEnvelopeRequest") as mock_request:
                     with patch("jeeves_protocols.grpc_stub.Envelope") as mock_envelope:
                         with patch.dict("sys.modules", {"coreengine.proto.jeeves_core_pb2": MagicMock()}):
@@ -284,7 +284,7 @@ class TestGrpcGoClientUpdateEnvelope:
         mock_stub_instance.UpdateEnvelope.return_value = mock_proto_envelope
         
         with patch("jeeves_protocols.grpc_client.grpc", mock_grpc):
-            with patch("jeeves_protocols.grpc_stub.JeevesCoreServiceStub", return_value=mock_stub_instance):
+            with patch("jeeves_protocols.grpc_stub.EngineServiceStub", return_value=mock_stub_instance):
                 with patch("jeeves_protocols.grpc_stub.UpdateEnvelopeRequest") as mock_request:
                     with patch("jeeves_protocols.grpc_stub.Envelope") as mock_envelope:
                         with patch.dict("sys.modules", {"coreengine.proto.jeeves_core_pb2": MagicMock()}):
@@ -322,7 +322,7 @@ class TestGrpcGoClientCheckBounds:
         mock_stub_instance.CheckBounds.return_value = mock_response
         
         with patch("jeeves_protocols.grpc_client.grpc", mock_grpc):
-            with patch("jeeves_protocols.grpc_stub.JeevesCoreServiceStub", return_value=mock_stub_instance):
+            with patch("jeeves_protocols.grpc_stub.EngineServiceStub", return_value=mock_stub_instance):
                 with patch("jeeves_protocols.grpc_stub.Envelope") as mock_envelope:
                     with patch.dict("sys.modules", {"coreengine.proto.jeeves_core_pb2": MagicMock()}):
                         client = GrpcGoClient()
@@ -349,7 +349,7 @@ class TestGrpcGoClientCheckBounds:
         mock_stub_instance.CheckBounds.return_value = mock_response
         
         with patch("jeeves_protocols.grpc_client.grpc", mock_grpc):
-            with patch("jeeves_protocols.grpc_stub.JeevesCoreServiceStub", return_value=mock_stub_instance):
+            with patch("jeeves_protocols.grpc_stub.EngineServiceStub", return_value=mock_stub_instance):
                 with patch("jeeves_protocols.grpc_stub.Envelope") as mock_envelope:
                     with patch.dict("sys.modules", {"coreengine.proto.jeeves_core_pb2": MagicMock()}):
                         client = GrpcGoClient()
@@ -376,7 +376,7 @@ class TestGrpcGoClientCloneEnvelope:
         mock_stub_instance.CloneEnvelope.return_value = mock_proto_envelope
         
         with patch("jeeves_protocols.grpc_client.grpc", mock_grpc):
-            with patch("jeeves_protocols.grpc_stub.JeevesCoreServiceStub", return_value=mock_stub_instance):
+            with patch("jeeves_protocols.grpc_stub.EngineServiceStub", return_value=mock_stub_instance):
                 with patch("jeeves_protocols.grpc_stub.CloneRequest") as mock_request:
                     with patch("jeeves_protocols.grpc_stub.Envelope") as mock_envelope:
                         with patch.dict("sys.modules", {"coreengine.proto.jeeves_core_pb2": MagicMock()}):
@@ -411,7 +411,7 @@ class TestGrpcGoClientExecuteAgent:
         mock_stub_instance.ExecuteAgent.return_value = mock_response
         
         with patch("jeeves_protocols.grpc_client.grpc", mock_grpc):
-            with patch("jeeves_protocols.grpc_stub.JeevesCoreServiceStub", return_value=mock_stub_instance):
+            with patch("jeeves_protocols.grpc_stub.EngineServiceStub", return_value=mock_stub_instance):
                 with patch("jeeves_protocols.grpc_stub.ExecuteAgentRequest") as mock_request:
                     with patch("jeeves_protocols.grpc_stub.Envelope") as mock_envelope:
                         with patch.dict("sys.modules", {"coreengine.proto.jeeves_core_pb2": MagicMock()}):
@@ -442,7 +442,7 @@ class TestGrpcGoClientExecuteAgent:
         mock_stub_instance.ExecuteAgent.return_value = mock_response
         
         with patch("jeeves_protocols.grpc_client.grpc", mock_grpc):
-            with patch("jeeves_protocols.grpc_stub.JeevesCoreServiceStub", return_value=mock_stub_instance):
+            with patch("jeeves_protocols.grpc_stub.EngineServiceStub", return_value=mock_stub_instance):
                 with patch("jeeves_protocols.grpc_stub.ExecuteAgentRequest") as mock_request:
                     with patch("jeeves_protocols.grpc_stub.Envelope") as mock_envelope:
                         with patch.dict("sys.modules", {"coreengine.proto.jeeves_core_pb2": MagicMock()}):
@@ -486,7 +486,7 @@ class TestGrpcGoClientExecutePipeline:
         mock_stub_instance.ExecutePipeline.return_value = iter([mock_event1, mock_event2])
         
         with patch("jeeves_protocols.grpc_client.grpc", mock_grpc):
-            with patch("jeeves_protocols.grpc_stub.JeevesCoreServiceStub", return_value=mock_stub_instance):
+            with patch("jeeves_protocols.grpc_stub.EngineServiceStub", return_value=mock_stub_instance):
                 with patch("jeeves_protocols.grpc_stub.ExecuteRequest") as mock_request:
                     with patch("jeeves_protocols.grpc_stub.Envelope") as mock_envelope:
                         with patch.dict("sys.modules", {"coreengine.proto.jeeves_core_pb2": MagicMock()}):
@@ -633,7 +633,7 @@ class TestExecutionEvent:
 
     def test_execution_event_creation(self):
         """Test ExecutionEvent creation."""
-        envelope = GenericEnvelope(
+        envelope = Envelope(
             envelope_id="env_test",
             request_id="req_test",
             user_id="user",

@@ -14,7 +14,7 @@ import (
 
 func TestCreateEnvelopeBasic(t *testing.T) {
 	// Create envelope with minimal parameters.
-	envelope := CreateGenericEnvelope(
+	envelope := CreateEnvelope(
 		"Hello",
 		"user-123",
 		"session-456",
@@ -32,7 +32,7 @@ func TestCreateEnvelopeBasic(t *testing.T) {
 func TestCreateEnvelopeWithRequestID(t *testing.T) {
 	// Create envelope with custom request_id.
 	requestID := "custom-req-id"
-	envelope := CreateGenericEnvelope(
+	envelope := CreateEnvelope(
 		"Test",
 		"user-1",
 		"sess-1",
@@ -44,7 +44,7 @@ func TestCreateEnvelopeWithRequestID(t *testing.T) {
 
 func TestEnvelopeInitialState(t *testing.T) {
 	// Verify envelope starts in correct initial state.
-	envelope := CreateGenericEnvelope(
+	envelope := CreateEnvelope(
 		"Test",
 		"user-1",
 		"sess-1",
@@ -68,7 +68,7 @@ func TestEnvelopeInitialState(t *testing.T) {
 func TestCreateEnvelopeWithStageOrder(t *testing.T) {
 	// Create envelope with pipeline stage order.
 	stages := []string{"perception", "intent", "planner", "executor"}
-	envelope := CreateGenericEnvelope(
+	envelope := CreateEnvelope(
 		"Test",
 		"user-1",
 		"sess-1",
@@ -84,7 +84,7 @@ func TestCreateEnvelopeWithStageOrder(t *testing.T) {
 
 func TestSetOutput(t *testing.T) {
 	// Test setting agent output.
-	envelope := CreateGenericEnvelope("Test", "user-1", "sess-1", nil, nil, nil)
+	envelope := CreateEnvelope("Test", "user-1", "sess-1", nil, nil, nil)
 
 	envelope.SetOutput("perception", map[string]any{
 		"normalized_input": "test",
@@ -97,7 +97,7 @@ func TestSetOutput(t *testing.T) {
 
 func TestGetOutput(t *testing.T) {
 	// Test getting agent output.
-	envelope := CreateGenericEnvelope("Test", "user-1", "sess-1", nil, nil, nil)
+	envelope := CreateEnvelope("Test", "user-1", "sess-1", nil, nil, nil)
 
 	envelope.Outputs["intent"] = map[string]any{"intent": "analyze", "goals": []string{}}
 
@@ -108,14 +108,14 @@ func TestGetOutput(t *testing.T) {
 
 func TestGetOutputMissing(t *testing.T) {
 	// Test getting nonexistent output returns nil.
-	envelope := CreateGenericEnvelope("Test", "user-1", "sess-1", nil, nil, nil)
+	envelope := CreateEnvelope("Test", "user-1", "sess-1", nil, nil, nil)
 
 	assert.Nil(t, envelope.GetOutput("nonexistent"))
 }
 
 func TestHasOutput(t *testing.T) {
 	// Test checking if output exists.
-	envelope := CreateGenericEnvelope("Test", "user-1", "sess-1", nil, nil, nil)
+	envelope := CreateEnvelope("Test", "user-1", "sess-1", nil, nil, nil)
 
 	assert.False(t, envelope.HasOutput("perception"))
 
@@ -130,7 +130,7 @@ func TestHasOutput(t *testing.T) {
 
 func TestAdvanceStage(t *testing.T) {
 	// Test advancing through stages.
-	envelope := CreateGenericEnvelope("Test", "user-1", "sess-1", nil, nil, nil)
+	envelope := CreateEnvelope("Test", "user-1", "sess-1", nil, nil, nil)
 
 	assert.Equal(t, "start", envelope.CurrentStage)
 
@@ -143,7 +143,7 @@ func TestAdvanceStage(t *testing.T) {
 
 func TestTerminateEnvelope(t *testing.T) {
 	// Test terminating an envelope.
-	envelope := CreateGenericEnvelope("Test", "user-1", "sess-1", nil, nil, nil)
+	envelope := CreateEnvelope("Test", "user-1", "sess-1", nil, nil, nil)
 
 	envelope.Terminate("Test termination reason", nil)
 
@@ -153,7 +153,7 @@ func TestTerminateEnvelope(t *testing.T) {
 
 func TestTerminateWithTerminalReason(t *testing.T) {
 	// Test terminating with explicit terminal reason.
-	envelope := CreateGenericEnvelope("Test", "user-1", "sess-1", nil, nil, nil)
+	envelope := CreateEnvelope("Test", "user-1", "sess-1", nil, nil, nil)
 
 	reason := TerminalReasonMaxLLMCallsExceeded
 	envelope.Terminate("Max LLM calls exceeded", &reason)
@@ -168,7 +168,7 @@ func TestTerminateWithTerminalReason(t *testing.T) {
 
 func TestRecordAgentStart(t *testing.T) {
 	// Test recording agent start.
-	envelope := CreateGenericEnvelope("Test", "user-1", "sess-1", nil, nil, nil)
+	envelope := CreateEnvelope("Test", "user-1", "sess-1", nil, nil, nil)
 
 	envelope.RecordAgentStart("perception", 0)
 
@@ -182,7 +182,7 @@ func TestRecordAgentStart(t *testing.T) {
 
 func TestRecordAgentComplete(t *testing.T) {
 	// Test recording agent completion.
-	envelope := CreateGenericEnvelope("Test", "user-1", "sess-1", nil, nil, nil)
+	envelope := CreateEnvelope("Test", "user-1", "sess-1", nil, nil, nil)
 
 	envelope.RecordAgentStart("intent", 1)
 	envelope.RecordAgentComplete("intent", "success", nil, 1, 0)
@@ -199,14 +199,14 @@ func TestRecordAgentComplete(t *testing.T) {
 
 func TestCanContinueInitially(t *testing.T) {
 	// Test envelope can continue initially.
-	envelope := CreateGenericEnvelope("Test", "user-1", "sess-1", nil, nil, nil)
+	envelope := CreateEnvelope("Test", "user-1", "sess-1", nil, nil, nil)
 
 	assert.True(t, envelope.CanContinue())
 }
 
 func TestCanContinueTerminated(t *testing.T) {
 	// Test envelope cannot continue when terminated.
-	envelope := CreateGenericEnvelope("Test", "user-1", "sess-1", nil, nil, nil)
+	envelope := CreateEnvelope("Test", "user-1", "sess-1", nil, nil, nil)
 
 	envelope.Terminated = true
 	assert.False(t, envelope.CanContinue())
@@ -214,7 +214,7 @@ func TestCanContinueTerminated(t *testing.T) {
 
 func TestCanContinueMaxIterations(t *testing.T) {
 	// Test envelope cannot continue at max iterations.
-	envelope := CreateGenericEnvelope("Test", "user-1", "sess-1", nil, nil, nil)
+	envelope := CreateEnvelope("Test", "user-1", "sess-1", nil, nil, nil)
 
 	envelope.Iteration = envelope.MaxIterations + 1
 	assert.False(t, envelope.CanContinue())
@@ -223,7 +223,7 @@ func TestCanContinueMaxIterations(t *testing.T) {
 
 func TestCanContinueMaxLLMCalls(t *testing.T) {
 	// Test envelope cannot continue at max LLM calls.
-	envelope := CreateGenericEnvelope("Test", "user-1", "sess-1", nil, nil, nil)
+	envelope := CreateEnvelope("Test", "user-1", "sess-1", nil, nil, nil)
 
 	envelope.LLMCallCount = envelope.MaxLLMCalls
 	assert.False(t, envelope.CanContinue())
@@ -232,7 +232,7 @@ func TestCanContinueMaxLLMCalls(t *testing.T) {
 
 func TestCanContinueMaxAgentHops(t *testing.T) {
 	// Test envelope cannot continue at max agent hops.
-	envelope := CreateGenericEnvelope("Test", "user-1", "sess-1", nil, nil, nil)
+	envelope := CreateEnvelope("Test", "user-1", "sess-1", nil, nil, nil)
 
 	envelope.AgentHopCount = envelope.MaxAgentHops
 	assert.False(t, envelope.CanContinue())
@@ -241,7 +241,7 @@ func TestCanContinueMaxAgentHops(t *testing.T) {
 
 func TestCanContinueInterruptPending(t *testing.T) {
 	// Test envelope cannot continue when interrupt pending.
-	envelope := CreateGenericEnvelope("Test", "user-1", "sess-1", nil, nil, nil)
+	envelope := CreateEnvelope("Test", "user-1", "sess-1", nil, nil, nil)
 
 	envelope.SetInterrupt(InterruptKindClarification, "int-1", WithQuestion("What do you mean?"))
 	assert.False(t, envelope.CanContinue())
@@ -256,7 +256,7 @@ func TestCanContinueInterruptPending(t *testing.T) {
 
 func TestInitializeGoals(t *testing.T) {
 	// Test initializing goal tracking from intent.
-	envelope := CreateGenericEnvelope("Trace auth flow", "user-1", "sess-1", nil, nil, nil)
+	envelope := CreateEnvelope("Trace auth flow", "user-1", "sess-1", nil, nil, nil)
 
 	goals := []string{"Find auth endpoint", "Trace middleware", "Find DB layer"}
 	envelope.InitializeGoals(goals)
@@ -268,7 +268,7 @@ func TestInitializeGoals(t *testing.T) {
 
 func TestAdvanceStageSatisfiedGoals(t *testing.T) {
 	// Test advancing to next stage after goal satisfaction.
-	envelope := CreateGenericEnvelope("Test", "user-1", "sess-1", nil, nil, nil)
+	envelope := CreateEnvelope("Test", "user-1", "sess-1", nil, nil, nil)
 
 	envelope.InitializeGoals([]string{"Goal 1", "Goal 2"})
 	envelope.SetOutput("plan", map[string]any{"plan_id": "plan-1"})
@@ -286,7 +286,7 @@ func TestAdvanceStageSatisfiedGoals(t *testing.T) {
 
 func TestAdvanceStageAllComplete(t *testing.T) {
 	// Test advance_stage returns false when all goals satisfied.
-	envelope := CreateGenericEnvelope("Test", "user-1", "sess-1", nil, nil, nil)
+	envelope := CreateEnvelope("Test", "user-1", "sess-1", nil, nil, nil)
 
 	envelope.InitializeGoals([]string{"Goal 1"})
 	envelope.SetOutput("plan", map[string]any{"plan_id": "plan-1"})
@@ -302,7 +302,7 @@ func TestAdvanceStageAllComplete(t *testing.T) {
 
 func TestGetStageContext(t *testing.T) {
 	// Test getting accumulated context from completed stages.
-	envelope := CreateGenericEnvelope("Test", "user-1", "sess-1", nil, nil, nil)
+	envelope := CreateEnvelope("Test", "user-1", "sess-1", nil, nil, nil)
 
 	envelope.InitializeGoals([]string{"Goal 1", "Goal 2"})
 	envelope.SetOutput("plan", map[string]any{"plan_id": "plan-1"})
@@ -321,7 +321,7 @@ func TestGetStageContext(t *testing.T) {
 
 func TestIncrementIteration(t *testing.T) {
 	// Test incrementing iteration counter.
-	envelope := CreateGenericEnvelope("Test", "user-1", "sess-1", nil, nil, nil)
+	envelope := CreateEnvelope("Test", "user-1", "sess-1", nil, nil, nil)
 
 	assert.Equal(t, 0, envelope.Iteration)
 
@@ -331,7 +331,7 @@ func TestIncrementIteration(t *testing.T) {
 
 func TestIncrementIterationWithFeedback(t *testing.T) {
 	// Test incrementing with loop feedback.
-	envelope := CreateGenericEnvelope("Test", "user-1", "sess-1", nil, nil, nil)
+	envelope := CreateEnvelope("Test", "user-1", "sess-1", nil, nil, nil)
 
 	feedback := "Need more context"
 	envelope.IncrementIteration(&feedback)
@@ -342,7 +342,7 @@ func TestIncrementIterationWithFeedback(t *testing.T) {
 
 func TestIncrementIterationStoresPriorPlan(t *testing.T) {
 	// Test that prior plan is stored on iteration.
-	envelope := CreateGenericEnvelope("Test", "user-1", "sess-1", nil, nil, nil)
+	envelope := CreateEnvelope("Test", "user-1", "sess-1", nil, nil, nil)
 
 	envelope.SetOutput("plan", map[string]any{"plan_id": "plan-1", "steps": []any{}})
 
@@ -358,7 +358,7 @@ func TestIncrementIterationStoresPriorPlan(t *testing.T) {
 
 func TestGetFinalResponseFromIntegration(t *testing.T) {
 	// Test getting final response when integration is complete.
-	envelope := CreateGenericEnvelope("Test", "user-1", "sess-1", nil, nil, nil)
+	envelope := CreateEnvelope("Test", "user-1", "sess-1", nil, nil, nil)
 
 	envelope.SetOutput("integration", map[string]any{
 		"final_response": "Final response text",
@@ -372,7 +372,7 @@ func TestGetFinalResponseFromIntegration(t *testing.T) {
 
 func TestGetFinalResponseClarification(t *testing.T) {
 	// Test getting final response when clarification is pending.
-	envelope := CreateGenericEnvelope("Do something", "user-1", "sess-1", nil, nil, nil)
+	envelope := CreateEnvelope("Do something", "user-1", "sess-1", nil, nil, nil)
 
 	envelope.SetInterrupt(InterruptKindClarification, "int-1", WithQuestion("What would you like to do?"))
 
@@ -383,7 +383,7 @@ func TestGetFinalResponseClarification(t *testing.T) {
 
 func TestSetAndResolveInterrupt(t *testing.T) {
 	// Test setting and resolving an interrupt.
-	envelope := CreateGenericEnvelope("Test", "user-1", "sess-1", nil, nil, nil)
+	envelope := CreateEnvelope("Test", "user-1", "sess-1", nil, nil, nil)
 
 	// Set clarification interrupt
 	envelope.SetInterrupt(InterruptKindClarification, "int-1", WithQuestion("What file?"))
@@ -400,7 +400,7 @@ func TestSetAndResolveInterrupt(t *testing.T) {
 
 func TestSetConfirmationInterrupt(t *testing.T) {
 	// Test setting a confirmation interrupt.
-	envelope := CreateGenericEnvelope("Test", "user-1", "sess-1", nil, nil, nil)
+	envelope := CreateEnvelope("Test", "user-1", "sess-1", nil, nil, nil)
 
 	envelope.SetInterrupt(InterruptKindConfirmation, "conf-1", WithMessage("Delete this file?"))
 	assert.True(t, envelope.InterruptPending)
@@ -416,7 +416,7 @@ func TestSetConfirmationInterrupt(t *testing.T) {
 
 func TestToResultDict(t *testing.T) {
 	// Test converting envelope to result dict.
-	envelope := CreateGenericEnvelope("Test", "user-1", "sess-1", nil, nil, nil)
+	envelope := CreateEnvelope("Test", "user-1", "sess-1", nil, nil, nil)
 
 	result := envelope.ToResultDict()
 
@@ -432,7 +432,7 @@ func TestToResultDict(t *testing.T) {
 
 func TestToStateDict(t *testing.T) {
 	// Test serializing envelope to state dict.
-	envelope := CreateGenericEnvelope("Test", "user-1", "sess-1", nil, nil, nil)
+	envelope := CreateEnvelope("Test", "user-1", "sess-1", nil, nil, nil)
 
 	envelope.SetOutput("perception", map[string]any{"normalized_input": "test"})
 	envelope.CurrentStage = "intent"
@@ -476,7 +476,7 @@ func TestFromStateDict(t *testing.T) {
 
 func TestRoundtripSerialization(t *testing.T) {
 	// Test that serialization roundtrips correctly.
-	original := CreateGenericEnvelope("Test query", "user-123", "session-456", nil, nil, nil)
+	original := CreateEnvelope("Test query", "user-123", "session-456", nil, nil, nil)
 
 	original.SetOutput("intent", map[string]any{"intent": "analyze", "goals": []string{"Find bugs"}})
 	original.InitializeGoals([]string{"Find bugs"})
@@ -508,7 +508,7 @@ func TestInterruptKindValues(t *testing.T) {
 
 func TestSetAgentReviewInterrupt(t *testing.T) {
 	// Test setting an agent review interrupt.
-	envelope := CreateGenericEnvelope("Test", "user-1", "sess-1", nil, nil, nil)
+	envelope := CreateEnvelope("Test", "user-1", "sess-1", nil, nil, nil)
 
 	envelope.SetInterrupt(InterruptKindAgentReview, "review-1",
 		WithMessage("Review this plan"),
@@ -528,7 +528,7 @@ func TestSetAgentReviewInterrupt(t *testing.T) {
 
 func TestSetCheckpointInterrupt(t *testing.T) {
 	// Test setting a checkpoint interrupt.
-	envelope := CreateGenericEnvelope("Test", "user-1", "sess-1", nil, nil, nil)
+	envelope := CreateEnvelope("Test", "user-1", "sess-1", nil, nil, nil)
 
 	envelope.SetInterrupt(InterruptKindCheckpoint, "checkpoint-1",
 		WithInterruptData(map[string]any{"stage": "planner", "iteration": 2}))
@@ -545,7 +545,7 @@ func TestSetCheckpointInterrupt(t *testing.T) {
 
 func TestSetResourceExhaustedInterrupt(t *testing.T) {
 	// Test setting a resource exhausted interrupt.
-	envelope := CreateGenericEnvelope("Test", "user-1", "sess-1", nil, nil, nil)
+	envelope := CreateEnvelope("Test", "user-1", "sess-1", nil, nil, nil)
 
 	envelope.SetInterrupt(InterruptKindResourceExhausted, "rate-limit-1",
 		WithMessage("Rate limit exceeded"),
@@ -559,7 +559,7 @@ func TestSetResourceExhaustedInterrupt(t *testing.T) {
 
 func TestSetTimeoutInterrupt(t *testing.T) {
 	// Test setting a timeout interrupt.
-	envelope := CreateGenericEnvelope("Test", "user-1", "sess-1", nil, nil, nil)
+	envelope := CreateEnvelope("Test", "user-1", "sess-1", nil, nil, nil)
 
 	envelope.SetInterrupt(InterruptKindTimeout, "timeout-1",
 		WithMessage("Operation timed out"),
@@ -572,7 +572,7 @@ func TestSetTimeoutInterrupt(t *testing.T) {
 
 func TestSetSystemErrorInterrupt(t *testing.T) {
 	// Test setting a system error interrupt.
-	envelope := CreateGenericEnvelope("Test", "user-1", "sess-1", nil, nil, nil)
+	envelope := CreateEnvelope("Test", "user-1", "sess-1", nil, nil, nil)
 
 	envelope.SetInterrupt(InterruptKindSystemError, "error-1",
 		WithMessage("Internal system error"),
@@ -590,7 +590,7 @@ func TestSetSystemErrorInterrupt(t *testing.T) {
 
 func TestParallelStateRoundtrip(t *testing.T) {
 	// Test that parallel execution state fields are preserved through serialization.
-	original := CreateGenericEnvelope("Test", "user-1", "sess-1", nil, nil, nil)
+	original := CreateEnvelope("Test", "user-1", "sess-1", nil, nil, nil)
 
 	// Set parallel mode and state
 	original.ParallelMode = true
@@ -612,7 +612,7 @@ func TestParallelStateRoundtrip(t *testing.T) {
 
 func TestToStateDictIncludesParallelFields(t *testing.T) {
 	// Test that ToStateDict includes all parallel execution fields.
-	envelope := CreateGenericEnvelope("Test", "user-1", "sess-1", nil, nil, nil)
+	envelope := CreateEnvelope("Test", "user-1", "sess-1", nil, nil, nil)
 	envelope.ParallelMode = true
 	envelope.ActiveStages["active1"] = true
 	envelope.CompletedStageSet["done1"] = true
@@ -650,7 +650,7 @@ func TestTerminalReasonValues(t *testing.T) {
 
 func TestCloneBasic(t *testing.T) {
 	// Test basic clone creates independent copy.
-	original := CreateGenericEnvelope("Test", "user-1", "sess-1", nil, nil, nil)
+	original := CreateEnvelope("Test", "user-1", "sess-1", nil, nil, nil)
 	original.Outputs["test"] = map[string]any{"key": "value"}
 	original.Iteration = 5
 
@@ -672,7 +672,7 @@ func TestCloneBasic(t *testing.T) {
 
 func TestCloneDeepCopyOutputs(t *testing.T) {
 	// Test that nested outputs are deeply copied.
-	original := CreateGenericEnvelope("Test", "user-1", "sess-1", nil, nil, nil)
+	original := CreateEnvelope("Test", "user-1", "sess-1", nil, nil, nil)
 	original.Outputs["nested"] = map[string]any{
 		"level1": map[string]any{
 			"level2": "deep",
@@ -694,7 +694,7 @@ func TestCloneDeepCopyOutputs(t *testing.T) {
 
 func TestCloneWithInterrupt(t *testing.T) {
 	// Test cloning envelope with interrupt.
-	original := CreateGenericEnvelope("Test", "user-1", "sess-1", nil, nil, nil)
+	original := CreateEnvelope("Test", "user-1", "sess-1", nil, nil, nil)
 	original.SetInterrupt(InterruptKindClarification, "int-1", WithQuestion("What file?"))
 
 	clone := original.Clone()
@@ -713,7 +713,7 @@ func TestCloneWithInterrupt(t *testing.T) {
 
 func TestCloneWithParallelState(t *testing.T) {
 	// Test cloning envelope with parallel execution state.
-	original := CreateGenericEnvelope("Test", "user-1", "sess-1", nil, nil, nil)
+	original := CreateEnvelope("Test", "user-1", "sess-1", nil, nil, nil)
 	original.ParallelMode = true
 	original.ActiveStages["stage1"] = true
 	original.CompletedStageSet["stage0"] = true
@@ -738,7 +738,7 @@ func TestCloneWithParallelState(t *testing.T) {
 
 func TestCloneWithProcessingHistory(t *testing.T) {
 	// Test cloning envelope with processing history.
-	original := CreateGenericEnvelope("Test", "user-1", "sess-1", nil, nil, nil)
+	original := CreateEnvelope("Test", "user-1", "sess-1", nil, nil, nil)
 	original.RecordAgentStart("agent1", 1)
 	original.RecordAgentComplete("agent1", "success", nil, 2, 100)
 
@@ -758,7 +758,7 @@ func TestCloneWithProcessingHistory(t *testing.T) {
 
 func TestCloneNilFields(t *testing.T) {
 	// Test cloning envelope with nil optional fields.
-	original := CreateGenericEnvelope("Test", "user-1", "sess-1", nil, nil, nil)
+	original := CreateEnvelope("Test", "user-1", "sess-1", nil, nil, nil)
 	// Leave optional fields nil
 
 	clone := original.Clone()
@@ -775,7 +775,7 @@ func TestCloneNilFields(t *testing.T) {
 // =============================================================================
 
 func TestWithExpiry(t *testing.T) {
-	env := CreateGenericEnvelope("Test", "user-1", "sess-1", nil, nil, nil)
+	env := CreateEnvelope("Test", "user-1", "sess-1", nil, nil, nil)
 
 	// Set interrupt with expiry
 	env.SetInterrupt(InterruptKindConfirmation, "int-exp-1", WithExpiry(time.Hour))
@@ -793,7 +793,7 @@ func TestWithExpiry(t *testing.T) {
 // =============================================================================
 
 func TestIsStageCompleted(t *testing.T) {
-	env := CreateGenericEnvelope("Test", "user-1", "sess-1", nil, nil, nil)
+	env := CreateEnvelope("Test", "user-1", "sess-1", nil, nil, nil)
 
 	// Initially no stages are completed
 	assert.False(t, env.IsStageCompleted("stage1"))
@@ -810,7 +810,7 @@ func TestIsStageCompleted(t *testing.T) {
 }
 
 func TestIsStageCompletedNilMap(t *testing.T) {
-	env := &GenericEnvelope{
+	env := &Envelope{
 		CompletedStageSet: nil,
 	}
 	// Should not panic with nil map
@@ -818,7 +818,7 @@ func TestIsStageCompletedNilMap(t *testing.T) {
 }
 
 func TestIsStageActive(t *testing.T) {
-	env := CreateGenericEnvelope("Test", "user-1", "sess-1", nil, nil, nil)
+	env := CreateEnvelope("Test", "user-1", "sess-1", nil, nil, nil)
 
 	// Initially no stages are active
 	assert.False(t, env.IsStageActive("stage1"))
@@ -833,7 +833,7 @@ func TestIsStageActive(t *testing.T) {
 }
 
 func TestIsStageActiveNilMap(t *testing.T) {
-	env := &GenericEnvelope{
+	env := &Envelope{
 		ActiveStages: nil,
 	}
 	// Should not panic with nil map
@@ -841,7 +841,7 @@ func TestIsStageActiveNilMap(t *testing.T) {
 }
 
 func TestIsStageFailed(t *testing.T) {
-	env := CreateGenericEnvelope("Test", "user-1", "sess-1", nil, nil, nil)
+	env := CreateEnvelope("Test", "user-1", "sess-1", nil, nil, nil)
 
 	// Initially no stages are failed
 	assert.False(t, env.IsStageFailed("stage1"))
@@ -858,7 +858,7 @@ func TestIsStageFailed(t *testing.T) {
 }
 
 func TestIsStageFailedNilMap(t *testing.T) {
-	env := &GenericEnvelope{
+	env := &Envelope{
 		FailedStages: nil,
 	}
 	// Should not panic with nil map
@@ -866,7 +866,7 @@ func TestIsStageFailedNilMap(t *testing.T) {
 }
 
 func TestGetActiveStageCount(t *testing.T) {
-	env := CreateGenericEnvelope("Test", "user-1", "sess-1", nil, nil, nil)
+	env := CreateEnvelope("Test", "user-1", "sess-1", nil, nil, nil)
 
 	// Initially zero
 	assert.Equal(t, 0, env.GetActiveStageCount())
@@ -885,14 +885,14 @@ func TestGetActiveStageCount(t *testing.T) {
 }
 
 func TestGetActiveStageCountNilMap(t *testing.T) {
-	env := &GenericEnvelope{
+	env := &Envelope{
 		ActiveStages: nil,
 	}
 	assert.Equal(t, 0, env.GetActiveStageCount())
 }
 
 func TestGetCompletedStageCount(t *testing.T) {
-	env := CreateGenericEnvelope("Test", "user-1", "sess-1", nil, nil, nil)
+	env := CreateEnvelope("Test", "user-1", "sess-1", nil, nil, nil)
 
 	// Initially zero
 	assert.Equal(t, 0, env.GetCompletedStageCount())
@@ -908,14 +908,14 @@ func TestGetCompletedStageCount(t *testing.T) {
 }
 
 func TestGetCompletedStageCountNilMap(t *testing.T) {
-	env := &GenericEnvelope{
+	env := &Envelope{
 		CompletedStageSet: nil,
 	}
 	assert.Equal(t, 0, env.GetCompletedStageCount())
 }
 
 func TestAllStagesComplete(t *testing.T) {
-	env := CreateGenericEnvelope("Test", "user-1", "sess-1", nil, nil, nil)
+	env := CreateEnvelope("Test", "user-1", "sess-1", nil, nil, nil)
 
 	// Empty StageOrder returns false
 	assert.False(t, env.AllStagesComplete())
@@ -942,7 +942,7 @@ func TestAllStagesComplete(t *testing.T) {
 }
 
 func TestHasFailures(t *testing.T) {
-	env := CreateGenericEnvelope("Test", "user-1", "sess-1", nil, nil, nil)
+	env := CreateEnvelope("Test", "user-1", "sess-1", nil, nil, nil)
 
 	// Initially no failures
 	assert.False(t, env.HasFailures())
@@ -958,7 +958,7 @@ func TestHasFailures(t *testing.T) {
 // =============================================================================
 
 func TestHasPendingInterrupt(t *testing.T) {
-	env := CreateGenericEnvelope("Test", "user-1", "sess-1", nil, nil, nil)
+	env := CreateEnvelope("Test", "user-1", "sess-1", nil, nil, nil)
 
 	// Initially no interrupt
 	assert.False(t, env.HasPendingInterrupt())
@@ -974,7 +974,7 @@ func TestHasPendingInterrupt(t *testing.T) {
 }
 
 func TestGetInterruptKind(t *testing.T) {
-	env := CreateGenericEnvelope("Test", "user-1", "sess-1", nil, nil, nil)
+	env := CreateEnvelope("Test", "user-1", "sess-1", nil, nil, nil)
 
 	// No interrupt - returns empty string
 	assert.Equal(t, InterruptKind(""), env.GetInterruptKind())
@@ -1066,7 +1066,7 @@ func TestFlowInterruptCloneWithResponse(t *testing.T) {
 // =============================================================================
 
 func TestToResultDictBasic(t *testing.T) {
-	env := CreateGenericEnvelope("Test", "user-1", "sess-1", nil, nil, nil)
+	env := CreateEnvelope("Test", "user-1", "sess-1", nil, nil, nil)
 	env.CurrentStage = "stage1"
 	env.Iteration = 3
 
@@ -1081,7 +1081,7 @@ func TestToResultDictBasic(t *testing.T) {
 }
 
 func TestToResultDictWithClarificationInterrupt(t *testing.T) {
-	env := CreateGenericEnvelope("Test", "user-1", "sess-1", nil, nil, nil)
+	env := CreateEnvelope("Test", "user-1", "sess-1", nil, nil, nil)
 	env.SetInterrupt(InterruptKindClarification, "int-clarify-1", WithQuestion("Please clarify?"))
 
 	result := env.ToResultDict()
@@ -1097,7 +1097,7 @@ func TestToResultDictWithClarificationInterrupt(t *testing.T) {
 }
 
 func TestToResultDictWithConfirmationInterrupt(t *testing.T) {
-	env := CreateGenericEnvelope("Test", "user-1", "sess-1", nil, nil, nil)
+	env := CreateEnvelope("Test", "user-1", "sess-1", nil, nil, nil)
 	env.SetInterrupt(InterruptKindConfirmation, "int-confirm-1", WithMessage("Please confirm"))
 
 	result := env.ToResultDict()
@@ -1118,7 +1118,7 @@ func TestToResultDictWithConfirmationInterrupt(t *testing.T) {
 // =============================================================================
 
 func TestToStateDictWithTerminalReason(t *testing.T) {
-	env := CreateGenericEnvelope("Test", "user-1", "sess-1", nil, nil, nil)
+	env := CreateEnvelope("Test", "user-1", "sess-1", nil, nil, nil)
 	completed := TerminalReasonCompleted
 	env.Terminate("All done", &completed)
 
@@ -1131,7 +1131,7 @@ func TestToStateDictWithTerminalReason(t *testing.T) {
 }
 
 func TestToStateDictWithInterrupt(t *testing.T) {
-	env := CreateGenericEnvelope("Test", "user-1", "sess-1", nil, nil, nil)
+	env := CreateEnvelope("Test", "user-1", "sess-1", nil, nil, nil)
 	expiry := time.Now().Add(time.Hour)
 	env.SetInterrupt(InterruptKindConfirmation, "int-state-1",
 		WithMessage("Confirm?"),
@@ -1150,7 +1150,7 @@ func TestToStateDictWithInterrupt(t *testing.T) {
 }
 
 func TestToStateDictWithInterruptResponse(t *testing.T) {
-	env := CreateGenericEnvelope("Test", "user-1", "sess-1", nil, nil, nil)
+	env := CreateEnvelope("Test", "user-1", "sess-1", nil, nil, nil)
 	env.SetInterrupt(InterruptKindClarification, "int-resp-1", WithQuestion("What?"))
 	text := "Answer"
 	env.ResolveInterrupt(InterruptResponse{Text: &text})
@@ -1163,7 +1163,7 @@ func TestToStateDictWithInterruptResponse(t *testing.T) {
 }
 
 func TestToStateDictBasicFields(t *testing.T) {
-	env := CreateGenericEnvelope("Test", "user-1", "sess-1", nil, nil, nil)
+	env := CreateEnvelope("Test", "user-1", "sess-1", nil, nil, nil)
 	env.Iteration = 5
 	env.LLMCallCount = 10
 	env.AgentHopCount = 3
@@ -1184,7 +1184,7 @@ func TestToStateDictBasicFields(t *testing.T) {
 
 func TestDeepCopyValueTypes(t *testing.T) {
 	// Test via Clone which uses deepCopyValue internally
-	env := CreateGenericEnvelope("Test", "user-1", "sess-1", nil, nil, nil)
+	env := CreateEnvelope("Test", "user-1", "sess-1", nil, nil, nil)
 
 	// Add outputs with various types to trigger all branches
 	env.Outputs["test"] = map[string]any{
@@ -1305,7 +1305,7 @@ func TestFromStateDictWithResponseApprovedAndDecision(t *testing.T) {
 // =============================================================================
 
 func TestTotalProcessingTimeMSEmpty(t *testing.T) {
-	env := CreateGenericEnvelope("Test", "user-1", "sess-1", nil, nil, nil)
+	env := CreateEnvelope("Test", "user-1", "sess-1", nil, nil, nil)
 	// No processing history
 	assert.Equal(t, 0, env.TotalProcessingTimeMS())
 }
@@ -1315,7 +1315,7 @@ func TestTotalProcessingTimeMSEmpty(t *testing.T) {
 // =============================================================================
 
 func TestGetFinalResponseFromOutputs(t *testing.T) {
-	env := CreateGenericEnvelope("Test", "user-1", "sess-1", nil, nil, nil)
+	env := CreateEnvelope("Test", "user-1", "sess-1", nil, nil, nil)
 	env.Outputs["integration"] = map[string]any{
 		"final_response": "Hello from output!",
 	}
@@ -1326,13 +1326,13 @@ func TestGetFinalResponseFromOutputs(t *testing.T) {
 }
 
 func TestGetFinalResponseNoResponse(t *testing.T) {
-	env := CreateGenericEnvelope("Test", "user-1", "sess-1", nil, nil, nil)
+	env := CreateEnvelope("Test", "user-1", "sess-1", nil, nil, nil)
 	// No outputs at all
 	assert.Nil(t, env.GetFinalResponse())
 }
 
 func TestGetFinalResponseFromInterruptClarification(t *testing.T) {
-	env := CreateGenericEnvelope("Test", "user-1", "sess-1", nil, nil, nil)
+	env := CreateEnvelope("Test", "user-1", "sess-1", nil, nil, nil)
 	env.SetInterrupt(InterruptKindClarification, "int-resp-2", WithQuestion("What do you mean?"))
 
 	resp := env.GetFinalResponse()
@@ -1341,7 +1341,7 @@ func TestGetFinalResponseFromInterruptClarification(t *testing.T) {
 }
 
 func TestGetFinalResponseFromInterruptConfirmation(t *testing.T) {
-	env := CreateGenericEnvelope("Test", "user-1", "sess-1", nil, nil, nil)
+	env := CreateEnvelope("Test", "user-1", "sess-1", nil, nil, nil)
 	env.SetInterrupt(InterruptKindConfirmation, "int-resp-3", WithMessage("Please confirm this action"))
 
 	resp := env.GetFinalResponse()
@@ -1354,7 +1354,7 @@ func TestGetFinalResponseFromInterruptConfirmation(t *testing.T) {
 // =============================================================================
 
 func TestAdvanceStageMaxStagesReached(t *testing.T) {
-	env := CreateGenericEnvelope("Test", "user-1", "sess-1", nil, nil, nil)
+	env := CreateEnvelope("Test", "user-1", "sess-1", nil, nil, nil)
 	env.InitializeGoals([]string{"Goal 1", "Goal 2", "Goal 3"})
 	env.SetOutput("plan", map[string]any{"plan_id": "p1"})
 
@@ -1367,7 +1367,7 @@ func TestAdvanceStageMaxStagesReached(t *testing.T) {
 }
 
 func TestAdvanceStagePartialGoals(t *testing.T) {
-	env := CreateGenericEnvelope("Test", "user-1", "sess-1", nil, nil, nil)
+	env := CreateEnvelope("Test", "user-1", "sess-1", nil, nil, nil)
 	env.InitializeGoals([]string{"Goal 1", "Goal 2", "Goal 3"})
 	env.SetOutput("plan", map[string]any{"plan_id": "p1"})
 

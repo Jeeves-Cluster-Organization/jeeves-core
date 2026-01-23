@@ -130,7 +130,7 @@ class ProcessControlBlock:
     """Process Control Block - kernel's view of a request.
 
     This is the kernel's metadata about a running "process" (request).
-    The actual request state is in GenericEnvelope; this tracks:
+    The actual request state is in Envelope; this tracks:
     - Scheduling state
     - Resource accounting
     - Interrupt status

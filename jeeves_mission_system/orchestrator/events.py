@@ -48,11 +48,11 @@ from jeeves_mission_system.adapters import get_logger
 from jeeves_mission_system.orchestrator.agent_events import (
     AgentEventType,
     AgentEvent,
-    AgentEventEmitter,
+    EventEmitter,
     create_agent_event_emitter,
 )
 from jeeves_mission_system.orchestrator.event_context import (
-    AgentEventContext,
+    EventContext,
     create_event_context,
 )
 
@@ -68,16 +68,16 @@ class EventOrchestrator:
     Unified orchestrator for all event operations.
 
     Provides single facade over:
-    - AgentEventEmitter (real-time streaming via gRPC to gateway)
-    - AgentEventContext (unified emission context)
+    - EventEmitter (real-time streaming via gRPC to gateway)
+    - EventContext (unified emission context)
     - EventEmitter (domain event persistence)
 
     This is the ONLY entry point for event emission in the mission system.
 
     Event Flow Architecture:
-    - Orchestrator emits to AgentEventEmitter (in-memory queue)
+    - Orchestrator emits to EventEmitter (in-memory queue)
     - Events streamed via gRPC to Gateway
-    - Gateway converts to UnifiedEvent and broadcasts to WebSocket clients
+    - Gateway converts to Event and broadcasts to WebSocket clients
     - NO direct gateway_event_bus injection (orchestrator and gateway are separate processes)
 
     Attributes:
@@ -99,9 +99,9 @@ class EventOrchestrator:
     _logger: Any = field(default=None, repr=False)
 
     # Internal state
-    _agent_emitter: Optional[AgentEventEmitter] = field(default=None, repr=False)
+    _agent_emitter: Optional[EventEmitter] = field(default=None, repr=False)
     _domain_emitter: Optional[Any] = field(default=None, repr=False)
-    _context: Optional[AgentEventContext] = field(default=None, repr=False)
+    _context: Optional[EventContext] = field(default=None, repr=False)
     _initialized: bool = field(default=False, repr=False)
 
     def __post_init__(self):
@@ -161,7 +161,7 @@ class EventOrchestrator:
         1. Real-time queue (AgentEvent) → gRPC stream → Gateway
         2. Domain persistence (if enabled)
 
-        Note: Gateway receives events via gRPC and converts to UnifiedEvent.
+        Note: Gateway receives events via gRPC and converts to Event.
         No direct gateway_event_bus injection needed (cross-process).
         """
         self._ensure_initialized()
@@ -181,7 +181,7 @@ class EventOrchestrator:
         1. Real-time queue (AgentEvent) → gRPC stream → Gateway
         2. Domain persistence (if enabled)
 
-        Note: Gateway receives events via gRPC and converts to UnifiedEvent.
+        Note: Gateway receives events via gRPC and converts to Event.
         No direct gateway_event_bus injection needed (cross-process).
         """
         self._ensure_initialized()
@@ -454,7 +454,7 @@ class EventOrchestrator:
         self._logger.debug("event_orchestrator_closed")
 
     @property
-    def context(self) -> Optional[AgentEventContext]:
+    def context(self) -> Optional[EventContext]:
         """Access to underlying context for advanced usage."""
         self._ensure_initialized()
         return self._context
@@ -505,9 +505,9 @@ __all__ = [
     # Types from agent_events
     "AgentEventType",
     "AgentEvent",
-    "AgentEventEmitter",
+    "EventEmitter",
     "create_agent_event_emitter",
     # Types from event_context
-    "AgentEventContext",
+    "EventContext",
     "create_event_context",
 ]

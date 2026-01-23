@@ -45,9 +45,9 @@ func (m *MockLogger) Error(msg string, keysAndValues ...any) {
 	m.errorCalls = append(m.errorCalls, msg)
 }
 
-func createTestServer() (*JeevesCoreServer, *MockLogger) {
+func createTestServer() (*EngineServer, *MockLogger) {
 	logger := &MockLogger{}
-	server := NewJeevesCoreServer(logger)
+	server := NewEngineServer(logger)
 	return server, logger
 }
 
@@ -345,7 +345,7 @@ func TestExecuteAgent(t *testing.T) {
 
 func TestEnvelopeToProtoBasic(t *testing.T) {
 	// Test basic envelope to proto conversion.
-	env := envelope.CreateGenericEnvelope(
+	env := envelope.CreateEnvelope(
 		"Hello, world!",
 		"user_123",
 		"session_456",
@@ -403,7 +403,7 @@ func TestProtoToEnvelopeBasic(t *testing.T) {
 
 func TestEnvelopeRoundtrip(t *testing.T) {
 	// Test envelope survives round-trip through proto (Contract 11).
-	original := envelope.CreateGenericEnvelope(
+	original := envelope.CreateEnvelope(
 		"Round-trip test",
 		"user_123",
 		"session_456",
@@ -442,7 +442,7 @@ func TestEnvelopeRoundtrip(t *testing.T) {
 
 func TestEnvelopeRoundtripWithInterrupt(t *testing.T) {
 	// Test envelope with interrupt survives round-trip.
-	original := envelope.CreateGenericEnvelope(
+	original := envelope.CreateEnvelope(
 		"Interrupt test",
 		"user_123",
 		"session_456",
@@ -466,7 +466,7 @@ func TestEnvelopeRoundtripWithInterrupt(t *testing.T) {
 
 func TestEnvelopeRoundtripWithParallelState(t *testing.T) {
 	// Test envelope with parallel execution state survives round-trip.
-	original := envelope.CreateGenericEnvelope(
+	original := envelope.CreateEnvelope(
 		"Parallel test",
 		"user_123",
 		"session_456",
@@ -685,10 +685,10 @@ func TestProtoToFlowInterrupt(t *testing.T) {
 // SERVER LIFECYCLE TESTS
 // =============================================================================
 
-func TestNewJeevesCoreServer(t *testing.T) {
+func TestNewEngineServer(t *testing.T) {
 	// Test server creation.
 	logger := &MockLogger{}
-	server := NewJeevesCoreServer(logger)
+	server := NewEngineServer(logger)
 
 	assert.NotNil(t, server)
 	assert.Nil(t, server.getRuntime()) // Runtime not set yet

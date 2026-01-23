@@ -272,13 +272,13 @@ class EdgeLimit:
 
 ## 5. Agent Runtime
 
-### 5.1 UnifiedAgent
+### 5.1 Agent
 
-The `UnifiedAgent` is a **configuration-driven agent** (no inheritance required):
+The `Agent` is a **configuration-driven agent** (no inheritance required):
 
 ```python
 @dataclass
-class UnifiedAgent:
+class Agent:
     config: AgentConfig
     logger: Logger
     llm: Optional[LLMProvider] = None
@@ -290,7 +290,7 @@ class UnifiedAgent:
     @property
     def name(self) -> str: ...
 
-    async def process(self, envelope: GenericEnvelope) -> GenericEnvelope:
+    async def process(self, envelope: Envelope) -> Envelope:
         """Main processing: pre_process → LLM/tools → post_process → routing"""
         ...
 ```
@@ -309,34 +309,34 @@ class Runtime:
     persistence: Optional[Persistence] = None
 
     # Main entry point
-    async def run(self, envelope: GenericEnvelope, thread_id: str = "") -> GenericEnvelope:
+    async def run(self, envelope: Envelope, thread_id: str = "") -> Envelope:
         """Execute pipeline sequentially."""
         ...
 
     # Parallel execution
-    async def run_parallel(self, envelope: GenericEnvelope, thread_id: str = "") -> GenericEnvelope:
+    async def run_parallel(self, envelope: Envelope, thread_id: str = "") -> Envelope:
         """Execute independent stages concurrently."""
         ...
 
     # Streaming execution
-    async def run_with_stream(self, envelope: GenericEnvelope,
+    async def run_with_stream(self, envelope: Envelope,
                               thread_id: str = "") -> AsyncIterator[Tuple[str, Dict]]:
         """Execute with streaming updates."""
         ...
 
     # Resume after interrupt
-    async def resume(self, envelope: GenericEnvelope, thread_id: str = "") -> GenericEnvelope:
+    async def resume(self, envelope: Envelope, thread_id: str = "") -> Envelope:
         """Resume after interrupt."""
         ...
 ```
 
-### 5.3 GenericEnvelope
+### 5.3 Envelope
 
 The envelope carries all state through the pipeline:
 
 ```python
 @dataclass
-class GenericEnvelope:
+class Envelope:
     # Identity
     envelope_id: str = ""
     request_id: str = ""
@@ -483,7 +483,7 @@ class EventCategory(Enum):
     DOMAIN_EVENT = "domain_event"
 
 @dataclass
-class UnifiedEvent:
+class Event:
     event_id: str
     event_type: str
     category: EventCategory
@@ -610,13 +610,13 @@ The Go engine is **AUTHORITATIVE** for:
 
 ```go
 // Main entry point with options
-func (r *Runtime) Execute(ctx context.Context, env *GenericEnvelope, opts RunOptions) (*GenericEnvelope, <-chan StageOutput, error)
+func (r *Runtime) Execute(ctx context.Context, env *Envelope, opts RunOptions) (*Envelope, <-chan StageOutput, error)
 
 // Convenience methods
-func (r *Runtime) Run(ctx, env, threadID) (*GenericEnvelope, error)         // Sequential
-func (r *Runtime) RunParallel(ctx, env, threadID) (*GenericEnvelope, error) // Parallel
+func (r *Runtime) Run(ctx, env, threadID) (*Envelope, error)         // Sequential
+func (r *Runtime) RunParallel(ctx, env, threadID) (*Envelope, error) // Parallel
 func (r *Runtime) RunWithStream(ctx, env, threadID) (<-chan StageOutput, error)
-func (r *Runtime) Resume(ctx, env, response, threadID) (*GenericEnvelope, error)
+func (r *Runtime) Resume(ctx, env, response, threadID) (*Envelope, error)
 
 // Run mode can be configured in PipelineConfig
 type RunMode string // "sequential" or "parallel"
@@ -782,10 +782,10 @@ PIPELINE = PipelineConfig(
 ### 14.1 Mock Provider
 
 ```python
-from jeeves_protocols import create_runtime_from_config
+from jeeves_protocols import create_pipeline_runner
 
 # Use mock mode for testing
-runtime = create_runtime_from_config(
+runtime = create_pipeline_runner(
     config=pipeline_config,
     use_mock=True,  # Uses MockProvider
 )
@@ -796,8 +796,8 @@ runtime = create_runtime_from_config(
 ```python
 @pytest.mark.asyncio
 async def test_pipeline():
-    runtime = create_runtime_from_config(config=PIPELINE, use_mock=True)
-    envelope = create_generic_envelope(raw_input="Test", user_id="test")
+    runtime = create_pipeline_runner(config=PIPELINE, use_mock=True)
+    envelope = create_envelope(raw_input="Test", user_id="test")
     
     result = await runtime.run(envelope)
     
@@ -813,10 +813,10 @@ async def test_pipeline():
 ```python
 # Protocols (L0)
 from jeeves_protocols import (
-    AgentConfig, PipelineConfig, GenericEnvelope, RoutingRule,
+    AgentConfig, PipelineConfig, Envelope, RoutingRule,
     ContextBounds, LoopVerdict, InterruptKind,
-    UnifiedAgent, Runtime,
-    create_runtime_from_config, create_generic_envelope,
+    Agent, Runtime,
+    create_pipeline_runner, create_envelope,
 )
 
 # Go Bridge (Go-only)

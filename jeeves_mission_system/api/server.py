@@ -34,7 +34,7 @@ from jeeves_avionics.database.factory import create_database_client, reset_facto
 from jeeves_avionics.logging import get_current_logger
 from jeeves_mission_system.services.chat_service import ChatService
 
-from jeeves_protocols import GenericEnvelope, create_generic_envelope, TerminalReason, get_capability_resource_registry
+from jeeves_protocols import Envelope, create_envelope, TerminalReason, get_capability_resource_registry
 from jeeves_control_tower import ControlTower, SchedulingPriority
 
 
@@ -524,7 +524,7 @@ async def submit_request(body: SubmitRequestBody) -> SubmitRequestResponse:
         session_id = body.session_id or f"session_{body.user_id}"
 
         # Create envelope for Control Tower
-        envelope = create_generic_envelope(
+        envelope = create_envelope(
             user_message=body.user_message,
             user_id=body.user_id,
             session_id=session_id,

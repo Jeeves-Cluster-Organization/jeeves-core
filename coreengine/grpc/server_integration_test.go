@@ -29,11 +29,11 @@ import (
 // testServer holds a running gRPC server for testing.
 type testServer struct {
 	server     *grpc.Server
-	coreServer *JeevesCoreServer
+	coreServer *EngineServer
 	listener   net.Listener
 	address    string
 	conn       *grpc.ClientConn
-	client     pb.JeevesCoreServiceClient
+	client     pb.EngineServiceClient
 }
 
 // startTestServer starts a gRPC server on an ephemeral port.
@@ -46,11 +46,11 @@ func startTestServer(t *testing.T) *testServer {
 
 	// Create core server
 	logger := testutil.NewMockLogger()
-	coreServer := NewJeevesCoreServer(logger)
+	coreServer := NewEngineServer(logger)
 
 	// Create and start gRPC server
 	grpcServer := grpc.NewServer()
-	pb.RegisterJeevesCoreServiceServer(grpcServer, coreServer)
+	pb.RegisterEngineServiceServer(grpcServer, coreServer)
 
 	// Start serving in background
 	go func() {
@@ -66,7 +66,7 @@ func startTestServer(t *testing.T) *testServer {
 	)
 	require.NoError(t, err)
 
-	client := pb.NewJeevesCoreServiceClient(conn)
+	client := pb.NewEngineServiceClient(conn)
 
 	return &testServer{
 		server:     grpcServer,
@@ -647,7 +647,7 @@ func TestGRPCIntegration_GoEnvelopeInterop(t *testing.T) {
 	// Test that Go envelope converts correctly through proto.
 
 	// Create Go envelope directly
-	goEnv := envelope.CreateGenericEnvelope(
+	goEnv := envelope.CreateEnvelope(
 		"Go interop test",
 		"user_go",
 		"session_go",

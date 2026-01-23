@@ -259,7 +259,7 @@ class TestWorkerCoordinatorE2E:
         """Test submitting an envelope through coordinator."""
         from jeeves_avionics.distributed.redis_bus import RedisDistributedBus
         from jeeves_mission_system.services.worker_coordinator import WorkerCoordinator
-        from jeeves_protocols import GenericEnvelope
+        from jeeves_protocols import Envelope
 
         class RedisClientWrapper:
             def __init__(self, client):
@@ -279,7 +279,7 @@ class TestWorkerCoordinatorE2E:
         )
 
         # Create envelope
-        envelope = GenericEnvelope(
+        envelope = Envelope(
             envelope_id="env-coord-001",
             request_id="req-001",
             user_id="user-e2e",
@@ -307,7 +307,7 @@ class TestWorkerCoordinatorE2E:
         from jeeves_mission_system.services.worker_coordinator import WorkerCoordinator
         from jeeves_control_tower.kernel import ControlTower
         from jeeves_control_tower.types import ResourceQuota
-        from jeeves_protocols import GenericEnvelope
+        from jeeves_protocols import Envelope
 
         class RedisClientWrapper:
             def __init__(self, client):
@@ -334,7 +334,7 @@ class TestWorkerCoordinatorE2E:
         )
 
         # Create envelope
-        envelope = GenericEnvelope(
+        envelope = Envelope(
             envelope_id="env-ct-001",
             request_id="req-ct-001",
             user_id="user-ct",
@@ -374,7 +374,7 @@ class TestDistributedPipelineE2E:
             WorkerCoordinator,
             WorkerConfig,
         )
-        from jeeves_protocols import GenericEnvelope
+        from jeeves_protocols import Envelope
 
         class RedisClientWrapper:
             def __init__(self, client):
@@ -389,7 +389,7 @@ class TestDistributedPipelineE2E:
         coordinator = WorkerCoordinator(distributed_bus=bus, logger=mock_logger)
 
         # Submit envelope
-        envelope = GenericEnvelope(
+        envelope = Envelope(
             envelope_id="env-pipeline-001",
             request_id="req-pipeline-001",
             user_id="user-pipeline",
@@ -411,7 +411,7 @@ class TestDistributedPipelineE2E:
         assert task.agent_name == "analyzer"
 
         # Simulate processing
-        result_envelope = GenericEnvelope.from_state_dict(task.envelope_state)
+        result_envelope = Envelope.from_state_dict(task.envelope_state)
         result_envelope.metadata["processed"] = True
         result_envelope.metadata["result"] = "Analysis complete"
 
@@ -431,7 +431,7 @@ class TestDistributedPipelineE2E:
         """Test multi-stage pipeline with different queues per stage."""
         from jeeves_avionics.distributed.redis_bus import RedisDistributedBus
         from jeeves_mission_system.services.worker_coordinator import WorkerCoordinator
-        from jeeves_protocols import GenericEnvelope, DistributedTask
+        from jeeves_protocols import Envelope, DistributedTask
 
         class RedisClientWrapper:
             def __init__(self, client):
@@ -446,7 +446,7 @@ class TestDistributedPipelineE2E:
         coordinator = WorkerCoordinator(distributed_bus=bus, logger=mock_logger)
 
         # Stage 1: Submit to planner queue
-        envelope = GenericEnvelope(
+        envelope = Envelope(
             envelope_id="env-multi-001",
             request_id="req-multi-001",
             user_id="user-multi",
@@ -465,7 +465,7 @@ class TestDistributedPipelineE2E:
         assert task1 is not None
 
         # Complete stage 1 and submit to stage 2
-        result1 = GenericEnvelope.from_state_dict(task1.envelope_state)
+        result1 = Envelope.from_state_dict(task1.envelope_state)
         result1.metadata["stage1_complete"] = True
 
         await bus.complete_task(task1.task_id, {"stage": 1})

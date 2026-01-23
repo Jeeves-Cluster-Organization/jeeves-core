@@ -14,7 +14,7 @@ Layering: ONLY imports from jeeves_protocols (syscall interface).
 from datetime import datetime
 from typing import Any, Dict, Optional
 
-from jeeves_protocols import GenericEnvelope, LoggerProtocol, TerminalReason
+from jeeves_protocols import Envelope, LoggerProtocol, TerminalReason
 from jeeves_shared.serialization import utc_now
 
 from jeeves_control_tower.events import EventAggregator
@@ -166,10 +166,10 @@ class ControlTower(ControlTowerProtocol):
 
     async def submit_request(
         self,
-        envelope: GenericEnvelope,
+        envelope: Envelope,
         priority: SchedulingPriority = SchedulingPriority.NORMAL,
         quota: Optional[ResourceQuota] = None,
-    ) -> GenericEnvelope:
+    ) -> Envelope:
         """Submit a request for processing.
 
         This is the main entry point for requests.
@@ -217,8 +217,8 @@ class ControlTower(ControlTowerProtocol):
     async def _execute_process(
         self,
         pid: str,
-        envelope: GenericEnvelope,
-    ) -> GenericEnvelope:
+        envelope: Envelope,
+    ) -> Envelope:
         """Execute a process.
 
         Handles the main execution loop:
@@ -344,10 +344,10 @@ class ControlTower(ControlTowerProtocol):
     async def _handle_interrupt(
         self,
         pid: str,
-        envelope: GenericEnvelope,
+        envelope: Envelope,
         interrupt_kind: InterruptKind,
         interrupt_data: Dict[str, Any],
-    ) -> GenericEnvelope:
+    ) -> Envelope:
         """Handle a process interrupt.
 
         Transitions process to WAITING state and creates a unified
@@ -407,7 +407,7 @@ class ControlTower(ControlTowerProtocol):
         pid: str,
         interrupt_id: str,
         response: InterruptResponse,
-    ) -> GenericEnvelope:
+    ) -> Envelope:
         """Resume a waiting request.
 
         Called when user provides a response to an interrupt.
@@ -430,7 +430,7 @@ class ControlTower(ControlTowerProtocol):
         pcb = self._lifecycle.get_process(pid)
         if not pcb:
             self._logger.error("resume_unknown_pid", pid=pid)
-            envelope = GenericEnvelope(envelope_id=pid)
+            envelope = Envelope(envelope_id=pid)
             envelope.terminated = True
             envelope.termination_reason = "Unknown process ID"
             return envelope
@@ -454,7 +454,7 @@ class ControlTower(ControlTowerProtocol):
                 "interrupt_resolve_failed",
                 interrupt_id=interrupt_id,
             )
-            envelope = GenericEnvelope(envelope_id=pid)
+            envelope = Envelope(envelope_id=pid)
             envelope.terminated = True
             envelope.termination_reason = "Failed to resolve interrupt"
             return envelope
@@ -474,7 +474,7 @@ class ControlTower(ControlTowerProtocol):
         )
 
         # Create envelope with resolved interrupt
-        envelope = GenericEnvelope(
+        envelope = Envelope(
             envelope_id=pid,
             request_id=pcb.request_id,
             user_id=pcb.user_id,

@@ -4,7 +4,7 @@ These mocks allow avionics tests to run in isolation without
 depending on the actual core engine implementation.
 
 Centralized Architecture (v4.0):
-- Uses GenericEnvelope (not CoreEnvelope)
+- Uses Envelope (not CoreEnvelope)
 - Stage order defined in pipeline config, not enum
 """
 
@@ -14,8 +14,8 @@ from typing import Any, Dict, List, Optional
 
 
 @dataclass
-class MockGenericEnvelope:
-    """Mock GenericEnvelope for testing avionics components.
+class MockEnvelope:
+    """Mock Envelope for testing avionics components.
 
     This provides a minimal envelope interface that avionics
     components may depend on, without requiring the full
@@ -95,12 +95,12 @@ def mock_envelope_factory():
         def test_something(mock_envelope_factory):
             envelope = mock_envelope_factory(user_id="custom-user")
     """
-    def _create(**kwargs) -> MockGenericEnvelope:
-        return MockGenericEnvelope(**kwargs)
+    def _create(**kwargs) -> MockEnvelope:
+        return MockEnvelope(**kwargs)
     return _create
 
 
 @pytest.fixture
-def mock_envelope(mock_envelope_factory) -> MockGenericEnvelope:
+def mock_envelope(mock_envelope_factory) -> MockEnvelope:
     """Create a basic mock envelope."""
     return mock_envelope_factory()

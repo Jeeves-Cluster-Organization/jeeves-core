@@ -45,7 +45,7 @@
 | Fix | Description | File |
 |-----|-------------|------|
 | Type Safety | Safe assertion helpers | `coreengine/typeutil/safe.go` (NEW) |
-| Config DI | ConfigProvider interface | `coreengine/config/core_config.go` |
+| Config DI | ConfigProvider interface | `coreengine/config/execution_config.go` |
 | gRPC Interceptors | Logging, recovery | `coreengine/grpc/interceptors.go` (NEW) |
 | Graceful Shutdown | GracefulServer wrapper | `coreengine/grpc/server.go` |
 | Structured Logging | BusLogger interface | `commbus/bus.go`, `middleware.go` |

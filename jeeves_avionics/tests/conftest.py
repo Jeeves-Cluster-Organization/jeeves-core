@@ -39,7 +39,7 @@ from jeeves_avionics.tests.fixtures.llm import (
 )
 
 from jeeves_avionics.tests.fixtures.mocks.core_mocks import (
-    MockGenericEnvelope,
+    MockEnvelope,
     mock_envelope_factory,
     mock_envelope,
 )

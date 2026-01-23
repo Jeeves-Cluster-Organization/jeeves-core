@@ -1,4 +1,4 @@
-// Package runtime provides the Runtime - pipeline orchestration engine.
+// Package runtime provides the PipelineRunner - pipeline orchestration engine.
 package runtime
 
 import (
@@ -44,8 +44,8 @@ type PersistenceAdapter interface {
 	LoadState(ctx context.Context, threadID string) (map[string]any, error)
 }
 
-// Runtime executes pipelines from configuration.
-type Runtime struct {
+// PipelineRunner executes pipelines from configuration.
+type PipelineRunner struct {
 	Config         *config.PipelineConfig
 	LLMFactory     LLMProviderFactory
 	ToolExecutor   agents.ToolExecutor
@@ -54,38 +54,38 @@ type Runtime struct {
 	PromptRegistry agents.PromptRegistry
 	UseMock        bool
 
-	agents   map[string]*agents.UnifiedAgent
+	agents   map[string]*agents.Agent
 	eventCtx agents.EventContext
 }
 
-// NewRuntime creates a new Runtime.
-func NewRuntime(
+// NewPipelineRunner creates a new PipelineRunner.
+func NewPipelineRunner(
 	cfg *config.PipelineConfig,
 	llmFactory LLMProviderFactory,
 	toolExecutor agents.ToolExecutor,
 	logger agents.Logger,
-) (*Runtime, error) {
+) (*PipelineRunner, error) {
 	if err := cfg.Validate(); err != nil {
 		return nil, err
 	}
 
-	runtime := &Runtime{
+	runner := &PipelineRunner{
 		Config:       cfg,
 		LLMFactory:   llmFactory,
 		ToolExecutor: toolExecutor,
 		Logger:       logger.Bind("pipeline", cfg.Name),
-		agents:       make(map[string]*agents.UnifiedAgent),
+		agents:       make(map[string]*agents.Agent),
 	}
 
 	// Build agents from config
-	if err := runtime.buildAgents(); err != nil {
+	if err := runner.buildAgents(); err != nil {
 		return nil, err
 	}
 
-	return runtime, nil
+	return runner, nil
 }
 
-func (r *Runtime) buildAgents() error {
+func (r *PipelineRunner) buildAgents() error {
 	for _, agentConfig := range r.Config.Agents {
 		// Get LLM provider if needed
 		var llm agents.LLMProvider
@@ -99,7 +99,7 @@ func (r *Runtime) buildAgents() error {
 			tools = r.ToolExecutor
 		}
 
-		agent, err := agents.NewUnifiedAgent(agentConfig, r.Logger, llm, tools)
+		agent, err := agents.NewAgent(agentConfig, r.Logger, llm, tools)
 		if err != nil {
 			return fmt.Errorf("failed to create agent '%s': %w", agentConfig.Name, err)
 		}
@@ -119,7 +119,7 @@ func (r *Runtime) buildAgents() error {
 }
 
 // SetEventContext sets the event context for all agents.
-func (r *Runtime) SetEventContext(ctx agents.EventContext) {
+func (r *PipelineRunner) SetEventContext(ctx agents.EventContext) {
 	r.eventCtx = ctx
 	for _, agent := range r.agents {
 		agent.SetEventContext(ctx)
@@ -131,7 +131,7 @@ func (r *Runtime) SetEventContext(ctx agents.EventContext) {
 // =============================================================================
 
 // Execute runs the pipeline with the given options.
-func (r *Runtime) Execute(ctx context.Context, env *envelope.GenericEnvelope, opts RunOptions) (*envelope.GenericEnvelope, <-chan StageOutput, error) {
+func (r *PipelineRunner) Execute(ctx context.Context, env *envelope.Envelope, opts RunOptions) (*envelope.Envelope, <-chan StageOutput, error) {
 	// Apply defaults from config
 	if opts.Mode == "" {
 		if r.Config.DefaultRunMode != "" {
@@ -170,7 +170,7 @@ func (r *Runtime) Execute(ctx context.Context, env *envelope.GenericEnvelope, op
 	}
 
 	// Run based on mode
-	var resultEnv *envelope.GenericEnvelope
+	var resultEnv *envelope.Envelope
 	var err error
 
 	switch opts.Mode {
@@ -208,7 +208,7 @@ func (r *Runtime) Execute(ctx context.Context, env *envelope.GenericEnvelope, op
 }
 
 // initializeEnvelope sets up the envelope with pipeline configuration.
-func (r *Runtime) initializeEnvelope(env *envelope.GenericEnvelope) {
+func (r *PipelineRunner) initializeEnvelope(env *envelope.Envelope) {
 	env.StageOrder = r.Config.GetStageOrder()
 	if len(env.StageOrder) > 0 {
 		env.CurrentStage = env.StageOrder[0]
@@ -222,7 +222,7 @@ func (r *Runtime) initializeEnvelope(env *envelope.GenericEnvelope) {
 
 // shouldContinue checks if execution should continue (shared by all modes).
 // Note: CanContinue() already checks for InterruptPending, Terminated, and bounds.
-func (r *Runtime) shouldContinue(env *envelope.GenericEnvelope) (bool, string) {
+func (r *PipelineRunner) shouldContinue(env *envelope.Envelope) (bool, string) {
 	if !env.CanContinue() {
 		// CanContinue returns false for: Terminated, InterruptPending, or bounds exceeded
 		reason := "cannot_continue"
@@ -248,7 +248,7 @@ func (r *Runtime) shouldContinue(env *envelope.GenericEnvelope) (bool, string) {
 }
 
 // persistState saves state if persistence is configured.
-func (r *Runtime) persistState(ctx context.Context, env *envelope.GenericEnvelope, threadID string) {
+func (r *PipelineRunner) persistState(ctx context.Context, env *envelope.Envelope, threadID string) {
 	if r.Persistence != nil && threadID != "" {
 		if persistErr := r.Persistence.SaveState(ctx, threadID, env.ToStateDict()); persistErr != nil {
 			r.Logger.Warn("state_persist_error",
@@ -260,7 +260,7 @@ func (r *Runtime) persistState(ctx context.Context, env *envelope.GenericEnvelop
 }
 
 // runSequentialCore runs stages one at a time following routing rules.
-func (r *Runtime) runSequentialCore(ctx context.Context, env *envelope.GenericEnvelope, opts RunOptions, outputChan chan StageOutput) (*envelope.GenericEnvelope, error) {
+func (r *PipelineRunner) runSequentialCore(ctx context.Context, env *envelope.Envelope, opts RunOptions, outputChan chan StageOutput) (*envelope.Envelope, error) {
 	var err error
 
 	// Track edge traversals for edge limit enforcement
@@ -382,7 +382,7 @@ func (r *Runtime) runSequentialCore(ctx context.Context, env *envelope.GenericEn
 }
 
 // runParallelCore runs independent stages concurrently.
-func (r *Runtime) runParallelCore(ctx context.Context, env *envelope.GenericEnvelope, opts RunOptions, outputChan chan StageOutput) (*envelope.GenericEnvelope, error) {
+func (r *PipelineRunner) runParallelCore(ctx context.Context, env *envelope.Envelope, opts RunOptions, outputChan chan StageOutput) (*envelope.Envelope, error) {
 	// Track completed stages
 	completed := make(map[string]bool)
 	var mu sync.Mutex
@@ -441,7 +441,7 @@ func (r *Runtime) runParallelCore(ctx context.Context, env *envelope.GenericEnve
 			stageEnv.CurrentStage = stageName
 
 			wg.Add(1)
-			go func(name string, a *agents.UnifiedAgent, clonedEnv *envelope.GenericEnvelope) {
+			go func(name string, a *agents.Agent, clonedEnv *envelope.Envelope) {
 				defer wg.Done()
 
 				// Execute agent with the cloned envelope
@@ -509,7 +509,7 @@ func (r *Runtime) runParallelCore(ctx context.Context, env *envelope.GenericEnve
 // =============================================================================
 
 // Run runs the pipeline sequentially.
-func (r *Runtime) Run(ctx context.Context, env *envelope.GenericEnvelope, threadID string) (*envelope.GenericEnvelope, error) {
+func (r *PipelineRunner) Run(ctx context.Context, env *envelope.Envelope, threadID string) (*envelope.Envelope, error) {
 	result, _, err := r.Execute(ctx, env, RunOptions{
 		Mode:     RunModeSequential,
 		ThreadID: threadID,
@@ -518,7 +518,7 @@ func (r *Runtime) Run(ctx context.Context, env *envelope.GenericEnvelope, thread
 }
 
 // RunWithStream runs the pipeline and streams stage outputs to a channel.
-func (r *Runtime) RunWithStream(ctx context.Context, env *envelope.GenericEnvelope, threadID string) (<-chan StageOutput, error) {
+func (r *PipelineRunner) RunWithStream(ctx context.Context, env *envelope.Envelope, threadID string) (<-chan StageOutput, error) {
 	outputChan := make(chan StageOutput, len(r.Config.Agents)+1)
 
 	go func() {
@@ -549,7 +549,7 @@ func (r *Runtime) RunWithStream(ctx context.Context, env *envelope.GenericEnvelo
 }
 
 // RunParallel runs the pipeline with parallel stage execution.
-func (r *Runtime) RunParallel(ctx context.Context, env *envelope.GenericEnvelope, threadID string) (*envelope.GenericEnvelope, error) {
+func (r *PipelineRunner) RunParallel(ctx context.Context, env *envelope.Envelope, threadID string) (*envelope.Envelope, error) {
 	result, _, err := r.Execute(ctx, env, RunOptions{
 		Mode:     RunModeParallel,
 		ThreadID: threadID,
@@ -558,7 +558,7 @@ func (r *Runtime) RunParallel(ctx context.Context, env *envelope.GenericEnvelope
 }
 
 // Resume resumes pipeline execution after interrupt.
-func (r *Runtime) Resume(ctx context.Context, env *envelope.GenericEnvelope, response envelope.InterruptResponse, threadID string) (*envelope.GenericEnvelope, error) {
+func (r *PipelineRunner) Resume(ctx context.Context, env *envelope.Envelope, response envelope.InterruptResponse, threadID string) (*envelope.Envelope, error) {
 	if !env.InterruptPending || env.Interrupt == nil {
 		return env, fmt.Errorf("no pending interrupt to resume")
 	}
@@ -619,7 +619,7 @@ func (r *Runtime) Resume(ctx context.Context, env *envelope.GenericEnvelope, res
 }
 
 // GetState gets persisted state for a thread.
-func (r *Runtime) GetState(ctx context.Context, threadID string) (map[string]any, error) {
+func (r *PipelineRunner) GetState(ctx context.Context, threadID string) (map[string]any, error) {
 	if r.Persistence == nil {
 		return nil, nil
 	}

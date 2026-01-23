@@ -10,9 +10,9 @@ import (
 // DEFAULT CONFIG TESTS
 // =============================================================================
 
-func TestDefaultCoreConfig(t *testing.T) {
+func TestDefaultExecutionConfig(t *testing.T) {
 	// Test default values are set correctly.
-	config := DefaultCoreConfig()
+	config := DefaultExecutionConfig()
 
 	// Execution Limits
 	assert.Equal(t, 20, config.MaxPlanSteps)
@@ -63,14 +63,14 @@ func TestDefaultCoreConfig(t *testing.T) {
 // FROM MAP TESTS
 // =============================================================================
 
-func TestCoreConfigFromMapPartial(t *testing.T) {
+func TestExecutionConfigFromMapPartial(t *testing.T) {
 	// Test creating config from partial map.
 	configMap := map[string]any{
 		"max_plan_steps": 30,
 		"llm_timeout":    180,
 	}
 
-	config := CoreConfigFromMap(configMap)
+	config := ExecutionConfigFromMap(configMap)
 
 	// Overridden values
 	assert.Equal(t, 30, config.MaxPlanSteps)
@@ -81,19 +81,19 @@ func TestCoreConfigFromMapPartial(t *testing.T) {
 	assert.Equal(t, 60, config.ExecutorTimeout)
 }
 
-func TestCoreConfigFromMapUnknownKeysIgnored(t *testing.T) {
+func TestExecutionConfigFromMapUnknownKeysIgnored(t *testing.T) {
 	// Unknown keys should be ignored.
 	configMap := map[string]any{
 		"max_plan_steps": 25,
 		"unknown_key":    "should be ignored",
 	}
 
-	config := CoreConfigFromMap(configMap)
+	config := ExecutionConfigFromMap(configMap)
 
 	assert.Equal(t, 25, config.MaxPlanSteps)
 }
 
-func TestCoreConfigFromMapWithFloats(t *testing.T) {
+func TestExecutionConfigFromMapWithFloats(t *testing.T) {
 	// Test handling float64 values (common from JSON).
 	configMap := map[string]any{
 		"max_plan_steps":   float64(15),
@@ -101,7 +101,7 @@ func TestCoreConfigFromMapWithFloats(t *testing.T) {
 		"llm_seed":         float64(42),
 	}
 
-	config := CoreConfigFromMap(configMap)
+	config := ExecutionConfigFromMap(configMap)
 
 	assert.Equal(t, 15, config.MaxPlanSteps)
 	assert.Equal(t, 90, config.LLMTimeout)
@@ -109,27 +109,27 @@ func TestCoreConfigFromMapWithFloats(t *testing.T) {
 	assert.Equal(t, 42, *config.LLMSeed)
 }
 
-func TestCoreConfigFromMapBools(t *testing.T) {
+func TestExecutionConfigFromMapBools(t *testing.T) {
 	// Test boolean values.
 	configMap := map[string]any{
 		"enable_loop_back": false,
 		"enable_arbiter":   false,
 	}
 
-	config := CoreConfigFromMap(configMap)
+	config := ExecutionConfigFromMap(configMap)
 
 	assert.False(t, config.EnableLoopBack)
 	assert.False(t, config.EnableArbiter)
 }
 
-func TestCoreConfigFromMapFloatThresholds(t *testing.T) {
+func TestExecutionConfigFromMapFloatThresholds(t *testing.T) {
 	// Test float threshold values.
 	configMap := map[string]any{
 		"clarification_threshold":   0.8,
 		"high_confidence_threshold": 0.95,
 	}
 
-	config := CoreConfigFromMap(configMap)
+	config := ExecutionConfigFromMap(configMap)
 
 	assert.Equal(t, 0.8, config.ClarificationThreshold)
 	assert.Equal(t, 0.95, config.HighConfidenceThreshold)
@@ -139,9 +139,9 @@ func TestCoreConfigFromMapFloatThresholds(t *testing.T) {
 // TO MAP TESTS
 // =============================================================================
 
-func TestCoreConfigToMap(t *testing.T) {
+func TestExecutionConfigToMap(t *testing.T) {
 	// Test converting config to map.
-	config := DefaultCoreConfig()
+	config := DefaultExecutionConfig()
 
 	configMap := config.ToMap()
 
@@ -151,9 +151,9 @@ func TestCoreConfigToMap(t *testing.T) {
 	assert.Equal(t, "INFO", configMap["log_level"])
 }
 
-func TestCoreConfigToMapWithSeed(t *testing.T) {
+func TestExecutionConfigToMapWithSeed(t *testing.T) {
 	// Test map includes seed when set.
-	config := DefaultCoreConfig()
+	config := DefaultExecutionConfig()
 	seed := 42
 	config.LLMSeed = &seed
 
@@ -166,37 +166,37 @@ func TestCoreConfigToMapWithSeed(t *testing.T) {
 // GLOBAL CONFIG TESTS
 // =============================================================================
 
-func TestGetCoreConfigDefault(t *testing.T) {
-	// GetCoreConfig should return defaults when not set.
-	ResetCoreConfig()
+func TestGetExecutionConfigDefault(t *testing.T) {
+	// GetExecutionConfig should return defaults when not set.
+	ResetExecutionConfig()
 
-	config := GetCoreConfig()
+	config := GetExecutionConfig()
 
 	assert.Equal(t, 20, config.MaxPlanSteps)
 }
 
-func TestSetAndGetCoreConfig(t *testing.T) {
+func TestSetAndGetExecutionConfig(t *testing.T) {
 	// Test setting and getting global config.
-	defer ResetCoreConfig()
+	defer ResetExecutionConfig()
 
-	customConfig := DefaultCoreConfig()
+	customConfig := DefaultExecutionConfig()
 	customConfig.MaxPlanSteps = 50
 
-	SetCoreConfig(customConfig)
+	SetExecutionConfig(customConfig)
 
-	config := GetCoreConfig()
+	config := GetExecutionConfig()
 	assert.Equal(t, 50, config.MaxPlanSteps)
 }
 
-func TestResetCoreConfig(t *testing.T) {
+func TestResetExecutionConfig(t *testing.T) {
 	// Test resetting global config.
-	customConfig := DefaultCoreConfig()
+	customConfig := DefaultExecutionConfig()
 	customConfig.MaxPlanSteps = 50
-	SetCoreConfig(customConfig)
+	SetExecutionConfig(customConfig)
 
-	ResetCoreConfig()
+	ResetExecutionConfig()
 
-	config := GetCoreConfig()
+	config := GetExecutionConfig()
 	assert.Equal(t, 20, config.MaxPlanSteps) // Back to default
 }
 
@@ -206,7 +206,7 @@ func TestResetCoreConfig(t *testing.T) {
 
 func TestConfigRoundtrip(t *testing.T) {
 	// Test that config survives roundtrip through map.
-	original := DefaultCoreConfig()
+	original := DefaultExecutionConfig()
 	original.MaxPlanSteps = 35
 	original.LLMTimeout = 200
 	original.EnableLoopBack = false
@@ -214,7 +214,7 @@ func TestConfigRoundtrip(t *testing.T) {
 	original.LLMSeed = &seed
 
 	configMap := original.ToMap()
-	restored := CoreConfigFromMap(configMap)
+	restored := ExecutionConfigFromMap(configMap)
 
 	assert.Equal(t, original.MaxPlanSteps, restored.MaxPlanSteps)
 	assert.Equal(t, original.LLMTimeout, restored.LLMTimeout)
@@ -229,34 +229,34 @@ func TestConfigRoundtrip(t *testing.T) {
 
 func TestDefaultConfigProvider(t *testing.T) {
 	// Test DefaultConfigProvider uses global config.
-	ResetCoreConfig()
-	defer ResetCoreConfig()
+	ResetExecutionConfig()
+	defer ResetExecutionConfig()
 
 	provider := &DefaultConfigProvider{}
 
 	// Should return defaults when no global config set
-	config := provider.GetCoreConfig()
+	config := provider.GetExecutionConfig()
 	assert.Equal(t, 20, config.MaxPlanSteps)
 
 	// Set global config
-	custom := DefaultCoreConfig()
+	custom := DefaultExecutionConfig()
 	custom.MaxPlanSteps = 50
-	SetCoreConfig(custom)
+	SetExecutionConfig(custom)
 
 	// Should return the set config
-	config = provider.GetCoreConfig()
+	config = provider.GetExecutionConfig()
 	assert.Equal(t, 50, config.MaxPlanSteps)
 }
 
 func TestStaticConfigProvider(t *testing.T) {
 	// Test StaticConfigProvider returns static config.
-	custom := DefaultCoreConfig()
+	custom := DefaultExecutionConfig()
 	custom.MaxPlanSteps = 100
 	custom.LLMTimeout = 500
 
 	provider := NewStaticConfigProvider(custom)
 
-	config := provider.GetCoreConfig()
+	config := provider.GetExecutionConfig()
 	assert.Equal(t, 100, config.MaxPlanSteps)
 	assert.Equal(t, 500, config.LLMTimeout)
 }
@@ -265,7 +265,7 @@ func TestStaticConfigProviderNil(t *testing.T) {
 	// Test StaticConfigProvider with nil config returns defaults.
 	provider := &StaticConfigProvider{Config: nil}
 
-	config := provider.GetCoreConfig()
+	config := provider.GetExecutionConfig()
 	assert.Equal(t, 20, config.MaxPlanSteps) // Default value
 }
 
@@ -275,9 +275,9 @@ func TestConfigProviderInterface(t *testing.T) {
 
 	// DefaultConfigProvider
 	provider = &DefaultConfigProvider{}
-	assert.NotNil(t, provider.GetCoreConfig())
+	assert.NotNil(t, provider.GetExecutionConfig())
 
 	// StaticConfigProvider
-	provider = NewStaticConfigProvider(DefaultCoreConfig())
-	assert.NotNil(t, provider.GetCoreConfig())
+	provider = NewStaticConfigProvider(DefaultExecutionConfig())
+	assert.NotNil(t, provider.GetExecutionConfig())
 }

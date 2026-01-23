@@ -29,7 +29,7 @@ This constitution extends the **Jeeves Avionics Constitution** (which extends th
 - Generic application services
 
 **NOT Mission System responsibilities (moved to capabilities):**
-- Domain-specific configs (LanguageConfig, NodeProfiles, ToolAccess)
+- Domain-specific configs (LanguageConfig, InferenceEndpoints, ToolAccess)
 - Concrete agent implementations
 - Domain-specific tools
 
@@ -475,8 +475,8 @@ def test_import_boundaries():
 **What this layer imports:**
 - `jeeves_protocols` — Python protocols and type definitions
   - `AgentConfig`, `PipelineConfig`, `RoutingRule`, `ToolAccess`
-  - `UnifiedAgent`, `Runtime`
-  - `GenericEnvelope`, `ProcessingRecord`
+  - `Agent`, `Runtime`
+  - `Envelope`, `ProcessingRecord`
   - All protocols (`LLMProviderProtocol`, `ToolProtocol`, etc.)
   - `ContextBounds`, `WorkingMemory`
 - `jeeves_avionics` — Infrastructure services and adapters
@@ -492,8 +492,8 @@ def test_import_boundaries():
 
 1. **contracts_core.py** — Re-exports centralized types for capabilities
    - `AgentConfig`, `PipelineConfig`, `RoutingRule`, `ToolAccess`
-   - `UnifiedAgent`, `Runtime`, `create_runtime_from_config`
-   - `GenericEnvelope`, `ProcessingRecord`, `create_generic_envelope`
+   - `Agent`, `Runtime`, `create_pipeline_runner`
+   - `Envelope`, `ProcessingRecord`, `create_envelope`
    - All protocols from jeeves_protocols (LoggerProtocol, ToolExecutorProtocol, etc.)
    - `AgentProfile`, `LLMProfile`, `ThresholdProfile` (generic per-agent config)
    - **NOTE:** `ToolId` and `ToolCatalog` are NOT exported - these are capability-owned
@@ -521,8 +521,8 @@ def test_import_boundaries():
 ```python
 AgentConfig           # Declarative agent definition
 PipelineConfig        # Pipeline with ordered agents
-UnifiedAgent          # Single agent class for all types
-GenericEnvelope       # Dynamic output slots (outputs dict)
+Agent          # Single agent class for all types
+Envelope       # Dynamic output slots (outputs dict)
 Runtime               # Executes pipelines from config
 ContextBounds         # Resource limits
 ```
@@ -539,8 +539,8 @@ Settings              # Configuration
 ```python
 # Centralized agent types (re-exported from core)
 AgentConfig, PipelineConfig, RoutingRule, ToolAccess
-UnifiedAgent, Runtime, create_runtime_from_config
-GenericEnvelope, ProcessingRecord, create_generic_envelope
+Agent, Runtime, create_pipeline_runner
+Envelope, ProcessingRecord, create_envelope
 TerminalReason, LoopVerdict, RiskApproval
 
 # Generic config types (defined in mission_system)
@@ -588,7 +588,7 @@ The config architecture follows clear ownership boundaries:
 |--------|---------|---------|
 | `domain_config.py` | Domain-specific settings | Domain patterns |
 | `tool_access.py` | AgentToolAccess, TOOL_CATEGORIES | Tool access matrix |
-| `deployment.py` | NodeProfile, PROFILES | Hardware deployment |
+| `deployment.py` | InferenceEndpoint, PROFILES | Hardware deployment |
 | `modes.py` | AGENT_MODES | Pipeline mode configuration |
 | `identity.py` | PRODUCT_NAME, PRODUCT_VERSION | Product identity |
 
@@ -672,7 +672,7 @@ Mission System                    ← OWNS generic config types (AgentProfile, e
 **Example:**
 ```python
 # ALLOWED
-from jeeves_protocols import GenericEnvelope
+from jeeves_protocols import Envelope
 from jeeves_avionics.llm import LLMClient
 from jeeves_avionics.memory import MemoryService
 

@@ -4,7 +4,7 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Any, Dict, List, Optional, TYPE_CHECKING
 
-from jeeves_protocols.core import TerminalReason
+from jeeves_protocols.enums import TerminalReason
 
 if TYPE_CHECKING:
     from jeeves_protocols.interrupts import FlowInterrupt
@@ -24,10 +24,10 @@ class ProcessingRecord:
 
 
 @dataclass
-class GenericEnvelope:
+class Envelope:
     """Envelope with dynamic output slots.
 
-    This is a Python mirror of Go's GenericEnvelope.
+    This is a Python mirror of Go's Envelope.
     Primary state container for pipeline execution.
     """
     # Identification
@@ -60,11 +60,11 @@ class GenericEnvelope:
     terminated: bool = False
     termination_reason: Optional[str] = None
 
-    # Unified Interrupt Handling (matches Go GenericEnvelope)
+    # Unified Interrupt Handling (matches Go Envelope)
     interrupt_pending: bool = False
     interrupt: Optional["FlowInterrupt"] = None
 
-    # Parallel execution state (matches Go GenericEnvelope)
+    # Parallel execution state (matches Go Envelope)
     active_stages: Dict[str, bool] = field(default_factory=dict)
     completed_stage_set: Dict[str, bool] = field(default_factory=dict)
     failed_stages: Dict[str, str] = field(default_factory=dict)
@@ -94,7 +94,7 @@ class GenericEnvelope:
     metadata: Dict[str, Any] = field(default_factory=dict)
 
     @classmethod
-    def from_dict(cls, data: Dict[str, Any]) -> "GenericEnvelope":
+    def from_dict(cls, data: Dict[str, Any]) -> "Envelope":
         """Create envelope from dictionary (Go JSON response)."""
         from jeeves_protocols.interrupts import FlowInterrupt
 

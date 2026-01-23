@@ -8,7 +8,7 @@ from dataclasses import dataclass, field
 from enum import Enum
 from typing import Any, Callable, Dict, List, Optional, Set
 
-from jeeves_protocols.core import ToolAccess
+from jeeves_protocols.enums import ToolAccess
 
 
 class RunMode(str, Enum):
@@ -146,7 +146,7 @@ class ContextBounds:
 
 
 @dataclass
-class CoreConfig:
+class ExecutionConfig:
     """Core runtime configuration."""
     # Bounds
     max_iterations: int = 3

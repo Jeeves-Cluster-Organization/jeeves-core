@@ -114,7 +114,7 @@ MEMORY_LAYER_DEFINITIONS = [
 ]
 
 
-class GovernanceServicer(jeeves_pb2_grpc.GovernanceServiceServicer):
+class HealthServicer(jeeves_pb2_grpc.GovernanceServiceServicer):
     """gRPC implementation of GovernanceService."""
 
     def __init__(self, tool_health_service, db=None, logger: Optional[LoggerProtocol] = None):

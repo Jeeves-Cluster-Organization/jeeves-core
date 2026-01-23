@@ -4,7 +4,7 @@ This package provides reusable fixtures for testing the infrastructure layer.
 Includes database containers, LLM mocks, and core engine protocol mocks.
 
 Centralized Architecture (v4.0):
-- MockGenericEnvelope replaces MockCoreEnvelope
+- MockEnvelope replaces MockCoreEnvelope
 """
 
 from .database import (
@@ -17,7 +17,7 @@ from .llm import (
     mock_llm_provider,
 )
 from .mocks.core_mocks import (
-    MockGenericEnvelope,
+    MockEnvelope,
     mock_envelope_factory,
 )
 
@@ -30,6 +30,6 @@ __all__ = [
     # LLM
     "mock_llm_provider",
     # Core mocks (v4.0)
-    "MockGenericEnvelope",
+    "MockEnvelope",
     "mock_envelope_factory",
 ]

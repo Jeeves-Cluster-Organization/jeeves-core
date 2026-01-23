@@ -62,7 +62,7 @@ jeeves_avionics/
 │  ├─ main.py                # FastAPI app initialization
 │  ├─ routers/
 │  │  ├─ chat.py             # Chat endpoints
-│  │  ├─ governance.py       # Governance dashboard
+│  │  ├─ health.py       # Governance dashboard
 │  │  └─ health.py           # Health checks
 │  ├─ middleware.py          # Request logging, CORS
 │  └─ static/                # Static file serving

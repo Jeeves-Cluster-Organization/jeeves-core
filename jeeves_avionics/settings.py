@@ -7,7 +7,7 @@ Constitutional Reference:
 
 Per-Agent Configuration:
     Agent-specific LLM settings (model, temperature, server_url) are now owned by
-    capabilities and registered via CapabilityLLMConfigRegistry. This file contains
+    capabilities and registered via DomainLLMRegistry. This file contains
     only generic infrastructure configuration.
 
     See: jeeves_avionics/capability_registry.py
@@ -31,7 +31,7 @@ class Settings(BaseSettings):
     """Infrastructure settings.
 
     Contains only generic infrastructure configuration. Agent-specific
-    LLM settings are owned by capabilities via CapabilityLLMConfigRegistry.
+    LLM settings are owned by capabilities via DomainLLMRegistry.
 
     Constitutional Reference:
         - Avionics R3: No Domain Logic
