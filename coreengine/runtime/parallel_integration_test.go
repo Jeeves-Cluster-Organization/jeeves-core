@@ -68,7 +68,7 @@ func TestParallel_IndependentStagesRunConcurrently(t *testing.T) {
 
 	llmFactory := func(role string) LLMProvider { return mockLLM }
 
-	runtime, err := NewRuntime(cfg, llmFactory, nil, testutil.NewMockLogger())
+	runtime, err := NewPipelineRunner(cfg, llmFactory, nil, testutil.NewMockLogger())
 	require.NoError(t, err)
 
 	env := testutil.NewTestEnvelopeWithStages("Parallel test", []string{"stageA", "stageB", "stageC", "end"})
@@ -95,7 +95,7 @@ func TestParallel_ParallelModeFlag(t *testing.T) {
 		Agents:         []*config.AgentConfig{},
 	}
 
-	runtime, err := NewRuntime(cfg, nil, nil, testutil.NewMockLogger())
+	runtime, err := NewPipelineRunner(cfg, nil, nil, testutil.NewMockLogger())
 	require.NoError(t, err)
 
 	env := testutil.NewTestEnvelope("Flag test")
@@ -155,7 +155,7 @@ func TestParallel_DependencyOrdering(t *testing.T) {
 
 	llmFactory := func(role string) LLMProvider { return mockLLM }
 
-	runtime, err := NewRuntime(cfg, llmFactory, nil, testutil.NewMockLogger())
+	runtime, err := NewPipelineRunner(cfg, llmFactory, nil, testutil.NewMockLogger())
 	require.NoError(t, err)
 
 	env := testutil.NewTestEnvelopeWithStages("Deps test", []string{"stageA", "stageB", "stageC", "end"})
@@ -191,7 +191,7 @@ func TestParallel_ChainedDependencies(t *testing.T) {
 	mockLLM := testutil.NewMockLLMProvider()
 	llmFactory := func(role string) LLMProvider { return mockLLM }
 
-	runtime, err := NewRuntime(cfg, llmFactory, nil, testutil.NewMockLogger())
+	runtime, err := NewPipelineRunner(cfg, llmFactory, nil, testutil.NewMockLogger())
 	require.NoError(t, err)
 
 	env := testutil.NewTestEnvelopeWithStages("Chain test", []string{"stageA", "stageB", "stageC", "end"})
@@ -231,7 +231,7 @@ func TestParallel_DiamondDependency(t *testing.T) {
 	mockLLM := testutil.NewMockLLMProvider()
 	llmFactory := func(role string) LLMProvider { return mockLLM }
 
-	runtime, err := NewRuntime(cfg, llmFactory, nil, testutil.NewMockLogger())
+	runtime, err := NewPipelineRunner(cfg, llmFactory, nil, testutil.NewMockLogger())
 	require.NoError(t, err)
 
 	env := testutil.NewTestEnvelopeWithStages("Diamond test",
@@ -308,7 +308,7 @@ func TestParallel_JoinStrategyAll(t *testing.T) {
 
 	llmFactory := func(role string) LLMProvider { return mockLLM }
 
-	runtime, err := NewRuntime(cfg, llmFactory, nil, testutil.NewMockLogger())
+	runtime, err := NewPipelineRunner(cfg, llmFactory, nil, testutil.NewMockLogger())
 	require.NoError(t, err)
 
 	env := testutil.NewTestEnvelopeWithStages("Join all test", []string{"stageA", "stageB", "stageC", "end"})
@@ -358,7 +358,7 @@ func TestParallel_PartialFailureOneStage(t *testing.T) {
 
 	llmFactory := func(role string) LLMProvider { return mockLLM }
 
-	runtime, err := NewRuntime(cfg, llmFactory, nil, testutil.NewMockLogger())
+	runtime, err := NewPipelineRunner(cfg, llmFactory, nil, testutil.NewMockLogger())
 	require.NoError(t, err)
 
 	env := testutil.NewTestEnvelopeWithStages("Partial fail test", []string{"stageA", "stageB", "stageC", "end"})
@@ -427,7 +427,7 @@ func TestParallel_ExecuteWithParallelMode(t *testing.T) {
 		Agents:        []*config.AgentConfig{},
 	}
 
-	runtime, err := NewRuntime(cfg, nil, nil, testutil.NewMockLogger())
+	runtime, err := NewPipelineRunner(cfg, nil, nil, testutil.NewMockLogger())
 	require.NoError(t, err)
 
 	env := testutil.NewTestEnvelope("Execute parallel")
@@ -450,7 +450,7 @@ func TestParallel_ExecuteWithSequentialMode(t *testing.T) {
 		Agents:        []*config.AgentConfig{},
 	}
 
-	runtime, err := NewRuntime(cfg, nil, nil, testutil.NewMockLogger())
+	runtime, err := NewPipelineRunner(cfg, nil, nil, testutil.NewMockLogger())
 	require.NoError(t, err)
 
 	env := testutil.NewTestEnvelope("Execute sequential")
@@ -474,7 +474,7 @@ func TestParallel_ExecuteWithConfigDefault(t *testing.T) {
 		Agents:         []*config.AgentConfig{},
 	}
 
-	runtime, err := NewRuntime(cfg, nil, nil, testutil.NewMockLogger())
+	runtime, err := NewPipelineRunner(cfg, nil, nil, testutil.NewMockLogger())
 	require.NoError(t, err)
 
 	env := testutil.NewTestEnvelope("Execute default")
@@ -518,7 +518,7 @@ func TestParallel_ConcurrencyWithManyStages(t *testing.T) {
 
 	llmFactory := func(role string) LLMProvider { return mockLLM }
 
-	runtime, err := NewRuntime(cfg, llmFactory, nil, testutil.NewMockLogger())
+	runtime, err := NewPipelineRunner(cfg, llmFactory, nil, testutil.NewMockLogger())
 	require.NoError(t, err)
 
 	stageNames := make([]string, 11)

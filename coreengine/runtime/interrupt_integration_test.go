@@ -39,7 +39,7 @@ func TestInterrupt_ClarificationFlow(t *testing.T) {
 	mockLLM := testutil.NewMockLLMProvider()
 	llmFactory := func(role string) LLMProvider { return mockLLM }
 
-	runtime, err := NewRuntime(cfg, llmFactory, nil, testutil.NewMockLogger())
+	runtime, err := NewPipelineRunner(cfg, llmFactory, nil, testutil.NewMockLogger())
 	require.NoError(t, err)
 
 	// Create envelope and set clarification interrupt
@@ -81,7 +81,7 @@ func TestInterrupt_ClarificationWithResumeStage(t *testing.T) {
 	mockLLM := testutil.NewMockLLMProvider()
 	llmFactory := func(role string) LLMProvider { return mockLLM }
 
-	runtime, err := NewRuntime(cfg, llmFactory, nil, testutil.NewMockLogger())
+	runtime, err := NewPipelineRunner(cfg, llmFactory, nil, testutil.NewMockLogger())
 	require.NoError(t, err)
 
 	env := testutil.NewTestEnvelopeWithStages("Resume stage test", []string{"stageA", "stageB", "stageC", "end"})
@@ -109,7 +109,7 @@ func TestInterrupt_MultipleSequentialClarifications(t *testing.T) {
 		Agents:        []*config.AgentConfig{},
 	}
 
-	runtime, err := NewRuntime(cfg, nil, nil, testutil.NewMockLogger())
+	runtime, err := NewPipelineRunner(cfg, nil, nil, testutil.NewMockLogger())
 	require.NoError(t, err)
 
 	env := testutil.NewTestEnvelopeWithStages("Multi clarify", []string{"end"})
@@ -154,7 +154,7 @@ func TestInterrupt_ConfirmationApproved(t *testing.T) {
 	mockLLM := testutil.NewMockLLMProvider()
 	llmFactory := func(role string) LLMProvider { return mockLLM }
 
-	runtime, err := NewRuntime(cfg, llmFactory, nil, testutil.NewMockLogger())
+	runtime, err := NewPipelineRunner(cfg, llmFactory, nil, testutil.NewMockLogger())
 	require.NoError(t, err)
 
 	env := testutil.NewTestEnvelopeWithStages("Confirm test", []string{"stageA", "stageB", "end"})
@@ -182,7 +182,7 @@ func TestInterrupt_ConfirmationDenied(t *testing.T) {
 		Agents:        []*config.AgentConfig{},
 	}
 
-	runtime, err := NewRuntime(cfg, nil, nil, testutil.NewMockLogger())
+	runtime, err := NewPipelineRunner(cfg, nil, nil, testutil.NewMockLogger())
 	require.NoError(t, err)
 
 	env := testutil.NewTestEnvelopeWithStages("Deny test", []string{"end"})
@@ -208,7 +208,7 @@ func TestInterrupt_ConfirmationWithData(t *testing.T) {
 		Agents:        []*config.AgentConfig{},
 	}
 
-	runtime, err := NewRuntime(cfg, nil, nil, testutil.NewMockLogger())
+	runtime, err := NewPipelineRunner(cfg, nil, nil, testutil.NewMockLogger())
 	require.NoError(t, err)
 
 	env := testutil.NewTestEnvelopeWithStages("Data confirm", []string{"end"})
@@ -247,7 +247,7 @@ func TestInterrupt_AgentReviewApprove(t *testing.T) {
 	mockLLM := testutil.NewMockLLMProvider()
 	llmFactory := func(role string) LLMProvider { return mockLLM }
 
-	runtime, err := NewRuntime(cfg, llmFactory, nil, testutil.NewMockLogger())
+	runtime, err := NewPipelineRunner(cfg, llmFactory, nil, testutil.NewMockLogger())
 	require.NoError(t, err)
 
 	env := testutil.NewTestEnvelopeWithStages("Agent review", []string{"stageA", "stageB", "end"})
@@ -277,7 +277,7 @@ func TestInterrupt_AgentReviewReject(t *testing.T) {
 		Agents:        []*config.AgentConfig{},
 	}
 
-	runtime, err := NewRuntime(cfg, nil, nil, testutil.NewMockLogger())
+	runtime, err := NewPipelineRunner(cfg, nil, nil, testutil.NewMockLogger())
 	require.NoError(t, err)
 
 	env := testutil.NewTestEnvelopeWithStages("Agent reject", []string{"end"})
@@ -303,7 +303,7 @@ func TestInterrupt_AgentReviewModify(t *testing.T) {
 		Agents:        []*config.AgentConfig{},
 	}
 
-	runtime, err := NewRuntime(cfg, nil, nil, testutil.NewMockLogger())
+	runtime, err := NewPipelineRunner(cfg, nil, nil, testutil.NewMockLogger())
 	require.NoError(t, err)
 
 	env := testutil.NewTestEnvelopeWithStages("Agent modify", []string{"end"})
@@ -335,7 +335,7 @@ func TestInterrupt_CheckpointCreation(t *testing.T) {
 	}
 
 	mockPersistence := testutil.NewMockPersistence()
-	runtime, err := NewRuntime(cfg, nil, nil, testutil.NewMockLogger())
+	runtime, err := NewPipelineRunner(cfg, nil, nil, testutil.NewMockLogger())
 	require.NoError(t, err)
 	runtime.Persistence = mockPersistence
 
@@ -366,7 +366,7 @@ func TestInterrupt_CheckpointWithPersistence(t *testing.T) {
 	}
 
 	mockPersistence := testutil.NewMockPersistence()
-	runtime, err := NewRuntime(cfg, nil, nil, testutil.NewMockLogger())
+	runtime, err := NewPipelineRunner(cfg, nil, nil, testutil.NewMockLogger())
 	require.NoError(t, err)
 	runtime.Persistence = mockPersistence
 
@@ -400,7 +400,7 @@ func TestInterrupt_ResourceExhausted(t *testing.T) {
 		Agents:        []*config.AgentConfig{},
 	}
 
-	runtime, err := NewRuntime(cfg, nil, nil, testutil.NewMockLogger())
+	runtime, err := NewPipelineRunner(cfg, nil, nil, testutil.NewMockLogger())
 	require.NoError(t, err)
 
 	env := testutil.NewTestEnvelopeWithStages("Rate limited", []string{"end"})
@@ -433,7 +433,7 @@ func TestInterrupt_Timeout(t *testing.T) {
 		Agents:        []*config.AgentConfig{},
 	}
 
-	runtime, err := NewRuntime(cfg, nil, nil, testutil.NewMockLogger())
+	runtime, err := NewPipelineRunner(cfg, nil, nil, testutil.NewMockLogger())
 	require.NoError(t, err)
 
 	env := testutil.NewTestEnvelopeWithStages("Timed out", []string{"end"})
@@ -462,7 +462,7 @@ func TestInterrupt_SystemError(t *testing.T) {
 		Agents:        []*config.AgentConfig{},
 	}
 
-	runtime, err := NewRuntime(cfg, nil, nil, testutil.NewMockLogger())
+	runtime, err := NewPipelineRunner(cfg, nil, nil, testutil.NewMockLogger())
 	require.NoError(t, err)
 
 	env := testutil.NewTestEnvelopeWithStages("System error", []string{"end"})
@@ -492,7 +492,7 @@ func TestInterrupt_ResumeWithoutPendingInterrupt(t *testing.T) {
 		Agents: []*config.AgentConfig{},
 	}
 
-	runtime, err := NewRuntime(cfg, nil, nil, testutil.NewMockLogger())
+	runtime, err := NewPipelineRunner(cfg, nil, nil, testutil.NewMockLogger())
 	require.NoError(t, err)
 
 	env := testutil.NewTestEnvelopeWithStages("No interrupt", []string{"end"})
