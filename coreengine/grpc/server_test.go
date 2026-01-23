@@ -691,18 +691,18 @@ func TestNewEngineServer(t *testing.T) {
 	server := NewEngineServer(logger)
 
 	assert.NotNil(t, server)
-	assert.Nil(t, server.getRuntime()) // Runtime not set yet
+	assert.Nil(t, server.getRunner()) // Runtime not set yet
 }
 
 func TestSetRuntime(t *testing.T) {
 	// Test setting runtime on server.
 	server, _ := createTestServer()
-	assert.Nil(t, server.getRuntime())
+	assert.Nil(t, server.getRunner())
 
 	// We can't easily create a real runtime in tests, but we can verify the method exists
 	// and doesn't panic with nil
-	server.SetRuntime(nil)
-	assert.Nil(t, server.getRuntime())
+	server.SetRunner(nil)
+	assert.Nil(t, server.getRunner())
 }
 
 // =============================================================================
@@ -737,7 +737,7 @@ func TestSetRuntimeThreadSafe(t *testing.T) {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			server.SetRuntime(nil)
+			server.SetRunner(nil)
 		}()
 	}
 	wg.Wait()
@@ -754,11 +754,11 @@ func TestGetRuntimeThreadSafe(t *testing.T) {
 		wg.Add(2)
 		go func() {
 			defer wg.Done()
-			server.SetRuntime(nil)
+			server.SetRunner(nil)
 		}()
 		go func() {
 			defer wg.Done()
-			_ = server.getRuntime()
+			_ = server.getRunner()
 		}()
 	}
 	wg.Wait()

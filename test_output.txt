@@ -1,0 +1,34 @@
+# github.com/jeeves-cluster-organization/codeanalysis/coreengine/runtime [github.com/jeeves-cluster-organization/codeanalysis/coreengine/runtime.test]
+coreengine/runtime/runtime_test.go:31:39: undefined: Runtime
+coreengine/runtime/interrupt_integration_test.go:42:18: undefined: NewRuntime
+coreengine/runtime/interrupt_integration_test.go:84:18: undefined: NewRuntime
+coreengine/runtime/interrupt_integration_test.go:112:18: undefined: NewRuntime
+coreengine/runtime/interrupt_integration_test.go:157:18: undefined: NewRuntime
+coreengine/runtime/interrupt_integration_test.go:185:18: undefined: NewRuntime
+coreengine/runtime/interrupt_integration_test.go:211:18: undefined: NewRuntime
+coreengine/runtime/interrupt_integration_test.go:250:18: undefined: NewRuntime
+coreengine/runtime/interrupt_integration_test.go:280:18: undefined: NewRuntime
+coreengine/runtime/interrupt_integration_test.go:306:18: undefined: NewRuntime
+coreengine/runtime/interrupt_integration_test.go:306:18: too many errors
+# github.com/jeeves-cluster-organization/codeanalysis/coreengine/grpc [github.com/jeeves-cluster-organization/codeanalysis/coreengine/grpc.test]
+coreengine/grpc/server_integration_test.go:386:21: undefined: runtime.NewRuntime
+coreengine/grpc/server_integration_test.go:389:16: ts.coreServer.SetRuntime undefined (type *EngineServer has no field or method SetRuntime)
+coreengine/grpc/server_test.go:694:23: server.getRuntime undefined (type *EngineServer has no field or method getRuntime)
+coreengine/grpc/server_test.go:700:23: server.getRuntime undefined (type *EngineServer has no field or method getRuntime)
+coreengine/grpc/server_test.go:704:9: server.SetRuntime undefined (type *EngineServer has no field or method SetRuntime)
+coreengine/grpc/server_test.go:705:23: server.getRuntime undefined (type *EngineServer has no field or method getRuntime)
+coreengine/grpc/server_test.go:740:11: server.SetRuntime undefined (type *EngineServer has no field or method SetRuntime)
+coreengine/grpc/server_test.go:757:11: server.SetRuntime undefined (type *EngineServer has no field or method SetRuntime)
+coreengine/grpc/server_test.go:761:15: server.getRuntime undefined (type *EngineServer has no field or method getRuntime)
+ok  	github.com/jeeves-cluster-organization/codeanalysis/cmd/envelope	1.800s	coverage: 0.0% of statements
+ok  	github.com/jeeves-cluster-organization/codeanalysis/commbus	1.542s	coverage: 77.9% of statements
+ok  	github.com/jeeves-cluster-organization/codeanalysis/coreengine/agents	0.041s	coverage: 86.7% of statements
+ok  	github.com/jeeves-cluster-organization/codeanalysis/coreengine/config	0.034s	coverage: 95.6% of statements
+ok  	github.com/jeeves-cluster-organization/codeanalysis/coreengine/envelope	0.048s	coverage: 85.2% of statements
+FAIL	github.com/jeeves-cluster-organization/codeanalysis/coreengine/grpc [build failed]
+	github.com/jeeves-cluster-organization/codeanalysis/coreengine/proto		coverage: 0.0% of statements
+FAIL	github.com/jeeves-cluster-organization/codeanalysis/coreengine/runtime [build failed]
+ok  	github.com/jeeves-cluster-organization/codeanalysis/coreengine/testutil	0.029s	coverage: 43.2% of statements
+ok  	github.com/jeeves-cluster-organization/codeanalysis/coreengine/tools	0.022s	coverage: 100.0% of statements
+ok  	github.com/jeeves-cluster-organization/codeanalysis/coreengine/typeutil	0.027s	coverage: 86.7% of statements
+FAIL

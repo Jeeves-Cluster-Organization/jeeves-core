@@ -28,7 +28,7 @@ func (m *MockLogger) Bind(fields ...any) agents.Logger {
 }
 
 // createTestRuntime creates a minimal runtime for testing.
-func createTestRuntime(t *testing.T) *Runtime {
+func createTestRuntime(t *testing.T) *PipelineRunner {
 	cfg := &config.PipelineConfig{
 		Name:          "test-pipeline",
 		MaxIterations: 3,
@@ -37,7 +37,7 @@ func createTestRuntime(t *testing.T) *Runtime {
 		Agents:        []*config.AgentConfig{},
 	}
 
-	runtime, err := NewRuntime(cfg, nil, nil, &MockLogger{})
+	runtime, err := NewPipelineRunner(cfg, nil, nil, &MockLogger{})
 	require.NoError(t, err)
 	return runtime
 }
@@ -527,7 +527,7 @@ func TestExecuteWithConfigDefaultMode(t *testing.T) {
 		DefaultRunMode: config.RunModeParallel,
 		Agents:         []*config.AgentConfig{},
 	}
-	runtime, err := NewRuntime(cfg, nil, nil, &MockLogger{})
+	runtime, err := NewPipelineRunner(cfg, nil, nil, &MockLogger{})
 	require.NoError(t, err)
 
 	env := envelope.CreateEnvelope("Test", "user-1", "sess-1", nil, nil, nil)
@@ -562,7 +562,7 @@ func TestResumeWithConfiguredClarificationStage(t *testing.T) {
 		ClarificationResumeStage: "stageA",
 		Agents:                   []*config.AgentConfig{},
 	}
-	runtime, err := NewRuntime(cfg, nil, nil, &MockLogger{})
+	runtime, err := NewPipelineRunner(cfg, nil, nil, &MockLogger{})
 	require.NoError(t, err)
 
 	env := envelope.CreateEnvelope("Test", "user-1", "sess-1", nil, nil, nil)
@@ -585,7 +585,7 @@ func TestResumeWithConfiguredConfirmationStage(t *testing.T) {
 		ConfirmationResumeStage: "stageB",
 		Agents:                  []*config.AgentConfig{},
 	}
-	runtime, err := NewRuntime(cfg, nil, nil, &MockLogger{})
+	runtime, err := NewPipelineRunner(cfg, nil, nil, &MockLogger{})
 	require.NoError(t, err)
 
 	env := envelope.CreateEnvelope("Test", "user-1", "sess-1", nil, nil, nil)
@@ -606,7 +606,7 @@ func TestResumeWithConfiguredAgentReviewStage(t *testing.T) {
 		AgentReviewResumeStage: "stageD",
 		Agents:                 []*config.AgentConfig{},
 	}
-	runtime, err := NewRuntime(cfg, nil, nil, &MockLogger{})
+	runtime, err := NewPipelineRunner(cfg, nil, nil, &MockLogger{})
 	require.NoError(t, err)
 
 	env := envelope.CreateEnvelope("Test", "user-1", "sess-1", nil, nil, nil)
@@ -638,7 +638,7 @@ func TestBuildAgentsWithLLM(t *testing.T) {
 		},
 	}
 
-	runtime, err := NewRuntime(cfg, llmFactory, nil, &MockLogger{})
+	runtime, err := NewPipelineRunner(cfg, llmFactory, nil, &MockLogger{})
 
 	require.NoError(t, err)
 	assert.Len(t, runtime.agents, 1)
@@ -654,7 +654,7 @@ func TestBuildAgentsWithTools(t *testing.T) {
 		},
 	}
 
-	runtime, err := NewRuntime(cfg, nil, toolExecutor, &MockLogger{})
+	runtime, err := NewPipelineRunner(cfg, nil, toolExecutor, &MockLogger{})
 
 	require.NoError(t, err)
 	assert.Len(t, runtime.agents, 1)
@@ -669,7 +669,7 @@ func TestBuildAgentsError(t *testing.T) {
 		},
 	}
 
-	_, err := NewRuntime(cfg, nil, nil, &MockLogger{})
+	_, err := NewPipelineRunner(cfg, nil, nil, &MockLogger{})
 
 	require.Error(t, err)
 	// Error comes from agent validation during pipeline config validation
@@ -710,7 +710,7 @@ func TestSequentialCancellation(t *testing.T) {
 		},
 	}
 
-	runtime, err := NewRuntime(cfg, nil, nil, &MockLogger{})
+	runtime, err := NewPipelineRunner(cfg, nil, nil, &MockLogger{})
 	require.NoError(t, err)
 
 	env := envelope.CreateEnvelope("test", "user-1", "sess-1", nil, nil, []string{"stage1", "stage2", "stage3"})
@@ -739,7 +739,7 @@ func TestParallelCancellation(t *testing.T) {
 		},
 	}
 
-	runtime, err := NewRuntime(cfg, nil, nil, &MockLogger{})
+	runtime, err := NewPipelineRunner(cfg, nil, nil, &MockLogger{})
 	require.NoError(t, err)
 
 	env := envelope.CreateEnvelope("test", "user-1", "sess-1", nil, nil, nil)
@@ -767,7 +767,7 @@ func TestSequentialCancellationDuringExecution(t *testing.T) {
 		},
 	}
 
-	runtime, err := NewRuntime(cfg, nil, nil, &MockLogger{})
+	runtime, err := NewPipelineRunner(cfg, nil, nil, &MockLogger{})
 	require.NoError(t, err)
 
 	env := envelope.CreateEnvelope("test", "user-1", "sess-1", nil, nil, []string{"stage1", "stage2"})

@@ -383,10 +383,10 @@ func TestGRPCIntegration_ExecutePipelineWithRuntime(t *testing.T) {
 	mockLLM := testutil.NewMockLLMProvider()
 	llmFactory := func(role string) runtime.LLMProvider { return mockLLM }
 
-	rt, err := runtime.NewRuntime(cfg, llmFactory, nil, testutil.NewMockLogger())
+	rt, err := runtime.NewPipelineRunner(cfg, llmFactory, nil, testutil.NewMockLogger())
 	require.NoError(t, err)
 
-	ts.coreServer.SetRuntime(rt)
+	ts.coreServer.SetRunner(rt)
 
 	ctx := context.Background()
 
