@@ -7,9 +7,11 @@ import (
 	"encoding/json"
 	"fmt"
 	"net"
+	"net/http"
 	"sync"
 	"time"
 
+	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"google.golang.org/grpc"
 
 	"github.com/jeeves-cluster-organization/codeanalysis/coreengine/agents"
@@ -788,5 +790,20 @@ func (s *GracefulServer) GetGRPCServer() *grpc.Server {
 // Address returns the server address.
 func (s *GracefulServer) Address() string {
 	return s.address
+}
+
+// =============================================================================
+// Metrics Server
+// =============================================================================
+
+// StartMetricsServer starts an HTTP server to expose Prometheus metrics.
+// This should be called in a separate goroutine alongside the gRPC server.
+// The metrics endpoint is available at http://address/metrics
+func StartMetricsServer(address string, logger Logger) error {
+	mux := http.NewServeMux()
+	mux.Handle("/metrics", promhttp.Handler())
+
+	logger.Info("metrics_server_started", "address", address, "path", "/metrics")
+	return http.ListenAndServe(address, mux)
 }
 
