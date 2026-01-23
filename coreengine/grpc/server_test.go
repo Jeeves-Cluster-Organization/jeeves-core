@@ -7,6 +7,7 @@ package grpc
 
 import (
 	"context"
+	"sync"
 	"testing"
 	"time"
 
@@ -690,18 +691,18 @@ func TestNewJeevesCoreServer(t *testing.T) {
 	server := NewJeevesCoreServer(logger)
 
 	assert.NotNil(t, server)
-	assert.Nil(t, server.runtime) // Runtime not set yet
+	assert.Nil(t, server.getRuntime()) // Runtime not set yet
 }
 
 func TestSetRuntime(t *testing.T) {
 	// Test setting runtime on server.
 	server, _ := createTestServer()
-	assert.Nil(t, server.runtime)
+	assert.Nil(t, server.getRuntime())
 
 	// We can't easily create a real runtime in tests, but we can verify the method exists
 	// and doesn't panic with nil
 	server.SetRuntime(nil)
-	assert.Nil(t, server.runtime)
+	assert.Nil(t, server.getRuntime())
 }
 
 // =============================================================================
@@ -720,4 +721,116 @@ func TestServerImplementsLoggerInterface(t *testing.T) {
 
 	logger := server.Bind("key", "value")
 	assert.Equal(t, server, logger)
+}
+
+// =============================================================================
+// THREAD SAFETY TESTS
+// =============================================================================
+
+func TestSetRuntimeThreadSafe(t *testing.T) {
+	// Test that SetRuntime is thread-safe.
+	server, _ := createTestServer()
+
+	// Concurrent SetRuntime calls should not race
+	var wg sync.WaitGroup
+	for i := 0; i < 100; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			server.SetRuntime(nil)
+		}()
+	}
+	wg.Wait()
+	// No panic = success
+}
+
+func TestGetRuntimeThreadSafe(t *testing.T) {
+	// Test that getRuntime is thread-safe.
+	server, _ := createTestServer()
+
+	// Concurrent SetRuntime and getRuntime calls should not race
+	var wg sync.WaitGroup
+	for i := 0; i < 50; i++ {
+		wg.Add(2)
+		go func() {
+			defer wg.Done()
+			server.SetRuntime(nil)
+		}()
+		go func() {
+			defer wg.Done()
+			_ = server.getRuntime()
+		}()
+	}
+	wg.Wait()
+	// No panic = success
+}
+
+// =============================================================================
+// GRACEFUL SERVER TESTS
+// =============================================================================
+
+func TestNewGracefulServer(t *testing.T) {
+	// Test creating a graceful server.
+	server, _ := createTestServer()
+
+	graceful, err := NewGracefulServer(server, "localhost:0")
+	require.NoError(t, err)
+	assert.NotNil(t, graceful)
+	assert.NotNil(t, graceful.GetGRPCServer())
+	assert.Equal(t, "localhost:0", graceful.Address())
+}
+
+func TestGracefulServerGracefulStopIdempotent(t *testing.T) {
+	// Test that GracefulStop can be called multiple times safely.
+	server, _ := createTestServer()
+
+	graceful, err := NewGracefulServer(server, "localhost:0")
+	require.NoError(t, err)
+
+	// Start the server
+	_, err = graceful.StartBackground()
+	require.NoError(t, err)
+
+	// Give it time to start
+	time.Sleep(10 * time.Millisecond)
+
+	// Call GracefulStop multiple times - should not panic
+	graceful.GracefulStop()
+	graceful.GracefulStop()
+	graceful.GracefulStop()
+}
+
+func TestGracefulServerStartBackground(t *testing.T) {
+	// Test starting graceful server in background.
+	server, _ := createTestServer()
+
+	graceful, err := NewGracefulServer(server, "localhost:0")
+	require.NoError(t, err)
+
+	errCh, err := graceful.StartBackground()
+	require.NoError(t, err)
+	assert.NotNil(t, errCh)
+
+	// Give it time to start
+	time.Sleep(10 * time.Millisecond)
+
+	// Stop the server
+	graceful.GracefulStop()
+}
+
+func TestGracefulServerShutdownWithTimeout(t *testing.T) {
+	// Test shutdown with timeout.
+	server, _ := createTestServer()
+
+	graceful, err := NewGracefulServer(server, "localhost:0")
+	require.NoError(t, err)
+
+	_, err = graceful.StartBackground()
+	require.NoError(t, err)
+
+	// Give it time to start
+	time.Sleep(10 * time.Millisecond)
+
+	// Shutdown with timeout - should complete quickly since no active connections
+	graceful.ShutdownWithTimeout(1 * time.Second)
 }

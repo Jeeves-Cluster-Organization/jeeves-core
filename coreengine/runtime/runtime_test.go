@@ -691,3 +691,96 @@ type MockToolExecutor struct{}
 func (m *MockToolExecutor) Execute(ctx context.Context, toolName string, params map[string]any) (map[string]any, error) {
 	return map[string]any{"result": "mock"}, nil
 }
+
+// =============================================================================
+// CONTEXT CANCELLATION TESTS
+// =============================================================================
+
+func TestSequentialCancellation(t *testing.T) {
+	// Test that sequential execution respects context cancellation.
+	cfg := &config.PipelineConfig{
+		Name:          "cancel-test",
+		MaxIterations: 100,
+		MaxLLMCalls:   100,
+		MaxAgentHops:  100,
+		Agents: []*config.AgentConfig{
+			{Name: "stage1", DefaultNext: "stage2"},
+			{Name: "stage2", DefaultNext: "stage3"},
+			{Name: "stage3", DefaultNext: "end"},
+		},
+	}
+
+	runtime, err := NewRuntime(cfg, nil, nil, &MockLogger{})
+	require.NoError(t, err)
+
+	env := envelope.CreateGenericEnvelope("test", "user-1", "sess-1", nil, nil, []string{"stage1", "stage2", "stage3"})
+
+	// Create a cancelled context
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel() // Cancel immediately
+
+	// Execute should return context error
+	_, err = runtime.Run(ctx, env, "")
+	require.Error(t, err)
+	assert.Equal(t, context.Canceled, err)
+}
+
+func TestParallelCancellation(t *testing.T) {
+	// Test that parallel execution respects context cancellation.
+	cfg := &config.PipelineConfig{
+		Name:          "cancel-test-parallel",
+		MaxIterations: 100,
+		MaxLLMCalls:   100,
+		MaxAgentHops:  100,
+		Agents: []*config.AgentConfig{
+			{Name: "stage1", Requires: []string{}},
+			{Name: "stage2", Requires: []string{}},
+			{Name: "stage3", Requires: []string{"stage1", "stage2"}},
+		},
+	}
+
+	runtime, err := NewRuntime(cfg, nil, nil, &MockLogger{})
+	require.NoError(t, err)
+
+	env := envelope.CreateGenericEnvelope("test", "user-1", "sess-1", nil, nil, nil)
+
+	// Create a cancelled context
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel() // Cancel immediately
+
+	// Execute should return context error
+	_, err = runtime.RunParallel(ctx, env, "")
+	require.Error(t, err)
+	assert.Equal(t, context.Canceled, err)
+}
+
+func TestSequentialCancellationDuringExecution(t *testing.T) {
+	// Test that cancellation during execution stops immediately.
+	cfg := &config.PipelineConfig{
+		Name:          "cancel-during-test",
+		MaxIterations: 100,
+		MaxLLMCalls:   100,
+		MaxAgentHops:  100,
+		Agents: []*config.AgentConfig{
+			{Name: "stage1", DefaultNext: "stage2"},
+			{Name: "stage2", DefaultNext: "end"},
+		},
+	}
+
+	runtime, err := NewRuntime(cfg, nil, nil, &MockLogger{})
+	require.NoError(t, err)
+
+	env := envelope.CreateGenericEnvelope("test", "user-1", "sess-1", nil, nil, []string{"stage1", "stage2"})
+	env.CurrentStage = "stage1"
+
+	// Create a cancelled context
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel() // Cancel before execution
+
+	// This should return cancelled error before even trying to find the agent
+	result, _, err := runtime.Execute(ctx, env, RunOptions{Mode: RunModeSequential})
+
+	require.Error(t, err)
+	assert.Equal(t, context.Canceled, err)
+	assert.NotNil(t, result) // Envelope should still be returned
+}

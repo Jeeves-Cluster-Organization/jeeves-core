@@ -824,6 +824,11 @@ func (e *GenericEnvelope) ToResultDict() map[string]any {
 		"errors":             e.Errors,
 	}
 
+	// Include outputs if present
+	if len(e.Outputs) > 0 {
+		result["outputs"] = e.Outputs
+	}
+
 	// Add interrupt details if present
 	if e.Interrupt != nil {
 		result["interrupt"] = map[string]any{
