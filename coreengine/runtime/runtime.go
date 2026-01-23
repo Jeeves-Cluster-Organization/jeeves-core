@@ -434,22 +434,24 @@ func (r *Runtime) runParallelCore(ctx context.Context, env *envelope.GenericEnve
 				break
 			}
 
+			// Clone envelope while holding the lock to prevent race with SetOutput
+			mu.Lock()
+			stageEnv := env.Clone()
+			mu.Unlock()
+			stageEnv.CurrentStage = stageName
+
 			wg.Add(1)
-			go func(name string, a *agents.UnifiedAgent) {
+			go func(name string, a *agents.UnifiedAgent, clonedEnv *envelope.GenericEnvelope) {
 				defer wg.Done()
 
-				// Clone envelope for this stage (thread safety)
-				stageEnv := env.Clone()
-				stageEnv.CurrentStage = name
-
-				// Execute agent
-				resultEnv, err := a.Process(ctx, stageEnv)
+				// Execute agent with the cloned envelope
+				resultEnv, err := a.Process(ctx, clonedEnv)
 				results <- StageOutput{
 					Stage:  name,
 					Output: resultEnv.GetOutput(name),
 					Error:  err,
 				}
-			}(stageName, agent)
+			}(stageName, agent, stageEnv)
 		}
 
 		// Wait for all parallel stages to complete
