@@ -268,6 +268,45 @@ func (c *CoreConfig) ToMap() map[string]any {
 }
 
 // =============================================================================
+// CONFIG PROVIDER INTERFACE (Dependency Injection)
+// =============================================================================
+
+// ConfigProvider provides configuration values.
+// Use this interface for dependency injection instead of global state.
+type ConfigProvider interface {
+	// GetCoreConfig returns the core configuration.
+	GetCoreConfig() *CoreConfig
+}
+
+// DefaultConfigProvider provides the global configuration.
+// This is the default implementation that uses the global singleton.
+type DefaultConfigProvider struct{}
+
+// GetCoreConfig returns the global core configuration.
+func (p *DefaultConfigProvider) GetCoreConfig() *CoreConfig {
+	return GetGlobalCoreConfig()
+}
+
+// StaticConfigProvider provides a static configuration.
+// Useful for testing with specific config values.
+type StaticConfigProvider struct {
+	Config *CoreConfig
+}
+
+// GetCoreConfig returns the static configuration.
+func (p *StaticConfigProvider) GetCoreConfig() *CoreConfig {
+	if p.Config == nil {
+		return DefaultCoreConfig()
+	}
+	return p.Config
+}
+
+// NewStaticConfigProvider creates a new StaticConfigProvider.
+func NewStaticConfigProvider(config *CoreConfig) *StaticConfigProvider {
+	return &StaticConfigProvider{Config: config}
+}
+
+// =============================================================================
 // GLOBAL CONFIG (set by mission_system bootstrap)
 // =============================================================================
 
@@ -276,9 +315,10 @@ var (
 	configMu         sync.RWMutex
 )
 
-// GetCoreConfig gets the core configuration instance.
+// GetGlobalCoreConfig gets the global core configuration instance.
 // Returns the injected config or defaults.
-func GetCoreConfig() *CoreConfig {
+// Prefer using ConfigProvider interface for new code.
+func GetGlobalCoreConfig() *CoreConfig {
 	configMu.RLock()
 	defer configMu.RUnlock()
 
@@ -286,6 +326,12 @@ func GetCoreConfig() *CoreConfig {
 		return DefaultCoreConfig()
 	}
 	return globalCoreConfig
+}
+
+// GetCoreConfig gets the core configuration instance.
+// Deprecated: Use GetGlobalCoreConfig or inject ConfigProvider for testability.
+func GetCoreConfig() *CoreConfig {
+	return GetGlobalCoreConfig()
 }
 
 // SetCoreConfig sets the core configuration instance.

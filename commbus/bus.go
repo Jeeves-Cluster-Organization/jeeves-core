@@ -9,6 +9,48 @@ import (
 	"time"
 )
 
+// BusLogger is the interface for structured logging in CommBus.
+// This enables dependency injection of loggers for testability.
+// It's separate from the protocols.Logger to allow simpler implementation.
+type BusLogger interface {
+	Debug(msg string, keysAndValues ...any)
+	Info(msg string, keysAndValues ...any)
+	Warn(msg string, keysAndValues ...any)
+	Error(msg string, keysAndValues ...any)
+}
+
+// defaultBusLogger wraps standard log package for backward compatibility.
+type defaultBusLogger struct{}
+
+func (l *defaultBusLogger) Debug(msg string, keysAndValues ...any) {
+	log.Printf("[DEBUG] %s %v", msg, keysAndValues)
+}
+
+func (l *defaultBusLogger) Info(msg string, keysAndValues ...any) {
+	log.Printf("[INFO] %s %v", msg, keysAndValues)
+}
+
+func (l *defaultBusLogger) Warn(msg string, keysAndValues ...any) {
+	log.Printf("[WARN] %s %v", msg, keysAndValues)
+}
+
+func (l *defaultBusLogger) Error(msg string, keysAndValues ...any) {
+	log.Printf("[ERROR] %s %v", msg, keysAndValues)
+}
+
+// noopBusLogger is a no-op logger for when logging is disabled.
+type noopBusLogger struct{}
+
+func (l *noopBusLogger) Debug(msg string, keysAndValues ...any) {}
+func (l *noopBusLogger) Info(msg string, keysAndValues ...any)  {}
+func (l *noopBusLogger) Warn(msg string, keysAndValues ...any)  {}
+func (l *noopBusLogger) Error(msg string, keysAndValues ...any) {}
+
+// NoopBusLogger returns a logger that discards all output.
+func NoopBusLogger() BusLogger {
+	return &noopBusLogger{}
+}
+
 // subscriberEntry holds a subscriber with its unique ID for proper unsubscribe support.
 type subscriberEntry struct {
 	id      string
@@ -25,6 +67,7 @@ type subscriberEntry struct {
 //   - Command fire-and-forget
 //   - Middleware chain for cross-cutting concerns
 //   - Handler introspection
+//   - Structured logging with injectable logger
 //
 // Usage:
 //
@@ -43,18 +86,38 @@ type InMemoryCommBus struct {
 	middleware   []Middleware
 	queryTimeout time.Duration
 	nextSubID    uint64 // Atomic counter for unique subscriber IDs
+	logger       BusLogger
 	mu           sync.RWMutex
 }
 
-// NewInMemoryCommBus creates a new InMemoryCommBus.
+// NewInMemoryCommBus creates a new InMemoryCommBus with default logger.
 func NewInMemoryCommBus(queryTimeout time.Duration) *InMemoryCommBus {
+	return NewInMemoryCommBusWithLogger(queryTimeout, &defaultBusLogger{})
+}
+
+// NewInMemoryCommBusWithLogger creates a new InMemoryCommBus with a custom logger.
+func NewInMemoryCommBusWithLogger(queryTimeout time.Duration, logger BusLogger) *InMemoryCommBus {
+	if logger == nil {
+		logger = &defaultBusLogger{}
+	}
 	return &InMemoryCommBus{
 		handlers:     make(map[string]HandlerFunc),
 		subscribers:  make(map[string][]subscriberEntry),
 		middleware:   make([]Middleware, 0),
 		queryTimeout: queryTimeout,
 		nextSubID:    0,
+		logger:       logger,
 	}
+}
+
+// SetLogger sets the logger. Use NoopBusLogger() to disable logging.
+func (b *InMemoryCommBus) SetLogger(logger BusLogger) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	if logger == nil {
+		logger = &defaultBusLogger{}
+	}
+	b.logger = logger
 }
 
 // =============================================================================
@@ -73,7 +136,7 @@ func (b *InMemoryCommBus) Publish(ctx context.Context, event Message) error {
 		return err
 	}
 	if processedEvent == nil {
-		log.Printf("Event %s aborted by middleware", eventType)
+		b.logger.Debug("event_aborted_by_middleware", "event_type", eventType)
 		return nil
 	}
 
@@ -85,7 +148,7 @@ func (b *InMemoryCommBus) Publish(ctx context.Context, event Message) error {
 	b.mu.RUnlock()
 
 	if len(entriesCopy) == 0 {
-		log.Printf("No subscribers for event %s", eventType)
+		b.logger.Debug("no_subscribers_for_event", "event_type", eventType)
 		_, _ = b.runMiddlewareAfter(ctx, event, nil, nil)
 		return nil
 	}
@@ -101,7 +164,7 @@ func (b *InMemoryCommBus) Publish(ctx context.Context, event Message) error {
 			_, err := h(ctx, processedEvent)
 			if err != nil {
 				errors[idx] = err
-				log.Printf("Subscriber %d failed for %s: %v", idx, eventType, err)
+				b.logger.Warn("subscriber_failed", "subscriber_idx", idx, "event_type", eventType, "error", err.Error())
 			}
 		}(i, entry.handler)
 	}
@@ -133,7 +196,7 @@ func (b *InMemoryCommBus) Send(ctx context.Context, command Message) error {
 		return err
 	}
 	if processed == nil {
-		log.Printf("Command %s aborted by middleware", messageType)
+		b.logger.Debug("command_aborted_by_middleware", "message_type", messageType)
 		return nil
 	}
 
@@ -143,7 +206,7 @@ func (b *InMemoryCommBus) Send(ctx context.Context, command Message) error {
 	b.mu.RUnlock()
 
 	if !exists {
-		log.Printf("No handler for command %s", messageType)
+		b.logger.Debug("no_handler_for_command", "message_type", messageType)
 		return nil
 	}
 
@@ -151,7 +214,7 @@ func (b *InMemoryCommBus) Send(ctx context.Context, command Message) error {
 	var handlerError error
 	_, handlerError = handler(ctx, processed)
 	if handlerError != nil {
-		log.Printf("Command handler failed for %s: %v", messageType, handlerError)
+		b.logger.Warn("command_handler_failed", "message_type", messageType, "error", handlerError.Error())
 	}
 
 	// Run middleware after
@@ -235,7 +298,7 @@ func (b *InMemoryCommBus) Subscribe(eventType string, handler HandlerFunc) func(
 	})
 	b.mu.Unlock()
 
-	log.Printf("Subscribed to %s (id: %s)", eventType, subID)
+	b.logger.Debug("subscribed", "event_type", eventType, "sub_id", subID)
 
 	// Return unsubscribe function that captures the unique ID
 	return func() {
@@ -247,7 +310,7 @@ func (b *InMemoryCommBus) Subscribe(eventType string, handler HandlerFunc) func(
 			if entry.id == subID {
 				// Remove by swapping with last element (order doesn't matter for fan-out)
 				b.subscribers[eventType] = append(entries[:i], entries[i+1:]...)
-				log.Printf("Unsubscribed from %s (id: %s)", eventType, subID)
+				b.logger.Debug("unsubscribed", "event_type", eventType, "sub_id", subID)
 				return
 			}
 		}
@@ -266,7 +329,7 @@ func (b *InMemoryCommBus) RegisterHandler(messageType string, handler HandlerFun
 	}
 
 	b.handlers[messageType] = handler
-	log.Printf("Registered handler for %s", messageType)
+	b.logger.Debug("handler_registered", "message_type", messageType)
 	return nil
 }
 
@@ -277,7 +340,7 @@ func (b *InMemoryCommBus) AddMiddleware(middleware Middleware) {
 	defer b.mu.Unlock()
 
 	b.middleware = append(b.middleware, middleware)
-	log.Printf("Added middleware")
+	b.logger.Debug("middleware_added")
 }
 
 // =============================================================================
@@ -339,7 +402,7 @@ func (b *InMemoryCommBus) Clear() {
 	b.handlers = make(map[string]HandlerFunc)
 	b.subscribers = make(map[string][]subscriberEntry)
 	b.middleware = make([]Middleware, 0)
-	log.Printf("Cleared all handlers, subscribers, and middleware")
+	b.logger.Debug("bus_cleared")
 }
 
 // =============================================================================

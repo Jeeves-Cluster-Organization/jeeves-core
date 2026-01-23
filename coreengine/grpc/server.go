@@ -633,3 +633,160 @@ func StartBackground(address string, server *JeevesCoreServer) (*grpc.Server, er
 	return grpcServer, nil
 }
 
+// =============================================================================
+// Graceful Server
+// =============================================================================
+
+// GracefulServer wraps a gRPC server with graceful shutdown support.
+// It listens for context cancellation and shuts down cleanly.
+type GracefulServer struct {
+	grpcServer  *grpc.Server
+	coreServer  *JeevesCoreServer
+	address     string
+	listener    net.Listener
+	shutdownMu  sync.Mutex
+	isShutdown  bool
+}
+
+// NewGracefulServer creates a new GracefulServer with interceptors.
+func NewGracefulServer(coreServer *JeevesCoreServer, address string, opts ...grpc.ServerOption) (*GracefulServer, error) {
+	// Add default interceptors if none provided
+	if len(opts) == 0 {
+		opts = ServerOptions(coreServer.logger)
+	}
+
+	grpcServer := grpc.NewServer(opts...)
+	pb.RegisterJeevesCoreServiceServer(grpcServer, coreServer)
+
+	return &GracefulServer{
+		grpcServer: grpcServer,
+		coreServer: coreServer,
+		address:    address,
+	}, nil
+}
+
+// Start starts the server and blocks until ctx is cancelled.
+// When ctx is cancelled, it performs graceful shutdown.
+func (s *GracefulServer) Start(ctx context.Context) error {
+	lis, err := net.Listen("tcp", s.address)
+	if err != nil {
+		return fmt.Errorf("failed to listen: %w", err)
+	}
+	s.listener = lis
+
+	s.coreServer.logger.Info("grpc_graceful_server_started",
+		"address", s.address,
+	)
+
+	// Start serving in a goroutine
+	errCh := make(chan error, 1)
+	go func() {
+		if err := s.grpcServer.Serve(lis); err != nil {
+			errCh <- err
+		}
+		close(errCh)
+	}()
+
+	// Wait for context cancellation or server error
+	select {
+	case <-ctx.Done():
+		s.coreServer.logger.Info("grpc_graceful_shutdown_initiated",
+			"reason", ctx.Err().Error(),
+		)
+		s.GracefulStop()
+		return ctx.Err()
+	case err := <-errCh:
+		if err != nil {
+			return fmt.Errorf("server error: %w", err)
+		}
+		return nil
+	}
+}
+
+// StartBackground starts the server in a goroutine.
+// Returns a channel that receives errors.
+func (s *GracefulServer) StartBackground() (<-chan error, error) {
+	lis, err := net.Listen("tcp", s.address)
+	if err != nil {
+		return nil, fmt.Errorf("failed to listen: %w", err)
+	}
+	s.listener = lis
+
+	s.coreServer.logger.Info("grpc_graceful_server_started_background",
+		"address", s.address,
+	)
+
+	errCh := make(chan error, 1)
+	go func() {
+		if err := s.grpcServer.Serve(lis); err != nil {
+			errCh <- err
+		}
+		close(errCh)
+	}()
+
+	return errCh, nil
+}
+
+// GracefulStop gracefully stops the server.
+// It stops accepting new connections and waits for existing ones to complete.
+func (s *GracefulServer) GracefulStop() {
+	s.shutdownMu.Lock()
+	defer s.shutdownMu.Unlock()
+
+	if s.isShutdown {
+		return
+	}
+	s.isShutdown = true
+
+	s.coreServer.logger.Info("grpc_graceful_stop_started")
+	s.grpcServer.GracefulStop()
+	s.coreServer.logger.Info("grpc_graceful_stop_completed")
+}
+
+// Stop immediately stops the server.
+// Use GracefulStop for production; this is for emergency shutdown.
+func (s *GracefulServer) Stop() {
+	s.shutdownMu.Lock()
+	defer s.shutdownMu.Unlock()
+
+	if s.isShutdown {
+		return
+	}
+	s.isShutdown = true
+
+	s.coreServer.logger.Warn("grpc_immediate_stop")
+	s.grpcServer.Stop()
+}
+
+// ShutdownWithTimeout performs graceful shutdown with a timeout.
+// If shutdown doesn't complete within timeout, it forces an immediate stop.
+func (s *GracefulServer) ShutdownWithTimeout(timeout time.Duration) {
+	done := make(chan struct{})
+
+	go func() {
+		s.GracefulStop()
+		close(done)
+	}()
+
+	select {
+	case <-done:
+		// Graceful shutdown completed
+		return
+	case <-time.After(timeout):
+		s.coreServer.logger.Warn("grpc_graceful_shutdown_timeout",
+			"timeout_ms", timeout.Milliseconds(),
+		)
+		s.grpcServer.Stop()
+	}
+}
+
+// GetGRPCServer returns the underlying grpc.Server.
+func (s *GracefulServer) GetGRPCServer() *grpc.Server {
+	return s.grpcServer
+}
+
+// Address returns the server address.
+func (s *GracefulServer) Address() string {
+	return s.address
+}
+

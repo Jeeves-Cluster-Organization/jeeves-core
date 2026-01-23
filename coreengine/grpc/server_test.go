@@ -764,3 +764,73 @@ func TestGetRuntimeThreadSafe(t *testing.T) {
 	wg.Wait()
 	// No panic = success
 }
+
+// =============================================================================
+// GRACEFUL SERVER TESTS
+// =============================================================================
+
+func TestNewGracefulServer(t *testing.T) {
+	// Test creating a graceful server.
+	server, _ := createTestServer()
+
+	graceful, err := NewGracefulServer(server, "localhost:0")
+	require.NoError(t, err)
+	assert.NotNil(t, graceful)
+	assert.NotNil(t, graceful.GetGRPCServer())
+	assert.Equal(t, "localhost:0", graceful.Address())
+}
+
+func TestGracefulServerGracefulStopIdempotent(t *testing.T) {
+	// Test that GracefulStop can be called multiple times safely.
+	server, _ := createTestServer()
+
+	graceful, err := NewGracefulServer(server, "localhost:0")
+	require.NoError(t, err)
+
+	// Start the server
+	_, err = graceful.StartBackground()
+	require.NoError(t, err)
+
+	// Give it time to start
+	time.Sleep(10 * time.Millisecond)
+
+	// Call GracefulStop multiple times - should not panic
+	graceful.GracefulStop()
+	graceful.GracefulStop()
+	graceful.GracefulStop()
+}
+
+func TestGracefulServerStartBackground(t *testing.T) {
+	// Test starting graceful server in background.
+	server, _ := createTestServer()
+
+	graceful, err := NewGracefulServer(server, "localhost:0")
+	require.NoError(t, err)
+
+	errCh, err := graceful.StartBackground()
+	require.NoError(t, err)
+	assert.NotNil(t, errCh)
+
+	// Give it time to start
+	time.Sleep(10 * time.Millisecond)
+
+	// Stop the server
+	graceful.GracefulStop()
+}
+
+func TestGracefulServerShutdownWithTimeout(t *testing.T) {
+	// Test shutdown with timeout.
+	server, _ := createTestServer()
+
+	graceful, err := NewGracefulServer(server, "localhost:0")
+	require.NoError(t, err)
+
+	_, err = graceful.StartBackground()
+	require.NoError(t, err)
+
+	// Give it time to start
+	time.Sleep(10 * time.Millisecond)
+
+	// Shutdown with timeout - should complete quickly since no active connections
+	graceful.ShutdownWithTimeout(1 * time.Second)
+}

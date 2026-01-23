@@ -222,3 +222,62 @@ func TestConfigRoundtrip(t *testing.T) {
 	assert.NotNil(t, restored.LLMSeed)
 	assert.Equal(t, *original.LLMSeed, *restored.LLMSeed)
 }
+
+// =============================================================================
+// CONFIG PROVIDER TESTS
+// =============================================================================
+
+func TestDefaultConfigProvider(t *testing.T) {
+	// Test DefaultConfigProvider uses global config.
+	ResetCoreConfig()
+	defer ResetCoreConfig()
+
+	provider := &DefaultConfigProvider{}
+
+	// Should return defaults when no global config set
+	config := provider.GetCoreConfig()
+	assert.Equal(t, 20, config.MaxPlanSteps)
+
+	// Set global config
+	custom := DefaultCoreConfig()
+	custom.MaxPlanSteps = 50
+	SetCoreConfig(custom)
+
+	// Should return the set config
+	config = provider.GetCoreConfig()
+	assert.Equal(t, 50, config.MaxPlanSteps)
+}
+
+func TestStaticConfigProvider(t *testing.T) {
+	// Test StaticConfigProvider returns static config.
+	custom := DefaultCoreConfig()
+	custom.MaxPlanSteps = 100
+	custom.LLMTimeout = 500
+
+	provider := NewStaticConfigProvider(custom)
+
+	config := provider.GetCoreConfig()
+	assert.Equal(t, 100, config.MaxPlanSteps)
+	assert.Equal(t, 500, config.LLMTimeout)
+}
+
+func TestStaticConfigProviderNil(t *testing.T) {
+	// Test StaticConfigProvider with nil config returns defaults.
+	provider := &StaticConfigProvider{Config: nil}
+
+	config := provider.GetCoreConfig()
+	assert.Equal(t, 20, config.MaxPlanSteps) // Default value
+}
+
+func TestConfigProviderInterface(t *testing.T) {
+	// Test that both providers satisfy the interface.
+	var provider ConfigProvider
+
+	// DefaultConfigProvider
+	provider = &DefaultConfigProvider{}
+	assert.NotNil(t, provider.GetCoreConfig())
+
+	// StaticConfigProvider
+	provider = NewStaticConfigProvider(DefaultCoreConfig())
+	assert.NotNil(t, provider.GetCoreConfig())
+}
