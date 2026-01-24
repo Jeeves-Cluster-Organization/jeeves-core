@@ -155,6 +155,13 @@ from jeeves_protocols.protocols import (
 )
 
 # =============================================================================
+# CAPABILITY SERVICER PROTOCOL
+# =============================================================================
+from jeeves_protocols.servicer import (
+    CapabilityServicerProtocol,
+)
+
+# =============================================================================
 # CAPABILITY REGISTRATION
 # =============================================================================
 from jeeves_protocols.capability import (
@@ -334,6 +341,9 @@ __all__ = [
     # Memory layer protocols (L5-L6)
     "GraphStorageProtocol",
     "SkillStorageProtocol",
+
+    # ─── Capability Servicer Protocol ───
+    "CapabilityServicerProtocol",
 
     # ─── Capability Registration ───
     "ToolCatalogEntry",

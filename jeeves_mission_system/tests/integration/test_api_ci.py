@@ -25,7 +25,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 from jeeves_mission_system.api.server import app
-from jeeves_mission_system.config.constants import PLATFORM_VERSION
+from jeeves_mission_system.config.constants import PLATFORM_NAME, PLATFORM_VERSION
 
 
 def test_root_endpoint_sync(sync_client):
@@ -35,7 +35,7 @@ def test_root_endpoint_sync(sync_client):
     assert response.status_code == 200
     data = response.json()
 
-    assert data["service"] == "Code Analysis Agent"
+    assert data["service"] == PLATFORM_NAME
     assert data["version"] == PLATFORM_VERSION
     assert "api" in data  # Should have API endpoint reference
 

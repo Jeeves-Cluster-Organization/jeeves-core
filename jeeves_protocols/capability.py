@@ -292,12 +292,22 @@ class DomainServiceConfig:
 
     Services define how capabilities are registered with the Control Tower
     for request dispatch and resource management.
+
+    The additional metadata fields (is_readonly, requires_confirmation, etc.)
+    enable the mission system to adapt its behavior based on capability
+    characteristics without hardcoding assumptions about specific capabilities.
     """
     service_id: str
     service_type: str = "flow"  # "flow", "tool", "query"
     capabilities: List[str] = field(default_factory=list)
     max_concurrent: int = 10
     is_default: bool = False  # If True, this is the default service for the Control Tower
+
+    # Capability behavior metadata (enables generic mission system behavior)
+    is_readonly: bool = True  # Whether this capability only reads (no modifications)
+    requires_confirmation: bool = False  # Whether actions need user confirmation
+    default_session_title: str = "Session"  # Default title for new sessions
+    pipeline_stages: List[str] = field(default_factory=list)  # Agent pipeline stages if any
 
 
 @dataclass

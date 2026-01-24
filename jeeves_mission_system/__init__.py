@@ -1,1 +1,1 @@
-"""Integration tests for Code Analysis Agent."""
+"""Jeeves Mission System - Capability-agnostic orchestration infrastructure."""

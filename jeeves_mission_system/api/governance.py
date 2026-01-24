@@ -24,6 +24,23 @@ from pydantic import BaseModel
 
 from jeeves_avionics.feature_flags import get_feature_flags
 from jeeves_memory_module.services.tool_health_service import ToolHealthService
+from jeeves_protocols import get_capability_resource_registry
+from jeeves_mission_system.config.constants import PLATFORM_NAME, PLATFORM_VERSION
+
+
+def _get_service_display_name() -> str:
+    """Get the display name for the current capability from registry.
+
+    Returns:
+        Service name from registry, or platform name as fallback.
+    """
+    registry = get_capability_resource_registry()
+    default_service = registry.get_default_service()
+    if default_service:
+        service_config = registry.get_service_config(default_service)
+        if service_config:
+            return service_config.service_id
+    return PLATFORM_NAME
 
 router = APIRouter(prefix="/api/v1/governance", tags=["governance"])
 
@@ -251,7 +268,7 @@ def _get_memory_layer_status(feature_flags) -> List[Dict[str, Any]]:
             "layer": "L4",
             "name": "Working",
             "status": "Production",
-            "description": "Session state, code analysis context",
+            "description": "Session state, working context",
             "color": "#10b981"  # green
         },
         {
@@ -369,6 +386,9 @@ def _render_governance_html(
         </tr>
         """
 
+    # Get dynamic service name from registry
+    service_name = _get_service_display_name()
+
     # Full HTML
     return f"""
     <!DOCTYPE html>
@@ -376,7 +396,7 @@ def _render_governance_html(
     <head>
         <meta charset="UTF-8">
         <meta name="viewport" content="width=device-width, initial-scale=1.0">
-        <title>Code Analysis Agent - Governance Dashboard</title>
+        <title>{service_name} - Governance Dashboard</title>
         <script src="https://cdn.tailwindcss.com"></script>
     </head>
     <body class="bg-gray-50">
@@ -455,7 +475,7 @@ def _render_governance_html(
                         </div>
                         <div class="mt-4 p-3 bg-blue-50 rounded border border-blue-200">
                             <p class="text-sm text-blue-800">
-                                <strong>Code Analysis Agent v3.0</strong> - PostgreSQL + pgvector only
+                                <strong>{service_name} v{PLATFORM_VERSION}</strong> - PostgreSQL + pgvector
                             </p>
                         </div>
                     </div>
@@ -507,7 +527,7 @@ def _render_governance_html(
                 <ul class="text-sm text-blue-800 space-y-1">
                     <li>✓ <strong>P5 (Deterministic Spine):</strong> Health thresholds clearly defined (≥95% success = healthy, ≥80% = degraded)</li>
                     <li>✓ <strong>P6 (Testable/Observable):</strong> All tool metrics and memory layer status exposed</li>
-                    <li>✓ <strong>L4 (Working Memory):</strong> Session state for code analysis context</li>
+                    <li>✓ <strong>L4 (Working Memory):</strong> Session state for capability context</li>
                     <li>✓ <strong>L7 (Meta-Memory):</strong> System introspection with circuit breaker enforcement</li>
                 </ul>
             </div>
