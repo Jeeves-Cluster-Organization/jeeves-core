@@ -250,8 +250,24 @@ path = await adapter.find_path("file:main.py", "file:base.py")
 **Responsibilities:**
 - Provider abstraction (OpenAI, Anthropic, llamaserver, Azure)
 - Token counting and cost tracking
-- Rate limiting and retry logic
+- Settings integration (API keys, model selection)
 - Model routing (per-agent overrides)
+- Telemetry enrichment (structured logging with cost metrics)
+
+**Architecture:** Avionics LLM providers delegate to **jeeves-airframe** adapters for backend protocol handling.
+
+**Layering:**
+```
+Avionics LLM Providers (L3)
+  ├── Cost tracking (token → USD)
+  ├── Settings integration
+  └── Delegates to ↓
+
+Airframe Backend Adapters (L1)
+  ├── HTTP requests & SSE parsing
+  ├── Retry logic & error categorization
+  └── Backend-specific protocol quirks
+```
 
 **Contract:** Implements `LLMProtocol` from core.
 
@@ -260,16 +276,52 @@ path = await adapter.find_path("file:main.py", "file:base.py")
 # LLM Provider Factory
 def create_llm_provider(provider: str) -> LLMProtocol:
     if provider == "openai":
-        return OpenAIAdapter(...)
+        return OpenAIProvider(...)  # Uses OpenAI SDK
     elif provider == "anthropic":
-        return AnthropicAdapter(...)
+        return AnthropicProvider(...)  # Uses Anthropic SDK
     elif provider == "llamaserver":
-        return LlamaServerAdapter(...)
+        return LlamaServerProvider(...)  # Delegates to airframe.LlamaServerAdapter
     elif provider == "azure":
-        return AzureOpenAIAdapter(...)
+        return AzureAIFoundryProvider(...)  # Uses Azure OpenAI SDK
     else:
         raise ValueError(f"Unknown provider: {provider}")
 ```
+
+**Delegation Pattern (LlamaServer example):**
+```python
+from airframe.adapters import LlamaServerAdapter
+from airframe.types import InferenceRequest, Message
+
+class LlamaServerProvider(LLMProvider):
+    def __init__(self, base_url: str, ...):
+        # Airframe handles backend protocol
+        self._adapter = LlamaServerAdapter(timeout=timeout, max_retries=max_retries)
+        self._endpoint = EndpointSpec(base_url=base_url, ...)
+
+        # Avionics adds orchestration features
+        self._cost_calculator = get_cost_calculator()
+
+    async def generate(self, model: str, prompt: str, options: Dict) -> str:
+        # Convert Avionics API → Airframe API
+        request = InferenceRequest(messages=[Message(role="user", content=prompt)], ...)
+
+        # Delegate to Airframe
+        async for event in self._adapter.stream_infer(self._endpoint, request):
+            if event.type == StreamEventType.MESSAGE:
+                result = event.content
+
+        # Track cost (Avionics-specific)
+        cost = self._cost_calculator.calculate_cost(...)
+        self._logger.info("llm_cost", cost_usd=cost.cost_usd)
+
+        return result
+```
+
+**Benefits of Delegation:**
+- Single source of truth for backend implementations (no duplication)
+- 73% code reduction (440 → 260 lines for LlamaServer provider)
+- Cleaner separation: Airframe = transport, Avionics = orchestration
+- Easier testing: Mock at adapter boundary instead of HTTP client
 
 ### Memory Layer
 
@@ -362,6 +414,7 @@ class FeatureFlags(BaseSettings):
 **May import:**
 - `jeeves_protocols` — Python protocols and contracts
 - `jeeves_shared` — Shared utilities (logging, serialization, UUID)
+- `jeeves_airframe` — Inference platform substrate (backend adapters)
 - `jeeves_control_tower` — For ControlTower class instantiation only
 - `coreengine` — Core engine (Go implementation, via gRPC)
 - External libraries (psycopg2, openai, fastapi, etc.)
@@ -391,6 +444,7 @@ from jeeves_mission_system.verticals.code_analysis import CodeAnalysisAgent  # �
 ### External Libraries
 
 **Required dependencies:**
+- `jeeves-airframe` — Inference platform substrate (backend adapters, SSE streaming)
 - `fastapi` — HTTP gateway
 - `psycopg2-binary` — PostgreSQL client
 - `pgvector` — Vector extension
