@@ -268,7 +268,7 @@ def _get_memory_layer_status(feature_flags) -> List[Dict[str, Any]]:
             "layer": "L4",
             "name": "Working",
             "status": "Production",
-            "description": "Session state, code analysis context",
+            "description": "Session state, working context",
             "color": "#10b981"  # green
         },
         {
@@ -527,7 +527,7 @@ def _render_governance_html(
                 <ul class="text-sm text-blue-800 space-y-1">
                     <li>✓ <strong>P5 (Deterministic Spine):</strong> Health thresholds clearly defined (≥95% success = healthy, ≥80% = degraded)</li>
                     <li>✓ <strong>P6 (Testable/Observable):</strong> All tool metrics and memory layer status exposed</li>
-                    <li>✓ <strong>L4 (Working Memory):</strong> Session state for code analysis context</li>
+                    <li>✓ <strong>L4 (Working Memory):</strong> Session state for capability context</li>
                     <li>✓ <strong>L7 (Meta-Memory):</strong> System introspection with circuit breaker enforcement</li>
                 </ul>
             </div>

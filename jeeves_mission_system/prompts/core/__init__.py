@@ -20,6 +20,7 @@ Usage:
 from jeeves_mission_system.prompts.core.registry import PromptRegistry, PromptVersion, register_prompt
 from jeeves_mission_system.prompts.core.blocks import (
     IDENTITY_BLOCK,
+    get_identity_block,
     STYLE_BLOCK,
     ROLE_INVARIANTS,
     SAFETY_BLOCK,
@@ -31,6 +32,7 @@ __all__ = [
     "PromptVersion",
     "register_prompt",
     "IDENTITY_BLOCK",
+    "get_identity_block",
     "STYLE_BLOCK",
     "ROLE_INVARIANTS",
     "SAFETY_BLOCK",

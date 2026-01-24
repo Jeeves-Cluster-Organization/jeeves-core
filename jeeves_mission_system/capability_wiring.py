@@ -1,8 +1,7 @@
 """Capability Wiring - Register capabilities with CapabilityResourceRegistry.
 
-This module is the capability registration entry point. It registers
-capabilities (services, orchestrators, tools, agents) with the
-CapabilityResourceRegistry before the API server starts.
+This module is the capability registration entry point. External capability
+packages call register functions here to wire themselves into the mission system.
 
 The mission system queries the registry at runtime to:
 - Get service configuration (is_readonly, requires_confirmation, etc.)
@@ -11,238 +10,182 @@ The mission system queries the registry at runtime to:
 - Load prompts and agents
 
 Usage:
-    # In API server startup (before lifespan)
-    from jeeves_mission_system.capability_wiring import wire_capabilities
+    # External capability package registers itself:
+    from jeeves_mission_system.capability_wiring import register_capability
 
-    wire_capabilities()
+    register_capability(
+        capability_id="my_capability",
+        service_config=DomainServiceConfig(...),
+        orchestrator_factory=my_factory,
+        tools_initializer=my_tools_init,
+    )
 
-    # Now registry is populated and server can query it
+    # Or use environment-based auto-discovery:
+    wire_capabilities()  # Discovers and registers capabilities
 
 Constitutional Alignment:
 - Avionics R4: Capabilities register their own resources
 - No hardcoded capability knowledge in mission system
 """
 
-from typing import Any, Callable, Dict, Optional
+import os
+from typing import Any, Callable, Dict, List, Optional
 
 from jeeves_protocols import (
     get_capability_resource_registry,
     DomainServiceConfig,
     CapabilityOrchestratorConfig,
     CapabilityToolsConfig,
-    CapabilityServicerProtocol,
 )
 
 
-# =============================================================================
-# CODE ANALYSIS CAPABILITY REGISTRATION
-# =============================================================================
+def register_capability(
+    capability_id: str,
+    service_config: DomainServiceConfig,
+    orchestrator_factory: Optional[Callable[..., Any]] = None,
+    tools_initializer: Optional[Callable[..., Dict[str, Any]]] = None,
+) -> None:
+    """Register a capability with all required configuration.
 
+    This is the main entry point for capability registration. External
+    capability packages call this to wire themselves into the mission system.
 
-def _create_code_analysis_orchestrator_factory() -> Callable[..., Any]:
-    """Create the orchestrator factory for code_analysis capability.
-
-    The factory is a callable that creates the orchestrator/servicer
-    implementing CapabilityServicerProtocol.
-
-    Returns:
-        Factory function that creates the orchestrator
-    """
-    def factory(
-        llm_provider_factory: Callable,
-        tool_executor: Any,
-        logger: Any,
-        persistence: Any,
-        control_tower: Any,
-    ) -> Any:
-        """Create code_analysis orchestrator.
-
-        This factory is called by the mission system to create the
-        orchestrator that handles code analysis requests.
-
-        The returned object must:
-        1. Implement CapabilityServicerProtocol (process_request method)
-        2. Have get_dispatch_handler() method for Control Tower registration
-        """
-        # Import here to avoid circular imports
-        # This is the only place that imports from capability layer
-        try:
-            from jeeves_mission_system.orchestration.service import (
-                CodeAnalysisService,
-            )
-
-            return CodeAnalysisService(
-                llm_provider_factory=llm_provider_factory,
-                tool_executor=tool_executor,
-                logger=logger,
-                persistence=persistence,
-                control_tower=control_tower,
-            )
-        except ImportError:
-            # Capability layer not available - return mock for testing
-            logger.warning(
-                "code_analysis_import_failed",
-                message="CodeAnalysisService not available, using mock",
-            )
-            return _create_mock_orchestrator(logger)
-
-    return factory
-
-
-def _create_mock_orchestrator(logger: Any) -> Any:
-    """Create a mock orchestrator for testing when capability not available."""
-
-    class MockOrchestrator:
-        """Mock orchestrator implementing minimal interface."""
-
-        def __init__(self, logger: Any):
-            self._logger = logger
-
-        async def process_request(
-            self,
-            user_id: str,
-            session_id: Optional[str],
-            message: str,
-            context: Optional[dict],
-        ):
-            """Mock process_request that yields a single completion event."""
-            self._logger.info(
-                "mock_orchestrator_request",
-                user_id=user_id,
-                message_preview=message[:50] if message else "",
-            )
-            yield {
-                "type": "completed",
-                "response": "Mock response - CodeAnalysisService not available",
-            }
-
-        def get_dispatch_handler(self) -> Callable:
-            """Return dispatch handler for Control Tower."""
-            async def handler(envelope: Any) -> Any:
-                self._logger.info("mock_dispatch_handler", envelope_id=getattr(envelope, 'envelope_id', None))
-                return envelope
-            return handler
-
-    return MockOrchestrator(logger)
-
-
-def _create_code_analysis_tools_initializer() -> Callable[..., Dict[str, Any]]:
-    """Create the tools initializer for code_analysis capability.
-
-    Returns:
-        Initializer function that creates tool instances
-    """
-    def initializer(db: Any) -> Dict[str, Any]:
-        """Initialize code_analysis tools.
-
-        Args:
-            db: Database client for tools that need persistence
-
-        Returns:
-            Dict with 'catalog' key containing ToolRegistryProtocol
-        """
-        try:
-            from jeeves_avionics.tools.catalog import create_tool_catalog
-
-            catalog = create_tool_catalog(db=db)
-            return {"catalog": catalog}
-        except ImportError:
-            # Return empty catalog
-            return {"catalog": None}
-
-    return initializer
-
-
-def wire_code_analysis_capability() -> None:
-    """Register the code_analysis capability with all required configuration.
-
-    This registers:
-    - Service configuration with new decoupling fields
-    - Orchestrator factory
-    - Tools initializer
+    Args:
+        capability_id: Unique identifier for the capability
+        service_config: Service configuration with behavior metadata
+        orchestrator_factory: Optional factory to create orchestrator
+        tools_initializer: Optional initializer for tools
     """
     registry = get_capability_resource_registry()
 
-    # Register service configuration with ALL new fields
+    # Register service configuration
     registry.register_service(
-        capability_id="code_analysis",
+        capability_id=capability_id,
+        service_config=service_config,
+    )
+
+    # Register orchestrator factory if provided
+    if orchestrator_factory:
+        registry.register_orchestrator(
+            capability_id=capability_id,
+            config=CapabilityOrchestratorConfig(
+                factory=orchestrator_factory,
+                result_type=None,
+            ),
+        )
+
+    # Register tools initializer if provided
+    if tools_initializer:
+        registry.register_tools(
+            capability_id=capability_id,
+            config=CapabilityToolsConfig(
+                initializer=tools_initializer,
+            ),
+        )
+
+
+def _discover_capabilities() -> List[str]:
+    """Discover capabilities from environment or entry points.
+
+    Returns list of capability module paths to import.
+    """
+    # Check environment for explicit capability list
+    capabilities_env = os.getenv("JEEVES_CAPABILITIES", "")
+    if capabilities_env:
+        return [c.strip() for c in capabilities_env.split(",") if c.strip()]
+
+    # Default: try to import common capability packages
+    return [
+        "jeeves_capability_code_analyser.wiring",
+    ]
+
+
+def _try_import_capability(module_path: str) -> bool:
+    """Try to import and register a capability module.
+
+    The module should call register_capability() when imported.
+
+    Returns:
+        True if successfully imported, False otherwise.
+    """
+    try:
+        __import__(module_path)
+        return True
+    except ImportError:
+        return False
+
+
+def _register_fallback_capability() -> None:
+    """Register a fallback capability when no capabilities are discovered.
+
+    This provides a minimal working configuration for development/testing.
+    """
+    registry = get_capability_resource_registry()
+
+    # Check if any capabilities already registered
+    if registry.list_capabilities():
+        return  # Skip fallback if capabilities exist
+
+    # Register minimal fallback
+    register_capability(
+        capability_id="default",
         service_config=DomainServiceConfig(
-            service_id="code_analysis",
+            service_id="default",
             service_type="flow",
-            capabilities=["analyze", "search", "explain", "clarification"],
+            capabilities=["query"],
             max_concurrent=10,
             is_default=True,
-            # NEW DECOUPLING FIELDS
-            is_readonly=True,  # Code analysis doesn't modify files
-            requires_confirmation=False,  # No confirmation dialogs needed
-            default_session_title="Code Analysis",  # Session title prefix
-            pipeline_stages=[  # Agent pipeline stages for observability
-                "perception",
-                "intent",
-                "planner",
-                "traverser",
-                "critic",
-                "integration",
-            ],
+            is_readonly=True,
+            requires_confirmation=False,
+            default_session_title="Session",
+            pipeline_stages=[],
         ),
+        orchestrator_factory=None,
+        tools_initializer=None,
     )
-
-    # Register orchestrator factory
-    registry.register_orchestrator(
-        capability_id="code_analysis",
-        config=CapabilityOrchestratorConfig(
-            factory=_create_code_analysis_orchestrator_factory(),
-            result_type=None,  # Uses generic dict result
-        ),
-    )
-
-    # Register tools initializer
-    registry.register_tools(
-        capability_id="code_analysis",
-        config=CapabilityToolsConfig(
-            initializer=_create_code_analysis_tools_initializer(),
-        ),
-    )
-
-
-# =============================================================================
-# MAIN WIRING FUNCTION
-# =============================================================================
 
 
 def wire_capabilities() -> None:
-    """Wire all capabilities with the CapabilityResourceRegistry.
+    """Discover and wire all capabilities with the CapabilityResourceRegistry.
 
     Call this during application startup before the API server
     queries the registry.
 
-    Currently registers:
-    - code_analysis: Read-only code analysis capability
-
-    Future capabilities would be added here:
-    - code_generation: Write capability with confirmation
-    - code_review: Read-only with different pipeline
+    Discovery order:
+    1. JEEVES_CAPABILITIES environment variable (comma-separated module paths)
+    2. Known capability package entry points
+    3. Fallback to minimal default capability
     """
-    wire_code_analysis_capability()
+    discovered = _discover_capabilities()
+    registered = []
+
+    for module_path in discovered:
+        if _try_import_capability(module_path):
+            registered.append(module_path)
+
+    # Register fallback if nothing discovered
+    if not registered:
+        _register_fallback_capability()
 
     # Log registration
     registry = get_capability_resource_registry()
     capabilities = registry.list_capabilities()
 
-    # Get logger if available
     try:
         from jeeves_avionics.logging import create_logger
         logger = create_logger("capability_wiring")
         logger.info(
             "capabilities_wired",
+            discovered=discovered,
+            registered=registered,
             capabilities=capabilities,
             default_service=registry.get_default_service(),
         )
     except ImportError:
-        pass  # No logging available
+        pass
 
 
 __all__ = [
+    "register_capability",
     "wire_capabilities",
-    "wire_code_analysis_capability",
 ]
