@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/jeeves-cluster-organization/codeanalysis/coreengine/observability"
+	"go.opentelemetry.io/contrib/instrumentation/google.golang.org/grpc/otelgrpc"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
@@ -297,5 +298,6 @@ func ServerOptions(logger Logger) []grpc.ServerOption {
 	return []grpc.ServerOption{
 		grpc.UnaryInterceptor(unaryInterceptor),
 		grpc.StreamInterceptor(streamInterceptor),
+		grpc.StatsHandler(otelgrpc.NewServerHandler()), // OpenTelemetry trace propagation
 	}
 }

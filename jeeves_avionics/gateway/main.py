@@ -40,6 +40,7 @@ from jeeves_avionics.gateway.websocket import (
 )
 from jeeves_avionics.logging import get_current_logger
 from jeeves_protocols import get_capability_resource_registry
+from jeeves_avionics.observability.tracing import init_tracing, instrument_fastapi, instrument_grpc_client, shutdown_tracing
 
 
 def _get_service_identity() -> str:
@@ -86,6 +87,13 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         orchestrator=f"{config.orchestrator_host}:{config.orchestrator_port}",
     )
 
+    # Initialize tracing
+    jaeger_endpoint = os.getenv("JAEGER_ENDPOINT", "jaeger:4317")
+    service_name = _get_service_identity() + "-gateway"
+    init_tracing(service_name, jaeger_endpoint)
+    instrument_grpc_client()
+    _logger.info("tracing_initialized", service=service_name, jaeger=jaeger_endpoint)
+
     # Initialize gRPC client
     client = GrpcClientManager(
         orchestrator_host=config.orchestrator_host,
@@ -121,6 +129,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         # Shutdown
         _logger.info("gateway_shutdown_initiated")
         await client.disconnect()
+        shutdown_tracing()
         _logger.info("gateway_shutdown_complete")
 
 
@@ -135,6 +144,9 @@ app = FastAPI(
     version="4.0.0",
     lifespan=lifespan,
 )
+
+# Instrument FastAPI with OpenTelemetry
+instrument_fastapi(app)
 
 # CORS middleware
 app.add_middleware(
