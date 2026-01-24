@@ -26,7 +26,7 @@ from jeeves_mission_system.prompts.core import IDENTITY_BLOCK, STYLE_BLOCK, ROLE
     constitutional_compliance="P1 (NLP-First), P5 (Deterministic Spine)"
 )
 def planner_tool_selection_v1() -> str:
-    return """You are the Planner agent for Code Analysis Agent.
+    return """You are the Planner agent.
 
 Your role: Analyze user intent and construct an execution plan using available tools.
 

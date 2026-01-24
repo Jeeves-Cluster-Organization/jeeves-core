@@ -1,10 +1,13 @@
 """
-FlowServicer - gRPC servicer that delegates to Code Analysis pipeline.
+FlowServicer - gRPC servicer that delegates to registered capability.
 
-This module provides the gRPC interface for the Code Analysis Agent.
-All requests are handled by the 6-agent Code Analysis pipeline.
+This module provides the gRPC interface for capability invocation.
+All requests are delegated to the capability servicer registered via
+CapabilityResourceRegistry.
 
-Pipeline: Perception → Intent → Planner → Traverser → Critic → Integration
+The FlowServicer is capability-agnostic - it does not have hardcoded
+knowledge of any specific capability (e.g., code_analysis). Capability
+metadata (session titles, readonly mode, etc.) is queried from the registry.
 """
 
 from __future__ import annotations
@@ -14,7 +17,12 @@ from datetime import datetime, timezone
 from typing import Any, AsyncIterator, Dict, Optional, TYPE_CHECKING
 from uuid import uuid4
 
-from jeeves_protocols import DatabaseClientProtocol, LoggerProtocol
+from jeeves_protocols import (
+    DatabaseClientProtocol,
+    LoggerProtocol,
+    CapabilityServicerProtocol,
+    get_capability_resource_registry,
+)
 from jeeves_mission_system.adapters import get_logger
 from jeeves_shared.serialization import datetime_to_ms
 
@@ -43,11 +51,12 @@ if _GRPC_AVAILABLE:
         """
         gRPC implementation of JeevesFlowService.
 
-        All requests are delegated to the Code Analysis pipeline.
-        This is the only supported mode as of v3.0.
+        All requests are delegated to the registered capability servicer.
+        This servicer is capability-agnostic and queries CapabilityResourceRegistry
+        for capability-specific behavior (session titles, confirmation requirements, etc.).
 
         Services:
-        - StartFlow: Process code analysis queries
+        - StartFlow: Process capability requests
         - GetSession: Session retrieval
         - ListSessions: Session listing
         - CreateSession: Create new session
@@ -58,7 +67,7 @@ if _GRPC_AVAILABLE:
         def __init__(
             self,
             db: DatabaseClientProtocol,
-            code_analysis_servicer: Any,
+            capability_servicer: CapabilityServicerProtocol,
             logger: Optional[LoggerProtocol] = None,
         ):
             """
@@ -66,33 +75,33 @@ if _GRPC_AVAILABLE:
 
             Args:
                 db: Database client
-                code_analysis_servicer: CodeAnalysisServicer instance
+                capability_servicer: Servicer implementing CapabilityServicerProtocol
                 logger: Optional logger instance
             """
             self._logger = logger or get_logger()
             self.db = db
-            self.code_analysis_servicer = code_analysis_servicer
+            self._servicer = capability_servicer
 
         async def StartFlow(
             self,
             request: "jeeves_pb2.FlowRequest",
             context: "grpc.aio.ServicerContext",
         ) -> AsyncIterator["jeeves_pb2.FlowEvent"]:
-            """Start a code analysis flow and stream events."""
+            """Start a capability flow and stream events."""
             user_id = request.user_id
             session_id = request.session_id or None
             message = request.message
             ctx = dict(request.context) if request.context else None
 
             self._logger.info(
-                "code_analysis_request",
+                "capability_request",
                 user_id=user_id,
                 session_id=session_id,
                 message_length=len(message),
             )
 
-            # Delegate to Code Analysis pipeline
-            async for event in self.code_analysis_servicer.process_request(
+            # Delegate to registered capability servicer
+            async for event in self._servicer.process_request(
                 user_id=user_id,
                 session_id=session_id,
                 message=message,
@@ -199,7 +208,10 @@ if _GRPC_AVAILABLE:
         ) -> "jeeves_pb2.Session":
             """Create a new chat session."""
             user_id = request.user_id
-            title = request.title or f"Code Analysis - {datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M')}"
+
+            # Get default session title from capability registry
+            default_title = self._get_default_session_title()
+            title = request.title or f"{default_title} - {datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M')}"
 
             try:
                 session_id = str(uuid4())
@@ -331,6 +343,20 @@ if _GRPC_AVAILABLE:
             except Exception as e:
                 self._logger.error("get_session_messages_error", error=str(e))
                 await context.abort(grpc.StatusCode.INTERNAL, str(e))
+
+        def _get_default_session_title(self) -> str:
+            """Get default session title from capability registry.
+
+            Returns:
+                Default session title from registered capability, or "Session" fallback.
+            """
+            registry = get_capability_resource_registry()
+            default_service = registry.get_default_service()
+            if default_service:
+                service_config = registry.get_service_config(default_service)
+                if service_config:
+                    return service_config.default_session_title
+            return "Session"
 
         def _make_event(
             self,
