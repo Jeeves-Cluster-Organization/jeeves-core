@@ -11,9 +11,12 @@ with inconsistent emission patterns.
 Usage:
     # Create context for a request
     context = AgentEventContext(
-        session_id="sess_123",
-        request_id="req_456",
-        user_id="user_789",
+        request_context=RequestContext(
+            request_id="req_456",
+            capability="example",
+            session_id="sess_123",
+            user_id="user_789",
+        ),
         agent_event_emitter=emitter,
         domain_event_emitter=event_emitter,
     )
@@ -30,7 +33,7 @@ import time
 from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional, TYPE_CHECKING
 
-from jeeves_protocols import LoggerProtocol
+from jeeves_protocols import LoggerProtocol, RequestContext
 from jeeves_mission_system.adapters import get_logger
 
 if TYPE_CHECKING:
@@ -48,17 +51,13 @@ class AgentEventContext:
     emitted consistently from a single point.
 
     Attributes:
-        session_id: Current session identifier
-        request_id: Current request identifier
-        user_id: User identifier
+        request_context: RequestContext for the request
         agent_event_emitter: Optional emitter for real-time frontend events
         domain_event_emitter: Optional emitter for domain/audit events
         correlation_id: Optional correlation ID for domain events
     """
 
-    session_id: str
-    request_id: str
-    user_id: str
+    request_context: RequestContext
     agent_event_emitter: Optional["AgentEventEmitter"] = None
     domain_event_emitter: Optional["EventEmitter"] = None
     correlation_id: Optional[str] = None
@@ -69,12 +68,12 @@ class AgentEventContext:
             self._logger = get_logger()
         self._logger = self._logger.bind(
             component="agent_event_context",
-            session_id=self.session_id,
-            request_id=self.request_id,
+            session_id=self.request_context.session_id,
+            request_id=self.request_context.request_id,
         )
         # Use request_id as correlation_id if not provided
         if self.correlation_id is None:
-            self.correlation_id = self.request_id
+            self.correlation_id = self.request_context.request_id
 
     # ========================================================================
     # Agent Lifecycle Events
@@ -103,8 +102,7 @@ class AgentEventContext:
         if self.agent_event_emitter:
             await self.agent_event_emitter.emit_agent_started(
                 agent_name=agent_name,
-                session_id=self.session_id,
-                request_id=self.request_id,
+                request_context=self.request_context,
                 **payload,
             )
             self._logger.debug(
@@ -137,8 +135,7 @@ class AgentEventContext:
         if self.agent_event_emitter:
             await self.agent_event_emitter.emit_agent_completed(
                 agent_name=agent_name,
-                session_id=self.session_id,
-                request_id=self.request_id,
+                request_context=self.request_context,
                 status=status,
                 error=error,
                 **payload,
@@ -186,8 +183,8 @@ class AgentEventContext:
         if self.domain_event_emitter:
             event_id = await self.domain_event_emitter.emit_plan_created(
                 plan_id=plan_id,
-                request_id=self.request_id,
-                user_id=self.user_id,
+                request_id=self.request_context.request_id,
+                user_id=self.request_context.user_id or "",
                 intent=intent,
                 confidence=confidence,
                 tool_count=step_count,
@@ -195,7 +192,7 @@ class AgentEventContext:
                 clarification_needed=clarification_needed,
                 actor="planner",
                 correlation_id=self.correlation_id,
-                session_id=self.session_id,
+                session_id=self.request_context.session_id or "",
             )
 
         self._logger.info(
@@ -238,15 +235,15 @@ class AgentEventContext:
 
         if self.domain_event_emitter:
             event_id = await self.domain_event_emitter.emit_critic_decision(
-                request_id=self.request_id,
-                user_id=self.user_id,
+                request_id=self.request_context.request_id,
+                user_id=self.request_context.user_id or "",
                 action=action,
                 confidence=confidence,
                 issue=issue,
                 feedback=feedback,
                 actor="critic",
                 correlation_id=self.correlation_id,
-                session_id=self.session_id,
+                session_id=self.request_context.session_id or "",
             )
 
         self._logger.info(
@@ -329,8 +326,7 @@ class AgentEventContext:
         if self.agent_event_emitter:
             await self.agent_event_emitter.emit_tool_started(
                 tool_name=tool_name,
-                session_id=self.session_id,
-                request_id=self.request_id,
+                request_context=self.request_context,
                 params_preview=params_preview,
                 step_number=step_number,
                 total_steps=total_steps,
@@ -376,8 +372,7 @@ class AgentEventContext:
         if self.agent_event_emitter:
             await self.agent_event_emitter.emit_tool_completed(
                 tool_name=tool_name,
-                session_id=self.session_id,
-                request_id=self.request_id,
+                request_context=self.request_context,
                 status=status,
                 error_type=error_type,  # Phase 2.2: Include error type
                 execution_time_ms=execution_time_ms,
@@ -386,15 +381,15 @@ class AgentEventContext:
         # Domain event for audit
         if self.domain_event_emitter:
             event_id = await self.domain_event_emitter.emit_tool_executed(
-                request_id=self.request_id,
-                user_id=self.user_id,
+                request_id=self.request_context.request_id,
+                user_id=self.request_context.user_id or "",
                 tool_name=tool_name,
                 status=status,
                 execution_time_ms=execution_time_ms,
                 error=error,
                 actor="traverser",
                 correlation_id=self.correlation_id,
-                session_id=self.session_id,
+                session_id=self.request_context.session_id or "",
             )
 
         # Phase 2.2: Log with error details for debugging
@@ -436,15 +431,15 @@ class AgentEventContext:
 
         if self.domain_event_emitter:
             event_id = await self.domain_event_emitter.emit_retry_attempt(
-                request_id=self.request_id,
-                user_id=self.user_id,
+                request_id=self.request_context.request_id,
+                user_id=self.request_context.user_id or "",
                 retry_type=retry_type,
                 attempt_number=attempt_number,
                 reason=reason,
                 feedback=feedback,
                 actor="orchestrator",
                 correlation_id=self.correlation_id,
-                session_id=self.session_id,
+                session_id=self.request_context.session_id or "",
             )
 
         self._logger.info(
@@ -482,13 +477,13 @@ class AgentEventContext:
         if self.domain_event_emitter:
             event_id = await self.domain_event_emitter.emit_response_drafted(
                 response_id=response_id,
-                request_id=self.request_id,
-                user_id=self.user_id,
+                request_id=self.request_context.request_id,
+                user_id=self.request_context.user_id or "",
                 response_preview=response_preview,
                 validation_status=validation_status,
                 actor="integration",
                 correlation_id=self.correlation_id,
-                session_id=self.session_id,
+                session_id=self.request_context.session_id or "",
             )
 
         return event_id
@@ -515,8 +510,7 @@ class AgentEventContext:
         """
         if self.agent_event_emitter:
             await self.agent_event_emitter.emit_stage_transition(
-                session_id=self.session_id,
-                request_id=self.request_id,
+                request_context=self.request_context,
                 from_stage=from_stage,
                 to_stage=to_stage,
                 satisfied_goals=satisfied_goals or [],
@@ -535,8 +529,9 @@ class AgentEventContext:
             event = AgentEvent(
                 event_type=AgentEventType.FLOW_STARTED,
                 agent_name="orchestrator",
-                session_id=self.session_id,
-                request_id=self.request_id,
+                request_context=self.request_context,
+                session_id=self.request_context.session_id or "",
+                request_id=self.request_context.request_id,
             )
             await self.agent_event_emitter.emit(event)
 
@@ -548,8 +543,9 @@ class AgentEventContext:
             event = AgentEvent(
                 event_type=AgentEventType.FLOW_COMPLETED,
                 agent_name="orchestrator",
-                session_id=self.session_id,
-                request_id=self.request_id,
+                request_context=self.request_context,
+                session_id=self.request_context.session_id or "",
+                request_id=self.request_context.request_id,
                 payload={"status": status},
             )
             await self.agent_event_emitter.emit(event)
@@ -562,8 +558,9 @@ class AgentEventContext:
             event = AgentEvent(
                 event_type=AgentEventType.FLOW_ERROR,
                 agent_name="orchestrator",
-                session_id=self.session_id,
-                request_id=self.request_id,
+                request_context=self.request_context,
+                session_id=self.request_context.session_id or "",
+                request_id=self.request_context.request_id,
                 payload={"error": error},
             )
             await self.agent_event_emitter.emit(event)
@@ -622,8 +619,9 @@ class AgentEventContext:
             event = AgentEvent(
                 event_type=AgentEventType.AGENT_COMPLETED,
                 agent_name=f"{agent_name}_reasoning",
-                session_id=self.session_id,
-                request_id=self.request_id,
+                request_context=self.request_context,
+                session_id=self.request_context.session_id or "",
+                request_id=self.request_context.request_id,
                 payload={
                     "type": "reasoning",
                     "reasoning_type": reasoning_type,
@@ -659,9 +657,7 @@ class AgentEventContext:
 
 
 def create_event_context(
-    session_id: str,
-    request_id: str,
-    user_id: str,
+    request_context: RequestContext,
     agent_event_emitter: Optional["AgentEventEmitter"] = None,
     domain_event_emitter: Optional["EventEmitter"] = None,
     correlation_id: Optional[str] = None,
@@ -670,9 +666,7 @@ def create_event_context(
     Factory function to create an AgentEventContext.
 
     Args:
-        session_id: Current session identifier
-        request_id: Current request identifier
-        user_id: User identifier
+        request_context: RequestContext for the request
         agent_event_emitter: Optional emitter for real-time frontend events
         domain_event_emitter: Optional emitter for domain/audit events
         correlation_id: Optional correlation ID for domain events
@@ -681,9 +675,7 @@ def create_event_context(
         Configured AgentEventContext instance
     """
     return AgentEventContext(
-        session_id=session_id,
-        request_id=request_id,
-        user_id=user_id,
+        request_context=request_context,
         agent_event_emitter=agent_event_emitter,
         domain_event_emitter=domain_event_emitter,
         correlation_id=correlation_id,

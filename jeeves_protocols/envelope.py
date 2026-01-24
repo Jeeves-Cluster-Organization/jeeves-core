@@ -5,6 +5,7 @@ from datetime import datetime
 from typing import Any, Dict, List, Optional, TYPE_CHECKING
 
 from jeeves_protocols.core import TerminalReason
+from jeeves_protocols.protocols import RequestContext
 
 if TYPE_CHECKING:
     from jeeves_protocols.interrupts import FlowInterrupt
@@ -31,6 +32,7 @@ class GenericEnvelope:
     Primary state container for pipeline execution.
     """
     # Identification
+    request_context: RequestContext
     envelope_id: str = ""
     request_id: str = ""
     user_id: str = ""
@@ -93,12 +95,63 @@ class GenericEnvelope:
     # Metadata
     metadata: Dict[str, Any] = field(default_factory=dict)
 
+    def __post_init__(self) -> None:
+        if self.request_context is None:
+            raise ValueError("request_context is required for GenericEnvelope")
+
+        # Normalize empty strings to None for comparison
+        ctx = self.request_context
+        ctx_request_id = ctx.request_id
+        ctx_user_id = ctx.user_id
+        ctx_session_id = ctx.session_id
+
+        if self.request_id and self.request_id != ctx_request_id:
+            raise ValueError("request_id does not match request_context.request_id")
+        if self.user_id and (ctx_user_id is None or self.user_id != ctx_user_id):
+            raise ValueError("user_id does not match request_context.user_id")
+        if self.session_id and (ctx_session_id is None or self.session_id != ctx_session_id):
+            raise ValueError("session_id does not match request_context.session_id")
+
+        # Fill missing fields from context
+        if not self.request_id:
+            self.request_id = ctx_request_id
+        if not self.user_id and ctx_user_id:
+            self.user_id = ctx_user_id
+        if not self.session_id and ctx_session_id:
+            self.session_id = ctx_session_id
+
     @classmethod
     def from_dict(cls, data: Dict[str, Any]) -> "GenericEnvelope":
         """Create envelope from dictionary (Go JSON response)."""
         from jeeves_protocols.interrupts import FlowInterrupt
 
-        env = cls()
+        ctx_data = data.get("request_context")
+        if ctx_data is None:
+            raise ValueError("request_context missing in envelope data")
+        if isinstance(ctx_data, RequestContext):
+            ctx = ctx_data
+        elif isinstance(ctx_data, dict):
+            ctx = RequestContext(**ctx_data)
+        else:
+            raise TypeError("request_context must be a dict or RequestContext")
+
+        # Validate identifiers if present in data
+        data_request_id = data.get("request_id") or ""
+        data_user_id = data.get("user_id") or ""
+        data_session_id = data.get("session_id") or ""
+        if data_request_id and data_request_id != ctx.request_id:
+            raise ValueError("request_id does not match request_context.request_id")
+        if data_user_id and (ctx.user_id is None or data_user_id != ctx.user_id):
+            raise ValueError("user_id does not match request_context.user_id")
+        if data_session_id and (ctx.session_id is None or data_session_id != ctx.session_id):
+            raise ValueError("session_id does not match request_context.session_id")
+
+        env = cls(
+            request_context=ctx,
+            request_id=data_request_id,
+            user_id=data_user_id,
+            session_id=data_session_id,
+        )
         for key, value in data.items():
             if hasattr(env, key):
                 # Handle enum conversion for terminal_reason
@@ -172,6 +225,7 @@ class GenericEnvelope:
     def to_dict(self) -> Dict[str, Any]:
         """Convert to dictionary for Go JSON input."""
         return {
+            "request_context": self.request_context.to_dict(),
             "envelope_id": self.envelope_id,
             "request_id": self.request_id,
             "user_id": self.user_id,
@@ -224,6 +278,7 @@ class GenericEnvelope:
 
         return {
             # Identification
+            "request_context": self.request_context.to_dict(),
             "envelope_id": self.envelope_id,
             "request_id": self.request_id,
             "user_id": self.user_id,

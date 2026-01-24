@@ -19,7 +19,7 @@ import threading
 from datetime import datetime
 from typing import Any, Callable, Dict, List, Optional, TYPE_CHECKING, Union
 
-from jeeves_protocols import GenericEnvelope, LoggerProtocol
+from jeeves_protocols import GenericEnvelope, LoggerProtocol, RequestContext
 
 from jeeves_control_tower.protocols import CommBusCoordinatorProtocol
 from jeeves_control_tower.types import DispatchTarget, ServiceDescriptor
@@ -387,7 +387,17 @@ class CommBusCoordinator(CommBusCoordinatorProtocol):
                 query_type=query_type,
             )
             # Create a minimal envelope for the request
-            envelope = GenericEnvelope()
+            ctx_data = payload.get("request_context")
+            if ctx_data is None:
+                raise ValueError("request_context is required in payload for CommBus request")
+            if isinstance(ctx_data, RequestContext):
+                request_context = ctx_data
+            elif isinstance(ctx_data, dict):
+                request_context = RequestContext(**ctx_data)
+            else:
+                raise TypeError("request_context must be a dict or RequestContext")
+
+            envelope = GenericEnvelope(request_context=request_context)
             envelope.metadata = {"query_type": query_type, **payload}
             try:
                 result = await asyncio.wait_for(

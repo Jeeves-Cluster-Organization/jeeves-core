@@ -15,6 +15,20 @@ from jeeves_mission_system.orchestrator.event_context import (
     AgentEventContext,
     create_event_context,
 )
+from jeeves_protocols import RequestContext
+
+
+def _ctx(
+    request_id: str = "req_456",
+    session_id: str = "sess_123",
+    user_id: str = "user_789",
+) -> RequestContext:
+    return RequestContext(
+        request_id=request_id,
+        capability="test_capability",
+        session_id=session_id,
+        user_id=user_id,
+    )
 
 
 class TestAgentEventContextCreation:
@@ -23,14 +37,12 @@ class TestAgentEventContextCreation:
     def test_create_event_context_with_minimal_args(self):
         """Test creating context with only required args."""
         context = create_event_context(
-            session_id="sess_123",
-            request_id="req_456",
-            user_id="user_789",
+            request_context=_ctx(),
         )
 
-        assert context.session_id == "sess_123"
-        assert context.request_id == "req_456"
-        assert context.user_id == "user_789"
+        assert context.request_context.session_id == "sess_123"
+        assert context.request_context.request_id == "req_456"
+        assert context.request_context.user_id == "user_789"
         assert context.agent_event_emitter is None
         assert context.domain_event_emitter is None
         # correlation_id defaults to request_id
@@ -39,9 +51,7 @@ class TestAgentEventContextCreation:
     def test_create_event_context_with_custom_correlation_id(self):
         """Test creating context with custom correlation ID."""
         context = create_event_context(
-            session_id="sess_123",
-            request_id="req_456",
-            user_id="user_789",
+            request_context=_ctx(),
             correlation_id="corr_custom",
         )
 
@@ -53,9 +63,7 @@ class TestAgentEventContextCreation:
         mock_domain_emitter = MagicMock()
 
         context = create_event_context(
-            session_id="sess_123",
-            request_id="req_456",
-            user_id="user_789",
+            request_context=_ctx(),
             agent_event_emitter=mock_agent_emitter,
             domain_event_emitter=mock_domain_emitter,
         )
@@ -71,11 +79,10 @@ class TestAgentEventContextAgentEvents:
     async def test_emit_agent_started_with_emitter(self):
         """Test emitting agent started event when emitter is present."""
         mock_emitter = AsyncMock()
+        ctx = _ctx()
 
         context = AgentEventContext(
-            session_id="sess_123",
-            request_id="req_456",
-            user_id="user_789",
+            request_context=ctx,
             agent_event_emitter=mock_emitter,
         )
 
@@ -83,8 +90,7 @@ class TestAgentEventContextAgentEvents:
 
         mock_emitter.emit_agent_started.assert_called_once_with(
             agent_name="planner",
-            session_id="sess_123",
-            request_id="req_456",
+            request_context=ctx,
             foo="bar",
         )
 
@@ -92,9 +98,7 @@ class TestAgentEventContextAgentEvents:
     async def test_emit_agent_started_without_emitter(self):
         """Test emitting agent started event when no emitter (no error)."""
         context = AgentEventContext(
-            session_id="sess_123",
-            request_id="req_456",
-            user_id="user_789",
+            request_context=_ctx(),
         )
 
         # Should not raise
@@ -104,11 +108,10 @@ class TestAgentEventContextAgentEvents:
     async def test_emit_agent_completed_with_emitter(self):
         """Test emitting agent completed event when emitter is present."""
         mock_emitter = AsyncMock()
+        ctx = _ctx()
 
         context = AgentEventContext(
-            session_id="sess_123",
-            request_id="req_456",
-            user_id="user_789",
+            request_context=ctx,
             agent_event_emitter=mock_emitter,
         )
 
@@ -120,8 +123,7 @@ class TestAgentEventContextAgentEvents:
 
         mock_emitter.emit_agent_completed.assert_called_once_with(
             agent_name="planner",
-            session_id="sess_123",
-            request_id="req_456",
+            request_context=ctx,
             status="success",
             error=None,
             step_count=3,
@@ -131,11 +133,10 @@ class TestAgentEventContextAgentEvents:
     async def test_emit_agent_completed_with_error(self):
         """Test emitting agent completed event with error."""
         mock_emitter = AsyncMock()
+        ctx = _ctx()
 
         context = AgentEventContext(
-            session_id="sess_123",
-            request_id="req_456",
-            user_id="user_789",
+            request_context=ctx,
             agent_event_emitter=mock_emitter,
         )
 
@@ -147,8 +148,7 @@ class TestAgentEventContextAgentEvents:
 
         mock_emitter.emit_agent_completed.assert_called_once_with(
             agent_name="planner",
-            session_id="sess_123",
-            request_id="req_456",
+            request_context=ctx,
             status="error",
             error="Something went wrong",
         )
@@ -164,9 +164,7 @@ class TestAgentEventContextDomainEvents:
         mock_domain_emitter.emit_plan_created.return_value = "event_123"
 
         context = AgentEventContext(
-            session_id="sess_123",
-            request_id="req_456",
-            user_id="user_789",
+            request_context=_ctx(),
             domain_event_emitter=mock_domain_emitter,
         )
 
@@ -186,9 +184,7 @@ class TestAgentEventContextDomainEvents:
     async def test_emit_plan_created_without_domain_emitter(self):
         """Test emitting plan_created when no domain emitter (returns None)."""
         context = AgentEventContext(
-            session_id="sess_123",
-            request_id="req_456",
-            user_id="user_789",
+            request_context=_ctx(),
         )
 
         event_id = await context.emit_plan_created(
@@ -208,9 +204,7 @@ class TestAgentEventContextDomainEvents:
         mock_domain_emitter.emit_critic_decision.return_value = "event_456"
 
         context = AgentEventContext(
-            session_id="sess_123",
-            request_id="req_456",
-            user_id="user_789",
+            request_context=_ctx(),
             domain_event_emitter=mock_domain_emitter,
         )
 
@@ -232,9 +226,7 @@ class TestAgentEventContextDomainEvents:
         mock_domain_emitter.emit_tool_executed.return_value = "event_789"
 
         context = AgentEventContext(
-            session_id="sess_123",
-            request_id="req_456",
-            user_id="user_789",
+            request_context=_ctx(),
             agent_event_emitter=mock_agent_emitter,
             domain_event_emitter=mock_domain_emitter,
         )
@@ -263,9 +255,7 @@ class TestAgentEventContextFlowEvents:
         mock_emitter = AsyncMock()
 
         context = AgentEventContext(
-            session_id="sess_123",
-            request_id="req_456",
-            user_id="user_789",
+            request_context=_ctx(),
             agent_event_emitter=mock_emitter,
         )
 
@@ -279,9 +269,7 @@ class TestAgentEventContextFlowEvents:
         mock_emitter = AsyncMock()
 
         context = AgentEventContext(
-            session_id="sess_123",
-            request_id="req_456",
-            user_id="user_789",
+            request_context=_ctx(),
             agent_event_emitter=mock_emitter,
         )
 
@@ -293,11 +281,10 @@ class TestAgentEventContextFlowEvents:
     async def test_emit_stage_transition(self):
         """Test emitting stage transition event."""
         mock_emitter = AsyncMock()
+        ctx = _ctx()
 
         context = AgentEventContext(
-            session_id="sess_123",
-            request_id="req_456",
-            user_id="user_789",
+            request_context=ctx,
             agent_event_emitter=mock_emitter,
         )
 
@@ -309,8 +296,7 @@ class TestAgentEventContextFlowEvents:
         )
 
         mock_emitter.emit_stage_transition.assert_called_once_with(
-            session_id="sess_123",
-            request_id="req_456",
+            request_context=ctx,
             from_stage=1,
             to_stage=2,
             satisfied_goals=["goal1"],
@@ -327,9 +313,7 @@ class TestAgentEventContextUtilities:
         mock_emitter = AsyncMock()
 
         context = AgentEventContext(
-            session_id="sess_123",
-            request_id="req_456",
-            user_id="user_789",
+            request_context=_ctx(),
             agent_event_emitter=mock_emitter,
         )
 
@@ -344,9 +328,7 @@ class TestAgentEventContextUtilities:
         mock_emitter.get_nowait.return_value = mock_event
 
         context = AgentEventContext(
-            session_id="sess_123",
-            request_id="req_456",
-            user_id="user_789",
+            request_context=_ctx(),
             agent_event_emitter=mock_emitter,
         )
 
@@ -358,9 +340,7 @@ class TestAgentEventContextUtilities:
     def test_get_event_nowait_without_emitter(self):
         """Test getting events when no emitter (returns None)."""
         context = AgentEventContext(
-            session_id="sess_123",
-            request_id="req_456",
-            user_id="user_789",
+            request_context=_ctx(),
         )
 
         event = context.get_event_nowait()

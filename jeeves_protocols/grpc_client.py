@@ -22,6 +22,7 @@ except ImportError as e:
     ) from e
 
 from jeeves_protocols.envelope import GenericEnvelope
+from jeeves_protocols import RequestContext
 from jeeves_protocols.core import TerminalReason
 
 if TYPE_CHECKING:
@@ -209,9 +210,7 @@ class GrpcGoClient:
     def create_envelope(
         self,
         raw_input: str,
-        user_id: str,
-        session_id: str,
-        request_id: Optional[str] = None,
+        request_context: RequestContext,
         metadata: Optional[Dict[str, str]] = None,
         stage_order: Optional[list] = None,
     ) -> GenericEnvelope:
@@ -219,9 +218,7 @@ class GrpcGoClient:
         
         Args:
             raw_input: User's raw input text
-            user_id: User identifier
-            session_id: Session identifier
-            request_id: Optional request ID (generated if not provided)
+            request_context: RequestContext for the request
             metadata: Optional metadata dict
             stage_order: Optional stage execution order
             
@@ -232,12 +229,16 @@ class GrpcGoClient:
 
         try:
             from jeeves_protocols import grpc_stub
+            if not isinstance(request_context, RequestContext):
+                raise TypeError("request_context must be a RequestContext instance")
+            request_metadata = dict(metadata or {})
+            request_metadata["request_context"] = json.dumps(request_context.to_dict())
             request = grpc_stub.CreateEnvelopeRequest(
                 raw_input=raw_input,
-                user_id=user_id,
-                session_id=session_id,
-                request_id=request_id or "",
-                metadata=metadata or {},
+                user_id=request_context.user_id or "",
+                session_id=request_context.session_id or "",
+                request_id=request_context.request_id,
+                metadata=request_metadata,
                 stage_order=stage_order or [],
             )
             # CreateEnvelope returns Envelope directly, not wrapped
@@ -530,6 +531,10 @@ class GrpcGoClient:
         if envelope.metadata:
             for key, val in envelope.metadata.items():
                 proto.metadata_str[key] = str(val) if val is not None else ""
+        # Always embed request_context for round-trip fidelity
+        proto.metadata_str["request_context"] = json.dumps(
+            envelope.request_context.to_dict()
+        )
         
         # Interrupt (FlowInterrupt message)
         if envelope.interrupt:
@@ -565,6 +570,24 @@ class GrpcGoClient:
         
         # Parse metadata from metadata_str
         metadata: Dict[str, Any] = dict(proto.metadata_str)
+
+        # Extract request_context from metadata (required)
+        request_context_raw = metadata.get("request_context")
+        if not request_context_raw:
+            raise ValueError("request_context missing in proto metadata")
+        if isinstance(request_context_raw, str):
+            try:
+                request_context_data = json.loads(request_context_raw)
+            except json.JSONDecodeError as exc:
+                raise ValueError("request_context metadata is not valid JSON") from exc
+        elif isinstance(request_context_raw, dict):
+            request_context_data = request_context_raw
+        else:
+            raise TypeError("request_context metadata must be JSON string or dict")
+
+        request_context = RequestContext(**request_context_data)
+        # Remove raw request_context from metadata to avoid duplication
+        metadata.pop("request_context", None)
         
         # Parse interrupt
         interrupt = None
@@ -602,6 +625,7 @@ class GrpcGoClient:
         
         return GenericEnvelope(
             # Identification
+            request_context=request_context,
             envelope_id=proto.envelope_id,
             request_id=proto.request_id,
             user_id=proto.user_id,
@@ -670,18 +694,14 @@ def get_client(address: Optional[str] = None) -> GrpcGoClient:
 
 def create_envelope(
     raw_input: str,
-    user_id: str,
-    session_id: str,
-    request_id: Optional[str] = None,
+    request_context: RequestContext,
     metadata: Optional[Dict[str, str]] = None,
     stage_order: Optional[list] = None,
 ) -> GenericEnvelope:
     """Create envelope via Go gRPC (convenience function)."""
     return get_client().create_envelope(
         raw_input=raw_input,
-        user_id=user_id,
-        session_id=session_id,
-        request_id=request_id,
+        request_context=request_context,
         metadata=metadata,
         stage_order=stage_order,
     )

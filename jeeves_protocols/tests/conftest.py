@@ -46,11 +46,25 @@ def pytest_configure(config):
 # =============================================================================
 
 @pytest.fixture
-def sample_envelope():
+def sample_request_context():
+    """Create a sample RequestContext for testing."""
+    from jeeves_protocols import RequestContext
+
+    return RequestContext(
+        request_id="req-456",
+        capability="test_capability",
+        user_id="user-789",
+        session_id="sess-abc",
+    )
+
+
+@pytest.fixture
+def sample_envelope(sample_request_context):
     """Create a sample GenericEnvelope for testing."""
     from jeeves_protocols import GenericEnvelope
 
     return GenericEnvelope(
+        request_context=sample_request_context,
         envelope_id="env-123",
         request_id="req-456",
         user_id="user-789",
@@ -72,6 +86,16 @@ def sample_envelope():
 def sample_envelope_dict():
     """Create a sample envelope dictionary for testing from_dict."""
     return {
+        "request_context": {
+            "request_id": "req-456",
+            "capability": "test_capability",
+            "user_id": "user-789",
+            "session_id": "sess-abc",
+            "agent_role": None,
+            "trace_id": None,
+            "span_id": None,
+            "tags": {},
+        },
         "envelope_id": "env-123",
         "request_id": "req-456",
         "user_id": "user-789",
@@ -208,6 +232,7 @@ def sample_long_string():
 # Re-export for pytest discovery
 __all__ = [
     # Envelope
+    "sample_request_context",
     "sample_envelope",
     "sample_envelope_dict",
     "sample_processing_record",

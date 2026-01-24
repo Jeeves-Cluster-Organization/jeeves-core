@@ -12,7 +12,7 @@ Layering rules:
 from datetime import datetime
 from typing import Any, Dict, List, Optional, Protocol, runtime_checkable
 
-from jeeves_protocols import GenericEnvelope
+from jeeves_protocols import GenericEnvelope, RequestContext
 
 from jeeves_protocols import InterruptKind
 from jeeves_control_tower.types import (
@@ -428,6 +428,7 @@ class EventAggregatorProtocol(Protocol):
         pid: str,
         interrupt_type: InterruptKind,
         data: Dict[str, Any],
+        request_context: RequestContext,
     ) -> None:
         """Raise an interrupt for a process.
 
@@ -435,6 +436,7 @@ class EventAggregatorProtocol(Protocol):
             pid: Process ID
             interrupt_type: Type of interrupt
             data: Interrupt data
+            request_context: RequestContext for correlation
         """
         ...
 

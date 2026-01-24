@@ -14,7 +14,7 @@ from jeeves_control_tower.types import (
     SchedulingPriority,
     ServiceDescriptor,
 )
-from jeeves_protocols import GenericEnvelope, TerminalReason
+from jeeves_protocols import GenericEnvelope, TerminalReason, RequestContext
 
 
 # =============================================================================
@@ -53,7 +53,14 @@ def kernel(mock_logger, default_quota):
 @pytest.fixture
 def sample_envelope():
     """Create a sample GenericEnvelope for testing."""
+    request_context = RequestContext(
+        request_id="req_test456",
+        capability="test_capability",
+        user_id="user_001",
+        session_id="session_001",
+    )
     return GenericEnvelope(
+        request_context=request_context,
         envelope_id="env_test123",
         request_id="req_test456",
         user_id="user_001",
@@ -293,7 +300,14 @@ class TestKernelCancelRequest:
         from jeeves_protocols import GenericEnvelope
         from datetime import datetime, timezone
         
+        request_context = RequestContext(
+            request_id=pid,
+            capability="test_capability",
+            user_id="user",
+            session_id="session",
+        )
         envelope = GenericEnvelope(
+            request_context=request_context,
             envelope_id="env_cancel",
             request_id=pid,
             user_id="user",

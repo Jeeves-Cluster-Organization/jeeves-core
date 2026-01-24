@@ -26,6 +26,7 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
 from jeeves_shared.serialization import utc_now
+from jeeves_protocols import RequestContext
 
 # Add paths
 PROJECT_ROOT = Path(__file__).parent.parent
@@ -444,7 +445,14 @@ class SystemAudit:
             lm = LifecycleManager(logger=logger)
 
             # Create envelope
+            request_context = RequestContext(
+                request_id="req-1",
+                capability="test_capability",
+                user_id="user-1",
+                session_id="session-1",
+            )
             envelope = GenericEnvelope(
+                request_context=request_context,
                 envelope_id="test-env-1",
                 request_id="req-1",
                 user_id="user-1",
@@ -489,10 +497,15 @@ class SystemAudit:
             from jeeves_protocols import GenericEnvelope, create_generic_envelope
 
             # Create via factory
-            envelope = create_generic_envelope(
-                raw_input="Analyze this code",
+            request_context = RequestContext(
+                request_id="req-123",
+                capability="test_capability",
                 user_id="user-123",
                 session_id="session-456",
+            )
+            envelope = create_generic_envelope(
+                raw_input="Analyze this code",
+                request_context=request_context,
                 metadata={"key": "value"},
             )
 
@@ -516,7 +529,7 @@ class SystemAudit:
             return TestResult(
                 name="GenericEnvelope creation/serialization",
                 passed=True,
-                message="Factory, to_state_dict, from_state_dict all work"
+                message="Factory, to_dict, from_dict all work"
             )
         except Exception as e:
             return TestResult(
@@ -612,7 +625,14 @@ class SystemAudit:
             }
 
             # Test each mapping
+            request_context = RequestContext(
+                request_id="req",
+                capability="test_capability",
+                user_id="user",
+                session_id="session",
+            )
             envelope = GenericEnvelope(
+                request_context=request_context,
                 envelope_id="test",
                 request_id="req",
                 user_id="user",
@@ -695,7 +715,14 @@ class SystemAudit:
         try:
             from jeeves_protocols import GenericEnvelope
 
+            request_context = RequestContext(
+                request_id="req",
+                capability="test_capability",
+                user_id="user",
+                session_id="session",
+            )
             envelope = GenericEnvelope(
+                request_context=request_context,
                 envelope_id="test",
                 request_id="req",
                 user_id="user",
@@ -737,7 +764,14 @@ class SystemAudit:
         try:
             from jeeves_protocols import GenericEnvelope
 
+            request_context = RequestContext(
+                request_id="req",
+                capability="test_capability",
+                user_id="user",
+                session_id="session",
+            )
             envelope = GenericEnvelope(
+                request_context=request_context,
                 envelope_id="test",
                 request_id="req",
                 user_id="user",
@@ -1181,11 +1215,18 @@ class SystemAudit:
             logger.bind.return_value = logger
 
             aggregator = EventAggregator(logger=logger)
+            request_context = RequestContext(
+                request_id="req-test",
+                capability="test_capability",
+                session_id="sess-test",
+                user_id="user-test",
+            )
 
             # Test event emission
             event = KernelEvent(
                 event_type="test.event",
                 timestamp=utc_now(),
+                request_context=request_context,
                 pid="test-pid",
                 data={"key": "value"},
             )
@@ -1196,6 +1237,7 @@ class SystemAudit:
                 pid="test-pid",
                 interrupt_type=InterruptKind.CLARIFICATION,
                 data={"question": "What do you mean?"},
+                request_context=request_context,
             )
 
             # Test getting pending interrupt
@@ -1225,7 +1267,13 @@ class SystemAudit:
             from jeeves_protocols import InterruptKind
 
             # Test factory methods
-            event1 = KernelEvent.process_created("pid-1", "req-1")
+            request_context = RequestContext(
+                request_id="req-1",
+                capability="test_capability",
+                session_id="sess-1",
+                user_id="user-1",
+            )
+            event1 = KernelEvent.process_created("pid-1", "req-1", request_context=request_context)
             assert event1.event_type == "process.created"
             assert event1.pid == "pid-1"
 
@@ -1233,6 +1281,7 @@ class SystemAudit:
                 "pid-1",
                 ProcessState.NEW,
                 ProcessState.READY,
+                request_context=request_context,
             )
             assert event2.event_type == "process.state_changed"
             assert event2.data["old_state"] == "new"
@@ -1242,10 +1291,17 @@ class SystemAudit:
                 "pid-1",
                 InterruptKind.CLARIFICATION,
                 {"question": "test"},
+                request_context=request_context,
             )
             assert event3.event_type == "interrupt.raised"
 
-            event4 = KernelEvent.resource_exhausted("pid-1", "llm_calls", 10, 5)
+            event4 = KernelEvent.resource_exhausted(
+                "pid-1",
+                "llm_calls",
+                10,
+                5,
+                request_context=request_context,
+            )
             assert event4.event_type == "resource.exhausted"
 
             return TestResult(
@@ -1338,19 +1394,28 @@ class SystemAudit:
         try:
             from jeeves_protocols import GenericEnvelope
 
-            # GenericEnvelope is a dataclass with defaults, so empty is allowed
-            # Test that invalid field types are rejected
+            # GenericEnvelope requires request_context
             try:
                 envelope = GenericEnvelope(
                     envelope_id="test",
                     iteration="not an int",  # Invalid type
                 )
-                # Dataclass doesn't validate types at runtime by default
+                # Should not reach here without request_context
+                assert False, "Expected ValueError for missing request_context"
             except TypeError:
-                pass  # Some stricter validation
+                pass
+            except ValueError:
+                pass
 
-            # Test that envelope can be created with minimal fields
+            # Test that envelope can be created with minimal fields when context provided
+            request_context = RequestContext(
+                request_id="req-test-123",
+                capability="test_capability",
+                user_id="user",
+                session_id="session",
+            )
             envelope = GenericEnvelope(
+                request_context=request_context,
                 envelope_id="test-123",
                 raw_input="test message",
             )
@@ -1374,7 +1439,14 @@ class SystemAudit:
         try:
             from jeeves_protocols import GenericEnvelope, TerminalReason
 
+            request_context = RequestContext(
+                request_id="req",
+                capability="test_capability",
+                user_id="user",
+                session_id="session",
+            )
             envelope = GenericEnvelope(
+                request_context=request_context,
                 envelope_id="test",
                 request_id="req",
                 user_id="user",

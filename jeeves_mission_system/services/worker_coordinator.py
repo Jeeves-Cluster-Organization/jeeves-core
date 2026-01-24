@@ -353,7 +353,7 @@ class WorkerCoordinator:
 
         try:
             # Reconstruct envelope from state
-            envelope = GenericEnvelope.from_state_dict(task.envelope_state)
+            envelope = GenericEnvelope.from_dict(task.envelope_state)
             pid = envelope.envelope_id
 
             # Transition to RUNNING state via Control Tower

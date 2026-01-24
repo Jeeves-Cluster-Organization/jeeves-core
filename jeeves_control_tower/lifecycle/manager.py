@@ -121,6 +121,7 @@ class LifecycleManager(LifecycleManagerProtocol):
             # Create PCB
             pcb = ProcessControlBlock(
                 pid=pid,
+                request_context=envelope.request_context,
                 request_id=envelope.request_id,
                 user_id=envelope.user_id,
                 session_id=envelope.session_id,

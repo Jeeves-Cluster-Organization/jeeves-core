@@ -165,17 +165,37 @@ class MockEventBus:
         self._handlers[pattern].append(handler)
         return lambda: self._handlers[pattern].remove(handler)
 
-    async def emit_agent_started(self, agent_name: str, **payload) -> None:
-        self.events.append({"type": "agent.started", "agent": agent_name, **payload})
+    async def emit_agent_started(self, agent_name: str, request_context: Any, **payload) -> None:
+        self.events.append({
+            "type": "agent.started",
+            "agent": agent_name,
+            "request_context": getattr(request_context, "to_dict", lambda: request_context)(),
+            **payload,
+        })
 
-    async def emit_agent_completed(self, agent_name: str, status: str, error: Optional[str] = None, **payload) -> None:
-        self.events.append({"type": "agent.completed", "agent": agent_name, "status": status, **payload})
+    async def emit_agent_completed(self, agent_name: str, request_context: Any, status: str, error: Optional[str] = None, **payload) -> None:
+        self.events.append({
+            "type": "agent.completed",
+            "agent": agent_name,
+            "status": status,
+            "request_context": getattr(request_context, "to_dict", lambda: request_context)(),
+            **payload,
+        })
 
-    async def emit_tool_started(self, tool_name: str, step: int, total: int) -> None:
-        self.events.append({"type": "tool.started", "tool": tool_name})
+    async def emit_tool_started(self, tool_name: str, request_context: Any, step: int, total: int) -> None:
+        self.events.append({
+            "type": "tool.started",
+            "tool": tool_name,
+            "request_context": getattr(request_context, "to_dict", lambda: request_context)(),
+        })
 
-    async def emit_tool_completed(self, tool_name: str, status: str, execution_time_ms: int, error: Optional[str] = None) -> None:
-        self.events.append({"type": "tool.completed", "tool": tool_name, "status": status})
+    async def emit_tool_completed(self, tool_name: str, request_context: Any, status: str, execution_time_ms: int, error: Optional[str] = None) -> None:
+        self.events.append({
+            "type": "tool.completed",
+            "tool": tool_name,
+            "status": status,
+            "request_context": getattr(request_context, "to_dict", lambda: request_context)(),
+        })
 
 
 # =============================================================================

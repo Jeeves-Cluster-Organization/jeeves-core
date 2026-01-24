@@ -19,6 +19,7 @@ import pytest
 from unittest.mock import MagicMock, AsyncMock
 from datetime import datetime, timezone
 from typing import Any, Dict, Optional
+from jeeves_protocols import RequestContext
 
 # Mark all tests as e2e and asyncio
 pytestmark = [
@@ -279,10 +280,18 @@ class TestWorkerCoordinatorE2E:
         )
 
         # Create envelope
+        request_context = RequestContext(
+            request_id="req-001",
+            capability="test_capability",
+            user_id="user-e2e",
+            session_id="session-e2e",
+        )
         envelope = GenericEnvelope(
+            request_context=request_context,
             envelope_id="env-coord-001",
             request_id="req-001",
             user_id="user-e2e",
+            session_id="session-e2e",
             payload={"input": "test data"},
         )
 
@@ -334,10 +343,18 @@ class TestWorkerCoordinatorE2E:
         )
 
         # Create envelope
+        request_context = RequestContext(
+            request_id="req-ct-001",
+            capability="test_capability",
+            user_id="user-ct",
+            session_id="session-ct",
+        )
         envelope = GenericEnvelope(
+            request_context=request_context,
             envelope_id="env-ct-001",
             request_id="req-ct-001",
             user_id="user-ct",
+            session_id="session-ct",
         )
 
         # Submit with resource quota
@@ -389,10 +406,18 @@ class TestDistributedPipelineE2E:
         coordinator = WorkerCoordinator(distributed_bus=bus, logger=mock_logger)
 
         # Submit envelope
+        request_context = RequestContext(
+            request_id="req-pipeline-001",
+            capability="test_capability",
+            user_id="user-pipeline",
+            session_id="session-pipeline",
+        )
         envelope = GenericEnvelope(
+            request_context=request_context,
             envelope_id="env-pipeline-001",
             request_id="req-pipeline-001",
             user_id="user-pipeline",
+            session_id="session-pipeline",
             payload={"query": "test query"},
         )
 
@@ -411,7 +436,7 @@ class TestDistributedPipelineE2E:
         assert task.agent_name == "analyzer"
 
         # Simulate processing
-        result_envelope = GenericEnvelope.from_state_dict(task.envelope_state)
+        result_envelope = GenericEnvelope.from_dict(task.envelope_state)
         result_envelope.metadata["processed"] = True
         result_envelope.metadata["result"] = "Analysis complete"
 
@@ -446,10 +471,18 @@ class TestDistributedPipelineE2E:
         coordinator = WorkerCoordinator(distributed_bus=bus, logger=mock_logger)
 
         # Stage 1: Submit to planner queue
+        request_context = RequestContext(
+            request_id="req-multi-001",
+            capability="test_capability",
+            user_id="user-multi",
+            session_id="session-multi",
+        )
         envelope = GenericEnvelope(
+            request_context=request_context,
             envelope_id="env-multi-001",
             request_id="req-multi-001",
             user_id="user-multi",
+            session_id="session-multi",
         )
 
         await coordinator.submit_envelope(
@@ -465,7 +498,7 @@ class TestDistributedPipelineE2E:
         assert task1 is not None
 
         # Complete stage 1 and submit to stage 2
-        result1 = GenericEnvelope.from_state_dict(task1.envelope_state)
+        result1 = GenericEnvelope.from_dict(task1.envelope_state)
         result1.metadata["stage1_complete"] = True
 
         await bus.complete_task(task1.task_id, {"stage": 1})

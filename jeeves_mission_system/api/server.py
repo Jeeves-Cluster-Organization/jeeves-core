@@ -17,6 +17,7 @@ import asyncio
 import signal
 from contextlib import asynccontextmanager
 from typing import Any, AsyncIterator, Dict, Optional
+from uuid import uuid4
 
 from jeeves_mission_system.common import httpx_compat  # noqa: F401
 from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect
@@ -34,7 +35,13 @@ from jeeves_avionics.database.factory import create_database_client, reset_facto
 from jeeves_avionics.logging import get_current_logger
 from jeeves_mission_system.services.chat_service import ChatService
 
-from jeeves_protocols import GenericEnvelope, create_generic_envelope, TerminalReason, get_capability_resource_registry
+from jeeves_protocols import (
+    GenericEnvelope,
+    RequestContext,
+    create_generic_envelope,
+    TerminalReason,
+    get_capability_resource_registry,
+)
 from jeeves_control_tower import ControlTower, SchedulingPriority
 
 
@@ -523,11 +530,43 @@ async def submit_request(body: SubmitRequestBody) -> SubmitRequestResponse:
     try:
         session_id = body.session_id or f"session_{body.user_id}"
 
+        capability_registry = get_capability_resource_registry()
+        capabilities = capability_registry.list_capabilities()
+        requested_capability = None
+        if body.context and isinstance(body.context, dict):
+            requested_capability = body.context.get("capability")
+        if requested_capability:
+            if requested_capability not in capabilities:
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"Unknown capability: {requested_capability}",
+                )
+            capability_id = requested_capability
+        elif len(capabilities) == 1:
+            capability_id = capabilities[0]
+        else:
+            raise HTTPException(
+                status_code=400,
+                detail="capability is required when multiple capabilities are registered",
+            )
+
+        request_id = None
+        if body.context and isinstance(body.context, dict):
+            request_id = body.context.get("request_id")
+        if not request_id:
+            request_id = f"req_{uuid4().hex[:16]}"
+
+        request_context = RequestContext(
+            request_id=request_id,
+            capability=capability_id,
+            session_id=session_id,
+            user_id=body.user_id,
+        )
+
         # Create envelope for Control Tower
         envelope = create_generic_envelope(
-            user_message=body.user_message,
-            user_id=body.user_id,
-            session_id=session_id,
+            raw_input=body.user_message,
+            request_context=request_context,
             metadata=body.context,
         )
 

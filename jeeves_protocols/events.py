@@ -22,6 +22,8 @@ from enum import Enum
 from typing import Dict, Any, Optional, Callable, Awaitable, Protocol
 import uuid
 
+from jeeves_protocols.protocols import RequestContext
+
 
 class EventCategory(Enum):
     """Canonical event categories for classification and filtering."""
@@ -82,6 +84,7 @@ class UnifiedEvent:
     timestamp_ms: int                          # Epoch milliseconds for easy ordering
 
     # Context (REQUIRED for correlation)
+    request_context: RequestContext            # Request context (canonical)
     request_id: str                            # Request correlation ID
     session_id: str                            # Session correlation ID
     user_id: Optional[str] = None              # User (for multi-tenancy)
@@ -97,6 +100,16 @@ class UnifiedEvent:
     # Audit
     correlation_id: Optional[str] = None       # Causation chain (for event sourcing)
 
+    def __post_init__(self) -> None:
+        if self.request_context is None:
+            raise ValueError("request_context is required for UnifiedEvent")
+        if self.request_id and self.request_id != self.request_context.request_id:
+            raise ValueError("request_id does not match request_context.request_id")
+        if self.session_id and (self.request_context.session_id is None or self.session_id != self.request_context.session_id):
+            raise ValueError("session_id does not match request_context.session_id")
+        if self.user_id and (self.request_context.user_id is None or self.user_id != self.request_context.user_id):
+            raise ValueError("user_id does not match request_context.user_id")
+
     def to_dict(self) -> Dict[str, Any]:
         """
         Convert to JSON-serializable dict.
@@ -110,6 +123,7 @@ class UnifiedEvent:
             "category": self.category.value,
             "timestamp_iso": self.timestamp_iso,
             "timestamp_ms": self.timestamp_ms,
+            "request_context": self.request_context.to_dict(),
             "request_id": self.request_id,
             "session_id": self.session_id,
             "user_id": self.user_id,
@@ -137,6 +151,7 @@ class UnifiedEvent:
             category=EventCategory(data["category"]),
             timestamp_iso=data["timestamp_iso"],
             timestamp_ms=data["timestamp_ms"],
+            request_context=RequestContext(**data["request_context"]),
             request_id=data["request_id"],
             session_id=data["session_id"],
             user_id=data.get("user_id"),
@@ -152,8 +167,7 @@ class UnifiedEvent:
         cls,
         event_type: str,
         category: EventCategory,
-        request_id: str,
-        session_id: str,
+        request_context: RequestContext,
         payload: Optional[Dict[str, Any]] = None,
         user_id: Optional[str] = None,
         severity: EventSeverity = EventSeverity.INFO,
@@ -184,9 +198,10 @@ class UnifiedEvent:
             category=category,
             timestamp_iso=now.isoformat(),
             timestamp_ms=int(now.timestamp() * 1000),
-            request_id=request_id,
-            session_id=session_id,
-            user_id=user_id,
+            request_context=request_context,
+            request_id=request_context.request_id,
+            session_id=request_context.session_id or "",
+            user_id=user_id or request_context.user_id,
             payload=payload or {},
             severity=severity,
             source=source,

@@ -18,6 +18,7 @@ from jeeves_mission_system.contracts_core import (
     GenericEnvelope,
     create_generic_envelope,
 )
+from jeeves_protocols import RequestContext
 from jeeves_mission_system.tests.fixtures.mocks import (
     MockDatabaseClient,
     MockLLMAdapter,
@@ -42,10 +43,15 @@ def envelope_factory() -> Callable[..., GenericEnvelope]:
         user_id: str = "test-user",
         **kwargs
     ) -> GenericEnvelope:
-        return create_generic_envelope(
-            raw_input=raw_input,
+        request_context = RequestContext(
+            request_id=kwargs.pop("request_id", "req_test_fixture"),
+            capability="test_capability",
             session_id=session_id,
             user_id=user_id,
+        )
+        return create_generic_envelope(
+            raw_input=raw_input,
+            request_context=request_context,
             **kwargs
         )
     return _create

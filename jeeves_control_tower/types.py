@@ -13,7 +13,7 @@ from datetime import datetime
 from enum import Enum
 from typing import Any, Dict, List, Optional
 
-from jeeves_protocols import RateLimitConfig, InterruptKind
+from jeeves_protocols import RateLimitConfig, InterruptKind, RequestContext
 from jeeves_shared.serialization import utc_now
 
 
@@ -137,6 +137,7 @@ class ProcessControlBlock:
     """
     # Identity
     pid: str                       # Process ID (envelope_id)
+    request_context: RequestContext
     request_id: str
     user_id: str
     session_id: str
@@ -227,15 +228,26 @@ class KernelEvent:
     """
     event_type: str
     timestamp: datetime
+    request_context: RequestContext
     pid: Optional[str] = None
     data: Dict[str, Any] = field(default_factory=dict)
 
+    def __post_init__(self) -> None:
+        if self.request_context is None:
+            raise ValueError("request_context is required for KernelEvent")
+
     @classmethod
-    def process_created(cls, pid: str, request_id: str) -> "KernelEvent":
+    def process_created(
+        cls,
+        pid: str,
+        request_id: str,
+        request_context: RequestContext,
+    ) -> "KernelEvent":
         return cls(
             event_type="process.created",
             timestamp=utc_now(),
             pid=pid,
+            request_context=request_context,
             data={"request_id": request_id},
         )
 
@@ -245,11 +257,13 @@ class KernelEvent:
         pid: str,
         old_state: ProcessState,
         new_state: ProcessState,
+        request_context: RequestContext,
     ) -> "KernelEvent":
         return cls(
             event_type="process.state_changed",
             timestamp=utc_now(),
             pid=pid,
+            request_context=request_context,
             data={"old_state": old_state.value, "new_state": new_state.value},
         )
 
@@ -259,11 +273,13 @@ class KernelEvent:
         pid: str,
         interrupt_type: InterruptKind,
         data: Dict[str, Any],
+        request_context: RequestContext,
     ) -> "KernelEvent":
         return cls(
             event_type="interrupt.raised",
             timestamp=utc_now(),
             pid=pid,
+            request_context=request_context,
             data={"interrupt_type": interrupt_type.value, **data},
         )
 
@@ -274,10 +290,12 @@ class KernelEvent:
         resource: str,
         usage: int,
         quota: int,
+        request_context: RequestContext,
     ) -> "KernelEvent":
         return cls(
             event_type="resource.exhausted",
             timestamp=utc_now(),
             pid=pid,
+            request_context=request_context,
             data={"resource": resource, "usage": usage, "quota": quota},
         )

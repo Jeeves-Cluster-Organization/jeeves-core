@@ -18,8 +18,11 @@ Usage:
     event = UnifiedEvent.create_now(
         event_type="agent.started",
         category=EventCategory.AGENT_LIFECYCLE,
-        request_id="req_123",
-        session_id="sess_456",
+        request_context=RequestContext(
+            request_id="req_123",
+            capability="example",
+            session_id="sess_456",
+        ),
         payload={"agent": "planner"},
     )
     await gateway_events.emit(event)

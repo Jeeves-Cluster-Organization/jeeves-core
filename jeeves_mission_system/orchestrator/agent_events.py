@@ -19,6 +19,8 @@ from dataclasses import dataclass, field
 from enum import Enum
 from typing import Any, Dict, Optional, AsyncIterator
 
+from jeeves_protocols import RequestContext
+
 
 class AgentEventType(Enum):
     """Types of agent events for frontend display."""
@@ -63,10 +65,19 @@ class AgentEvent:
 
     event_type: AgentEventType
     agent_name: str
+    request_context: RequestContext
     session_id: str
     request_id: str
     timestamp_ms: int = field(default_factory=lambda: int(time.time() * 1000))
     payload: Dict[str, Any] = field(default_factory=dict)
+
+    def __post_init__(self) -> None:
+        if self.request_context is None:
+            raise ValueError("request_context is required for AgentEvent")
+        if self.request_id and self.request_id != self.request_context.request_id:
+            raise ValueError("request_id does not match request_context.request_id")
+        if self.session_id and (self.request_context.session_id is None or self.session_id != self.request_context.session_id):
+            raise ValueError("session_id does not match request_context.session_id")
 
     def to_dict(self) -> Dict[str, Any]:
         """Convert to dictionary for serialization.
@@ -81,6 +92,7 @@ class AgentEvent:
             "session_id": self.session_id,
             "request_id": self.request_id,
             "timestamp_ms": self.timestamp_ms,
+            "request_context": self.request_context.to_dict(),
             **self.payload,
         }
 
@@ -101,9 +113,9 @@ class AgentEventEmitter:
         emitter = AgentEventEmitter()
 
         # In service/nodes:
-        await emitter.emit_agent_started("planner", session_id, request_id)
+        await emitter.emit_agent_started("planner", request_context)
         # ... do work ...
-        await emitter.emit_agent_completed("planner", session_id, request_id, payload)
+        await emitter.emit_agent_completed("planner", request_context, payload)
 
         # In servicer:
         async for event in emitter.events():
@@ -142,8 +154,7 @@ class AgentEventEmitter:
     async def emit_agent_started(
         self,
         agent_name: str,
-        session_id: str,
-        request_id: str,
+        request_context: RequestContext,
         **payload,
     ) -> None:
         """
@@ -171,8 +182,9 @@ class AgentEventEmitter:
         event = AgentEvent(
             event_type=event_type,
             agent_name=agent_name,
-            session_id=session_id,
-            request_id=request_id,
+            request_context=request_context,
+            session_id=request_context.session_id or "",
+            request_id=request_context.request_id,
             payload=payload,
         )
         await self.emit(event)
@@ -180,8 +192,7 @@ class AgentEventEmitter:
     async def emit_agent_completed(
         self,
         agent_name: str,
-        session_id: str,
-        request_id: str,
+        request_context: RequestContext,
         **payload,
     ) -> None:
         """
@@ -209,8 +220,9 @@ class AgentEventEmitter:
         event = AgentEvent(
             event_type=event_type,
             agent_name=agent_name,
-            session_id=session_id,
-            request_id=request_id,
+            request_context=request_context,
+            session_id=request_context.session_id or "",
+            request_id=request_context.request_id,
             payload=payload,
         )
         await self.emit(event)
@@ -218,16 +230,16 @@ class AgentEventEmitter:
     async def emit_tool_started(
         self,
         tool_name: str,
-        session_id: str,
-        request_id: str,
+        request_context: RequestContext,
         **payload,
     ) -> None:
         """Emit a tool execution started event."""
         event = AgentEvent(
             event_type=AgentEventType.TOOL_STARTED,
             agent_name="traverser",
-            session_id=session_id,
-            request_id=request_id,
+            request_context=request_context,
+            session_id=request_context.session_id or "",
+            request_id=request_context.request_id,
             payload={"tool_name": tool_name, **payload},
         )
         await self.emit(event)
@@ -235,8 +247,7 @@ class AgentEventEmitter:
     async def emit_tool_completed(
         self,
         tool_name: str,
-        session_id: str,
-        request_id: str,
+        request_context: RequestContext,
         status: str = "success",
         **payload,
     ) -> None:
@@ -244,16 +255,16 @@ class AgentEventEmitter:
         event = AgentEvent(
             event_type=AgentEventType.TOOL_COMPLETED,
             agent_name="traverser",
-            session_id=session_id,
-            request_id=request_id,
+            request_context=request_context,
+            session_id=request_context.session_id or "",
+            request_id=request_context.request_id,
             payload={"tool_name": tool_name, "status": status, **payload},
         )
         await self.emit(event)
 
     async def emit_stage_transition(
         self,
-        session_id: str,
-        request_id: str,
+        request_context: RequestContext,
         from_stage: int,
         to_stage: int,
         satisfied_goals: list = None,
@@ -263,8 +274,9 @@ class AgentEventEmitter:
         event = AgentEvent(
             event_type=AgentEventType.STAGE_TRANSITION,
             agent_name="orchestrator",
-            session_id=session_id,
-            request_id=request_id,
+            request_context=request_context,
+            session_id=request_context.session_id or "",
+            request_id=request_context.request_id,
             payload={
                 "from_stage": from_stage,
                 "to_stage": to_stage,

@@ -13,7 +13,7 @@ Usage:
     )
 
     # At request entry point (e.g., API handler)
-    ctx = RequestContext(request_id=str(uuid4()), user_id="user-123")
+    ctx = RequestContext(request_id=str(uuid4()), capability="example", user_id="user-123")
     with request_scope(ctx, logger):
         # All code in this scope has access to context
         current_logger = get_current_logger()

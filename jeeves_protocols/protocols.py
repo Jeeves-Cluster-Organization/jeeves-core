@@ -6,7 +6,7 @@ Implementations are in Go or Python adapters.
 
 from dataclasses import dataclass, field
 from datetime import datetime
-from typing import Any, Dict, List, Optional, Protocol, runtime_checkable
+from typing import Any, Dict, List, Optional, Protocol, runtime_checkable, ClassVar
 
 
 # =============================================================================
@@ -20,14 +20,66 @@ class RequestContext:
     Used with ContextVars for async-safe request tracking (ADR-001 Decision 5).
 
     Usage:
-        ctx = RequestContext(request_id=str(uuid4()), user_id="user-123")
+        ctx = RequestContext(
+            request_id=str(uuid4()),
+            capability="code_analysis",
+            user_id="user-123",
+        )
         with request_scope(ctx, logger):
             # All code in this scope has access to context
             ...
     """
     request_id: str
-    user_id: Optional[str] = None
+    capability: str
     session_id: Optional[str] = None
+    user_id: Optional[str] = None
+    agent_role: Optional[str] = None
+    trace_id: Optional[str] = None
+    span_id: Optional[str] = None
+    tags: Dict[str, str] = field(default_factory=dict)
+
+    # Guardrails to prevent schema creep in tags
+    MAX_TAGS: ClassVar[int] = 16
+    MAX_TAG_KEY_LENGTH: ClassVar[int] = 64
+    MAX_TAG_VALUE_LENGTH: ClassVar[int] = 256
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.request_id, str) or not self.request_id.strip():
+            raise ValueError("request_id is required and must be a non-empty string")
+        if not isinstance(self.capability, str) or not self.capability.strip():
+            raise ValueError("capability is required and must be a non-empty string")
+
+        for field_name in ("session_id", "user_id", "agent_role", "trace_id", "span_id"):
+            value = getattr(self, field_name)
+            if value is not None and not isinstance(value, str):
+                raise TypeError(f"{field_name} must be a string or None")
+
+        if not isinstance(self.tags, dict):
+            raise TypeError("tags must be a dict of string keys and values")
+        if len(self.tags) > self.MAX_TAGS:
+            raise ValueError(f"tags exceed max count ({self.MAX_TAGS})")
+        for key, value in self.tags.items():
+            if not isinstance(key, str) or not key.strip():
+                raise ValueError("tag keys must be non-empty strings")
+            if not isinstance(value, str):
+                raise ValueError("tag values must be strings")
+            if len(key) > self.MAX_TAG_KEY_LENGTH:
+                raise ValueError(f"tag key exceeds max length ({self.MAX_TAG_KEY_LENGTH})")
+            if len(value) > self.MAX_TAG_VALUE_LENGTH:
+                raise ValueError(f"tag value exceeds max length ({self.MAX_TAG_VALUE_LENGTH})")
+
+    def to_dict(self) -> Dict[str, Any]:
+        """Convert to a serializable dictionary."""
+        return {
+            "request_id": self.request_id,
+            "capability": self.capability,
+            "session_id": self.session_id,
+            "user_id": self.user_id,
+            "agent_role": self.agent_role,
+            "trace_id": self.trace_id,
+            "span_id": self.span_id,
+            "tags": self.tags,
+        }
 
 
 # =============================================================================

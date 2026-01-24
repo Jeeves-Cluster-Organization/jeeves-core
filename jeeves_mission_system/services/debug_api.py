@@ -256,7 +256,7 @@ class DebugAPIService:
         envelope = None
         if state:
             try:
-                envelope = GenericEnvelope.from_state_dict(state)
+                envelope = GenericEnvelope.from_dict(state)
             except Exception as e:
                 self._logger.warning(
                     "debug_envelope_restore_failed",

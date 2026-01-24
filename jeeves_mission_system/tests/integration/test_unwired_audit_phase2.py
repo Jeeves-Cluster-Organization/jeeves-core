@@ -829,7 +829,7 @@ class TestWorkerCoordinatorIntegration:
     ):
         """Test that submit_envelope creates PCB in Control Tower."""
         from jeeves_mission_system.services.worker_coordinator import WorkerCoordinator
-        from jeeves_protocols import GenericEnvelope
+        from jeeves_protocols import GenericEnvelope, RequestContext
 
         coordinator = WorkerCoordinator(
             distributed_bus=mock_distributed_bus,
@@ -837,10 +837,18 @@ class TestWorkerCoordinatorIntegration:
             logger=MagicMock(),
         )
 
+        request_context = RequestContext(
+            request_id="req-123",
+            capability="test_capability",
+            user_id="user-1",
+            session_id="session-1",
+        )
         envelope = GenericEnvelope(
+            request_context=request_context,
             envelope_id="env-123",
             request_id="req-123",
             user_id="user-1",
+            session_id="session-1",
         )
 
         task_id = await coordinator.submit_envelope(
@@ -862,7 +870,7 @@ class TestWorkerCoordinatorIntegration:
     ):
         """Test that submit_envelope allocates resources."""
         from jeeves_mission_system.services.worker_coordinator import WorkerCoordinator
-        from jeeves_protocols import GenericEnvelope
+        from jeeves_protocols import GenericEnvelope, RequestContext
         from jeeves_control_tower.types import ResourceQuota
 
         coordinator = WorkerCoordinator(
@@ -871,10 +879,18 @@ class TestWorkerCoordinatorIntegration:
             logger=MagicMock(),
         )
 
+        request_context = RequestContext(
+            request_id="req-456",
+            capability="test_capability",
+            user_id="user-1",
+            session_id="session-1",
+        )
         envelope = GenericEnvelope(
+            request_context=request_context,
             envelope_id="env-456",
             request_id="req-456",
             user_id="user-1",
+            session_id="session-1",
         )
 
         await coordinator.submit_envelope(

@@ -198,7 +198,11 @@ class ControlTower(ControlTowerProtocol):
 
         # Emit process created event
         self._events.emit_event(
-            KernelEvent.process_created(pid, envelope.request_id)
+            KernelEvent.process_created(
+                pid,
+                envelope.request_id,
+                request_context=envelope.request_context,
+            )
         )
 
         # 2. Allocate resources
@@ -246,6 +250,7 @@ class ControlTower(ControlTowerProtocol):
                 pid,
                 ProcessState.READY,
                 ProcessState.RUNNING,
+                request_context=pcb.request_context,
             )
         )
 
@@ -280,6 +285,7 @@ class ControlTower(ControlTowerProtocol):
                         resource=quota_exceeded,
                         usage=0,
                         quota=0,
+                        request_context=result.request_context,
                     )
                 )
 
@@ -318,6 +324,7 @@ class ControlTower(ControlTowerProtocol):
                         pid,
                         ProcessState.RUNNING,
                         ProcessState.TERMINATED,
+                        request_context=result.request_context,
                     )
                 )
 
@@ -367,6 +374,7 @@ class ControlTower(ControlTowerProtocol):
                 pid,
                 ProcessState.RUNNING,
                 ProcessState.WAITING,
+                request_context=envelope.request_context,
             )
         )
 
@@ -430,10 +438,7 @@ class ControlTower(ControlTowerProtocol):
         pcb = self._lifecycle.get_process(pid)
         if not pcb:
             self._logger.error("resume_unknown_pid", pid=pid)
-            envelope = GenericEnvelope(envelope_id=pid)
-            envelope.terminated = True
-            envelope.termination_reason = "Unknown process ID"
-            return envelope
+            raise ValueError(f"Unknown process ID: {pid}")
 
         if pcb.state != ProcessState.WAITING:
             self._logger.warning(
@@ -454,10 +459,7 @@ class ControlTower(ControlTowerProtocol):
                 "interrupt_resolve_failed",
                 interrupt_id=interrupt_id,
             )
-            envelope = GenericEnvelope(envelope_id=pid)
-            envelope.terminated = True
-            envelope.termination_reason = "Failed to resolve interrupt"
-            return envelope
+            raise ValueError(f"Failed to resolve interrupt: {interrupt_id}")
 
         # Clear the kernel-level interrupt
         self._events.clear_interrupt(pid)
@@ -470,11 +472,13 @@ class ControlTower(ControlTowerProtocol):
                 pid,
                 ProcessState.WAITING,
                 ProcessState.READY,
+                request_context=pcb.request_context,
             )
         )
 
         # Create envelope with resolved interrupt
         envelope = GenericEnvelope(
+            request_context=pcb.request_context,
             envelope_id=pid,
             request_id=pcb.request_id,
             user_id=pcb.user_id,
@@ -531,11 +535,17 @@ class ControlTower(ControlTowerProtocol):
         # Release resources
         self._resources.release(pid)
 
+        pcb = self._lifecycle.get_process(pid)
+        if not pcb:
+            self._logger.error("cancel_request_missing_pcb", pid=pid)
+            return False
+
         # Emit event
         self._events.emit_event(
             KernelEvent(
                 event_type="process.cancelled",
                 timestamp=utc_now(),
+                request_context=pcb.request_context,
                 pid=pid,
                 data={"reason": reason},
             )

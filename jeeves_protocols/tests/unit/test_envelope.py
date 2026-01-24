@@ -14,17 +14,8 @@ class TestGenericEnvelope:
         """Test creating envelope with default values."""
         from jeeves_protocols import GenericEnvelope
 
-        env = GenericEnvelope()
-
-        assert env.envelope_id == ""
-        assert env.request_id == ""
-        assert env.current_stage == "start"
-        assert env.iteration == 0
-        assert env.max_iterations == 3
-        assert env.llm_call_count == 0
-        assert env.max_llm_calls == 10
-        assert env.terminated is False
-        assert env.outputs == {}
+        with pytest.raises(ValueError):
+            GenericEnvelope()
 
     def test_create_envelope_with_values(self, sample_envelope):
         """Test creating envelope with specific values."""
@@ -49,10 +40,8 @@ class TestGenericEnvelope:
         """Test creating envelope from empty dictionary."""
         from jeeves_protocols import GenericEnvelope
 
-        env = GenericEnvelope.from_dict({})
-
-        assert env.envelope_id == ""
-        assert env.current_stage == "start"
+        with pytest.raises(ValueError):
+            GenericEnvelope.from_dict({})
 
     def test_envelope_outputs_dict(self, sample_envelope):
         """Test outputs dictionary behavior."""

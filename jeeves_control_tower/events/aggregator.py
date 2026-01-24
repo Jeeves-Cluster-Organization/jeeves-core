@@ -13,7 +13,7 @@ from collections import deque
 from datetime import datetime
 from typing import Any, Callable, Deque, Dict, List, Optional, Tuple
 
-from jeeves_protocols import LoggerProtocol, InterruptKind
+from jeeves_protocols import LoggerProtocol, InterruptKind, RequestContext
 from jeeves_shared.serialization import utc_now
 
 from jeeves_control_tower.protocols import EventAggregatorProtocol
@@ -40,6 +40,7 @@ class EventAggregator(EventAggregatorProtocol):
             pid="env-123",
             interrupt_type=InterruptKind.CLARIFICATION,
             data={"question": "What do you mean?"},
+            request_context=request_context,
         )
 
         # Check for pending interrupt
@@ -53,7 +54,13 @@ class EventAggregator(EventAggregatorProtocol):
         aggregator.subscribe("process.state_changed", my_handler)
 
         # Emit a kernel event
-        aggregator.emit_event(KernelEvent.process_created(pid, request_id))
+        aggregator.emit_event(
+            KernelEvent.process_created(
+                pid,
+                request_id,
+                request_context=request_context,
+            )
+        )
     """
 
     def __init__(
@@ -98,6 +105,7 @@ class EventAggregator(EventAggregatorProtocol):
         pid: str,
         interrupt_type: InterruptKind,
         data: Dict[str, Any],
+        request_context: RequestContext,
     ) -> None:
         """Raise an interrupt for a process."""
         with self._lock:
@@ -122,7 +130,12 @@ class EventAggregator(EventAggregatorProtocol):
 
             # Emit kernel event
             self.emit_event(
-                KernelEvent.interrupt_raised(pid, interrupt_type, data)
+                KernelEvent.interrupt_raised(
+                    pid,
+                    interrupt_type,
+                    data,
+                    request_context=request_context,
+                )
             )
 
     def get_pending_interrupt(

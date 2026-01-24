@@ -58,13 +58,18 @@ async def _publish_unified_event(event: dict):
         EventCategory,
         EventSeverity,
     )
+    from jeeves_protocols.protocols import RequestContext
     from datetime import datetime, timezone
     import uuid
 
     # Extract event fields from AgentEvent dict
     event_type = event.get("event_type", "agent.unknown")
-    request_id = event.get("request_id", "")
-    session_id = event.get("session_id", "")
+    request_context_data = event.get("request_context")
+    if not request_context_data:
+        raise ValueError("request_context missing from event payload")
+    request_context = RequestContext(**request_context_data)
+    request_id = request_context.request_id
+    session_id = request_context.session_id or ""
     timestamp_ms = event.get("timestamp_ms", int(datetime.now(timezone.utc).timestamp() * 1000))
     payload = event.get("payload", {})
     agent_name = event.get("agent_name", "")
@@ -93,9 +98,10 @@ async def _publish_unified_event(event: dict):
         category=category,
         timestamp_iso=dt.isoformat(),
         timestamp_ms=timestamp_ms,
+        request_context=request_context,
         request_id=request_id,
         session_id=session_id,
-        user_id=event.get("user_id", ""),
+        user_id=event.get("user_id") or request_context.user_id,
         payload=payload,
         severity=EventSeverity.INFO,
         source="grpc_gateway",

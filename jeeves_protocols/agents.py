@@ -563,20 +563,23 @@ def create_runtime_from_config(
 
 def create_generic_envelope(
     raw_input: str,
-    user_id: str = "",
-    session_id: str = "",
-    request_id: str = "",
+    request_context: "RequestContext",
     metadata: Optional[Dict[str, Any]] = None,
 ) -> GenericEnvelope:
     """Factory to create GenericEnvelope."""
     import uuid
     from jeeves_protocols.utils import utc_now
+    from jeeves_protocols import RequestContext
+
+    if not isinstance(request_context, RequestContext):
+        raise TypeError("request_context must be a RequestContext instance")
 
     return GenericEnvelope(
+        request_context=request_context,
         envelope_id=str(uuid.uuid4()),
-        request_id=request_id or str(uuid.uuid4()),
-        user_id=user_id,
-        session_id=session_id,
+        request_id=request_context.request_id,
+        user_id=request_context.user_id or "",
+        session_id=request_context.session_id or "",
         raw_input=raw_input,
         received_at=utc_now(),
         created_at=utc_now(),

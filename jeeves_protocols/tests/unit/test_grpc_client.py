@@ -23,6 +23,7 @@ from jeeves_protocols.grpc_client import (
     _proto_to_terminal_reason,
 )
 from jeeves_protocols.envelope import GenericEnvelope
+from jeeves_protocols import RequestContext
 from jeeves_protocols.core import TerminalReason
 
 
@@ -92,7 +93,18 @@ def mock_proto_envelope():
     proto.completed_stage_set = {}
     proto.failed_stages = {}
     proto.goal_completion_status = {}
-    proto.metadata_str = {}
+    proto.metadata_str = {
+        "request_context": json.dumps({
+            "request_id": "req_test",
+            "capability": "test_capability",
+            "user_id": "user_123",
+            "session_id": "session_456",
+            "agent_role": None,
+            "trace_id": None,
+            "span_id": None,
+            "tags": {},
+        })
+    }
     proto.HasField = MagicMock(return_value=False)
     proto.interrupt = MagicMock()
     proto.interrupt.interrupt_id = ""
@@ -102,7 +114,14 @@ def mock_proto_envelope():
 @pytest.fixture
 def sample_envelope():
     """Create a sample GenericEnvelope for testing."""
+    request_context = RequestContext(
+        request_id="req_test",
+        capability="test_capability",
+        user_id="user_123",
+        session_id="session_456",
+    )
     return GenericEnvelope(
+        request_context=request_context,
         envelope_id="env_test",
         request_id="req_test",
         user_id="user_123",
@@ -204,8 +223,12 @@ class TestGrpcGoClientCreateEnvelope:
                         
                         envelope = client.create_envelope(
                             raw_input="Hello, world!",
-                            user_id="user_123",
-                            session_id="session_456",
+                            request_context=RequestContext(
+                                request_id="req_test",
+                                capability="test_capability",
+                                user_id="user_123",
+                                session_id="session_456",
+                            ),
                         )
                         
                         assert envelope.raw_input == "Hello, world!"
@@ -232,8 +255,12 @@ class TestGrpcGoClientCreateEnvelope:
                         with pytest.raises(GrpcCallError):
                             client.create_envelope(
                                 raw_input="test",
-                                user_id="user",
-                                session_id="session",
+                                request_context=RequestContext(
+                                    request_id="req_test",
+                                    capability="test_capability",
+                                    user_id="user",
+                                    session_id="session",
+                                ),
                             )
 
 
@@ -633,7 +660,14 @@ class TestExecutionEvent:
 
     def test_execution_event_creation(self):
         """Test ExecutionEvent creation."""
+        request_context = RequestContext(
+            request_id="req_test",
+            capability="test_capability",
+            user_id="user",
+            session_id="session",
+        )
         envelope = GenericEnvelope(
+            request_context=request_context,
             envelope_id="env_test",
             request_id="req_test",
             user_id="user",

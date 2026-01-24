@@ -18,9 +18,12 @@ Usage:
     )
 
     orchestrator = EventOrchestrator(
-        session_id="sess_123",
-        request_id="req_456",
-        user_id="user_789",
+        request_context=RequestContext(
+            request_id="req_456",
+            capability="example",
+            session_id="sess_123",
+            user_id="user_789",
+        ),
         event_repository=repo,
     )
 
@@ -55,6 +58,7 @@ from jeeves_mission_system.orchestrator.event_context import (
     AgentEventContext,
     create_event_context,
 )
+from jeeves_protocols import RequestContext
 
 if TYPE_CHECKING:
     from jeeves_protocols import LoggerProtocol
@@ -81,17 +85,13 @@ class EventOrchestrator:
     - NO direct gateway_event_bus injection (orchestrator and gateway are separate processes)
 
     Attributes:
-        session_id: Current session identifier
-        request_id: Current request identifier
-        user_id: User identifier
+        request_context: RequestContext for the request
         event_repository: Optional repository for domain event persistence
         enable_streaming: Whether to enable real-time event streaming
         enable_persistence: Whether to persist domain events
     """
 
-    session_id: str
-    request_id: str
-    user_id: str
+    request_context: RequestContext
     event_repository: Optional["EventRepository"] = None
     enable_streaming: bool = True
     enable_persistence: bool = True
@@ -109,11 +109,11 @@ class EventOrchestrator:
             self._logger = get_logger()
         self._logger = self._logger.bind(
             component="EventOrchestrator",
-            session_id=self.session_id,
-            request_id=self.request_id,
+            session_id=self.request_context.session_id,
+            request_id=self.request_context.request_id,
         )
         if self.correlation_id is None:
-            self.correlation_id = self.request_id
+            self.correlation_id = self.request_context.request_id
 
     def _ensure_initialized(self) -> None:
         """Lazy initialization of internal components."""
@@ -134,9 +134,7 @@ class EventOrchestrator:
 
         # Create unified context
         self._context = create_event_context(
-            session_id=self.session_id,
-            request_id=self.request_id,
-            user_id=self.user_id,
+            request_context=self.request_context,
             agent_event_emitter=self._agent_emitter,
             domain_event_emitter=self._domain_emitter,
             correlation_id=self.correlation_id,
@@ -388,11 +386,11 @@ class EventOrchestrator:
         if self._domain_emitter:
             return await self._domain_emitter.emit_task_created(
                 task_id=task_id,
-                user_id=self.user_id,
+                user_id=self.request_context.user_id or "",
                 title=title,
                 description=description,
                 priority=priority,
-                session_id=self.session_id,
+                session_id=self.request_context.session_id or "",
             )
         return None
 
@@ -402,8 +400,8 @@ class EventOrchestrator:
         if self._domain_emitter:
             return await self._domain_emitter.emit_task_completed(
                 task_id=task_id,
-                user_id=self.user_id,
-                session_id=self.session_id,
+                user_id=self.request_context.user_id or "",
+                session_id=self.request_context.session_id or "",
             )
         return None
 
@@ -461,9 +459,7 @@ class EventOrchestrator:
 
 
 def create_event_orchestrator(
-    session_id: str,
-    request_id: str,
-    user_id: str,
+    request_context: RequestContext,
     event_repository: Optional["EventRepository"] = None,
     enable_streaming: bool = True,
     enable_persistence: bool = True,
@@ -476,9 +472,7 @@ def create_event_orchestrator(
     No direct gateway injection (separate processes).
 
     Args:
-        session_id: Current session identifier
-        request_id: Current request identifier
-        user_id: User identifier
+        request_context: RequestContext for the request
         event_repository: Optional repository for domain event persistence
         enable_streaming: Whether to enable real-time event streaming
         enable_persistence: Whether to persist domain events
@@ -488,9 +482,7 @@ def create_event_orchestrator(
         Configured EventOrchestrator instance
     """
     return EventOrchestrator(
-        session_id=session_id,
-        request_id=request_id,
-        user_id=user_id,
+        request_context=request_context,
         event_repository=event_repository,
         enable_streaming=enable_streaming,
         enable_persistence=enable_persistence,
