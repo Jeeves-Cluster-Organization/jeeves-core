@@ -345,6 +345,48 @@ def create_tool_health_service(persistence: PersistenceProtocol) -> Any:
     return ToolHealthService(persistence)
 
 
+def create_tool_executor(registry: Optional[ToolRegistryProtocol] = None) -> Any:
+    """
+    Create tool executor with access control.
+
+    Wrapper for jeeves_avionics.wiring.create_tool_executor.
+    Apps should use this instead of importing from avionics directly.
+
+    Args:
+        registry: Optional tool registry (uses global if None)
+
+    Returns:
+        ToolExecutor instance implementing ToolExecutorProtocol
+
+    Constitutional compliance:
+        Apps access infrastructure via adapters, not direct avionics imports.
+        Layer boundary: Capability → Mission System (adapters) → Avionics
+    """
+    from jeeves_avionics.wiring import create_tool_executor as _create_executor
+    return _create_executor(registry)
+
+
+def create_llm_provider_factory(settings: Optional[SettingsProtocol] = None) -> Callable:
+    """
+    Create LLM provider factory.
+
+    Wrapper for jeeves_avionics.llm.factory.create_llm_provider_factory.
+    Apps should use this instead of importing from avionics directly.
+
+    Args:
+        settings: Optional settings (uses global if None)
+
+    Returns:
+        Factory function that creates LLM providers
+
+    Constitutional compliance:
+        Apps access infrastructure via adapters, not direct avionics imports.
+        Layer boundary: Capability → Mission System (adapters) → Avionics
+    """
+    from jeeves_avionics.llm.factory import create_llm_provider_factory as _create_factory
+    return _create_factory(settings)
+
+
 def create_nli_service(
     model_name: Optional[str] = None,
     enabled: bool = True
@@ -440,6 +482,9 @@ __all__ = [
     "create_database_client",
     "get_settings",
     "get_feature_flags",
+    # Tool and LLM factories (wrappers for avionics)
+    "create_tool_executor",
+    "create_llm_provider_factory",
     # Memory layer factories
     "create_event_emitter",
     "create_graph_storage",
