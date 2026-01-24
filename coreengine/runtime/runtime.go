@@ -677,4 +677,3 @@ type StageOutput struct {
 	Output map[string]any
 	Error  error
 }
-

@@ -96,8 +96,12 @@ RUN pip install \
     alembic>=1.13.0 \
     # Logging/Observability
     structlog>=24.1.0 \
+    prometheus-client>=0.19.0 \
     opentelemetry-api>=1.22.0 \
     opentelemetry-sdk>=1.22.0 \
+    opentelemetry-exporter-otlp-proto-grpc>=1.22.0 \
+    opentelemetry-instrumentation-fastapi>=0.43b0 \
+    opentelemetry-instrumentation-grpc>=0.43b0 \
     # Utilities
     python-dotenv>=1.0.0 \
     orjson>=3.9.0 \
