@@ -16,7 +16,7 @@ import pytest
 from typing import Any, Dict, Optional
 
 # Test the REAL implementations
-from jeeves_avionics.tools.executor_core import ToolExecutionCore
+from jeeves_avionics.tools.executor import ToolExecutionCore
 from jeeves_avionics.wiring import ToolExecutor, RESILIENT_PARAM_MAP, RESILIENT_OPS_MAP
 
 

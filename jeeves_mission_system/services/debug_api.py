@@ -91,7 +91,7 @@ class ReplayResult:
         }
 
 
-class DebugService:
+class DebugAPIService:
     """Service providing debug inspection and replay capabilities.
 
     Usage:

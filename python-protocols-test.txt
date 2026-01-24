@@ -1,0 +1,72 @@
+C:\Users\shaik\AppData\Local\Packages\PythonSoftwareFoundation.Python.3.13_qbz5n2kfra8p0\LocalCache\local-packages\Python313\site-packages\_pytest\config\__init__.py:331: PluggyTeardownRaisedWarning: A plugin raised an exception during an old-style hookwrapper teardown.
+Plugin: helpconfig, Hook: pytest_cmdline_parse
+ArgumentError: argument --snapshot-update: conflicting option string: --snapshot-update
+For more information see https://pluggy.readthedocs.io/en/stable/api_reference.html#pluggy.PluggyTeardownRaisedWarning
+  config = pluginmanager.hook.pytest_cmdline_parse(
+Traceback (most recent call last):
+  File "<frozen runpy>", line 198, in _run_module_as_main
+  File "<frozen runpy>", line 88, in _run_code
+  File "C:\Users\shaik\AppData\Local\Packages\PythonSoftwareFoundation.Python.3.13_qbz5n2kfra8p0\LocalCache\local-packages\Python313\site-packages\pytest\__main__.py", line 5, in <module>
+    raise SystemExit(pytest.console_main())
+                     ~~~~~~~~~~~~~~~~~~~^^
+  File "C:\Users\shaik\AppData\Local\Packages\PythonSoftwareFoundation.Python.3.13_qbz5n2kfra8p0\LocalCache\local-packages\Python313\site-packages\_pytest\config\__init__.py", line 192, in console_main
+    code = main()
+  File "C:\Users\shaik\AppData\Local\Packages\PythonSoftwareFoundation.Python.3.13_qbz5n2kfra8p0\LocalCache\local-packages\Python313\site-packages\_pytest\config\__init__.py", line 150, in main
+    config = _prepareconfig(args, plugins)
+  File "C:\Users\shaik\AppData\Local\Packages\PythonSoftwareFoundation.Python.3.13_qbz5n2kfra8p0\LocalCache\local-packages\Python313\site-packages\_pytest\config\__init__.py", line 331, in _prepareconfig
+    config = pluginmanager.hook.pytest_cmdline_parse(
+        pluginmanager=pluginmanager, args=args
+    )
+  File "C:\Users\shaik\AppData\Local\Packages\PythonSoftwareFoundation.Python.3.13_qbz5n2kfra8p0\LocalCache\local-packages\Python313\site-packages\pluggy\_hooks.py", line 512, in __call__
+    return self._hookexec(self.name, self._hookimpls.copy(), kwargs, firstresult)
+           ~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\shaik\AppData\Local\Packages\PythonSoftwareFoundation.Python.3.13_qbz5n2kfra8p0\LocalCache\local-packages\Python313\site-packages\pluggy\_manager.py", line 120, in _hookexec
+    return self._inner_hookexec(hook_name, methods, kwargs, firstresult)
+           ~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\shaik\AppData\Local\Packages\PythonSoftwareFoundation.Python.3.13_qbz5n2kfra8p0\LocalCache\local-packages\Python313\site-packages\pluggy\_callers.py", line 167, in _multicall
+    raise exception
+  File "C:\Users\shaik\AppData\Local\Packages\PythonSoftwareFoundation.Python.3.13_qbz5n2kfra8p0\LocalCache\local-packages\Python313\site-packages\pluggy\_callers.py", line 139, in _multicall
+    teardown.throw(exception)
+    ~~~~~~~~~~~~~~^^^^^^^^^^^
+  File "C:\Users\shaik\AppData\Local\Packages\PythonSoftwareFoundation.Python.3.13_qbz5n2kfra8p0\LocalCache\local-packages\Python313\site-packages\pluggy\_callers.py", line 43, in run_old_style_hookwrapper
+    teardown.send(result)
+    ~~~~~~~~~~~~~^^^^^^^^
+  File "C:\Users\shaik\AppData\Local\Packages\PythonSoftwareFoundation.Python.3.13_qbz5n2kfra8p0\LocalCache\local-packages\Python313\site-packages\_pytest\helpconfig.py", line 104, in pytest_cmdline_parse
+    config: Config = outcome.get_result()
+                     ~~~~~~~~~~~~~~~~~~^^
+  File "C:\Users\shaik\AppData\Local\Packages\PythonSoftwareFoundation.Python.3.13_qbz5n2kfra8p0\LocalCache\local-packages\Python313\site-packages\pluggy\_result.py", line 103, in get_result
+    raise exc.with_traceback(tb)
+  File "C:\Users\shaik\AppData\Local\Packages\PythonSoftwareFoundation.Python.3.13_qbz5n2kfra8p0\LocalCache\local-packages\Python313\site-packages\pluggy\_callers.py", line 38, in run_old_style_hookwrapper
+    res = yield
+          ^^^^^
+  File "C:\Users\shaik\AppData\Local\Packages\PythonSoftwareFoundation.Python.3.13_qbz5n2kfra8p0\LocalCache\local-packages\Python313\site-packages\pluggy\_callers.py", line 121, in _multicall
+    res = hook_impl.function(*args)
+  File "C:\Users\shaik\AppData\Local\Packages\PythonSoftwareFoundation.Python.3.13_qbz5n2kfra8p0\LocalCache\local-packages\Python313\site-packages\_pytest\config\__init__.py", line 1075, in pytest_cmdline_parse
+    self.parse(args)
+    ~~~~~~~~~~^^^^^^
+  File "C:\Users\shaik\AppData\Local\Packages\PythonSoftwareFoundation.Python.3.13_qbz5n2kfra8p0\LocalCache\local-packages\Python313\site-packages\_pytest\config\__init__.py", line 1430, in parse
+    args = self._parser.parse_setoption(
+        args, self.option, namespace=self.option
+    )
+  File "C:\Users\shaik\AppData\Local\Packages\PythonSoftwareFoundation.Python.3.13_qbz5n2kfra8p0\LocalCache\local-packages\Python313\site-packages\_pytest\config\argparsing.py", line 143, in parse_setoption
+    parsedoption = self.parse(args, namespace=namespace)
+  File "C:\Users\shaik\AppData\Local\Packages\PythonSoftwareFoundation.Python.3.13_qbz5n2kfra8p0\LocalCache\local-packages\Python313\site-packages\_pytest\config\argparsing.py", line 113, in parse
+    self.optparser = self._getparser()
+                     ~~~~~~~~~~~~~~~^^
+  File "C:\Users\shaik\AppData\Local\Packages\PythonSoftwareFoundation.Python.3.13_qbz5n2kfra8p0\LocalCache\local-packages\Python313\site-packages\_pytest\config\argparsing.py", line 130, in _getparser
+    arggroup.add_argument(*n, **a)
+    ~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^
+  File "C:\Program Files\WindowsApps\PythonSoftwareFoundation.Python.3.13_3.13.2544.0_x64__qbz5n2kfra8p0\Lib\argparse.py", line 1489, in add_argument
+    return self._add_action(action)
+           ~~~~~~~~~~~~~~~~^^^^^^^^
+  File "C:\Program Files\WindowsApps\PythonSoftwareFoundation.Python.3.13_3.13.2544.0_x64__qbz5n2kfra8p0\Lib\argparse.py", line 1696, in _add_action
+    action = super(_ArgumentGroup, self)._add_action(action)
+  File "C:\Program Files\WindowsApps\PythonSoftwareFoundation.Python.3.13_3.13.2544.0_x64__qbz5n2kfra8p0\Lib\argparse.py", line 1503, in _add_action
+    self._check_conflict(action)
+    ~~~~~~~~~~~~~~~~~~~~^^^^^^^^
+  File "C:\Program Files\WindowsApps\PythonSoftwareFoundation.Python.3.13_3.13.2544.0_x64__qbz5n2kfra8p0\Lib\argparse.py", line 1645, in _check_conflict
+    conflict_handler(action, confl_optionals)
+    ~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Program Files\WindowsApps\PythonSoftwareFoundation.Python.3.13_3.13.2544.0_x64__qbz5n2kfra8p0\Lib\argparse.py", line 1654, in _handle_conflict_error
+    raise ArgumentError(action, message % conflict_string)
+argparse.ArgumentError: argument --snapshot-update: conflicting option string: --snapshot-update

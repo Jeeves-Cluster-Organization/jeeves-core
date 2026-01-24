@@ -158,10 +158,10 @@ class TestTokenChunk:
     def test_token_chunk_defaults(self):
         """Test TokenChunk default values."""
         chunk = TokenChunk(text="Hello")
-        
+
         assert chunk.text == "Hello"
         assert chunk.is_final is False
-        assert chunk.token_count is None
+        assert chunk.token_count == 0  # Defaults to 0 per base.py:24
 
     def test_token_chunk_final(self):
         """Test TokenChunk with is_final=True."""

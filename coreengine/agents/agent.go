@@ -13,6 +13,7 @@ import (
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/codes"
+	"go.opentelemetry.io/otel/trace"
 )
 
 // LLMProvider is the interface for LLM providers.
@@ -109,8 +110,10 @@ func (a *Agent) SetEventContext(ctx EventContext) {
 func (a *Agent) Process(ctx context.Context, env *envelope.Envelope) (*envelope.Envelope, error) {
 	// Create tracing span
 	ctx, span := tracer.Start(ctx, "agent.process",
-		attribute.String("jeeves.agent.name", a.Name),
-		attribute.String("jeeves.request.id", env.RequestID),
+		trace.WithAttributes(
+			attribute.String("jeeves.agent.name", a.Name),
+			attribute.String("jeeves.request.id", env.RequestID),
+		),
 	)
 	defer span.End()
 

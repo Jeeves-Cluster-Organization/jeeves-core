@@ -369,23 +369,109 @@ class SessionStateProtocol(Protocol):
 
 @dataclass
 class CheckpointRecord:
-    """Checkpoint record for time-travel debugging."""
+    """Checkpoint record for time-travel debugging.
+
+    Design Philosophy:
+    - Metadata and state are separated (state not included in record)
+    - Explicit parent chain for traversing execution history
+    - Optional metadata for observability (duration, memory, etc.)
+    - stage_order provides sequential ordering within envelope
+
+    Usage:
+        # Save checkpoint returns full record
+        record = await adapter.save_checkpoint(
+            envelope_id="env_123",
+            checkpoint_id="ckpt_abc",
+            agent_name="planner",
+            state={"foo": "bar"},
+            metadata={"duration_ms": 1500},
+        )
+
+        # List checkpoints returns metadata only (efficient)
+        records = await adapter.list_checkpoints("env_123")
+
+        # Load checkpoint returns just state (for restoration)
+        state = await adapter.load_checkpoint("ckpt_abc")
+    """
     checkpoint_id: str
     envelope_id: str
     agent_name: str
-    sequence: int
-    state: Dict[str, Any]
+    stage_order: int  # Sequential order within envelope (0, 1, 2, ...)
     created_at: datetime
+    parent_checkpoint_id: Optional[str] = None  # Links to previous checkpoint in chain
+    metadata: Optional[Dict[str, Any]] = None  # Optional debug metadata (duration, memory, etc.)
 
 
 @runtime_checkable
 class CheckpointProtocol(Protocol):
-    """Checkpoint interface for time-travel debugging."""
+    """Checkpoint interface for time-travel debugging.
 
-    async def save(self, envelope_id: str, agent_name: str, state: Dict[str, Any]) -> str: ...
-    async def load(self, checkpoint_id: str) -> Optional[CheckpointRecord]: ...
-    async def list_for_envelope(self, envelope_id: str) -> List[CheckpointRecord]: ...
-    async def replay_to(self, checkpoint_id: str) -> Dict[str, Any]: ...
+    Methods:
+        save_checkpoint: Save execution checkpoint after agent completion
+        load_checkpoint: Load checkpoint state for restoration
+        list_checkpoints: List all checkpoints for an envelope (timeline)
+        delete_checkpoints: Delete checkpoints for cleanup
+        fork_from_checkpoint: Create new execution branch from checkpoint
+    """
+
+    async def save_checkpoint(
+        self,
+        envelope_id: str,
+        checkpoint_id: str,
+        agent_name: str,
+        state: Dict[str, Any],
+        metadata: Optional[Dict[str, Any]] = None,
+    ) -> CheckpointRecord:
+        """Save execution checkpoint.
+
+        Returns:
+            CheckpointRecord with metadata (state not included)
+        """
+        ...
+
+    async def load_checkpoint(self, checkpoint_id: str) -> Optional[Dict[str, Any]]:
+        """Load checkpoint state for restoration.
+
+        Returns:
+            State dict, or None if not found
+        """
+        ...
+
+    async def list_checkpoints(
+        self,
+        envelope_id: str,
+        limit: int = 100,
+    ) -> List[CheckpointRecord]:
+        """List all checkpoints for an envelope (execution timeline).
+
+        Returns:
+            Ordered list of checkpoints (oldest first)
+        """
+        ...
+
+    async def delete_checkpoints(
+        self,
+        envelope_id: str,
+        before_checkpoint_id: Optional[str] = None,
+    ) -> int:
+        """Delete checkpoints for cleanup.
+
+        Returns:
+            Number of checkpoints deleted
+        """
+        ...
+
+    async def fork_from_checkpoint(
+        self,
+        checkpoint_id: str,
+        new_envelope_id: str,
+    ) -> str:
+        """Create new execution branch from checkpoint (time-travel replay).
+
+        Returns:
+            New checkpoint_id for forked branch root
+        """
+        ...
 
 
 # =============================================================================
@@ -394,31 +480,121 @@ class CheckpointProtocol(Protocol):
 
 @dataclass
 class DistributedTask:
-    """Task for distributed execution."""
+    """Task for distributed agent pipeline execution.
+
+    Design Philosophy:
+    - Specific to agent pipeline execution (not generic task queue)
+    - Contains envelope state for agent resumption
+    - Retry logic built-in (retry_count, max_retries)
+    - Checkpoint-aware for consistency
+
+    Usage:
+        task = DistributedTask(
+            task_id="task_123",
+            envelope_state=envelope.to_state_dict(),
+            agent_name="planner",
+            stage_order=1,
+            priority=5,  # Higher = more important
+        )
+        await bus.enqueue_task("agent:planner", task)
+    """
     task_id: str
-    task_type: str
-    payload: Dict[str, Any]
-    priority: int = 0
-    created_at: Optional[datetime] = None
+    envelope_state: Dict[str, Any]  # Full envelope state for agent execution
+    agent_name: str  # Agent to execute
+    stage_order: int  # Sequential position in pipeline
+    checkpoint_id: Optional[str] = None  # Optional checkpoint for recovery
+    created_at: Optional[str] = None  # ISO timestamp
+    retry_count: int = 0  # Current retry attempt
+    max_retries: int = 3  # Maximum retry attempts
+    priority: int = 0  # Higher number = higher priority
 
 
 @dataclass
 class QueueStats:
-    """Queue statistics."""
-    pending: int
-    processing: int
-    completed: int
-    failed: int
+    """Queue statistics for monitoring.
+
+    Fields:
+        queue_name: Name of the queue
+        pending_count: Tasks waiting in queue
+        in_progress_count: Tasks currently being processed
+        completed_count: Total tasks completed
+        failed_count: Total tasks failed (after retries)
+        avg_processing_time_ms: Average processing time in milliseconds
+        workers_active: Number of active workers for this queue
+    """
+    queue_name: str
+    pending_count: int
+    in_progress_count: int
+    completed_count: int
+    failed_count: int
+    avg_processing_time_ms: float = 0.0
+    workers_active: int = 0
 
 
 @runtime_checkable
 class DistributedBusProtocol(Protocol):
-    """Distributed message bus interface."""
+    """Distributed message bus interface for horizontal scaling.
 
-    async def enqueue(self, task: DistributedTask) -> str: ...
-    async def dequeue(self, task_type: str, timeout: float = 0) -> Optional[DistributedTask]: ...
-    async def complete(self, task_id: str, result: Dict[str, Any]) -> None: ...
-    async def fail(self, task_id: str, error: str) -> None: ...
+    Methods:
+        enqueue_task: Add task to queue for worker processing
+        dequeue_task: Get next task from queue (blocking)
+        complete_task: Mark task as successfully completed
+        fail_task: Mark task as failed, optionally retry
+        register_worker: Register worker with capabilities
+        deregister_worker: Deregister worker and requeue tasks
+        heartbeat: Send worker heartbeat to prevent timeout
+        get_queue_stats: Get queue statistics for monitoring
+        list_queues: List all active queues
+    """
+
+    async def enqueue_task(self, queue_name: str, task: DistributedTask) -> str:
+        """Enqueue task for worker processing.
+
+        Returns:
+            Task ID for tracking
+        """
+        ...
+
+    async def dequeue_task(
+        self,
+        queue_name: str,
+        worker_id: str,
+        timeout_seconds: int = 30,
+    ) -> Optional[DistributedTask]:
+        """Dequeue task for processing (blocking with timeout).
+
+        Returns:
+            Task to process, or None if timeout
+        """
+        ...
+
+    async def complete_task(self, task_id: str, result: Dict[str, Any]) -> None:
+        """Mark task as completed with result."""
+        ...
+
+    async def fail_task(self, task_id: str, error: str, retry: bool = True) -> None:
+        """Mark task as failed, optionally retry."""
+        ...
+
+    async def register_worker(self, worker_id: str, capabilities: List[str]) -> None:
+        """Register worker with capabilities."""
+        ...
+
+    async def deregister_worker(self, worker_id: str) -> None:
+        """Deregister worker (on shutdown)."""
+        ...
+
+    async def heartbeat(self, worker_id: str) -> None:
+        """Send worker heartbeat."""
+        ...
+
+    async def get_queue_stats(self, queue_name: str) -> QueueStats:
+        """Get queue statistics for monitoring."""
+        ...
+
+    async def list_queues(self) -> List[str]:
+        """List all active queues."""
+        ...
     async def stats(self, task_type: str) -> QueueStats: ...
 
 

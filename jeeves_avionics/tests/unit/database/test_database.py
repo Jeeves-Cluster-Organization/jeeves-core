@@ -145,20 +145,20 @@ async def test_fetch_all(pg_test_db):
 @pytest.mark.asyncio
 async def test_json_helpers():
     """Test JSON helper methods."""
-    from jeeves_avionics.database.postgres_client import PostgreSQLClient
+    from jeeves_shared.serialization import to_json, from_json
 
     data = {"key": "value", "number": 42}
 
     # Convert to JSON
-    json_str = PostgreSQLClient.to_json(data)
+    json_str = to_json(data)
     assert isinstance(json_str, str)
 
     # Convert back from JSON
-    result = PostgreSQLClient.from_json(json_str)
+    result = from_json(json_str)
     assert result == data
 
     # Test with None
-    assert PostgreSQLClient.from_json(None) is None
+    assert from_json(None) is None
 
 
 if __name__ == "__main__":

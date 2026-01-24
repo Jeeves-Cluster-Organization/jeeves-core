@@ -13,7 +13,7 @@ The core handles:
 
 Usage:
     # In tests (directly test core logic)
-    from jeeves_avionics.tools.executor_core import ToolExecutionCore
+    from jeeves_avionics.tools.executor import ToolExecutionCore
     core = ToolExecutionCore()
     result = await core.execute_tool(tool_def.function, params, tool_def.parameter_schemas)
 

@@ -40,7 +40,6 @@ from jeeves_protocols import (
     PipelineConfig,
     RoutingRule,
     ToolAccess,
-    AgentCapability,
     # Unified agent
     Agent,
     # Generic envelope
@@ -122,7 +121,6 @@ __all__ = [
     "PipelineConfig",
     "RoutingRule",
     "ToolAccess",
-    "AgentCapability",
     # Unified agent
     "Agent",
     # Generic envelope

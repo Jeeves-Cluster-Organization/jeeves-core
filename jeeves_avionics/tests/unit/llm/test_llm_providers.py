@@ -1,6 +1,7 @@
 """Unit tests for LLM provider system."""
 
 import os
+import json
 import pytest
 from unittest.mock import Mock, patch, AsyncMock
 from jeeves_avionics.llm.providers import MockProvider, LLMProvider
@@ -8,14 +9,30 @@ from jeeves_avionics.llm.factory import create_llm_provider, create_agent_provid
 from jeeves_avionics.capability_registry import get_capability_registry
 from jeeves_avionics.settings import Settings
 
-# Check Azure availability locally (no dependency on mission_system tests.config)
-AZURE_AVAILABLE = bool(os.environ.get("AZURE_OPENAI_API_KEY"))
+# Check SDK availability
+OPENAI_AVAILABLE = False
+ANTHROPIC_AVAILABLE = False
+AZURE_AVAILABLE = False
 
-# Try to import Azure provider (uses OpenAI SDK)
+# Try to import providers - will fail if SDKs not installed
 try:
-    from jeeves_avionics.llm.providers import AzureAIFoundryProvider, OPENAI_AVAILABLE
+    from jeeves_avionics.llm.providers import AzureAIFoundryProvider
+    AZURE_AVAILABLE = True
+    OPENAI_AVAILABLE = True
 except ImportError:
-    OPENAI_AVAILABLE = False
+    AzureAIFoundryProvider = None
+
+try:
+    from jeeves_avionics.llm.providers import AnthropicProvider
+    ANTHROPIC_AVAILABLE = True
+except ImportError:
+    AnthropicProvider = None
+
+try:
+    from jeeves_avionics.llm.providers import OpenAIProvider
+    OPENAI_AVAILABLE = True
+except ImportError:
+    OpenAIProvider = None
 
 
 class TestMockProvider:
@@ -340,6 +357,586 @@ class TestAzureProviderFactory:
         with patch('openai.AsyncAzureOpenAI'):
             provider = create_llm_provider("azure", settings)
             assert provider is not None
+
+
+# =============================================================================
+# Anthropic Provider Tests
+# =============================================================================
+
+class TestAnthropicProvider:
+    """Test Anthropic provider functionality."""
+
+    def test_anthropic_unavailable_raises_runtime_error(self):
+        """Test that missing anthropic package raises RuntimeError."""
+        with patch('jeeves_avionics.llm.providers.anthropic.ANTHROPIC_AVAILABLE', False):
+            from jeeves_avionics.llm.providers.anthropic import AnthropicProvider
+
+            with pytest.raises(RuntimeError, match="Anthropic package not installed"):
+                AnthropicProvider(api_key="test-key")
+
+    @pytest.mark.asyncio
+    async def test_anthropic_provider_initialization(self):
+        """Test that Anthropic provider initializes with required parameters."""
+        # Mock the anthropic module at sys.modules level
+        mock_anthropic = Mock()
+        mock_client = Mock()
+        mock_anthropic.AsyncAnthropic = Mock(return_value=mock_client)
+
+        with patch.dict('sys.modules', {'anthropic': mock_anthropic}), \
+             patch('jeeves_avionics.llm.providers.anthropic.ANTHROPIC_AVAILABLE', True):
+
+            from jeeves_avionics.llm.providers.anthropic import AnthropicProvider
+
+            provider = AnthropicProvider(
+                api_key="test-key",
+                timeout=30,
+                max_retries=2
+            )
+
+            # Verify client was created with correct params
+            mock_anthropic.AsyncAnthropic.assert_called_once_with(
+                api_key="test-key",
+                timeout=30,
+                max_retries=2
+            )
+            assert provider.client == mock_client
+
+    @pytest.mark.asyncio
+    async def test_anthropic_provider_generate(self):
+        """Test Anthropic provider generate method."""
+        # Mock response
+        mock_content = Mock()
+        mock_content.text = "Test response from Claude"
+        mock_response = Mock()
+        mock_response.content = [mock_content]
+
+        # Mock client
+        mock_client = Mock()
+        mock_client.messages = Mock()
+        mock_client.messages.create = AsyncMock(return_value=mock_response)
+
+        mock_anthropic = Mock()
+        mock_anthropic.AsyncAnthropic = Mock(return_value=mock_client)
+
+        with patch.dict('sys.modules', {'anthropic': mock_anthropic}), \
+             patch('jeeves_avionics.llm.providers.anthropic.ANTHROPIC_AVAILABLE', True):
+
+            from jeeves_avionics.llm.providers.anthropic import AnthropicProvider
+
+            provider = AnthropicProvider(api_key="test-key")
+
+            result = await provider.generate(
+                model="claude-3-5-sonnet-20241022",
+                prompt="Test prompt",
+                options={"temperature": 0.5, "num_predict": 200}
+            )
+
+            assert result == "Test response from Claude"
+
+            # Verify API call
+            mock_client.messages.create.assert_called_once()
+            call_kwargs = mock_client.messages.create.call_args[1]
+            assert call_kwargs["model"] == "claude-3-5-sonnet-20241022"
+            assert call_kwargs["temperature"] == 0.5
+            assert call_kwargs["max_tokens"] == 200
+            assert call_kwargs["messages"] == [{"role": "user", "content": "Test prompt"}]
+
+    @pytest.mark.asyncio
+    async def test_anthropic_provider_generate_empty_response(self):
+        """Test Anthropic provider handles empty response."""
+        with patch('jeeves_avionics.llm.providers.anthropic.ANTHROPIC_AVAILABLE', True), \
+             patch('jeeves_avionics.llm.providers.anthropic.anthropic') as mock_anthropic:
+
+            from jeeves_avionics.llm.providers.anthropic import AnthropicProvider
+
+            # Mock empty response
+            mock_response = Mock()
+            mock_response.content = []
+
+            mock_client = Mock()
+            mock_client.messages = Mock()
+            mock_client.messages.create = AsyncMock(return_value=mock_response)
+            mock_anthropic.AsyncAnthropic = Mock(return_value=mock_client)
+
+            provider = AnthropicProvider(api_key="test-key")
+            result = await provider.generate("test-model", "test prompt")
+
+            assert result == ""
+
+    @pytest.mark.asyncio
+    async def test_anthropic_provider_generate_stream(self):
+        """Test Anthropic provider streaming generation."""
+        with patch('jeeves_avionics.llm.providers.anthropic.ANTHROPIC_AVAILABLE', True), \
+             patch('jeeves_avionics.llm.providers.anthropic.anthropic') as mock_anthropic:
+
+            from jeeves_avionics.llm.providers.anthropic import AnthropicProvider
+
+            # Mock streaming response
+            async def mock_text_stream():
+                yield "Hello"
+                yield " "
+                yield "world"
+
+            mock_stream = AsyncMock()
+            mock_stream.__aenter__ = AsyncMock(return_value=mock_stream)
+            mock_stream.__aexit__ = AsyncMock(return_value=None)
+            mock_stream.text_stream = mock_text_stream()
+
+            mock_client = Mock()
+            mock_client.messages = Mock()
+            mock_client.messages.stream = Mock(return_value=mock_stream)
+            mock_anthropic.AsyncAnthropic = Mock(return_value=mock_client)
+
+            provider = AnthropicProvider(api_key="test-key")
+
+            chunks = []
+            async for chunk in provider.generate_stream(
+                model="claude-3-5-sonnet-20241022",
+                prompt="Test",
+                options={"temperature": 0.8}
+            ):
+                chunks.append(chunk)
+
+            # Should have 3 text chunks + 1 final chunk
+            assert len(chunks) == 4
+            assert chunks[0].text == "Hello"
+            assert chunks[0].is_final is False
+            assert chunks[1].text == " "
+            assert chunks[2].text == "world"
+            assert chunks[3].text == ""
+            assert chunks[3].is_final is True
+
+    @pytest.mark.asyncio
+    async def test_anthropic_provider_supports_streaming(self):
+        """Test that Anthropic provider supports streaming."""
+        with patch('jeeves_avionics.llm.providers.anthropic.ANTHROPIC_AVAILABLE', True), \
+             patch('jeeves_avionics.llm.providers.anthropic.anthropic'):
+
+            from jeeves_avionics.llm.providers.anthropic import AnthropicProvider
+
+            provider = AnthropicProvider(api_key="test-key")
+            assert provider.supports_streaming is True
+
+    @pytest.mark.asyncio
+    async def test_anthropic_provider_health_check_success(self):
+        """Test Anthropic provider health check succeeds."""
+        with patch('jeeves_avionics.llm.providers.anthropic.ANTHROPIC_AVAILABLE', True), \
+             patch('jeeves_avionics.llm.providers.anthropic.anthropic') as mock_anthropic:
+
+            from jeeves_avionics.llm.providers.anthropic import AnthropicProvider
+
+            mock_content = Mock()
+            mock_content.text = "Hi"
+            mock_response = Mock()
+            mock_response.content = [mock_content]
+
+            mock_client = Mock()
+            mock_client.messages = Mock()
+            mock_client.messages.create = AsyncMock(return_value=mock_response)
+            mock_anthropic.AsyncAnthropic = Mock(return_value=mock_client)
+
+            provider = AnthropicProvider(api_key="test-key")
+            is_healthy = await provider.health_check()
+
+            assert is_healthy is True
+
+    @pytest.mark.asyncio
+    async def test_anthropic_provider_health_check_failure(self):
+        """Test Anthropic provider health check handles failures."""
+        with patch('jeeves_avionics.llm.providers.anthropic.ANTHROPIC_AVAILABLE', True), \
+             patch('jeeves_avionics.llm.providers.anthropic.anthropic') as mock_anthropic:
+
+            from jeeves_avionics.llm.providers.anthropic import AnthropicProvider
+
+            mock_client = Mock()
+            mock_client.messages = Mock()
+            mock_client.messages.create = AsyncMock(side_effect=Exception("API Error"))
+            mock_anthropic.AsyncAnthropic = Mock(return_value=mock_client)
+
+            provider = AnthropicProvider(api_key="test-key")
+            is_healthy = await provider.health_check()
+
+            assert is_healthy is False
+
+
+# =============================================================================
+# OpenAI Provider Tests
+# =============================================================================
+
+class TestOpenAIProvider:
+    """Test OpenAI provider functionality."""
+
+    def test_openai_unavailable_raises_runtime_error(self):
+        """Test that missing openai package raises RuntimeError."""
+        with patch('jeeves_avionics.llm.providers.openai.OPENAI_AVAILABLE', False):
+            from jeeves_avionics.llm.providers.openai import OpenAIProvider
+
+            with pytest.raises(RuntimeError, match="OpenAI package not installed"):
+                OpenAIProvider(api_key="test-key")
+
+    @pytest.mark.asyncio
+    async def test_openai_provider_initialization(self):
+        """Test that OpenAI provider initializes with required parameters."""
+        with patch('jeeves_avionics.llm.providers.openai.OPENAI_AVAILABLE', True), \
+             patch('jeeves_avionics.llm.providers.openai.openai') as mock_openai:
+
+            from jeeves_avionics.llm.providers.openai import OpenAIProvider
+
+            mock_client = Mock()
+            mock_openai.AsyncOpenAI = Mock(return_value=mock_client)
+
+            provider = OpenAIProvider(
+                api_key="test-key",
+                timeout=45,
+                max_retries=5
+            )
+
+            # Verify client was created with correct params
+            mock_openai.AsyncOpenAI.assert_called_once_with(
+                api_key="test-key",
+                timeout=45,
+                max_retries=5
+            )
+            assert provider.client == mock_client
+
+    @pytest.mark.asyncio
+    async def test_openai_provider_generate(self):
+        """Test OpenAI provider generate method."""
+        with patch('jeeves_avionics.llm.providers.openai.OPENAI_AVAILABLE', True), \
+             patch('jeeves_avionics.llm.providers.openai.openai') as mock_openai:
+
+            from jeeves_avionics.llm.providers.openai import OpenAIProvider
+
+            # Mock response
+            mock_message = Mock()
+            mock_message.content = "Response from GPT-4"
+            mock_choice = Mock()
+            mock_choice.message = mock_message
+            mock_response = Mock()
+            mock_response.choices = [mock_choice]
+
+            # Mock client
+            mock_client = Mock()
+            mock_client.chat = Mock()
+            mock_client.chat.completions = Mock()
+            mock_client.chat.completions.create = AsyncMock(return_value=mock_response)
+            mock_openai.AsyncOpenAI = Mock(return_value=mock_client)
+
+            provider = OpenAIProvider(api_key="test-key")
+
+            result = await provider.generate(
+                model="gpt-4",
+                prompt="Test prompt",
+                options={"temperature": 0.9, "num_predict": 500}
+            )
+
+            assert result == "Response from GPT-4"
+
+            # Verify API call
+            mock_client.chat.completions.create.assert_called_once()
+            call_kwargs = mock_client.chat.completions.create.call_args[1]
+            assert call_kwargs["model"] == "gpt-4"
+            assert call_kwargs["temperature"] == 0.9
+            assert call_kwargs["max_tokens"] == 500
+            assert call_kwargs["messages"] == [{"role": "user", "content": "Test prompt"}]
+
+    @pytest.mark.asyncio
+    async def test_openai_provider_generate_with_json_mode(self):
+        """Test OpenAI provider with JSON mode enabled."""
+        with patch('jeeves_avionics.llm.providers.openai.OPENAI_AVAILABLE', True), \
+             patch('jeeves_avionics.llm.providers.openai.openai') as mock_openai:
+
+            from jeeves_avionics.llm.providers.openai import OpenAIProvider
+
+            mock_message = Mock()
+            mock_message.content = '{"key": "value"}'
+            mock_choice = Mock()
+            mock_choice.message = mock_message
+            mock_response = Mock()
+            mock_response.choices = [mock_choice]
+
+            mock_client = Mock()
+            mock_client.chat = Mock()
+            mock_client.chat.completions = Mock()
+            mock_client.chat.completions.create = AsyncMock(return_value=mock_response)
+            mock_openai.AsyncOpenAI = Mock(return_value=mock_client)
+
+            provider = OpenAIProvider(api_key="test-key")
+
+            result = await provider.generate(
+                model="gpt-4",
+                prompt="Generate JSON",
+                options={"json_mode": True}
+            )
+
+            assert result == '{"key": "value"}'
+
+            # Verify response_format was set
+            call_kwargs = mock_client.chat.completions.create.call_args[1]
+            assert call_kwargs["response_format"] == {"type": "json_object"}
+
+    @pytest.mark.asyncio
+    async def test_openai_provider_generate_empty_response(self):
+        """Test OpenAI provider handles None content."""
+        with patch('jeeves_avionics.llm.providers.openai.OPENAI_AVAILABLE', True), \
+             patch('jeeves_avionics.llm.providers.openai.openai') as mock_openai:
+
+            from jeeves_avionics.llm.providers.openai import OpenAIProvider
+
+            mock_message = Mock()
+            mock_message.content = None
+            mock_choice = Mock()
+            mock_choice.message = mock_message
+            mock_response = Mock()
+            mock_response.choices = [mock_choice]
+
+            mock_client = Mock()
+            mock_client.chat = Mock()
+            mock_client.chat.completions = Mock()
+            mock_client.chat.completions.create = AsyncMock(return_value=mock_response)
+            mock_openai.AsyncOpenAI = Mock(return_value=mock_client)
+
+            provider = OpenAIProvider(api_key="test-key")
+            result = await provider.generate("gpt-4", "test")
+
+            assert result == ""
+
+    @pytest.mark.asyncio
+    async def test_openai_provider_generate_stream(self):
+        """Test OpenAI provider streaming generation."""
+        with patch('jeeves_avionics.llm.providers.openai.OPENAI_AVAILABLE', True), \
+             patch('jeeves_avionics.llm.providers.openai.openai') as mock_openai:
+
+            from jeeves_avionics.llm.providers.openai import OpenAIProvider
+
+            # Mock streaming response
+            async def mock_stream():
+                # First chunk
+                delta1 = Mock()
+                delta1.content = "Hello"
+                choice1 = Mock()
+                choice1.delta = delta1
+                choice1.finish_reason = None
+                chunk1 = Mock()
+                chunk1.choices = [choice1]
+                chunk1.model = "gpt-4"
+                yield chunk1
+
+                # Second chunk
+                delta2 = Mock()
+                delta2.content = " world"
+                choice2 = Mock()
+                choice2.delta = delta2
+                choice2.finish_reason = "stop"
+                chunk2 = Mock()
+                chunk2.choices = [choice2]
+                chunk2.model = "gpt-4"
+                yield chunk2
+
+            mock_client = Mock()
+            mock_client.chat = Mock()
+            mock_client.chat.completions = Mock()
+            mock_client.chat.completions.create = AsyncMock(return_value=mock_stream())
+            mock_openai.AsyncOpenAI = Mock(return_value=mock_client)
+
+            provider = OpenAIProvider(api_key="test-key")
+
+            chunks = []
+            async for chunk in provider.generate_stream(
+                model="gpt-4",
+                prompt="Test",
+                options={"temperature": 0.7}
+            ):
+                chunks.append(chunk)
+
+            assert len(chunks) == 2
+            assert chunks[0].text == "Hello"
+            assert chunks[0].is_final is False
+            assert chunks[1].text == " world"
+            assert chunks[1].is_final is True
+
+    @pytest.mark.asyncio
+    async def test_openai_provider_supports_streaming(self):
+        """Test that OpenAI provider supports streaming."""
+        with patch('jeeves_avionics.llm.providers.openai.OPENAI_AVAILABLE', True), \
+             patch('jeeves_avionics.llm.providers.openai.openai'):
+
+            from jeeves_avionics.llm.providers.openai import OpenAIProvider
+
+            provider = OpenAIProvider(api_key="test-key")
+            assert provider.supports_streaming is True
+
+    @pytest.mark.asyncio
+    async def test_openai_provider_health_check_success(self):
+        """Test OpenAI provider health check succeeds."""
+        with patch('jeeves_avionics.llm.providers.openai.OPENAI_AVAILABLE', True), \
+             patch('jeeves_avionics.llm.providers.openai.openai') as mock_openai:
+
+            from jeeves_avionics.llm.providers.openai import OpenAIProvider
+
+            mock_client = Mock()
+            mock_client.models = Mock()
+            mock_client.models.list = AsyncMock(return_value=[])
+            mock_openai.AsyncOpenAI = Mock(return_value=mock_client)
+
+            provider = OpenAIProvider(api_key="test-key")
+            is_healthy = await provider.health_check()
+
+            assert is_healthy is True
+
+    @pytest.mark.asyncio
+    async def test_openai_provider_health_check_failure(self):
+        """Test OpenAI provider health check handles failures."""
+        with patch('jeeves_avionics.llm.providers.openai.OPENAI_AVAILABLE', True), \
+             patch('jeeves_avionics.llm.providers.openai.openai') as mock_openai:
+
+            from jeeves_avionics.llm.providers.openai import OpenAIProvider
+
+            mock_client = Mock()
+            mock_client.models = Mock()
+            mock_client.models.list = AsyncMock(side_effect=Exception("Connection error"))
+            mock_openai.AsyncOpenAI = Mock(return_value=mock_client)
+
+            provider = OpenAIProvider(api_key="test-key")
+            is_healthy = await provider.health_check()
+
+            assert is_healthy is False
+
+
+# =============================================================================
+# LlamaServer Provider Tests
+# =============================================================================
+
+class TestLlamaServerProvider:
+    """Test LlamaServer provider functionality."""
+
+    def test_llamaserver_missing_httpx_raises_import_error(self):
+        """Test that missing httpx raises ImportError."""
+        with patch('jeeves_avionics.llm.providers.llamaserver_provider.httpx', None):
+            from jeeves_avionics.llm.providers.llamaserver_provider import LlamaServerProvider
+
+            with pytest.raises(ImportError, match="httpx not installed"):
+                LlamaServerProvider(base_url="http://localhost:8080")
+
+    @pytest.mark.asyncio
+    async def test_llamaserver_provider_initialization(self):
+        """Test LlamaServer provider initialization."""
+        with patch('jeeves_avionics.llm.providers.llamaserver_provider.httpx') as mock_httpx, \
+             patch('jeeves_avionics.llm.providers.llamaserver_provider.get_current_logger'):
+
+            from jeeves_avionics.llm.providers.llamaserver_provider import LlamaServerProvider
+
+            mock_client = Mock()
+            mock_httpx.AsyncClient = Mock(return_value=mock_client)
+            mock_httpx.Timeout = Mock(return_value="timeout_obj")
+            mock_httpx.Limits = Mock(return_value="limits_obj")
+
+            provider = LlamaServerProvider(
+                base_url="http://node1:8080/",
+                timeout=60.0,
+                max_retries=5,
+                api_type="native"
+            )
+
+            assert provider.base_url == "http://node1:8080"
+            assert provider.timeout == 60.0
+            assert provider.max_retries == 5
+            assert provider.api_type == "native"
+
+    @pytest.mark.asyncio
+    async def test_llamaserver_provider_generate_native_api(self):
+        """Test LlamaServer provider generate with native API."""
+        with patch('jeeves_avionics.llm.providers.llamaserver_provider.httpx') as mock_httpx, \
+             patch('jeeves_avionics.llm.providers.llamaserver_provider.get_current_logger'):
+
+            from jeeves_avionics.llm.providers.llamaserver_provider import LlamaServerProvider
+
+            # Mock HTTP response
+            mock_response = Mock()
+            mock_response.json = Mock(return_value={"content": "Generated text"})
+            mock_response.raise_for_status = Mock()
+
+            mock_client = Mock()
+            mock_client.post = AsyncMock(return_value=mock_response)
+            mock_httpx.AsyncClient = Mock(return_value=mock_client)
+            mock_httpx.Timeout = Mock(return_value="timeout")
+            mock_httpx.Limits = Mock(return_value="limits")
+
+            provider = LlamaServerProvider(
+                base_url="http://localhost:8080",
+                api_type="native"
+            )
+
+            result = await provider.generate(
+                model="ignored",
+                prompt="Test prompt",
+                options={"temperature": 0.7, "num_predict": 100}
+            )
+
+            assert result == "Generated text"
+
+            # Verify POST request
+            mock_client.post.assert_called_once()
+            call_args = mock_client.post.call_args
+            assert call_args[0][0] == "/completion"
+            request_data = json.loads(call_args[1]["content"])
+            assert request_data["prompt"] == "Test prompt"
+            assert request_data["temperature"] == 0.7
+            assert request_data["n_predict"] == 100
+
+    @pytest.mark.asyncio
+    async def test_llamaserver_provider_health_check_success(self):
+        """Test LlamaServer provider health check succeeds."""
+        with patch('jeeves_avionics.llm.providers.llamaserver_provider.httpx') as mock_httpx, \
+             patch('jeeves_avionics.llm.providers.llamaserver_provider.get_current_logger'):
+
+            from jeeves_avionics.llm.providers.llamaserver_provider import LlamaServerProvider
+
+            mock_response = Mock()
+            mock_response.status_code = 200
+            mock_response.json = Mock(return_value={"status": "ok"})
+
+            mock_client = Mock()
+            mock_client.get = AsyncMock(return_value=mock_response)
+            mock_httpx.AsyncClient = Mock(return_value=mock_client)
+            mock_httpx.Timeout = Mock(return_value="timeout")
+            mock_httpx.Limits = Mock(return_value="limits")
+
+            provider = LlamaServerProvider(base_url="http://localhost:8080")
+            is_healthy = await provider.health_check()
+
+            assert is_healthy is True
+            mock_client.get.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_llamaserver_provider_health_check_failure(self):
+        """Test LlamaServer provider health check handles failures."""
+        with patch('jeeves_avionics.llm.providers.llamaserver_provider.httpx') as mock_httpx, \
+             patch('jeeves_avionics.llm.providers.llamaserver_provider.get_current_logger'):
+
+            from jeeves_avionics.llm.providers.llamaserver_provider import LlamaServerProvider
+
+            mock_client = Mock()
+            mock_client.get = AsyncMock(side_effect=Exception("Connection refused"))
+            mock_httpx.AsyncClient = Mock(return_value=mock_client)
+            mock_httpx.Timeout = Mock(return_value="timeout")
+            mock_httpx.Limits = Mock(return_value="limits")
+
+            provider = LlamaServerProvider(base_url="http://localhost:8080")
+            is_healthy = await provider.health_check()
+
+            assert is_healthy is False
+
+    @pytest.mark.asyncio
+    async def test_llamaserver_provider_supports_streaming(self):
+        """Test that LlamaServer provider supports streaming."""
+        with patch('jeeves_avionics.llm.providers.llamaserver_provider.httpx'), \
+             patch('jeeves_avionics.llm.providers.llamaserver_provider.get_current_logger'):
+
+            from jeeves_avionics.llm.providers.llamaserver_provider import LlamaServerProvider
+
+            provider = LlamaServerProvider(base_url="http://localhost:8080")
+            assert provider.supports_streaming is True
 
 
 @pytest.fixture(autouse=True)

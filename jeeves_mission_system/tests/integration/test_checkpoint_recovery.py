@@ -9,7 +9,7 @@ import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
 from datetime import datetime, timezone
 
-from jeeves_mission_system.orchestrator.state import JeevesState, create_initial_state
+from jeeves_mission_system.orchestrator.state import PipelineState, create_initial_state
 
 
 class TestCheckpointPersistence:
