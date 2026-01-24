@@ -15,6 +15,63 @@ LLM provider abstraction layer for modular model execution.
 
 ---
 
+## Architecture Overview
+
+Avionics LLM providers **delegate to jeeves-airframe** adapters for backend protocol handling.
+
+### Layering
+
+```
+┌─────────────────────────────────────────┐
+│  Avionics LLM Providers (L3)            │
+│  - Cost tracking (token → USD)          │
+│  - Settings integration                 │
+│  - Telemetry enrichment                 │
+│  - Model routing                        │
+└─────────────┬───────────────────────────┘
+              │ delegates to
+┌─────────────▼───────────────────────────┐
+│  Airframe Backend Adapters (L1)         │
+│  - HTTP requests & SSE parsing          │
+│  - Retry logic & error categorization   │
+│  - Backend-specific protocol quirks     │
+└─────────────────────────────────────────┘
+```
+
+### Delegation Pattern
+
+LlamaServerProvider (and future OpenAI/Anthropic) wrap Airframe adapters:
+
+```python
+from airframe.adapters import LlamaServerAdapter
+from airframe.endpoints import EndpointSpec
+
+class LlamaServerProvider(LLMProvider):
+    def __init__(self, base_url: str, ...):
+        # Airframe handles transport
+        self._adapter = LlamaServerAdapter(...)
+        self._endpoint = EndpointSpec(...)
+
+        # Avionics adds orchestration
+        self._cost_calculator = get_cost_calculator()
+
+    async def generate(self, ...):
+        # Delegate to Airframe
+        async for event in self._adapter.stream_infer(...):
+            ...
+        # Add cost tracking
+        cost = self._cost_calculator.calculate_cost(...)
+        return result
+```
+
+**Benefits:**
+- Single source of truth for backend implementations (no duplication)
+- 73% code reduction (LlamaServer: 440 → 260 lines)
+- Cleaner separation: transport vs orchestration
+- Easier testing: mock at adapter boundary
+
+---
+
 ## Supported Providers
 
 | Provider | Description | Local/Cloud |
@@ -99,16 +156,21 @@ class LLMProvider(ABC):
 
 llama-server provider for distributed deployment.
 
+**Architecture:** Delegates to `jeeves-airframe` LlamaServerAdapter for backend protocol handling.
+
 ### Class: LlamaServerProvider
 
 ```python
 class LlamaServerProvider(LLMProvider):
     """llama-server (OpenAI-compatible) provider.
-    
-    Uses the HTTP API exposed by llama-server (llama.cpp).
-    Supports both native and OpenAI-compatible endpoints.
+
+    Delegates to Airframe's LlamaServerAdapter for HTTP/SSE handling.
+    Avionics adds: cost tracking, settings integration, telemetry enrichment.
+    Airframe handles: HTTP requests, SSE parsing, retries, error categorization.
+
+    Supports both native llama.cpp and OpenAI-compatible endpoints.
     """
-    
+
     def __init__(
         self,
         base_url: str,
@@ -117,29 +179,71 @@ class LlamaServerProvider(LLMProvider):
         api_type: str = "native",  # "native" or "openai"
         logger: Optional[LoggerProtocol] = None,
     ):
+        """
+        Initialize LlamaServer provider.
+
+        Internally creates:
+        - Airframe LlamaServerAdapter (handles backend protocol)
+        - Airframe EndpointSpec (endpoint configuration)
+        - CostCalculator (token cost tracking)
+        """
         ...
+```
+
+#### Architecture Pattern
+
+```python
+from airframe.adapters import LlamaServerAdapter
+from airframe.endpoints import EndpointSpec
+from airframe.types import InferenceRequest, Message, StreamEventType
+
+class LlamaServerProvider(LLMProvider):
+    def __init__(self, base_url: str, ...):
+        # Airframe handles backend protocol
+        self._adapter = LlamaServerAdapter(timeout=timeout, max_retries=max_retries)
+        self._endpoint = EndpointSpec(base_url=base_url, backend_kind=BackendKind.LLAMA_SERVER, ...)
+
+        # Avionics adds orchestration features
+        self._cost_calculator = get_cost_calculator()
+
+    async def generate(self, model: str, prompt: str, options: Dict) -> str:
+        # Convert Avionics API → Airframe API
+        request = InferenceRequest(messages=[Message(role="user", content=prompt)], ...)
+
+        # Delegate to Airframe
+        async for event in self._adapter.stream_infer(self._endpoint, request):
+            if event.type == StreamEventType.MESSAGE:
+                result = event.content
+
+        # Track cost (Avionics-specific)
+        cost = self._cost_calculator.calculate_cost(...)
+        return result
 ```
 
 #### Methods
 
 ```python
 async def generate(self, model: str, prompt: str, options: Optional[Dict] = None) -> str:
-    """Generate text completion via llama-server."""
+    """Generate text completion via llama-server.
+
+    Delegates to Airframe adapter for HTTP/SSE handling,
+    then tracks cost and logs metrics.
+    """
 
 async def generate_stream(self, model: str, prompt: str, options: Optional[Dict] = None) -> AsyncIterator[TokenChunk]:
-    """Generate text with streaming via SSE."""
+    """Generate text with streaming via SSE.
+
+    Delegates to Airframe adapter, converts InferenceStreamEvent → TokenChunk.
+    """
 
 async def health_check(self) -> bool:
-    """Check if llama-server is healthy."""
+    """Check if llama-server is healthy.
 
-async def get_model_info(self) -> Dict[str, Any]:
-    """Get information about the loaded model."""
+    Delegates health check to Airframe adapter.
+    """
 
 def get_stats(self) -> Dict[str, Any]:
-    """Get provider statistics."""
-
-async def close(self) -> None:
-    """Close the HTTP client."""
+    """Get provider statistics (includes Airframe adapter config)."""
 ```
 
 #### Options

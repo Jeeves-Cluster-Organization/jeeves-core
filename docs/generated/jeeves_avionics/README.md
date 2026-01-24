@@ -44,12 +44,12 @@ jeeves_avionics/
 │   ├── factory.py           # Provider factory
 │   ├── gateway.py           # Unified LLM gateway with cost tracking
 │   ├── cost_calculator.py   # Token cost calculation
-│   └── providers/           # Provider implementations
+│   └── providers/           # Provider implementations (delegate to jeeves-airframe)
 │       ├── base.py          # Abstract base class
 │       ├── openai.py        # OpenAI provider
 │       ├── anthropic.py     # Anthropic provider
 │       ├── azure.py         # Azure OpenAI provider
-│       └── llamaserver_provider.py  # llama.cpp server
+│       └── llamaserver_provider.py  # llama.cpp server (wraps Airframe adapter)
 │
 ├── logging/                 # Logging infrastructure
 │   ├── __init__.py          # Configuration entry point
@@ -133,7 +133,23 @@ from jeeves_avionics.logging import get_current_logger
 
 ## Key Concepts
 
-### 1. Protocol-Based Design
+### 1. Delegation to Airframe (L1 Substrate)
+
+**Architecture**: Avionics LLM providers (L3) delegate to `jeeves-airframe` adapters (L1) for backend protocol handling.
+
+**Layering**:
+- **L3 (Avionics)**: Orchestration features - cost tracking, settings integration, telemetry enrichment
+- **L1 (Airframe)**: Backend protocol - HTTP requests, SSE parsing, retries, error categorization
+
+**Benefits**:
+- Single source of truth for backend implementations
+- 73% code reduction (e.g., LlamaServer: 440 → 260 lines)
+- Cleaner separation: transport vs orchestration
+- Easier testing: mock at adapter boundary
+
+See [llm.md](./llm.md) for detailed architecture and delegation pattern examples.
+
+### 2. Protocol-Based Design
 
 All implementations follow protocols from `jeeves_protocols`:
 
@@ -142,7 +158,7 @@ All implementations follow protocols from `jeeves_protocols`:
 - `LoggerProtocol` - Structured logging
 - `ToolRegistryProtocol` - Tool registration
 
-### 2. Dependency Injection
+### 3. Dependency Injection
 
 Components receive dependencies via constructors (ADR-001):
 
@@ -153,7 +169,7 @@ class MyService:
         self._settings = settings
 ```
 
-### 3. Lazy Initialization
+### 4. Lazy Initialization
 
 Global singletons use lazy initialization:
 
@@ -167,7 +183,7 @@ def get_settings() -> Settings:
     return _settings
 ```
 
-### 4. Feature Flags
+### 5. Feature Flags
 
 New features are gated by feature flags for phased rollout:
 

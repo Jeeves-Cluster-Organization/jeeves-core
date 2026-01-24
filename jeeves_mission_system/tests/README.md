@@ -607,14 +607,17 @@ async def test_intent_extraction():
 
 ## Dependencies Note
 
-**Foundation Layers (L0)**:
-- `jeeves_protocols` - Protocol definitions, InterruptKind enum, Envelope
-- `jeeves_shared` - Shared utilities (logging via `get_component_logger`, serialization, UUID)
+**Foundation Layers**:
+- **L0: jeeves_protocols** - Protocol definitions, InterruptKind enum, Envelope
+- **L0: jeeves_shared** - Shared utilities (logging via `get_component_logger`, serialization, UUID)
+- **L1: jeeves-airframe** - Inference platform substrate (backend adapters for HTTP, SSE, retries)
+- **L3: jeeves_avionics** - Infrastructure orchestration (LLM providers delegate to Airframe)
 
 Tests should import from these foundation layers for types and utilities:
 ```python
 from jeeves_protocols import Envelope, InterruptKind
 from jeeves_shared import get_component_logger, parse_datetime
+from jeeves_avionics.llm import LLMProvider  # Delegates to Airframe adapters
 ```
 
 ---

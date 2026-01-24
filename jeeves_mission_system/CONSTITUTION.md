@@ -15,7 +15,7 @@ This constitution extends the **Jeeves Avionics Constitution** (which extends th
 - Capabilities OWN domain-specific configs (not mission_system)
 - No concrete agent classes - agents defined via `AgentConfig` in capability layer
 
-**Dependency:** This component depends on avionics and protocols. All principles from the architectural contracts apply.
+**Dependency:** This component depends on avionics and protocols. Avionics in turn delegates to **jeeves-airframe** for backend protocol handling (L1 substrate). All principles from the architectural contracts apply.
 
 ---
 
@@ -33,7 +33,7 @@ This constitution extends the **Jeeves Avionics Constitution** (which extends th
 - Concrete agent implementations
 - Domain-specific tools
 
-**Mission System uses avionics:** Depends on avionics for infrastructure, core for runtime.
+**Mission System uses avionics:** Depends on avionics for infrastructure (LLM, database, memory). Avionics delegates to jeeves-airframe (L1) for backend protocol implementations.
 
 ---
 
@@ -373,7 +373,7 @@ def get_agent_class(capability_id: str, agent_name: str) -> Type[Agent]: ...
 **Capabilities must NOT:**
 - Import from other capabilities
 - Modify core runtime
-- Bypass avionics adapters
+- Bypass avionics (which delegates to Airframe for backend implementations)
 
 ---
 
@@ -479,11 +479,12 @@ def test_import_boundaries():
   - `Envelope`, `ProcessingRecord`
   - All protocols (`LLMProviderProtocol`, `ToolProtocol`, etc.)
   - `ContextBounds`, `WorkingMemory`
-- `jeeves_avionics` — Infrastructure services and adapters
-  - LLM clients and factories
+- `jeeves_avionics` — Infrastructure orchestration layer (L3)
+  - LLM providers (delegate to jeeves-airframe for backend protocol)
   - Memory service and repositories
   - Database clients and connection management
   - Settings and configuration
+  - Cost tracking and telemetry enrichment
 - External libraries — LangGraph, FastAPI, SQLAlchemy, etc.
 
 ### Outputs
@@ -505,6 +506,7 @@ def test_import_boundaries():
 
 3. **adapters.py** — Wraps avionics for capabilities
    - Infrastructure access (LLM, memory, database)
+   - Avionics LLM providers delegate to jeeves-airframe (L1) for backend protocol
 
 4. **orchestrator/** — LangGraph pipeline infrastructure
    - Pipeline routing and execution
@@ -663,17 +665,19 @@ Mission System                    ← OWNS generic config types (AgentProfile, e
 
 **May import:**
 - `jeeves_protocols` — Runtime contracts and protocols
-- `jeeves_avionics` — Infrastructure services
+- `jeeves_avionics` — Infrastructure orchestration (delegates to jeeves-airframe for backends)
 - External libraries (langgraph, fastapi, etc.)
 
 **Must NOT import:**
 - Nothing (top of dependency chain)
 
+**Note:** Avionics depends on `jeeves-airframe` for backend protocol implementations (HTTP, SSE, retries). Mission system accesses these through avionics providers.
+
 **Example:**
 ```python
 # ALLOWED
 from jeeves_protocols import Envelope
-from jeeves_avionics.llm import LLMClient
+from jeeves_avionics.llm import LLMProvider  # Delegates to Airframe adapters
 from jeeves_avionics.memory import MemoryService
 
 # All imports are allowed at mission system level

@@ -77,7 +77,9 @@ jeeves_avionics/
 
 ## Intra-Level: LLM Layer Architecture
 
-### Provider Abstraction
+### Provider Abstraction with Airframe Delegation
+
+**Architecture**: Avionics LLM providers (L3) delegate to `jeeves-airframe` adapters (L1) for backend protocol handling.
 
 ```
 ┌───────────────────────────────────────────────────────────────┐
@@ -91,35 +93,55 @@ jeeves_avionics/
                 │                       │
                 ↓                       ↓
 ┌──────────────────────────┐  ┌──────────────────────────┐
-│  OpenAIAdapter           │  │  AnthropicAdapter        │
+│  OpenAIProvider (L3)     │  │  AnthropicProvider (L3)  │
 │                          │  │                          │
-│  • client: OpenAI        │  │  • client: Anthropic     │
-│  • model: str            │  │  • model: str            │
-│  • api_key: str          │  │  • api_key: str          │
+│  • Cost tracking         │  │  • Cost tracking         │
+│  • Settings integration  │  │  • Settings integration  │
+│  • Telemetry enrichment  │  │  • Telemetry enrichment  │
 │                          │  │                          │
 │  generate():             │  │  generate():             │
-│    → chat.completions    │  │    → messages.create     │
-│                          │  │                          │
-│  Retry: 3 attempts       │  │  Retry: 3 attempts       │
-│  Rate limit: 60 req/min  │  │  Rate limit: 50 req/min  │
+│    1. Delegate to SDK    │  │    1. Delegate to SDK    │
+│    2. Track cost (USD)   │  │    2. Track cost (USD)   │
+│    3. Log metrics        │  │    3. Log metrics        │
 └──────────────────────────┘  └──────────────────────────┘
 
                 ┌───────────┴───────────┐
                 │                       │
                 ↓                       ↓
 ┌──────────────────────────┐  ┌──────────────────────────┐
-│  AzureOpenAIAdapter      │  │  LlamaServerAdapter      │
+│  AzureProvider (L3)      │  │  LlamaServerProvider(L3) │
 │                          │  │                          │
-│  • client: AzureOpenAI   │  │  • base_url: str         │
-│  • deployment: str       │  │  • model: str            │
-│  • api_key: str          │  │                          │
-│                          │  │  generate():             │
-│  generate():             │  │    → POST /completion    │
-│    → chat.completions    │  │                          │
-│                          │  │  No rate limit           │
-│  Retry: 3 attempts       │  │  Retry: 2 attempts       │
-└──────────────────────────┘  └──────────────────────────┘
+│  • Cost tracking         │  │  • Cost tracking         │
+│  • Settings integration  │  │  • Settings integration  │
+│  • Telemetry enrichment  │  │  • Telemetry enrichment  │
+│                          │  │                          │
+│  generate():             │  │  generate():             │
+│    1. Delegate to SDK    │  │    1. Delegate to        │
+│    2. Track cost         │  │       Airframe adapter   │
+│    3. Log metrics        │  │    2. Track cost (USD)   │
+│                          │  │    3. Log metrics        │
+└──────────────────────────┘  └───────────┬──────────────┘
+                                          │ delegates to
+                                          ↓
+                            ┌─────────────────────────────┐
+                            │  Airframe Adapter (L1)      │
+                            │                             │
+                            │  • HTTP requests            │
+                            │  • SSE parsing              │
+                            │  • Retry logic (2-3 tries)  │
+                            │  • Error categorization     │
+                            │                             │
+                            │  stream_infer():            │
+                            │    → POST /completion       │
+                            │    → Parse SSE events       │
+                            └─────────────────────────────┘
 ```
+
+**Benefits of Delegation**:
+- Single source of truth for backend implementations (no duplication)
+- 73% code reduction (LlamaServer: 440 → 260 lines)
+- Cleaner separation: Airframe = transport, Avionics = orchestration
+- Easier testing: mock at adapter boundary
 
 ### Provider Factory
 
@@ -133,29 +155,30 @@ jeeves_avionics/
 │  ) -> LLMProtocol:                                            │
 │                                                               │
 │      if provider == "openai":                                 │
-│          return OpenAIAdapter(                                │
+│          return OpenAIProvider(                               │
 │              api_key=settings.openai_api_key,                 │
 │              model=settings.default_model,                    │
-│          )                                                    │
+│          )  # Uses OpenAI SDK directly                        │
 │                                                               │
 │      elif provider == "anthropic":                            │
-│          return AnthropicAdapter(                             │
+│          return AnthropicProvider(                            │
 │              api_key=settings.anthropic_api_key,              │
 │              model=settings.default_model,                    │
-│          )                                                    │
+│          )  # Uses Anthropic SDK directly                     │
 │                                                               │
 │      elif provider == "azure":                                │
-│          return AzureOpenAIAdapter(                           │
+│          return AzureAIFoundryProvider(                       │
 │              api_key=settings.azure_api_key,                  │
 │              endpoint=settings.azure_endpoint,                │
 │              deployment=settings.azure_deployment,            │
-│          )                                                    │
+│          )  # Uses Azure SDK directly                         │
 │                                                               │
 │      elif provider == "llamaserver":                          │
-│          return LlamaServerAdapter(                           │
+│          return LlamaServerProvider(                          │
 │              base_url=settings.llamaserver_host,              │
 │              model=settings.default_model,                    │
-│          )                                                    │
+│          )  # Delegates to Airframe LlamaServerAdapter        │
+│             # (73% code reduction!)                           │
 │                                                               │
 │      else:                                                    │
 │          raise ValueError(f"Unknown provider: {provider}")    │
@@ -163,6 +186,8 @@ jeeves_avionics/
 ```
 
 **Configuration-driven:** Provider selection via `LLM_PROVIDER` env var.
+
+**Delegation Pattern**: LlamaServerProvider wraps Airframe adapter for backend protocol, while other providers use official SDKs.
 
 ---
 
