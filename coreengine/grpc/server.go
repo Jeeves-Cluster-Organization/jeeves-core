@@ -7,9 +7,11 @@ import (
 	"encoding/json"
 	"fmt"
 	"net"
+	"net/http"
 	"sync"
 	"time"
 
+	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"google.golang.org/grpc"
 
 	"github.com/jeeves-cluster-organization/codeanalysis/coreengine/agents"
@@ -27,45 +29,45 @@ type Logger interface {
 	Error(msg string, keysAndValues ...any)
 }
 
-// JeevesCoreServer implements the gRPC service.
+// EngineServer implements the gRPC service.
 // Thread-safe: all mutable fields are protected by runtimeMu.
-type JeevesCoreServer struct {
-	pb.UnimplementedJeevesCoreServiceServer
+type EngineServer struct {
+	pb.UnimplementedEngineServiceServer
 
 	logger    Logger
-	runtime   *runtime.Runtime
+	runner    *runtime.PipelineRunner
 	runtimeMu sync.RWMutex // Protects runtime field
 }
 
-// NewJeevesCoreServer creates a new gRPC server.
-func NewJeevesCoreServer(logger Logger) *JeevesCoreServer {
-	return &JeevesCoreServer{
+// NewEngineServer creates a new gRPC server.
+func NewEngineServer(logger Logger) *EngineServer {
+	return &EngineServer{
 		logger: logger,
 	}
 }
 
 // SetRuntime sets the runtime for pipeline execution.
 // Thread-safe: can be called concurrently with other methods.
-func (s *JeevesCoreServer) SetRuntime(r *runtime.Runtime) {
+func (s *EngineServer) SetRunner(r *runtime.PipelineRunner) {
 	s.runtimeMu.Lock()
 	defer s.runtimeMu.Unlock()
-	s.runtime = r
+	s.runner = r
 }
 
-// getRuntime returns the current runtime.
+// getRunner returns the current pipeline runner.
 // Thread-safe: protected by RWMutex.
-func (s *JeevesCoreServer) getRuntime() *runtime.Runtime {
+func (s *EngineServer) getRunner() *runtime.PipelineRunner {
 	s.runtimeMu.RLock()
 	defer s.runtimeMu.RUnlock()
-	return s.runtime
+	return s.runner
 }
 
 // =============================================================================
 // Envelope Operations
 // =============================================================================
 
-// CreateEnvelope creates a new GenericEnvelope.
-func (s *JeevesCoreServer) CreateEnvelope(
+// CreateEnvelope creates a new Envelope.
+func (s *EngineServer) CreateEnvelope(
 	ctx context.Context,
 	req *pb.CreateEnvelopeRequest,
 ) (*pb.Envelope, error) {
@@ -79,7 +81,7 @@ func (s *JeevesCoreServer) CreateEnvelope(
 		metadata[k] = v
 	}
 
-	env := envelope.CreateGenericEnvelope(
+	env := envelope.CreateEnvelope(
 		req.RawInput,
 		req.UserId,
 		req.SessionId,
@@ -97,7 +99,7 @@ func (s *JeevesCoreServer) CreateEnvelope(
 }
 
 // UpdateEnvelope updates an envelope from proto.
-func (s *JeevesCoreServer) UpdateEnvelope(
+func (s *EngineServer) UpdateEnvelope(
 	ctx context.Context,
 	req *pb.UpdateEnvelopeRequest,
 ) (*pb.Envelope, error) {
@@ -111,7 +113,7 @@ func (s *JeevesCoreServer) UpdateEnvelope(
 }
 
 // CloneEnvelope creates a deep copy of an envelope.
-func (s *JeevesCoreServer) CloneEnvelope(
+func (s *EngineServer) CloneEnvelope(
 	ctx context.Context,
 	req *pb.CloneRequest,
 ) (*pb.Envelope, error) {
@@ -131,7 +133,7 @@ func (s *JeevesCoreServer) CloneEnvelope(
 // =============================================================================
 
 // CheckBounds checks if execution can continue.
-func (s *JeevesCoreServer) CheckBounds(
+func (s *EngineServer) CheckBounds(
 	ctx context.Context,
 	protoEnv *pb.Envelope,
 ) (*pb.BoundsResult, error) {
@@ -162,9 +164,9 @@ func (s *JeevesCoreServer) CheckBounds(
 // =============================================================================
 
 // ExecutePipeline executes the pipeline with streaming events.
-func (s *JeevesCoreServer) ExecutePipeline(
+func (s *EngineServer) ExecutePipeline(
 	req *pb.ExecuteRequest,
-	stream pb.JeevesCoreService_ExecutePipelineServer,
+	stream pb.EngineService_ExecutePipelineServer,
 ) error {
 	ctx := stream.Context()
 	env := protoToEnvelope(req.Envelope)
@@ -181,14 +183,14 @@ func (s *JeevesCoreServer) ExecutePipeline(
 			return fmt.Errorf("failed to parse pipeline config: %w", err)
 		}
 		// Create runtime with config
-		rt, err := runtime.NewRuntime(&cfg, nil, nil, s)
+		rt, err := runtime.NewPipelineRunner(&cfg, nil, nil, s)
 		if err != nil {
 			return fmt.Errorf("failed to create runtime: %w", err)
 		}
-		s.SetRuntime(rt)
+		s.SetRunner(rt)
 	}
 
-	rt := s.getRuntime()
+	rt := s.getRunner()
 	if rt == nil {
 		return fmt.Errorf("no runtime configured")
 	}
@@ -247,7 +249,7 @@ func (s *JeevesCoreServer) ExecutePipeline(
 }
 
 // ExecuteAgent executes a single agent.
-func (s *JeevesCoreServer) ExecuteAgent(
+func (s *EngineServer) ExecuteAgent(
 	ctx context.Context,
 	req *pb.ExecuteAgentRequest,
 ) (*pb.AgentResult, error) {
@@ -272,23 +274,23 @@ func (s *JeevesCoreServer) ExecuteAgent(
 // Logger interface for grpc server (implements runtime Logger)
 // =============================================================================
 
-func (s *JeevesCoreServer) Debug(msg string, keysAndValues ...any) {
+func (s *EngineServer) Debug(msg string, keysAndValues ...any) {
 	s.logger.Debug(msg, keysAndValues...)
 }
 
-func (s *JeevesCoreServer) Info(msg string, keysAndValues ...any) {
+func (s *EngineServer) Info(msg string, keysAndValues ...any) {
 	s.logger.Info(msg, keysAndValues...)
 }
 
-func (s *JeevesCoreServer) Warn(msg string, keysAndValues ...any) {
+func (s *EngineServer) Warn(msg string, keysAndValues ...any) {
 	s.logger.Warn(msg, keysAndValues...)
 }
 
-func (s *JeevesCoreServer) Error(msg string, keysAndValues ...any) {
+func (s *EngineServer) Error(msg string, keysAndValues ...any) {
 	s.logger.Error(msg, keysAndValues...)
 }
 
-func (s *JeevesCoreServer) Bind(fields ...any) agents.Logger {
+func (s *EngineServer) Bind(fields ...any) agents.Logger {
 	return s
 }
 
@@ -296,7 +298,7 @@ func (s *JeevesCoreServer) Bind(fields ...any) agents.Logger {
 // Conversion Functions
 // =============================================================================
 
-func envelopeToProto(e *envelope.GenericEnvelope) *pb.Envelope {
+func envelopeToProto(e *envelope.Envelope) *pb.Envelope {
 	proto := &pb.Envelope{
 		EnvelopeId:         e.EnvelopeID,
 		RequestId:          e.RequestID,
@@ -364,8 +366,8 @@ func envelopeToProto(e *envelope.GenericEnvelope) *pb.Envelope {
 	return proto
 }
 
-func protoToEnvelope(p *pb.Envelope) *envelope.GenericEnvelope {
-	e := envelope.NewGenericEnvelope()
+func protoToEnvelope(p *pb.Envelope) *envelope.Envelope {
+	e := envelope.NewEnvelope()
 
 	e.EnvelopeID = p.EnvelopeId
 	e.RequestID = p.RequestId
@@ -600,28 +602,28 @@ func protoToInterruptKind(k pb.InterruptKind) envelope.InterruptKind {
 // =============================================================================
 
 // Start starts the gRPC server on the given address.
-func Start(address string, server *JeevesCoreServer) error {
+func Start(address string, server *EngineServer) error {
 	lis, err := net.Listen("tcp", address)
 	if err != nil {
 		return fmt.Errorf("failed to listen: %w", err)
 	}
 
 	grpcServer := grpc.NewServer()
-	pb.RegisterJeevesCoreServiceServer(grpcServer, server)
+	pb.RegisterEngineServiceServer(grpcServer, server)
 
 	server.logger.Info("grpc_server_started", "address", address)
 	return grpcServer.Serve(lis)
 }
 
 // StartBackground starts the gRPC server in a goroutine.
-func StartBackground(address string, server *JeevesCoreServer) (*grpc.Server, error) {
+func StartBackground(address string, server *EngineServer) (*grpc.Server, error) {
 	lis, err := net.Listen("tcp", address)
 	if err != nil {
 		return nil, fmt.Errorf("failed to listen: %w", err)
 	}
 
 	grpcServer := grpc.NewServer()
-	pb.RegisterJeevesCoreServiceServer(grpcServer, server)
+	pb.RegisterEngineServiceServer(grpcServer, server)
 
 	go func() {
 		if err := grpcServer.Serve(lis); err != nil {
@@ -641,7 +643,7 @@ func StartBackground(address string, server *JeevesCoreServer) (*grpc.Server, er
 // It listens for context cancellation and shuts down cleanly.
 type GracefulServer struct {
 	grpcServer  *grpc.Server
-	coreServer  *JeevesCoreServer
+	coreServer  *EngineServer
 	address     string
 	listener    net.Listener
 	shutdownMu  sync.Mutex
@@ -649,14 +651,14 @@ type GracefulServer struct {
 }
 
 // NewGracefulServer creates a new GracefulServer with interceptors.
-func NewGracefulServer(coreServer *JeevesCoreServer, address string, opts ...grpc.ServerOption) (*GracefulServer, error) {
+func NewGracefulServer(coreServer *EngineServer, address string, opts ...grpc.ServerOption) (*GracefulServer, error) {
 	// Add default interceptors if none provided
 	if len(opts) == 0 {
 		opts = ServerOptions(coreServer.logger)
 	}
 
 	grpcServer := grpc.NewServer(opts...)
-	pb.RegisterJeevesCoreServiceServer(grpcServer, coreServer)
+	pb.RegisterEngineServiceServer(grpcServer, coreServer)
 
 	return &GracefulServer{
 		grpcServer: grpcServer,
@@ -788,5 +790,20 @@ func (s *GracefulServer) GetGRPCServer() *grpc.Server {
 // Address returns the server address.
 func (s *GracefulServer) Address() string {
 	return s.address
+}
+
+// =============================================================================
+// Metrics Server
+// =============================================================================
+
+// StartMetricsServer starts an HTTP server to expose Prometheus metrics.
+// This should be called in a separate goroutine alongside the gRPC server.
+// The metrics endpoint is available at http://address/metrics
+func StartMetricsServer(address string, logger Logger) error {
+	mux := http.NewServeMux()
+	mux.Handle("/metrics", promhttp.Handler())
+
+	logger.Info("metrics_server_started", "address", address, "path", "/metrics")
+	return http.ListenAndServe(address, mux)
 }
 

@@ -105,14 +105,14 @@ class TestPipelineConfig:
         assert order == ["first", "second", "third"]
 
 
-class TestCoreConfig:
-    """Tests for CoreConfig dataclass."""
+class TestExecutionConfig:
+    """Tests for ExecutionConfig dataclass."""
 
     def test_core_config_creation(self):
-        """Test creating CoreConfig."""
-        from jeeves_protocols import CoreConfig
+        """Test creating ExecutionConfig."""
+        from jeeves_protocols import ExecutionConfig
 
-        config = CoreConfig(
+        config = ExecutionConfig(
             max_iterations=5,
             max_llm_calls=20,
         )

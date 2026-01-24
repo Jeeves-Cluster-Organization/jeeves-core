@@ -32,7 +32,7 @@ from jeeves_protocols import (
     LoggerProtocol,
     SettingsProtocol,
 )
-from jeeves_protocols.config import CoreConfig, ContextBounds, OrchestrationFlags
+from jeeves_protocols.config import ExecutionConfig, ContextBounds, OrchestrationFlags
 
 if TYPE_CHECKING:
     from jeeves_avionics.settings import Settings
@@ -85,7 +85,7 @@ class AppContext:
             settings=settings,
             feature_flags=feature_flags,
             logger=logger,
-            core_config=CoreConfig(),
+            core_config=ExecutionConfig(),
             orchestration_flags=OrchestrationFlags(),
         )
 
@@ -103,7 +103,7 @@ class AppContext:
     config_registry: Optional[ConfigRegistryProtocol] = None
 
     # Core configuration (previously global state in jeeves_protocols)
-    core_config: CoreConfig = field(default_factory=CoreConfig)
+    core_config: ExecutionConfig = field(default_factory=ExecutionConfig)
     orchestration_flags: OrchestrationFlags = field(default_factory=OrchestrationFlags)
     vertical_registry: Dict[str, bool] = field(default_factory=dict)
 

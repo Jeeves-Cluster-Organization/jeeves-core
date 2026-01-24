@@ -169,19 +169,19 @@ type AgentToolAccessResponse struct {
 	DeniedTools  []string `json:"denied_tools,omitempty"`
 }
 
-// GetNodeProfile queries LLM configuration for an agent.
-type GetNodeProfile struct {
+// GetInferenceEndpoint queries LLM configuration for an agent.
+type GetInferenceEndpoint struct {
 	AgentName string `json:"agent_name"`
 }
 
 // Category implements the Message interface.
-func (m *GetNodeProfile) Category() string { return string(MessageCategoryQuery) }
+func (m *GetInferenceEndpoint) Category() string { return string(MessageCategoryQuery) }
 
 // IsQuery implements the Query interface.
-func (m *GetNodeProfile) IsQuery() {}
+func (m *GetInferenceEndpoint) IsQuery() {}
 
-// NodeProfileResponse is the response for GetNodeProfile query.
-type NodeProfileResponse struct {
+// InferenceEndpointResponse is the response for GetInferenceEndpoint query.
+type InferenceEndpointResponse struct {
 	Model        string   `json:"model"`
 	Temperature  *float64 `json:"temperature,omitempty"`
 	MaxTokens    *int     `json:"max_tokens,omitempty"`
@@ -413,8 +413,8 @@ func GetMessageType(msg Message) string {
 		return "StageTransition"
 	case *GetAgentToolAccess:
 		return "GetAgentToolAccess"
-	case *GetNodeProfile:
-		return "GetNodeProfile"
+	case *GetInferenceEndpoint:
+		return "GetInferenceEndpoint"
 	case *GetLanguageConfig:
 		return "GetLanguageConfig"
 	case *GetSettings:

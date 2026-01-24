@@ -101,7 +101,7 @@ class AgentEvent:
         return json.dumps(self.to_dict())
 
 
-class AgentEventEmitter:
+class EventEmitter:
     """
     Async queue-based event emitter for agent activity.
 
@@ -110,7 +110,7 @@ class AgentEventEmitter:
     clients.
 
     Example:
-        emitter = AgentEventEmitter()
+        emitter = EventEmitter()
 
         # In service/nodes:
         await emitter.emit_agent_started("planner", request_context)
@@ -325,6 +325,6 @@ class AgentEventEmitter:
             return None
 
 
-def create_agent_event_emitter() -> AgentEventEmitter:
+def create_agent_event_emitter() -> EventEmitter:
     """Factory function to create an event emitter."""
-    return AgentEventEmitter()
+    return EventEmitter()

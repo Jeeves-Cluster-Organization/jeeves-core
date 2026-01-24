@@ -13,12 +13,12 @@ This document tracks architectural improvements to the execution model.
 Renamed `DAGMode` / `dag_mode` to `ParallelMode` / `parallel_mode` throughout the codebase:
 
 **Go Files:**
-- `coreengine/envelope/generic.go` - Field renamed, JSON key updated
+- `coreengine/envelope/envelope.go` - Field renamed, JSON key updated
 - `coreengine/envelope/generic_test.go` - Test names and assertions updated
 - `coreengine/config/pipeline.go` - Comment updated
 - `coreengine/runtime/runtime.go` - Comment updated
 - `coreengine/grpc/server.go` - Comments updated
-- `coreengine/proto/jeeves_core.proto` - Comment updated
+- `coreengine/proto/engine.proto` - Comment updated
 
 **Python Files:**
 - `jeeves_protocols/envelope.py` - Field renamed, JSON keys updated
@@ -52,11 +52,11 @@ type RunOptions struct {
 }
 
 // Single entry point
-func (r *Runtime) Execute(ctx, env, opts RunOptions) (*GenericEnvelope, <-chan StageOutput, error)
+func (r *Runtime) Execute(ctx, env, opts RunOptions) (*Envelope, <-chan StageOutput, error)
 
 // Convenience methods
-func (r *Runtime) Run(ctx, env, threadID) (*GenericEnvelope, error)
-func (r *Runtime) RunParallel(ctx, env, threadID) (*GenericEnvelope, error)
+func (r *Runtime) Run(ctx, env, threadID) (*Envelope, error)
+func (r *Runtime) RunParallel(ctx, env, threadID) (*Envelope, error)
 func (r *Runtime) RunWithStream(ctx, env, threadID) (<-chan StageOutput, error)
 ```
 
@@ -92,7 +92,7 @@ continuation logic:
 
 **Before:**
 ```go
-func (r *Runtime) shouldContinue(env *GenericEnvelope) (bool, string) {
+func (r *Runtime) shouldContinue(env *Envelope) (bool, string) {
     if !env.CanContinue() {
         r.Logger.Warn("pipeline_bounds_exceeded", ...)
         return false, "bounds_exceeded"
@@ -107,7 +107,7 @@ func (r *Runtime) shouldContinue(env *GenericEnvelope) (bool, string) {
 
 **After:**
 ```go
-func (r *Runtime) shouldContinue(env *GenericEnvelope) (bool, string) {
+func (r *Runtime) shouldContinue(env *Envelope) (bool, string) {
     if !env.CanContinue() {
         // CanContinue() already checks: Terminated, InterruptPending, bounds
         reason := "cannot_continue"
@@ -172,10 +172,10 @@ Per Contract 6 (Dead Code Removal): Unused code must be removed, not kept "for f
 
 ```python
 class GrpcGoClient:
-    def create_envelope(...) -> GenericEnvelope
-    def update_envelope(...) -> GenericEnvelope
+    def create_envelope(...) -> Envelope
+    def update_envelope(...) -> Envelope
     def check_bounds(...) -> BoundsResult
-    def clone_envelope(...) -> GenericEnvelope
+    def clone_envelope(...) -> Envelope
     def execute_agent(...) -> AgentResult
     def execute_pipeline(...) -> Iterator[ExecutionEvent]
 

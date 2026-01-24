@@ -6,7 +6,7 @@ Constitutional Pattern:
 - This module bridges events to WebSocket clients
 
 UNIFIED EVENT SUPPORT (2025-12-14):
-- Now receives UnifiedEvent instances from gateway_events
+- Now receives Event instances from gateway_events
 - Converts to JSON format for WebSocket transmission
 - Constitutional compliance with EventEmitterProtocol
 
@@ -20,7 +20,7 @@ from typing import Set
 from fastapi import WebSocket
 
 from jeeves_avionics.logging import get_current_logger
-from jeeves_protocols.events import UnifiedEvent
+from jeeves_protocols.events import Event
 
 
 # Connected WebSocket clients (module-level state)
@@ -88,14 +88,14 @@ async def broadcast_to_clients(message: dict) -> int:
 # Event Bus Integration
 # =============================================================================
 
-async def _handle_agent_event(event: UnifiedEvent) -> None:
+async def _handle_agent_event(event: Event) -> None:
     """
     Handle unified events by broadcasting to WebSocket clients.
 
     This is the subscriber that bridges gateway events to WebSocket.
 
     Args:
-        event: UnifiedEvent instance from gateway_events
+        event: Event instance from gateway_events
 
     The event is converted to JSON-friendly format before broadcast:
     - type: "event" (message type indicator)
@@ -138,7 +138,7 @@ async def setup_websocket_subscriptions() -> None:
 
     _logger = get_current_logger()
 
-    # Subscribe to all agent-related events with UnifiedEvent handler
+    # Subscribe to all agent-related events with Event handler
     patterns = [
         "agent.*",
         "perception.*",

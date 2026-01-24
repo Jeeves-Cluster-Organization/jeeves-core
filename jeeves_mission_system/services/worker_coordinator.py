@@ -21,7 +21,7 @@ from jeeves_protocols import (
     DistributedTask,
     QueueStats,
     CheckpointProtocol,
-    GenericEnvelope,
+    Envelope,
     PipelineConfig,
     AgentConfig,
     Runtime,
@@ -120,7 +120,7 @@ class WorkerCoordinator:
 
     async def submit_envelope(
         self,
-        envelope: GenericEnvelope,
+        envelope: Envelope,
         queue_name: str,
         agent_name: Optional[str] = None,
         priority: int = 0,
@@ -134,7 +134,7 @@ class WorkerCoordinator:
         - Emits process.created event
 
         Args:
-            envelope: GenericEnvelope to process
+            envelope: Envelope to process
             queue_name: Target queue
             agent_name: Specific agent to run (or next in pipeline)
             priority: Task priority (higher = more urgent)
@@ -213,7 +213,7 @@ class WorkerCoordinator:
     async def run_worker(
         self,
         config: WorkerConfig,
-        agent_handler: Optional[Callable[[GenericEnvelope, str], GenericEnvelope]] = None,
+        agent_handler: Optional[Callable[[Envelope, str], Envelope]] = None,
     ) -> None:
         """Run as a distributed worker.
 
@@ -353,7 +353,7 @@ class WorkerCoordinator:
 
         try:
             # Reconstruct envelope from state
-            envelope = GenericEnvelope.from_dict(task.envelope_state)
+            envelope = Envelope.from_dict(task.envelope_state)
             pid = envelope.envelope_id
 
             # Transition to RUNNING state via Control Tower
@@ -536,7 +536,7 @@ class DistributedPipelineRunner:
         self._config = pipeline_config
         self._logger = logger or get_current_logger()
 
-    async def run(self, envelope: GenericEnvelope) -> str:
+    async def run(self, envelope: Envelope) -> str:
         """Run pipeline on envelope, distributing work to workers.
 
         Args:

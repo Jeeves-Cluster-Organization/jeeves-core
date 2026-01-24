@@ -26,7 +26,7 @@ func TestPipeline_LinearExecution(t *testing.T) {
 	mockLLM := testutil.NewMockLLMProvider()
 	llmFactory := func(role string) LLMProvider { return mockLLM }
 
-	runtime, err := NewRuntime(cfg, llmFactory, nil, testutil.NewMockLogger())
+	runtime, err := NewPipelineRunner(cfg, llmFactory, nil, testutil.NewMockLogger())
 	require.NoError(t, err)
 
 	env := testutil.NewTestEnvelopeWithStages("Test input", []string{"stageA", "stageB", "stageC", "end"})
@@ -59,7 +59,7 @@ func TestPipeline_LinearExecutionWithTools(t *testing.T) {
 
 	llmFactory := func(role string) LLMProvider { return mockLLM }
 
-	runtime, err := NewRuntime(cfg, llmFactory, mockTools, testutil.NewMockLogger())
+	runtime, err := NewPipelineRunner(cfg, llmFactory, mockTools, testutil.NewMockLogger())
 	require.NoError(t, err)
 
 	env := testutil.NewTestEnvelopeWithStages("Test with tools", []string{"stageA", "stageB", "stageC", "end"})
@@ -78,7 +78,7 @@ func TestPipeline_EmptyPipeline(t *testing.T) {
 		Agents:        []*config.AgentConfig{},
 	}
 
-	runtime, err := NewRuntime(cfg, nil, nil, testutil.NewMockLogger())
+	runtime, err := NewPipelineRunner(cfg, nil, nil, testutil.NewMockLogger())
 	require.NoError(t, err)
 
 	env := testutil.NewTestEnvelope("Empty test")
@@ -114,7 +114,7 @@ func TestPipeline_CyclicRouting(t *testing.T) {
 
 	llmFactory := func(role string) LLMProvider { return mockLLM }
 
-	runtime, err := NewRuntime(cfg, llmFactory, nil, testutil.NewMockLogger())
+	runtime, err := NewPipelineRunner(cfg, llmFactory, nil, testutil.NewMockLogger())
 	require.NoError(t, err)
 
 	env := testutil.NewTestEnvelopeWithStages("Cyclic test", []string{"stageA", "stageB", "stageC", "end"})
@@ -160,7 +160,7 @@ func TestPipeline_CyclicRoutingEdgeLimitEnforced(t *testing.T) {
 
 	llmFactory := func(role string) LLMProvider { return mockLLM }
 
-	runtime, err := NewRuntime(cfg, llmFactory, nil, testutil.NewMockLogger())
+	runtime, err := NewPipelineRunner(cfg, llmFactory, nil, testutil.NewMockLogger())
 	require.NoError(t, err)
 
 	env := testutil.NewTestEnvelopeWithStages("Edge limit test", []string{"stageA", "stageB", "stageC", "end"})
@@ -205,7 +205,7 @@ func TestPipeline_RoutingRulesVerdictProceed(t *testing.T) {
 
 	llmFactory := func(role string) LLMProvider { return mockLLM }
 
-	runtime, err := NewRuntime(cfg, llmFactory, nil, testutil.NewMockLogger())
+	runtime, err := NewPipelineRunner(cfg, llmFactory, nil, testutil.NewMockLogger())
 	require.NoError(t, err)
 
 	env := testutil.NewTestEnvelopeWithStages("Routing test", []string{"stageA", "stageB", "stageC", "end"})
@@ -247,7 +247,7 @@ func TestPipeline_RoutingRulesDefaultNext(t *testing.T) {
 
 	llmFactory := func(role string) LLMProvider { return mockLLM }
 
-	runtime, err := NewRuntime(cfg, llmFactory, nil, testutil.NewMockLogger())
+	runtime, err := NewPipelineRunner(cfg, llmFactory, nil, testutil.NewMockLogger())
 	require.NoError(t, err)
 
 	env := testutil.NewTestEnvelopeWithStages("Default routing test", []string{"stageA", "stageB", "stageC", "end"})
@@ -290,7 +290,7 @@ func TestPipeline_BoundsMaxIterations(t *testing.T) {
 
 	llmFactory := func(role string) LLMProvider { return mockLLM }
 
-	runtime, err := NewRuntime(cfg, llmFactory, nil, testutil.NewMockLogger())
+	runtime, err := NewPipelineRunner(cfg, llmFactory, nil, testutil.NewMockLogger())
 	require.NoError(t, err)
 
 	env := testutil.NewTestEnvelopeWithStages("Iteration limit test", []string{"stageA", "end"})
@@ -320,7 +320,7 @@ func TestPipeline_BoundsMaxLLMCalls(t *testing.T) {
 	mockLLM := testutil.NewMockLLMProvider()
 	llmFactory := func(role string) LLMProvider { return mockLLM }
 
-	runtime, err := NewRuntime(cfg, llmFactory, nil, testutil.NewMockLogger())
+	runtime, err := NewPipelineRunner(cfg, llmFactory, nil, testutil.NewMockLogger())
 	require.NoError(t, err)
 
 	env := testutil.NewTestEnvelopeWithStages("LLM limit test", []string{"stageA", "stageB", "stageC", "stageD", "end"})
@@ -353,7 +353,7 @@ func TestPipeline_BoundsMaxAgentHops(t *testing.T) {
 	mockLLM := testutil.NewMockLLMProvider()
 	llmFactory := func(role string) LLMProvider { return mockLLM }
 
-	runtime, err := NewRuntime(cfg, llmFactory, nil, testutil.NewMockLogger())
+	runtime, err := NewPipelineRunner(cfg, llmFactory, nil, testutil.NewMockLogger())
 	require.NoError(t, err)
 
 	env := testutil.NewTestEnvelopeWithStages("Hop limit test",
@@ -377,7 +377,7 @@ func TestPipeline_TerminalReasonCompleted(t *testing.T) {
 	mockLLM := testutil.NewMockLLMProvider()
 	llmFactory := func(role string) LLMProvider { return mockLLM }
 
-	runtime, err := NewRuntime(cfg, llmFactory, nil, testutil.NewMockLogger())
+	runtime, err := NewPipelineRunner(cfg, llmFactory, nil, testutil.NewMockLogger())
 	require.NoError(t, err)
 
 	env := testutil.NewTestEnvelopeWithStages("Completion test", []string{"stageA", "end"})
@@ -404,7 +404,7 @@ func TestPipeline_PersistenceOnCompletion(t *testing.T) {
 
 	llmFactory := func(role string) LLMProvider { return mockLLM }
 
-	runtime, err := NewRuntime(cfg, llmFactory, nil, testutil.NewMockLogger())
+	runtime, err := NewPipelineRunner(cfg, llmFactory, nil, testutil.NewMockLogger())
 	require.NoError(t, err)
 	runtime.Persistence = mockPersistence
 
@@ -426,7 +426,7 @@ func TestPipeline_PersistenceError(t *testing.T) {
 
 	llmFactory := func(role string) LLMProvider { return mockLLM }
 
-	runtime, err := NewRuntime(cfg, llmFactory, nil, testutil.NewMockLogger())
+	runtime, err := NewPipelineRunner(cfg, llmFactory, nil, testutil.NewMockLogger())
 	require.NoError(t, err)
 	runtime.Persistence = mockPersistence
 
@@ -451,7 +451,7 @@ func TestPipeline_EventEmission(t *testing.T) {
 
 	llmFactory := func(role string) LLMProvider { return mockLLM }
 
-	runtime, err := NewRuntime(cfg, llmFactory, nil, testutil.NewMockLogger())
+	runtime, err := NewPipelineRunner(cfg, llmFactory, nil, testutil.NewMockLogger())
 	require.NoError(t, err)
 	runtime.SetEventContext(mockEvents)
 
@@ -484,7 +484,7 @@ func TestPipeline_ContextCancellation(t *testing.T) {
 
 	llmFactory := func(role string) LLMProvider { return mockLLM }
 
-	runtime, err := NewRuntime(cfg, llmFactory, nil, testutil.NewMockLogger())
+	runtime, err := NewPipelineRunner(cfg, llmFactory, nil, testutil.NewMockLogger())
 	require.NoError(t, err)
 
 	env := testutil.NewTestEnvelopeWithStages("Cancel test", []string{"stageA", "stageB", "stageC", "end"})
@@ -509,7 +509,7 @@ func TestPipeline_StreamingExecution(t *testing.T) {
 	mockLLM := testutil.NewMockLLMProvider()
 	llmFactory := func(role string) LLMProvider { return mockLLM }
 
-	runtime, err := NewRuntime(cfg, llmFactory, nil, testutil.NewMockLogger())
+	runtime, err := NewPipelineRunner(cfg, llmFactory, nil, testutil.NewMockLogger())
 	require.NoError(t, err)
 
 	env := testutil.NewTestEnvelopeWithStages("Stream test", []string{"stageA", "stageB", "end"})

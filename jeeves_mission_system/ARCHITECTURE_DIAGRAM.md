@@ -41,7 +41,7 @@ jeeves_mission_system/
 │  ├─ main.py                   # FastAPI app
 │  ├─ routers/
 │  │  ├─ chat.py                # Chat endpoints
-│  │  ├─ governance.py          # Governance dashboard
+│  │  ├─ health.py          # Governance dashboard
 │  │  └─ health.py              # Health checks
 │  └─ templates/                # Jinja2 templates
 │
@@ -527,7 +527,7 @@ Capabilities define and register their own tools. The runtime provides a `ToolRe
 │  │  Perception → Intent → Planner → ... → Integration      │ │
 │  │                                                          │ │
 │  │  Uses:                                                   │ │
-│  │  • Core Engine (Agent, GenericEnvelope, StateDelta)     │ │
+│  │  • Core Engine (Agent, Envelope, StateDelta)     │ │
 │  │  • Avionics (LLM, Database, Memory via context)         │ │
 │  │  • Mission System (Tools, ToolRegistry)                 │ │
 │  └─────────────────────────────────────────────────────────┘ │

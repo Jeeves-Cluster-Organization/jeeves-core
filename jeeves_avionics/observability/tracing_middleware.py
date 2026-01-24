@@ -333,10 +333,10 @@ class SpanContextPropagator:
         envelope: Any,
         request_id: Optional[str] = None,
     ) -> None:
-        """Inject trace context into a GenericEnvelope.
+        """Inject trace context into a Envelope.
 
         Args:
-            envelope: GenericEnvelope to inject into
+            envelope: Envelope to inject into
             request_id: Request ID (defaults to envelope.request_id)
         """
         req_id = request_id or getattr(envelope, "request_id", "default")
@@ -351,10 +351,10 @@ class SpanContextPropagator:
         self,
         envelope: Any,
     ) -> Optional[Dict[str, str]]:
-        """Extract trace context from a GenericEnvelope.
+        """Extract trace context from a Envelope.
 
         Args:
-            envelope: GenericEnvelope to extract from
+            envelope: Envelope to extract from
 
         Returns:
             Trace context headers or None

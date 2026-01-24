@@ -10,6 +10,7 @@ from jeeves_mission_system.verticals.registry import (
     get,
     get_agent_class,
     list_verticals,
+    is_registered,
 )
 
 __all__ = [
@@ -18,4 +19,5 @@ __all__ = [
     "get",
     "get_agent_class",
     "list_verticals",
+    "is_registered",
 ]

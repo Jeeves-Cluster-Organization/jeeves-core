@@ -60,10 +60,10 @@ def sample_request_context():
 
 @pytest.fixture
 def sample_envelope(sample_request_context):
-    """Create a sample GenericEnvelope for testing."""
-    from jeeves_protocols import GenericEnvelope
+    """Create a sample Envelope for testing."""
+    from jeeves_protocols import Envelope
 
-    return GenericEnvelope(
+    return Envelope(
         request_context=sample_request_context,
         envelope_id="env-123",
         request_id="req-456",

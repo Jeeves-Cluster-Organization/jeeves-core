@@ -155,7 +155,7 @@ func handleCreate() {
 	}
 
 	// Create envelope
-	env := envelope.CreateGenericEnvelope(
+	env := envelope.CreateEnvelope(
 		createInput.RawInput,
 		createInput.UserID,
 		createInput.SessionID,

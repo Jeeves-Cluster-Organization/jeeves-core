@@ -520,7 +520,7 @@ class LanguageConfigProtocol(Protocol):
 # =============================================================================
 
 @dataclass
-class NodeProfile:
+class InferenceEndpoint:
     """Profile for a distributed LLM node.
 
     Used for routing agents to specific nodes in distributed deployments.
@@ -586,27 +586,27 @@ class NodeProfile:
 
 
 @runtime_checkable
-class NodeProfilesProtocol(Protocol):
+class InferenceEndpointsProtocol(Protocol):
     """Node profiles interface for distributed LLM routing.
 
     Used to route agents to their assigned nodes in distributed deployments.
     """
 
-    def get_profile_for_agent(self, agent_name: str) -> NodeProfile:
+    def get_profile_for_agent(self, agent_name: str) -> InferenceEndpoint:
         """Get the node profile assigned to an agent.
 
         Args:
             agent_name: Name of the agent (e.g., "planner", "executor")
 
         Returns:
-            NodeProfile with base_url, model_name, etc.
+            InferenceEndpoint with base_url, model_name, etc.
 
         Raises:
             KeyError: If no profile is assigned to the agent
         """
         ...
 
-    def list_profiles(self) -> List[NodeProfile]:
+    def list_profiles(self) -> List[InferenceEndpoint]:
         """List all configured node profiles."""
         ...
 
@@ -639,7 +639,7 @@ class AgentLLMConfig:
 
 
 @runtime_checkable
-class CapabilityLLMConfigRegistryProtocol(Protocol):
+class DomainLLMRegistryProtocol(Protocol):
     """Registry for capability-owned agent LLM configurations.
 
     Capabilities register their agent configurations at startup.

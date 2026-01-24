@@ -2,7 +2,7 @@
 Centralized agent event context for unified event emission.
 
 Provides a single interface for emitting both:
-- Real-time agent events (AgentEventEmitter) for frontend streaming
+- Real-time agent events (EventEmitter) for frontend streaming
 - Domain events (EventEmitter) for audit/persistence
 
 This addresses the gap where events were spread across multiple systems
@@ -10,7 +10,7 @@ with inconsistent emission patterns.
 
 Usage:
     # Create context for a request
-    context = AgentEventContext(
+    context = EventContext(
         request_context=RequestContext(
             request_id="req_456",
             capability="example",
@@ -38,15 +38,15 @@ from jeeves_mission_system.adapters import get_logger
 
 if TYPE_CHECKING:
     from jeeves_mission_system.orchestrator.agent_events import AgentEventEmitter
-    from jeeves_memory_module.services.event_emitter import EventEmitter
+    from jeeves_memory_module.services.event_emitter import EventEmitter as DomainEventEmitter
 
 
 @dataclass
-class AgentEventContext:
+class EventContext:
     """
     Unified context for agent event emission.
 
-    Bridges the real-time AgentEventEmitter (for frontend streaming) with
+    Bridges the real-time EventEmitter (for frontend streaming) with
     the domain EventEmitter (for audit/persistence), ensuring events are
     emitted consistently from a single point.
 
@@ -59,7 +59,7 @@ class AgentEventContext:
 
     request_context: RequestContext
     agent_event_emitter: Optional["AgentEventEmitter"] = None
-    domain_event_emitter: Optional["EventEmitter"] = None
+    domain_event_emitter: Optional["DomainEventEmitter"] = None
     correlation_id: Optional[str] = None
     _logger: Any = field(default=None, repr=False)
 
@@ -659,11 +659,11 @@ class AgentEventContext:
 def create_event_context(
     request_context: RequestContext,
     agent_event_emitter: Optional["AgentEventEmitter"] = None,
-    domain_event_emitter: Optional["EventEmitter"] = None,
+    domain_event_emitter: Optional["DomainEventEmitter"] = None,
     correlation_id: Optional[str] = None,
-) -> AgentEventContext:
+) -> EventContext:
     """
-    Factory function to create an AgentEventContext.
+    Factory function to create an EventContext.
 
     Args:
         request_context: RequestContext for the request
@@ -672,9 +672,9 @@ def create_event_context(
         correlation_id: Optional correlation ID for domain events
 
     Returns:
-        Configured AgentEventContext instance
+        Configured EventContext instance
     """
-    return AgentEventContext(
+    return EventContext(
         request_context=request_context,
         agent_event_emitter=agent_event_emitter,
         domain_event_emitter=domain_event_emitter,

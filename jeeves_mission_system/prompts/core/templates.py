@@ -1,5 +1,5 @@
 """
-Prompt template utilities for Code Analysis Agent.
+Prompt template utilities for mission system agents.
 
 Constitutional Alignment:
 - P1 (NLP-First): Intent-based guidance, not pattern rules

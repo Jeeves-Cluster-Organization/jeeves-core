@@ -12,7 +12,7 @@ Layering rules:
 from datetime import datetime
 from typing import Any, Dict, List, Optional, Protocol, runtime_checkable
 
-from jeeves_protocols import GenericEnvelope, RequestContext
+from jeeves_protocols import Envelope, RequestContext
 
 from jeeves_protocols import InterruptKind
 from jeeves_control_tower.types import (
@@ -54,7 +54,7 @@ class LifecycleManagerProtocol(Protocol):
 
     def submit(
         self,
-        envelope: GenericEnvelope,
+        envelope: Envelope,
         priority: SchedulingPriority = SchedulingPriority.NORMAL,
         quota: Optional[ResourceQuota] = None,
     ) -> ProcessControlBlock:
@@ -360,8 +360,8 @@ class CommBusCoordinatorProtocol(Protocol):
     async def dispatch(
         self,
         target: DispatchTarget,
-        envelope: GenericEnvelope,
-    ) -> GenericEnvelope:
+        envelope: Envelope,
+    ) -> Envelope:
         """Dispatch a request to a service.
 
         This is how the kernel sends work to services.
@@ -552,10 +552,10 @@ class ControlTowerProtocol(Protocol):
 
     async def submit_request(
         self,
-        envelope: GenericEnvelope,
+        envelope: Envelope,
         priority: SchedulingPriority = SchedulingPriority.NORMAL,
         quota: Optional[ResourceQuota] = None,
-    ) -> GenericEnvelope:
+    ) -> Envelope:
         """Submit a request for processing.
 
         This is the main entry point for requests.
@@ -575,7 +575,7 @@ class ControlTowerProtocol(Protocol):
         self,
         pid: str,
         response_data: Dict[str, Any],
-    ) -> GenericEnvelope:
+    ) -> Envelope:
         """Resume a waiting request.
 
         Used to resume after clarification/confirmation.

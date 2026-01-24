@@ -60,7 +60,7 @@ Control Tower **ONLY imports from** `jeeves_protocols` and `jeeves_shared`:
 
 ```python
 # CORRECT: Import from protocols
-from jeeves_protocols import GenericEnvelope, ServiceProtocol
+from jeeves_protocols import Envelope, ServiceProtocol
 from jeeves_protocols import InterruptKind, RateLimitConfig  # Interrupt/rate limit types
 from jeeves_shared import get_component_logger  # Shared logging utilities
 
@@ -96,7 +96,7 @@ kernel.register_service(
 **Registration requirements:**
 - Unique service name
 - Service type (flow, worker, vertical)
-- Handler function matching `async def handler(envelope: GenericEnvelope) -> EnvelopeResult`
+- Handler function matching `async def handler(envelope: Envelope) -> EnvelopeResult`
 - Optional resource quota overrides
 
 ### R3: Request Lifecycle States
@@ -127,7 +127,7 @@ ResourceTracker enforces quotas BEFORE dispatch:
 
 ```python
 # Quota check before dispatch
-async def submit_request(self, envelope: GenericEnvelope) -> EnvelopeResult:
+async def submit_request(self, envelope: Envelope) -> EnvelopeResult:
     # 1. Check quotas
     if not self.resource_tracker.can_allocate(envelope):
         raise ResourceQuotaExceeded(
@@ -225,7 +225,7 @@ class ProcessControlBlock:
     pid: str                    # Process/request ID
     state: ProcessState         # Current state
     priority: SchedulingPriority
-    envelope: GenericEnvelope   # Request data
+    envelope: Envelope   # Request data
     resource_usage: ResourceUsage
     created_at: datetime
     updated_at: datetime
@@ -259,7 +259,7 @@ Routes requests to registered services and provides IPC via InMemoryCommBus:
 class ServiceDescriptor:
     name: str
     service_type: str
-    handler: Callable[[GenericEnvelope], Awaitable[EnvelopeResult]]
+    handler: Callable[[Envelope], Awaitable[EnvelopeResult]]
     resource_quota: Optional[ResourceQuota] = None
 ```
 
@@ -317,7 +317,7 @@ async def subscribe(
 
 ```python
 from jeeves_control_tower import ControlTower
-from jeeves_protocols import GenericEnvelope
+from jeeves_protocols import Envelope
 
 # 1. Create kernel
 kernel = ControlTower(logger=logger)
@@ -330,7 +330,7 @@ kernel.register_service(
 )
 
 # 3. Submit request
-envelope = GenericEnvelope(
+envelope = Envelope(
     user_input="How does authentication work?",
     user_id="user123",
     session_id="session456",

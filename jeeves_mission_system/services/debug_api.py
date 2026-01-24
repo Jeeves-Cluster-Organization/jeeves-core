@@ -11,7 +11,7 @@ from typing import Any, Dict, List, Optional
 from jeeves_protocols import (
     CheckpointProtocol,
     CheckpointRecord,
-    GenericEnvelope,
+    Envelope,
     PipelineConfig,
     OptionalCheckpoint,
     LoggerProtocol,
@@ -79,7 +79,7 @@ class ReplayResult:
     original_checkpoint_id: str
     forked_envelope_id: str
     new_checkpoint_id: str
-    envelope: Optional[GenericEnvelope] = None
+    envelope: Optional[Envelope] = None
 
     def to_dict(self) -> Dict[str, Any]:
         """Convert to dictionary for API responses."""
@@ -91,11 +91,11 @@ class ReplayResult:
         }
 
 
-class DebugAPIService:
+class DebugService:
     """Service providing debug inspection and replay capabilities.
 
     Usage:
-        debug = DebugAPIService(checkpoint_adapter)
+        debug = DebugService(checkpoint_adapter)
 
         # Get execution timeline
         timeline = await debug.get_timeline("env_123")
@@ -256,7 +256,7 @@ class DebugAPIService:
         envelope = None
         if state:
             try:
-                envelope = GenericEnvelope.from_dict(state)
+                envelope = Envelope.from_dict(state)
             except Exception as e:
                 self._logger.warning(
                     "debug_envelope_restore_failed",

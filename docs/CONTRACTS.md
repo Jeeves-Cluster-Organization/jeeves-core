@@ -151,10 +151,10 @@ from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
     # CORRECT: Absolute imports
-    from jeeves_mission_system.orchestrator.agent_events import AgentEventEmitter
+    from jeeves_mission_system.orchestrator.agent_events import EventEmitter
 
     # INCORRECT: Relative imports
-    # from orchestrator.agent_events import AgentEventEmitter
+    # from orchestrator.agent_events import EventEmitter
 ```
 
 ---
@@ -304,7 +304,7 @@ class ToolId(str, Enum):
 ## Contract 11: Envelope Sync (Go ↔ Python)
 
 ### Rule
-The Go and Python `GenericEnvelope` implementations MUST produce identical serialization, verified by round-trip contract tests.
+The Go and Python `Envelope` implementations MUST produce identical serialization, verified by round-trip contract tests.
 
 ### Rationale
 - Envelope flows: Go → Python → Go during request lifecycle
@@ -332,7 +332,7 @@ def test_envelope_roundtrip_all_fields():
     
     # Round-trip
     py_dict = original.to_state_dict()
-    py_envelope = GenericEnvelope.from_dict(py_dict)
+    py_envelope = Envelope.from_dict(py_dict)
     go_dict = py_envelope.to_dict()
     
     # Compare
@@ -346,7 +346,7 @@ def test_flow_interrupt_typing():
 ```
 
 ### Affected Components
-- `coreengine/envelope/generic.go` - Go envelope
+- `coreengine/envelope/envelope.go` - Go envelope
 - `jeeves_protocols/envelope.py` - Python envelope
 - `jeeves_protocols/grpc_client.py` - gRPC client (to be implemented)
 
@@ -371,8 +371,8 @@ assert envelope.agent_hop_count == resource_tracker.get_usage(pid).agent_hops
 
 ### Implementation
 ```go
-// Go: in-loop check (coreengine/envelope/generic.go)
-func (e *GenericEnvelope) CanContinue() bool {
+// Go: in-loop check (coreengine/envelope/envelope.go)
+func (e *Envelope) CanContinue() bool {
     if e.LLMCallCount >= e.MaxLLMCalls { return false }
     if e.AgentHopCount >= e.MaxAgentHops { return false }
     // ...

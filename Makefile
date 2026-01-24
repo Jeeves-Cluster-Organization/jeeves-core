@@ -410,7 +410,7 @@ test-discover:
 test-quick:
 	@echo "⚡ Running quick sanity check"
 	python -m pytest \
-		jeeves_protocols/tests/unit/test_core.py \
+		jeeves_protocols/tests/unit/test_enums.py \
 		jeeves_control_tower/tests/unit/test_resource_tracker.py \
 		-v --tb=short
 	@echo ""

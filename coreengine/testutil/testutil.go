@@ -734,8 +734,8 @@ func NewDependencyChainConfig(name string, stages ...string) *config.PipelineCon
 // =============================================================================
 
 // NewTestEnvelope creates an envelope with test defaults.
-func NewTestEnvelope(input string) *envelope.GenericEnvelope {
-	return envelope.CreateGenericEnvelope(
+func NewTestEnvelope(input string) *envelope.Envelope {
+	return envelope.CreateEnvelope(
 		input,
 		"test-user",
 		"test-session",
@@ -746,7 +746,7 @@ func NewTestEnvelope(input string) *envelope.GenericEnvelope {
 }
 
 // NewTestEnvelopeWithStages creates an envelope with specified stage order.
-func NewTestEnvelopeWithStages(input string, stages []string) *envelope.GenericEnvelope {
+func NewTestEnvelopeWithStages(input string, stages []string) *envelope.Envelope {
 	env := NewTestEnvelope(input)
 	env.StageOrder = stages
 	if len(stages) > 0 {
@@ -760,7 +760,7 @@ func NewTestEnvelopeWithStages(input string, stages []string) *envelope.GenericE
 // =============================================================================
 
 // AssertEnvelopeCompleted checks that envelope reached "end" stage.
-func AssertEnvelopeCompleted(env *envelope.GenericEnvelope) error {
+func AssertEnvelopeCompleted(env *envelope.Envelope) error {
 	if env.CurrentStage != "end" {
 		return fmt.Errorf("expected current_stage='end', got '%s'", env.CurrentStage)
 	}
@@ -768,7 +768,7 @@ func AssertEnvelopeCompleted(env *envelope.GenericEnvelope) error {
 }
 
 // AssertEnvelopeTerminated checks that envelope is terminated.
-func AssertEnvelopeTerminated(env *envelope.GenericEnvelope) error {
+func AssertEnvelopeTerminated(env *envelope.Envelope) error {
 	if !env.Terminated {
 		return fmt.Errorf("expected terminated=true, got false")
 	}
@@ -776,7 +776,7 @@ func AssertEnvelopeTerminated(env *envelope.GenericEnvelope) error {
 }
 
 // AssertEnvelopeHasOutput checks that envelope has output for an agent.
-func AssertEnvelopeHasOutput(env *envelope.GenericEnvelope, agentName string) error {
+func AssertEnvelopeHasOutput(env *envelope.Envelope, agentName string) error {
 	if _, exists := env.Outputs[agentName]; !exists {
 		return fmt.Errorf("expected output for agent '%s', not found", agentName)
 	}
@@ -784,7 +784,7 @@ func AssertEnvelopeHasOutput(env *envelope.GenericEnvelope, agentName string) er
 }
 
 // AssertNoInterrupt checks that no interrupt is pending.
-func AssertNoInterrupt(env *envelope.GenericEnvelope) error {
+func AssertNoInterrupt(env *envelope.Envelope) error {
 	if env.InterruptPending {
 		return fmt.Errorf("expected no interrupt, but interrupt is pending")
 	}
@@ -792,7 +792,7 @@ func AssertNoInterrupt(env *envelope.GenericEnvelope) error {
 }
 
 // AssertInterruptPending checks that an interrupt is pending.
-func AssertInterruptPending(env *envelope.GenericEnvelope, kind envelope.InterruptKind) error {
+func AssertInterruptPending(env *envelope.Envelope, kind envelope.InterruptKind) error {
 	if !env.InterruptPending {
 		return fmt.Errorf("expected interrupt pending, but none found")
 	}

@@ -6,7 +6,12 @@ toolchain go1.24.12
 
 require (
 	github.com/google/uuid v1.6.0
+	github.com/prometheus/client_golang v1.19.0
 	github.com/stretchr/testify v1.8.4
+	go.opentelemetry.io/contrib/instrumentation/google.golang.org/grpc/otelgrpc v0.47.0
+	go.opentelemetry.io/otel v1.22.0
+	go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracegrpc v1.22.0
+	go.opentelemetry.io/otel/sdk v1.22.0
 	google.golang.org/grpc v1.78.0
 )
 

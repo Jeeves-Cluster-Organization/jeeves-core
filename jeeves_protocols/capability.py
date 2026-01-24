@@ -15,8 +15,8 @@ Usage:
 
     registry = get_capability_resource_registry()
     registry.register_schema("my_capability", "database/schemas/my_schema.sql")
-    registry.register_mode("my_capability", CapabilityModeConfig(...))
-    registry.register_service("my_capability", CapabilityServiceConfig(...))
+    registry.register_mode("my_capability", DomainModeConfig(...))
+    registry.register_service("my_capability", DomainServiceConfig(...))
 
     # In infrastructure (avionics/mission_system)
     from jeeves_protocols.capability import get_capability_resource_registry
@@ -219,7 +219,7 @@ class CapabilityToolCatalog:
 # =============================================================================
 
 @dataclass
-class CapabilityAgentConfig:
+class DomainAgentConfig:
     """Configuration for an agent registered by a capability.
 
     Used by governance service to discover agents dynamically.
@@ -287,11 +287,15 @@ class CapabilityContractsConfig:
 
 
 @dataclass
-class CapabilityServiceConfig:
+class DomainServiceConfig:
     """Configuration for a capability service (Control Tower registration).
 
     Services define how capabilities are registered with the Control Tower
     for request dispatch and resource management.
+
+    The additional metadata fields (is_readonly, requires_confirmation, etc.)
+    enable the mission system to adapt its behavior based on capability
+    characteristics without hardcoding assumptions about specific capabilities.
     """
     service_id: str
     service_type: str = "flow"  # "flow", "tool", "query"
@@ -299,9 +303,15 @@ class CapabilityServiceConfig:
     max_concurrent: int = 10
     is_default: bool = False  # If True, this is the default service for the Control Tower
 
+    # Capability behavior metadata (enables generic mission system behavior)
+    is_readonly: bool = True  # Whether this capability only reads (no modifications)
+    requires_confirmation: bool = False  # Whether actions need user confirmation
+    default_session_title: str = "Session"  # Default title for new sessions
+    pipeline_stages: List[str] = field(default_factory=list)  # Agent pipeline stages if any
+
 
 @dataclass
-class CapabilityModeConfig:
+class DomainModeConfig:
     """Configuration for a capability mode.
 
     Modes define how the gateway should handle requests for a specific capability.
@@ -330,7 +340,7 @@ class CapabilityResourceRegistryProtocol(Protocol):
         """
         ...
 
-    def register_mode(self, capability_id: str, mode_config: CapabilityModeConfig) -> None:
+    def register_mode(self, capability_id: str, mode_config: DomainModeConfig) -> None:
         """Register a gateway mode for a capability.
 
         Args:
@@ -351,14 +361,14 @@ class CapabilityResourceRegistryProtocol(Protocol):
         """
         ...
 
-    def get_mode_config(self, mode_id: str) -> Optional[CapabilityModeConfig]:
+    def get_mode_config(self, mode_id: str) -> Optional[DomainModeConfig]:
         """Get mode configuration by mode ID.
 
         Args:
             mode_id: Mode identifier (e.g., "code_analysis")
 
         Returns:
-            CapabilityModeConfig if registered, None otherwise
+            DomainModeConfig if registered, None otherwise
         """
         ...
 
@@ -381,7 +391,7 @@ class CapabilityResourceRegistryProtocol(Protocol):
         """
         ...
 
-    def register_service(self, capability_id: str, service_config: "CapabilityServiceConfig") -> None:
+    def register_service(self, capability_id: str, service_config: "DomainServiceConfig") -> None:
         """Register a service for a capability.
 
         Args:
@@ -390,7 +400,7 @@ class CapabilityResourceRegistryProtocol(Protocol):
         """
         ...
 
-    def get_services(self, capability_id: Optional[str] = None) -> List["CapabilityServiceConfig"]:
+    def get_services(self, capability_id: Optional[str] = None) -> List["DomainServiceConfig"]:
         """Get registered service configurations.
 
         Args:
@@ -437,16 +447,16 @@ class CapabilityResourceRegistry:
 
     def __init__(self):
         self._schemas: Dict[str, List[str]] = {}
-        self._modes: Dict[str, CapabilityModeConfig] = {}
+        self._modes: Dict[str, DomainModeConfig] = {}
         self._capability_modes: Dict[str, List[str]] = {}
-        self._services: Dict[str, CapabilityServiceConfig] = {}
+        self._services: Dict[str, DomainServiceConfig] = {}
         self._capability_services: Dict[str, List[str]] = {}
         self._capabilities: List[str] = []
         # Extended registrations
         self._orchestrators: Dict[str, CapabilityOrchestratorConfig] = {}
         self._tools: Dict[str, CapabilityToolsConfig] = {}
         self._prompts: Dict[str, List[CapabilityPromptConfig]] = {}
-        self._agents: Dict[str, List[CapabilityAgentConfig]] = {}
+        self._agents: Dict[str, List[DomainAgentConfig]] = {}
         self._contracts: Dict[str, CapabilityContractsConfig] = {}
 
     def _track_capability(self, capability_id: str) -> None:
@@ -462,7 +472,7 @@ class CapabilityResourceRegistry:
         if schema_path not in self._schemas[capability_id]:
             self._schemas[capability_id].append(schema_path)
 
-    def register_mode(self, capability_id: str, mode_config: CapabilityModeConfig) -> None:
+    def register_mode(self, capability_id: str, mode_config: DomainModeConfig) -> None:
         """Register a gateway mode for a capability."""
         self._track_capability(capability_id)
         self._modes[mode_config.mode_id] = mode_config
@@ -481,7 +491,7 @@ class CapabilityResourceRegistry:
             all_schemas.extend(schemas)
         return all_schemas
 
-    def get_mode_config(self, mode_id: str) -> Optional[CapabilityModeConfig]:
+    def get_mode_config(self, mode_id: str) -> Optional[DomainModeConfig]:
         """Get mode configuration by mode ID."""
         return self._modes.get(mode_id)
 
@@ -493,7 +503,7 @@ class CapabilityResourceRegistry:
         """List all registered mode IDs."""
         return list(self._modes.keys())
 
-    def register_service(self, capability_id: str, service_config: CapabilityServiceConfig) -> None:
+    def register_service(self, capability_id: str, service_config: DomainServiceConfig) -> None:
         """Register a service for a capability."""
         self._track_capability(capability_id)
         self._services[service_config.service_id] = service_config
@@ -502,14 +512,14 @@ class CapabilityResourceRegistry:
         if service_config.service_id not in self._capability_services[capability_id]:
             self._capability_services[capability_id].append(service_config.service_id)
 
-    def get_services(self, capability_id: Optional[str] = None) -> List[CapabilityServiceConfig]:
+    def get_services(self, capability_id: Optional[str] = None) -> List[DomainServiceConfig]:
         """Get registered service configurations."""
         if capability_id:
             service_ids = self._capability_services.get(capability_id, [])
             return [self._services[sid] for sid in service_ids if sid in self._services]
         return list(self._services.values())
 
-    def get_service_config(self, service_id: str) -> Optional[CapabilityServiceConfig]:
+    def get_service_config(self, service_id: str) -> Optional[DomainServiceConfig]:
         """Get service configuration by service ID."""
         return self._services.get(service_id)
 
@@ -650,7 +660,7 @@ class CapabilityResourceRegistry:
     def register_agents(
         self,
         capability_id: str,
-        agents: List[CapabilityAgentConfig],
+        agents: List[DomainAgentConfig],
     ) -> None:
         """Register agent definitions for a capability.
 
@@ -668,7 +678,7 @@ class CapabilityResourceRegistry:
     def get_agents(
         self,
         capability_id: Optional[str] = None,
-    ) -> List[CapabilityAgentConfig]:
+    ) -> List[DomainAgentConfig]:
         """Get registered agents.
 
         Args:
@@ -769,9 +779,9 @@ __all__ = [
     "ToolDefinition",
     "CapabilityToolCatalog",
     # Config types
-    "CapabilityServiceConfig",
-    "CapabilityModeConfig",
-    "CapabilityAgentConfig",
+    "DomainServiceConfig",
+    "DomainModeConfig",
+    "DomainAgentConfig",
     "CapabilityPromptConfig",
     "CapabilityToolsConfig",
     "CapabilityOrchestratorConfig",

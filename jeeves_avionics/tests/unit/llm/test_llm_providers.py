@@ -118,7 +118,7 @@ class TestProviderFactory:
         """Test capability registry model lookup.
 
         After layer extraction, model configuration is owned by capabilities
-        via the CapabilityLLMConfigRegistry. When no capability is registered,
+        via the DomainLLMRegistry. When no capability is registered,
         callers fall back to settings.default_model.
         """
         settings = Settings(default_model="test-model")

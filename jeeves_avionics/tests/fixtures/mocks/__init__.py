@@ -4,15 +4,15 @@ This package provides mocks for jeeves_core_engine protocols,
 allowing avionics tests to run in isolation.
 
 Centralized Architecture (v4.0):
-- MockGenericEnvelope replaces MockCoreEnvelope
+- MockEnvelope replaces MockCoreEnvelope
 """
 
 from .core_mocks import (
-    MockGenericEnvelope,
+    MockEnvelope,
     mock_envelope_factory,
 )
 
 __all__ = [
-    "MockGenericEnvelope",
+    "MockEnvelope",
     "mock_envelope_factory",
 ]

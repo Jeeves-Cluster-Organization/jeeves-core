@@ -9,29 +9,29 @@ Constitutional Reference:
     - Protocols define interfaces; implementations are in other packages
 
 Package Structure:
-    - core.py: Core enums (RiskLevel, ToolAccess, OperationStatus, etc.)
+    - enums.py: Core enums (RiskLevel, ToolAccess, OperationStatus, etc.)
     - config.py: Configuration types (AgentConfig, PipelineConfig, etc.)
-    - envelope.py: GenericEnvelope and ProcessingRecord
-    - agents.py: UnifiedAgent, Runtime, factories
+    - envelope.py: Envelope and ProcessingRecord
+    - agents.py: Agent, PipelineRunner, factories
     - protocols.py: Protocol definitions (LoggerProtocol, etc.)
     - capability.py: CapabilityResourceRegistry for dynamic registration
     - memory.py: WorkingMemory, Finding, and memory operations
-    - events.py: Unified event schema (UnifiedEvent, EventCategory, EventSeverity)
+    - events.py: Event schema (Event, EventCategory, EventSeverity)
     - utils.py: JSON utilities (JSONRepairKit, normalize_string_list)
 
 Usage by Capability Layers:
     from jeeves_protocols import (
-        AgentConfig, PipelineConfig, GenericEnvelope, Runtime,
+        AgentConfig, PipelineConfig, Envelope, PipelineRunner,
         RiskLevel, ToolAccess, ToolCategory, OperationStatus,
         CapabilityResourceRegistry, get_capability_resource_registry,
-        LoggerProtocol, NodeProfile, AgentLLMConfig
+        LoggerProtocol, InferenceEndpoint, AgentLLMConfig
     )
 """
 
 # =============================================================================
 # CORE ENUMS AND TYPES
 # =============================================================================
-from jeeves_protocols.core import (
+from jeeves_protocols.enums import (
     # Risk and access levels
     RiskLevel,
     ToolAccess,
@@ -56,7 +56,7 @@ from jeeves_protocols.config import (
     EdgeLimit,
     JoinStrategy,
     ContextBounds,
-    CoreConfig,
+    ExecutionConfig,
     OrchestrationFlags,
 )
 
@@ -64,7 +64,7 @@ from jeeves_protocols.config import (
 # ENVELOPE TYPES
 # =============================================================================
 from jeeves_protocols.envelope import (
-    GenericEnvelope,
+    Envelope,
     ProcessingRecord,
 )
 
@@ -73,13 +73,13 @@ from jeeves_protocols.envelope import (
 # =============================================================================
 from jeeves_protocols.agents import (
     # Agents
-    UnifiedAgent,
-    AgentCapability,
+    Agent,
+    AgentFeatures,
     # Runtime
-    Runtime,
+    PipelineRunner,
     # Factories
-    create_runtime_from_config,
-    create_generic_envelope,
+    create_pipeline_runner,
+    create_envelope,
     # Protocols defined in agents.py
     LLMProvider,
     ToolExecutor,
@@ -137,12 +137,12 @@ from jeeves_protocols.protocols import (
     # Config registry
     ConfigRegistryProtocol,
     IdGeneratorProtocol,
-    # Distributed node profiles
-    NodeProfile,
-    NodeProfilesProtocol,
+    # Inference endpoints
+    InferenceEndpoint,
+    InferenceEndpointsProtocol,
     # Capability LLM configuration
     AgentLLMConfig,
-    CapabilityLLMConfigRegistryProtocol,
+    DomainLLMRegistryProtocol,
     # Feature flags provider
     FeatureFlagsProviderProtocol,
     # Agent tool access
@@ -155,6 +155,13 @@ from jeeves_protocols.protocols import (
 )
 
 # =============================================================================
+# CAPABILITY SERVICER PROTOCOL
+# =============================================================================
+from jeeves_protocols.servicer import (
+    CapabilityServicerProtocol,
+)
+
+# =============================================================================
 # CAPABILITY REGISTRATION
 # =============================================================================
 from jeeves_protocols.capability import (
@@ -163,9 +170,9 @@ from jeeves_protocols.capability import (
     ToolDefinition,
     CapabilityToolCatalog,
     # Config types
-    CapabilityServiceConfig,
-    CapabilityModeConfig,
-    CapabilityAgentConfig,
+    DomainServiceConfig,
+    DomainModeConfig,
+    DomainAgentConfig,
     CapabilityPromptConfig,
     CapabilityToolsConfig,
     CapabilityOrchestratorConfig,
@@ -211,7 +218,7 @@ from jeeves_protocols.memory import (
 # =============================================================================
 from jeeves_protocols.events import (
     # Event schema
-    UnifiedEvent,
+    Event,
     EventCategory,
     EventSeverity,
     StandardEventTypes,
@@ -270,19 +277,19 @@ __all__ = [
     "EdgeLimit",
     "JoinStrategy",
     "ContextBounds",
-    "CoreConfig",
+    "ExecutionConfig",
     "OrchestrationFlags",
 
     # ─── Envelope ───
-    "GenericEnvelope",
+    "Envelope",
     "ProcessingRecord",
 
     # ─── Agent Runtime ───
-    "UnifiedAgent",
-    "AgentCapability",
-    "Runtime",
-    "create_runtime_from_config",
-    "create_generic_envelope",
+    "Agent",
+    "AgentFeatures",
+    "PipelineRunner",
+    "create_pipeline_runner",
+    "create_envelope",
     "LLMProvider",
     "ToolExecutor",
     "Logger",
@@ -324,10 +331,10 @@ __all__ = [
     "QueueStats",
     "ConfigRegistryProtocol",
     "IdGeneratorProtocol",
-    "NodeProfile",
-    "NodeProfilesProtocol",
+    "InferenceEndpoint",
+    "InferenceEndpointsProtocol",
     "AgentLLMConfig",
-    "CapabilityLLMConfigRegistryProtocol",
+    "DomainLLMRegistryProtocol",
     "FeatureFlagsProviderProtocol",
     "AgentToolAccessProtocol",
     "LanguageConfigProtocol",
@@ -335,13 +342,16 @@ __all__ = [
     "GraphStorageProtocol",
     "SkillStorageProtocol",
 
+    # ─── Capability Servicer Protocol ───
+    "CapabilityServicerProtocol",
+
     # ─── Capability Registration ───
     "ToolCatalogEntry",
     "ToolDefinition",
     "CapabilityToolCatalog",
-    "CapabilityServiceConfig",
-    "CapabilityModeConfig",
-    "CapabilityAgentConfig",
+    "DomainServiceConfig",
+    "DomainModeConfig",
+    "DomainAgentConfig",
     "CapabilityPromptConfig",
     "CapabilityToolsConfig",
     "CapabilityOrchestratorConfig",
@@ -371,7 +381,7 @@ __all__ = [
     "deserialize_working_memory",
 
     # ─── Unified Events ───
-    "UnifiedEvent",
+    "Event",
     "EventCategory",
     "EventSeverity",
     "StandardEventTypes",

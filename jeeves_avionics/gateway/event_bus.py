@@ -6,16 +6,16 @@ Constitutional Pattern:
 - Zero coupling between routers and WebSocket implementation
 
 UNIFIED EVENT SUPPORT (2025-12-14):
-- Now uses UnifiedEvent from jeeves_protocols.events
+- Now uses Event from jeeves_protocols.events
 - Implements EventEmitterProtocol for constitutional compliance
 - Backward compatible with legacy string-based publish (deprecated)
 
 Usage:
-    # NEW: Using UnifiedEvent (preferred)
+    # NEW: Using Event (preferred)
     from jeeves_avionics.gateway.event_bus import gateway_events
-    from jeeves_protocols.events import UnifiedEvent, EventCategory
+    from jeeves_protocols.events import Event, EventCategory
 
-    event = UnifiedEvent.create_now(
+    event = Event.create_now(
         event_type="agent.started",
         category=EventCategory.AGENT_LIFECYCLE,
         request_context=RequestContext(
@@ -42,15 +42,15 @@ from weakref import WeakSet
 
 from jeeves_avionics.logging import get_current_logger
 from jeeves_protocols.events import (
-    UnifiedEvent,
+    Event,
     EventCategory,
     EventSeverity,
     EventEmitterProtocol,
 )
 
 
-# Type alias for event handlers (now receives UnifiedEvent)
-EventHandler = Callable[[UnifiedEvent], Awaitable[None]]
+# Type alias for event handlers (now receives Event)
+EventHandler = Callable[[Event], Awaitable[None]]
 
 
 class GatewayEventBus(EventEmitterProtocol):
@@ -58,7 +58,7 @@ class GatewayEventBus(EventEmitterProtocol):
 
     Features:
     - Pattern-based subscriptions (e.g., "agent.*" matches "agent.started")
-    - Async handlers receiving UnifiedEvent instances
+    - Async handlers receiving Event instances
     - Fire-and-forget publishing (errors logged, not propagated)
     - Implements EventEmitterProtocol for swappable implementations
 
@@ -82,14 +82,14 @@ class GatewayEventBus(EventEmitterProtocol):
             self._logger = get_current_logger()
         return self._logger
 
-    async def emit(self, event: UnifiedEvent) -> None:
+    async def emit(self, event: Event) -> None:
         """
         Emit a unified event to all matching subscribers.
 
         Fire-and-forget: errors in handlers are logged but not propagated.
 
         Args:
-            event: UnifiedEvent instance to emit
+            event: Event instance to emit
         """
         handlers_invoked = 0
 
@@ -120,7 +120,7 @@ class GatewayEventBus(EventEmitterProtocol):
     async def subscribe(
         self,
         pattern: str,
-        handler: Callable[[UnifiedEvent], Awaitable[None]],
+        handler: Callable[[Event], Awaitable[None]],
     ) -> str:
         """
         Subscribe to events matching a pattern.
@@ -128,7 +128,7 @@ class GatewayEventBus(EventEmitterProtocol):
         Args:
             pattern: Event type pattern (supports * wildcards)
                      e.g., "agent.*" matches "agent.started", "agent.completed"
-            handler: Async function to call with UnifiedEvent
+            handler: Async function to call with Event
 
         Returns:
             Subscription ID for later unsubscription

@@ -14,7 +14,7 @@ from jeeves_control_tower.types import (
     SchedulingPriority,
     ServiceDescriptor,
 )
-from jeeves_protocols import GenericEnvelope, TerminalReason, RequestContext
+from jeeves_protocols import Envelope, TerminalReason, RequestContext
 
 
 # =============================================================================
@@ -52,14 +52,14 @@ def kernel(mock_logger, default_quota):
 
 @pytest.fixture
 def sample_envelope():
-    """Create a sample GenericEnvelope for testing."""
+    """Create a sample Envelope for testing."""
     request_context = RequestContext(
         request_id="req_test456",
         capability="test_capability",
         user_id="user_001",
         session_id="session_001",
     )
-    return GenericEnvelope(
+    return Envelope(
         request_context=request_context,
         envelope_id="env_test123",
         request_id="req_test456",
@@ -216,30 +216,32 @@ class TestKernelServiceRegistration:
 
     def test_register_service_adds_to_ipc(self, kernel):
         """Test that register_service adds service to IPC coordinator."""
-        descriptor = ServiceDescriptor(
+        async def handler(envelope):
+            return envelope
+
+        result = kernel.register_service(
             name="test_service",
-            priority=SchedulingPriority.NORMAL,
+            service_type="flow",
+            handler=handler,
             capabilities=["process"],
+            max_concurrent=10,
         )
-        
-        result = kernel.register_service(descriptor)
-        
+
         assert result is True
         assert kernel.ipc.get_service("test_service") is not None
 
     def test_register_service_with_handler(self, kernel):
         """Test that register_service can register a handler."""
-        descriptor = ServiceDescriptor(
-            name="test_service",
-            priority=SchedulingPriority.NORMAL,
-            capabilities=["process"],
-        )
-        
         async def handler(envelope):
             return envelope
-        
-        result = kernel.register_service(descriptor, handler)
-        
+
+        result = kernel.register_service(
+            name="test_service",
+            service_type="flow",
+            handler=handler,
+            capabilities=["process"],
+        )
+
         assert result is True
 
 
@@ -255,9 +257,10 @@ class TestKernelSystemStatus:
         status = kernel.get_system_status()
         
         assert isinstance(status, dict)
-        assert "lifecycle" in status
+        assert "processes" in status
         assert "resources" in status
-        assert "ipc" in status
+        assert "events" in status
+        assert "services" in status
 
     def test_get_system_status_tracks_processes(self, kernel):
         """Test that system status reflects process count."""
@@ -297,16 +300,16 @@ class TestKernelCancelRequest:
         kernel.resources.allocate(pid)
         
         # Submit a process to lifecycle
-        from jeeves_protocols import GenericEnvelope
+        from jeeves_protocols import Envelope
         from datetime import datetime, timezone
-        
+
         request_context = RequestContext(
             request_id=pid,
             capability="test_capability",
             user_id="user",
             session_id="session",
         )
-        envelope = GenericEnvelope(
+        envelope = Envelope(
             request_context=request_context,
             envelope_id="env_cancel",
             request_id=pid,
@@ -340,7 +343,7 @@ class TestKernelLifecycleIntegration:
         
         assert pcb is not None
         assert pcb.pid == sample_envelope.request_id
-        assert pcb.state == ProcessState.PENDING
+        assert pcb.state == ProcessState.NEW
 
     def test_submit_allocates_resources(self, kernel, sample_envelope):
         """Test that submitting allocates resources."""
@@ -355,7 +358,7 @@ class TestKernelLifecycleIntegration:
         pcb = kernel.lifecycle.submit(sample_envelope)
         
         # Initial state
-        assert pcb.state == ProcessState.PENDING
+        assert pcb.state == ProcessState.NEW
         
         # Schedule it
         kernel.lifecycle.schedule(pcb.pid)

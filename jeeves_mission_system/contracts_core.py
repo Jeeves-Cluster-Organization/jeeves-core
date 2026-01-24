@@ -4,8 +4,8 @@ Mission System Contracts - Static Type Definitions for App Integration.
 Centralized Architecture (v4.0):
 This module re-exports unified agent types from jeeves_protocols:
 - AgentConfig, PipelineConfig: Declarative agent definitions
-- UnifiedAgent: Single agent class driven by configuration
-- GenericEnvelope: Dynamic output slots
+- Agent: Single agent class driven by configuration
+- Envelope: Dynamic output slots
 - ToolAccess: Agent tool access levels
 
 All types come from jeeves_protocols (Python bridge to Go core).
@@ -42,11 +42,11 @@ from jeeves_protocols import (
     ToolAccess,
     AgentCapability,
     # Unified agent
-    UnifiedAgent,
+    Agent,
     # Generic envelope
-    GenericEnvelope,
+    Envelope,
     ProcessingRecord,
-    create_generic_envelope,
+    create_envelope,
     # Enums
     TerminalReason,
     LoopVerdict,
@@ -55,8 +55,8 @@ from jeeves_protocols import (
 
 # Unified runtime
 from jeeves_protocols import (
-    Runtime,
-    create_runtime_from_config,
+    PipelineRunner,
+    create_pipeline_runner,
 )
 
 # Core protocols from core_engine
@@ -81,8 +81,8 @@ from jeeves_protocols import (
     normalize_string_list,
 )
 
-# NOTE: AgentRuntime removed in v4.0 - use Runtime + UnifiedAgent
-# UnifiedAgent handles all agent-level services (logging, events, persistence)
+# NOTE: AgentPipelineRunner removed in v4.0 - use PipelineRunner + Agent
+# Agent handles all agent-level services (logging, events, persistence)
 
 # Config registry
 from jeeves_mission_system.config.registry import (
@@ -90,6 +90,7 @@ from jeeves_mission_system.config.registry import (
     ConfigKeys,
     get_config_registry,
     set_config_registry,
+    reset_config_registry,
 )
 
 # Agent profiles (generic types - capability-specific profiles in capability layer)
@@ -112,7 +113,7 @@ from jeeves_mission_system.config.agent_profiles import (
 # ToolCategory from jeeves_protocols (canonical location)
 from jeeves_protocols import ToolCategory
 
-# NOTE: AgentContext removed in v4.0 - context flows through GenericEnvelope
+# NOTE: AgentContext removed in v4.0 - context flows through Envelope
 
 __all__ = [
     # ─── Centralized Agent Architecture ───
@@ -123,14 +124,14 @@ __all__ = [
     "ToolAccess",
     "AgentCapability",
     # Unified agent
-    "UnifiedAgent",
+    "Agent",
     # Generic envelope
-    "GenericEnvelope",
+    "Envelope",
     "ProcessingRecord",
-    "create_generic_envelope",
+    "create_envelope",
     # Unified runtime
-    "Runtime",
-    "create_runtime_from_config",
+    "PipelineRunner",
+    "create_pipeline_runner",
     # Enums
     "TerminalReason",
     "LoopVerdict",
@@ -173,6 +174,7 @@ __all__ = [
     "ConfigKeys",
     "get_config_registry",
     "set_config_registry",
+    "reset_config_registry",
 
     # ─── Agent Profiles (generic types) ───
     # Capability-specific profiles in: jeeves-capability-code-analyser/config/llm_config.py

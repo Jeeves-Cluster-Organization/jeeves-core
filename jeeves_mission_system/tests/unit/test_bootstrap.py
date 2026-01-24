@@ -7,11 +7,11 @@ import pytest
 from unittest.mock import Mock, patch, AsyncMock
 
 
-class TestCoreConfigFromEnv:
+class TestExecutionConfigFromEnv:
     """Tests for create_core_config_from_env function."""
 
     def test_default_values(self):
-        """Test that CoreConfig has sensible defaults."""
+        """Test that ExecutionConfig has sensible defaults."""
         from jeeves_mission_system.bootstrap import create_core_config_from_env
 
         with patch.dict("os.environ", {}, clear=True):
@@ -19,7 +19,7 @@ class TestCoreConfigFromEnv:
 
             assert config is not None
             assert config.context_bounds is not None
-            # Check defaults are applied (on CoreConfig directly)
+            # Check defaults are applied (on ExecutionConfig directly)
             assert config.max_iterations >= 1
 
     def test_respects_env_vars(self):
@@ -34,7 +34,7 @@ class TestCoreConfigFromEnv:
         with patch.dict("os.environ", env, clear=True):
             config = create_core_config_from_env()
 
-            # These are on CoreConfig directly, not context_bounds
+            # These are on ExecutionConfig directly, not context_bounds
             assert config.max_iterations == 10
             assert config.max_llm_calls == 50
             assert config.max_agent_hops == 20
@@ -88,10 +88,10 @@ class TestAppContextCreation:
     def test_respects_injected_dependencies(self):
         """Test that injected dependencies are used."""
         from jeeves_mission_system.bootstrap import create_app_context
-        from jeeves_protocols.config import CoreConfig
+        from jeeves_protocols.config import ExecutionConfig
 
-        # max_iterations is on CoreConfig directly, not ContextBounds
-        custom_config = CoreConfig(
+        # max_iterations is on ExecutionConfig directly, not ContextBounds
+        custom_config = ExecutionConfig(
             max_iterations=5,
             max_llm_calls=25,
             max_agent_hops=10,
@@ -128,16 +128,16 @@ class TestRequestPidContext:
         assert get_request_pid() is None
 
 
-class TestCoreConfigToResourceQuota:
+class TestExecutionConfigToResourceQuota:
     """Tests for core_config_to_resource_quota conversion."""
 
     def test_converts_correctly(self):
-        """Test conversion from CoreConfig to ResourceQuota."""
+        """Test conversion from ExecutionConfig to ResourceQuota."""
         from jeeves_mission_system.bootstrap import core_config_to_resource_quota
-        from jeeves_protocols.config import CoreConfig
+        from jeeves_protocols.config import ExecutionConfig
 
-        # max_iterations etc are on CoreConfig directly
-        config = CoreConfig(
+        # max_iterations etc are on ExecutionConfig directly
+        config = ExecutionConfig(
             max_iterations=10,
             max_llm_calls=100,
             max_agent_hops=15,

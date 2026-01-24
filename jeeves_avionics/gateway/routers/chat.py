@@ -42,7 +42,7 @@ async def _publish_unified_event(event: dict):
     Publish unified event to the gateway event bus.
 
     Constitutional Pattern:
-    - Router receives gRPC events and converts to UnifiedEvent
+    - Router receives gRPC events and converts to Event
     - Emits to gateway_events bus
     - WebSocket handler subscribes and broadcasts
     - Zero coupling between router and WebSocket implementation
@@ -54,7 +54,7 @@ async def _publish_unified_event(event: dict):
     """
     from jeeves_avionics.gateway.event_bus import gateway_events
     from jeeves_protocols.events import (
-        UnifiedEvent,
+        Event,
         EventCategory,
         EventSeverity,
     )
@@ -90,9 +90,9 @@ async def _publish_unified_event(event: dict):
     else:
         category = EventCategory.DOMAIN_EVENT
 
-    # Create UnifiedEvent
+    # Create Event
     dt = datetime.fromtimestamp(timestamp_ms / 1000, tz=timezone.utc)
-    unified = UnifiedEvent(
+    unified = Event(
         event_id=str(uuid.uuid4()),
         event_type=event_type,
         category=category,
@@ -274,9 +274,9 @@ async def send_message(
                     pass
 
             # Publish internal/trace events for frontend visibility (not final responses)
-            # Convert gRPC events to UnifiedEvent and publish to gateway_events
+            # Convert gRPC events to Event and publish to gateway_events
             if event.type in internal_event_types:
-                # Merge gRPC context with payload for UnifiedEvent creation
+                # Merge gRPC context with payload for Event creation
                 event_data = {
                     "request_id": request_id,
                     "session_id": session_id,

@@ -13,7 +13,7 @@ import threading
 from datetime import datetime
 from typing import Dict, List, Optional
 
-from jeeves_protocols import GenericEnvelope, LoggerProtocol
+from jeeves_protocols import Envelope, LoggerProtocol
 from jeeves_shared.serialization import utc_now
 
 from jeeves_control_tower.protocols import LifecycleManagerProtocol
@@ -98,7 +98,7 @@ class LifecycleManager(LifecycleManagerProtocol):
 
     def submit(
         self,
-        envelope: GenericEnvelope,
+        envelope: Envelope,
         priority: SchedulingPriority = SchedulingPriority.NORMAL,
         quota: Optional[ResourceQuota] = None,
     ) -> ProcessControlBlock:

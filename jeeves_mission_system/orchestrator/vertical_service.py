@@ -16,9 +16,9 @@ def run_stage(vertical_id: str, stage: str, envelope: Any) -> Any:
     """Run a stage for any registered vertical.
 
     Args:
-        vertical_id: ID of the registered vertical (e.g., "code_analysis")
-        stage: Name of the stage/agent to run (e.g., "perception", "intent")
-        envelope: The GenericEnvelope to process
+        vertical_id: ID of the registered vertical (from CapabilityResourceRegistry)
+        stage: Name of the stage/agent to run (e.g., "perception", "planner")
+        envelope: The Envelope to process
 
     Returns:
         The agent's result

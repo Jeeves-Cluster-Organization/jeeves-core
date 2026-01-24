@@ -28,7 +28,7 @@ func (m *MockLogger) Bind(fields ...any) agents.Logger {
 }
 
 // createTestRuntime creates a minimal runtime for testing.
-func createTestRuntime(t *testing.T) *Runtime {
+func createTestRuntime(t *testing.T) *PipelineRunner {
 	cfg := &config.PipelineConfig{
 		Name:          "test-pipeline",
 		MaxIterations: 3,
@@ -37,7 +37,7 @@ func createTestRuntime(t *testing.T) *Runtime {
 		Agents:        []*config.AgentConfig{},
 	}
 
-	runtime, err := NewRuntime(cfg, nil, nil, &MockLogger{})
+	runtime, err := NewPipelineRunner(cfg, nil, nil, &MockLogger{})
 	require.NoError(t, err)
 	return runtime
 }
@@ -49,7 +49,7 @@ func createTestRuntime(t *testing.T) *Runtime {
 func TestResumeNoInterruptPending(t *testing.T) {
 	// Test Resume with no pending interrupt returns error.
 	runtime := createTestRuntime(t)
-	env := envelope.CreateGenericEnvelope("Test", "user-1", "sess-1", nil, nil, nil)
+	env := envelope.CreateEnvelope("Test", "user-1", "sess-1", nil, nil, nil)
 
 	text := "response text"
 	_, err := runtime.Resume(context.Background(), env, envelope.InterruptResponse{Text: &text}, "thread-1")
@@ -61,7 +61,7 @@ func TestResumeNoInterruptPending(t *testing.T) {
 func TestResumeClarificationInterrupt(t *testing.T) {
 	// Test Resume with clarification interrupt.
 	runtime := createTestRuntime(t)
-	env := envelope.CreateGenericEnvelope("Analyze code", "user-1", "sess-1", nil, nil, nil)
+	env := envelope.CreateEnvelope("Analyze code", "user-1", "sess-1", nil, nil, nil)
 	env.CurrentStage = "stageB"
 	env.StageOrder = []string{"stageA", "stageB", "stageC", "end"}
 
@@ -82,7 +82,7 @@ func TestResumeClarificationInterrupt(t *testing.T) {
 func TestResumeConfirmationApproved(t *testing.T) {
 	// Test Resume with confirmation interrupt approved.
 	runtime := createTestRuntime(t)
-	env := envelope.CreateGenericEnvelope("Delete file", "user-1", "sess-1", nil, nil, nil)
+	env := envelope.CreateEnvelope("Delete file", "user-1", "sess-1", nil, nil, nil)
 	env.CurrentStage = "stageB"
 	env.StageOrder = []string{"stageA", "stageB", "stageC", "end"}
 
@@ -103,7 +103,7 @@ func TestResumeConfirmationApproved(t *testing.T) {
 func TestResumeConfirmationDenied(t *testing.T) {
 	// Test Resume with confirmation interrupt denied.
 	runtime := createTestRuntime(t)
-	env := envelope.CreateGenericEnvelope("Delete file", "user-1", "sess-1", nil, nil, nil)
+	env := envelope.CreateEnvelope("Delete file", "user-1", "sess-1", nil, nil, nil)
 	env.CurrentStage = "stageB"
 	env.StageOrder = []string{"stageA", "stageB", "stageC", "end"}
 
@@ -123,7 +123,7 @@ func TestResumeConfirmationDenied(t *testing.T) {
 func TestResumeAgentReviewInterrupt(t *testing.T) {
 	// Test Resume with agent review interrupt.
 	runtime := createTestRuntime(t)
-	env := envelope.CreateGenericEnvelope("Test", "user-1", "sess-1", nil, nil, nil)
+	env := envelope.CreateEnvelope("Test", "user-1", "sess-1", nil, nil, nil)
 	env.CurrentStage = "stageC"
 	env.StageOrder = []string{"stageA", "stageB", "stageC", "stageD", "end"}
 
@@ -145,7 +145,7 @@ func TestResumeAgentReviewInterrupt(t *testing.T) {
 func TestResumeCheckpointInterrupt(t *testing.T) {
 	// Test Resume with checkpoint interrupt.
 	runtime := createTestRuntime(t)
-	env := envelope.CreateGenericEnvelope("Test", "user-1", "sess-1", nil, nil, nil)
+	env := envelope.CreateEnvelope("Test", "user-1", "sess-1", nil, nil, nil)
 	env.CurrentStage = "stageB"
 	env.StageOrder = []string{"stageA", "stageB", "stageC", "end"}
 
@@ -166,7 +166,7 @@ func TestResumeCheckpointInterrupt(t *testing.T) {
 func TestResumeResourceExhaustedInterrupt(t *testing.T) {
 	// Test Resume with resource exhausted interrupt.
 	runtime := createTestRuntime(t)
-	env := envelope.CreateGenericEnvelope("Test", "user-1", "sess-1", nil, nil, nil)
+	env := envelope.CreateEnvelope("Test", "user-1", "sess-1", nil, nil, nil)
 	env.CurrentStage = "stageC"
 	env.StageOrder = []string{"stageA", "stageB", "stageC", "end"}
 
@@ -187,7 +187,7 @@ func TestResumeResourceExhaustedInterrupt(t *testing.T) {
 func TestResumeTimeoutInterrupt(t *testing.T) {
 	// Test Resume with timeout interrupt.
 	runtime := createTestRuntime(t)
-	env := envelope.CreateGenericEnvelope("Test", "user-1", "sess-1", nil, nil, nil)
+	env := envelope.CreateEnvelope("Test", "user-1", "sess-1", nil, nil, nil)
 	env.CurrentStage = "stageC"
 	env.StageOrder = []string{"stageA", "stageB", "stageC", "end"}
 
@@ -207,7 +207,7 @@ func TestResumeTimeoutInterrupt(t *testing.T) {
 func TestResumeSystemErrorInterrupt(t *testing.T) {
 	// Test Resume with system error interrupt.
 	runtime := createTestRuntime(t)
-	env := envelope.CreateGenericEnvelope("Test", "user-1", "sess-1", nil, nil, nil)
+	env := envelope.CreateEnvelope("Test", "user-1", "sess-1", nil, nil, nil)
 	env.CurrentStage = "stageB"
 	env.StageOrder = []string{"stageA", "stageB", "stageC", "end"}
 
@@ -231,7 +231,7 @@ func TestResumeSystemErrorInterrupt(t *testing.T) {
 
 func TestInterruptBlocksExecution(t *testing.T) {
 	// Test that pending interrupts block execution.
-	env := envelope.CreateGenericEnvelope("Test", "user-1", "sess-1", nil, nil, nil)
+	env := envelope.CreateEnvelope("Test", "user-1", "sess-1", nil, nil, nil)
 
 	// Initially can continue
 	assert.True(t, env.CanContinue())
@@ -247,7 +247,7 @@ func TestInterruptBlocksExecution(t *testing.T) {
 
 func TestResolveInterruptEnablesExecution(t *testing.T) {
 	// Test that resolving interrupt enables execution.
-	env := envelope.CreateGenericEnvelope("Test", "user-1", "sess-1", nil, nil, nil)
+	env := envelope.CreateEnvelope("Test", "user-1", "sess-1", nil, nil, nil)
 
 	// Set and resolve interrupt
 	env.SetInterrupt(envelope.InterruptKindClarification, "int-1",
@@ -264,7 +264,7 @@ func TestResolveInterruptEnablesExecution(t *testing.T) {
 
 func TestClearInterruptWithoutResponse(t *testing.T) {
 	// Test that interrupt can be cleared without response.
-	env := envelope.CreateGenericEnvelope("Test", "user-1", "sess-1", nil, nil, nil)
+	env := envelope.CreateEnvelope("Test", "user-1", "sess-1", nil, nil, nil)
 
 	env.SetInterrupt(envelope.InterruptKindCheckpoint, "cp-1",
 		envelope.WithInterruptData(map[string]any{"stage": "test"}))
@@ -312,7 +312,7 @@ func TestSetEventContext(t *testing.T) {
 
 func TestShouldContinueNormal(t *testing.T) {
 	runtime := createTestRuntime(t)
-	env := envelope.CreateGenericEnvelope("Test", "user-1", "sess-1", nil, nil, nil)
+	env := envelope.CreateEnvelope("Test", "user-1", "sess-1", nil, nil, nil)
 
 	canContinue, reason := runtime.shouldContinue(env)
 	assert.True(t, canContinue)
@@ -321,7 +321,7 @@ func TestShouldContinueNormal(t *testing.T) {
 
 func TestShouldContinueBoundsExceeded(t *testing.T) {
 	runtime := createTestRuntime(t)
-	env := envelope.CreateGenericEnvelope("Test", "user-1", "sess-1", nil, nil, nil)
+	env := envelope.CreateEnvelope("Test", "user-1", "sess-1", nil, nil, nil)
 
 	// Exceed max iterations
 	env.MaxIterations = 3
@@ -334,7 +334,7 @@ func TestShouldContinueBoundsExceeded(t *testing.T) {
 
 func TestShouldContinueInterruptPending(t *testing.T) {
 	runtime := createTestRuntime(t)
-	env := envelope.CreateGenericEnvelope("Test", "user-1", "sess-1", nil, nil, nil)
+	env := envelope.CreateEnvelope("Test", "user-1", "sess-1", nil, nil, nil)
 
 	// Set all limits high
 	env.MaxIterations = 100
@@ -385,7 +385,7 @@ func TestPersistStateWithPersistence(t *testing.T) {
 	persistence := &MockPersistence{}
 	runtime.Persistence = persistence
 
-	env := envelope.CreateGenericEnvelope("Test", "user-1", "sess-1", nil, nil, nil)
+	env := envelope.CreateEnvelope("Test", "user-1", "sess-1", nil, nil, nil)
 
 	runtime.persistState(context.Background(), env, "thread-123")
 
@@ -399,7 +399,7 @@ func TestPersistStateWithoutPersistence(t *testing.T) {
 	runtime := createTestRuntime(t)
 	// No persistence adapter set
 
-	env := envelope.CreateGenericEnvelope("Test", "user-1", "sess-1", nil, nil, nil)
+	env := envelope.CreateEnvelope("Test", "user-1", "sess-1", nil, nil, nil)
 
 	// Should not panic
 	runtime.persistState(context.Background(), env, "thread-123")
@@ -410,7 +410,7 @@ func TestPersistStateEmptyThreadID(t *testing.T) {
 	persistence := &MockPersistence{}
 	runtime.Persistence = persistence
 
-	env := envelope.CreateGenericEnvelope("Test", "user-1", "sess-1", nil, nil, nil)
+	env := envelope.CreateEnvelope("Test", "user-1", "sess-1", nil, nil, nil)
 
 	// Empty thread ID skips persistence
 	runtime.persistState(context.Background(), env, "")
@@ -423,7 +423,7 @@ func TestPersistStateError(t *testing.T) {
 	persistence := &MockPersistence{saveError: assert.AnError}
 	runtime.Persistence = persistence
 
-	env := envelope.CreateGenericEnvelope("Test", "user-1", "sess-1", nil, nil, nil)
+	env := envelope.CreateEnvelope("Test", "user-1", "sess-1", nil, nil, nil)
 
 	// Should log error but not panic
 	runtime.persistState(context.Background(), env, "thread-123")
@@ -435,7 +435,7 @@ func TestPersistStateError(t *testing.T) {
 
 func TestRun(t *testing.T) {
 	runtime := createTestRuntime(t)
-	env := envelope.CreateGenericEnvelope("Test", "user-1", "sess-1", nil, nil, nil)
+	env := envelope.CreateEnvelope("Test", "user-1", "sess-1", nil, nil, nil)
 
 	result, err := runtime.Run(context.Background(), env, "thread-1")
 
@@ -447,7 +447,7 @@ func TestRun(t *testing.T) {
 
 func TestRunParallel(t *testing.T) {
 	runtime := createTestRuntime(t)
-	env := envelope.CreateGenericEnvelope("Test", "user-1", "sess-1", nil, nil, nil)
+	env := envelope.CreateEnvelope("Test", "user-1", "sess-1", nil, nil, nil)
 
 	result, err := runtime.RunParallel(context.Background(), env, "thread-1")
 
@@ -459,7 +459,7 @@ func TestRunParallel(t *testing.T) {
 
 func TestRunWithStream(t *testing.T) {
 	runtime := createTestRuntime(t)
-	env := envelope.CreateGenericEnvelope("Test", "user-1", "sess-1", nil, nil, nil)
+	env := envelope.CreateEnvelope("Test", "user-1", "sess-1", nil, nil, nil)
 
 	outputChan, err := runtime.RunWithStream(context.Background(), env, "thread-1")
 
@@ -513,7 +513,7 @@ func TestGetStateWithoutPersistence(t *testing.T) {
 
 func TestExecuteWithDefaultMode(t *testing.T) {
 	runtime := createTestRuntime(t)
-	env := envelope.CreateGenericEnvelope("Test", "user-1", "sess-1", nil, nil, nil)
+	env := envelope.CreateEnvelope("Test", "user-1", "sess-1", nil, nil, nil)
 
 	result, _, err := runtime.Execute(context.Background(), env, RunOptions{})
 
@@ -527,10 +527,10 @@ func TestExecuteWithConfigDefaultMode(t *testing.T) {
 		DefaultRunMode: config.RunModeParallel,
 		Agents:         []*config.AgentConfig{},
 	}
-	runtime, err := NewRuntime(cfg, nil, nil, &MockLogger{})
+	runtime, err := NewPipelineRunner(cfg, nil, nil, &MockLogger{})
 	require.NoError(t, err)
 
-	env := envelope.CreateGenericEnvelope("Test", "user-1", "sess-1", nil, nil, nil)
+	env := envelope.CreateEnvelope("Test", "user-1", "sess-1", nil, nil, nil)
 	result, _, err := runtime.Execute(context.Background(), env, RunOptions{})
 
 	require.NoError(t, err)
@@ -539,7 +539,7 @@ func TestExecuteWithConfigDefaultMode(t *testing.T) {
 
 func TestExecuteWithStreaming(t *testing.T) {
 	runtime := createTestRuntime(t)
-	env := envelope.CreateGenericEnvelope("Test", "user-1", "sess-1", nil, nil, nil)
+	env := envelope.CreateEnvelope("Test", "user-1", "sess-1", nil, nil, nil)
 
 	result, outputChan, err := runtime.Execute(context.Background(), env, RunOptions{Stream: true})
 
@@ -562,10 +562,10 @@ func TestResumeWithConfiguredClarificationStage(t *testing.T) {
 		ClarificationResumeStage: "stageA",
 		Agents:                   []*config.AgentConfig{},
 	}
-	runtime, err := NewRuntime(cfg, nil, nil, &MockLogger{})
+	runtime, err := NewPipelineRunner(cfg, nil, nil, &MockLogger{})
 	require.NoError(t, err)
 
-	env := envelope.CreateGenericEnvelope("Test", "user-1", "sess-1", nil, nil, nil)
+	env := envelope.CreateEnvelope("Test", "user-1", "sess-1", nil, nil, nil)
 	env.CurrentStage = "stageC"
 	env.SetInterrupt(envelope.InterruptKindClarification, "clar-1",
 		envelope.WithQuestion("What?"))
@@ -585,10 +585,10 @@ func TestResumeWithConfiguredConfirmationStage(t *testing.T) {
 		ConfirmationResumeStage: "stageB",
 		Agents:                  []*config.AgentConfig{},
 	}
-	runtime, err := NewRuntime(cfg, nil, nil, &MockLogger{})
+	runtime, err := NewPipelineRunner(cfg, nil, nil, &MockLogger{})
 	require.NoError(t, err)
 
-	env := envelope.CreateGenericEnvelope("Test", "user-1", "sess-1", nil, nil, nil)
+	env := envelope.CreateEnvelope("Test", "user-1", "sess-1", nil, nil, nil)
 	env.CurrentStage = "stageC"
 	env.SetInterrupt(envelope.InterruptKindConfirmation, "conf-1",
 		envelope.WithMessage("Confirm?"))
@@ -606,10 +606,10 @@ func TestResumeWithConfiguredAgentReviewStage(t *testing.T) {
 		AgentReviewResumeStage: "stageD",
 		Agents:                 []*config.AgentConfig{},
 	}
-	runtime, err := NewRuntime(cfg, nil, nil, &MockLogger{})
+	runtime, err := NewPipelineRunner(cfg, nil, nil, &MockLogger{})
 	require.NoError(t, err)
 
-	env := envelope.CreateGenericEnvelope("Test", "user-1", "sess-1", nil, nil, nil)
+	env := envelope.CreateEnvelope("Test", "user-1", "sess-1", nil, nil, nil)
 	env.CurrentStage = "stageC"
 	env.SetInterrupt(envelope.InterruptKindAgentReview, "review-1",
 		envelope.WithMessage("Review"))
@@ -638,7 +638,7 @@ func TestBuildAgentsWithLLM(t *testing.T) {
 		},
 	}
 
-	runtime, err := NewRuntime(cfg, llmFactory, nil, &MockLogger{})
+	runtime, err := NewPipelineRunner(cfg, llmFactory, nil, &MockLogger{})
 
 	require.NoError(t, err)
 	assert.Len(t, runtime.agents, 1)
@@ -654,7 +654,7 @@ func TestBuildAgentsWithTools(t *testing.T) {
 		},
 	}
 
-	runtime, err := NewRuntime(cfg, nil, toolExecutor, &MockLogger{})
+	runtime, err := NewPipelineRunner(cfg, nil, toolExecutor, &MockLogger{})
 
 	require.NoError(t, err)
 	assert.Len(t, runtime.agents, 1)
@@ -669,7 +669,7 @@ func TestBuildAgentsError(t *testing.T) {
 		},
 	}
 
-	_, err := NewRuntime(cfg, nil, nil, &MockLogger{})
+	_, err := NewPipelineRunner(cfg, nil, nil, &MockLogger{})
 
 	require.Error(t, err)
 	// Error comes from agent validation during pipeline config validation
@@ -710,10 +710,10 @@ func TestSequentialCancellation(t *testing.T) {
 		},
 	}
 
-	runtime, err := NewRuntime(cfg, nil, nil, &MockLogger{})
+	runtime, err := NewPipelineRunner(cfg, nil, nil, &MockLogger{})
 	require.NoError(t, err)
 
-	env := envelope.CreateGenericEnvelope("test", "user-1", "sess-1", nil, nil, []string{"stage1", "stage2", "stage3"})
+	env := envelope.CreateEnvelope("test", "user-1", "sess-1", nil, nil, []string{"stage1", "stage2", "stage3"})
 
 	// Create a cancelled context
 	ctx, cancel := context.WithCancel(context.Background())
@@ -739,10 +739,10 @@ func TestParallelCancellation(t *testing.T) {
 		},
 	}
 
-	runtime, err := NewRuntime(cfg, nil, nil, &MockLogger{})
+	runtime, err := NewPipelineRunner(cfg, nil, nil, &MockLogger{})
 	require.NoError(t, err)
 
-	env := envelope.CreateGenericEnvelope("test", "user-1", "sess-1", nil, nil, nil)
+	env := envelope.CreateEnvelope("test", "user-1", "sess-1", nil, nil, nil)
 
 	// Create a cancelled context
 	ctx, cancel := context.WithCancel(context.Background())
@@ -767,10 +767,10 @@ func TestSequentialCancellationDuringExecution(t *testing.T) {
 		},
 	}
 
-	runtime, err := NewRuntime(cfg, nil, nil, &MockLogger{})
+	runtime, err := NewPipelineRunner(cfg, nil, nil, &MockLogger{})
 	require.NoError(t, err)
 
-	env := envelope.CreateGenericEnvelope("test", "user-1", "sess-1", nil, nil, []string{"stage1", "stage2"})
+	env := envelope.CreateEnvelope("test", "user-1", "sess-1", nil, nil, []string{"stage1", "stage2"})
 	env.CurrentStage = "stage1"
 
 	// Create a cancelled context

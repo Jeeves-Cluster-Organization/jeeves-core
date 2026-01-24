@@ -92,7 +92,7 @@ commbus/, coreengine/             →  Go core
 **Example:**
 ```python
 # ALLOWED
-from jeeves_protocols import GenericEnvelope, InterruptKind
+from jeeves_protocols import Envelope, InterruptKind
 from jeeves_shared import get_component_logger, parse_datetime
 from jeeves_avionics.llm import LLMClient
 from jeeves_avionics.database import DatabaseClient

@@ -32,7 +32,7 @@ from jeeves_protocols import LoggerProtocol
 
 # Import base logging from jeeves_shared (L0)
 from jeeves_shared.logging import (
-    JeevesLogger,
+    Logger,
     configure_logging as _base_configure_logging,
     create_logger,
     create_agent_logger,
@@ -145,7 +145,7 @@ __all__ = [
     "create_tool_logger",
     "get_component_logger",
     # Types
-    "JeevesLogger",
+    "Logger",
     # ADR-001: Adapter
     "StructlogAdapter",
     "create_structlog_adapter",

@@ -98,6 +98,46 @@ CRITIC_CONFIDENCE = Histogram(
     buckets=(0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1.0),
 )
 
+# ============================================================
+# LLM Provider Metrics
+# ============================================================
+
+LLM_PROVIDER_CALLS = Counter(
+    "jeeves_llm_provider_calls_total",
+    "LLM provider calls from Python layer",
+    labelnames=("provider", "model", "status"),
+)
+
+LLM_PROVIDER_LATENCY = Histogram(
+    "jeeves_llm_provider_duration_seconds",
+    "LLM provider call duration in seconds",
+    labelnames=("provider", "model"),
+    buckets=(0.1, 0.5, 1, 2, 5, 10, 30, 60),
+)
+
+LLM_TOKENS_USED = Counter(
+    "jeeves_llm_tokens_total",
+    "Total LLM tokens used",
+    labelnames=("provider", "model", "type"),  # type: prompt, completion
+)
+
+# ============================================================
+# HTTP Gateway Metrics
+# ============================================================
+
+HTTP_REQUESTS_TOTAL = Counter(
+    "jeeves_http_requests_total",
+    "Total HTTP requests to FastAPI gateway",
+    labelnames=("method", "path", "status_code"),
+)
+
+HTTP_REQUEST_DURATION = Histogram(
+    "jeeves_http_request_duration_seconds",
+    "HTTP request duration in seconds",
+    labelnames=("method", "path"),
+    buckets=(0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1, 2.5, 5, 10),
+)
+
 
 def orchestrator_started() -> None:
     """Increment in-flight gauge when orchestration begins."""
@@ -164,3 +204,52 @@ def record_critic_decision(action: str, confidence: float) -> None:
     """
     CRITIC_DECISIONS.labels(action=action).inc()
     CRITIC_CONFIDENCE.labels(action=action).observe(confidence)
+
+
+# ============================================================
+# LLM Provider Metric Recording Functions
+# ============================================================
+
+def record_llm_call(provider: str, model: str, status: str, duration_seconds: float) -> None:
+    """Record an LLM provider call with duration.
+
+    Args:
+        provider: Provider name (llamaserver, openai, anthropic, etc.)
+        model: Model name
+        status: Call status (success, error)
+        duration_seconds: Call duration in seconds
+    """
+    LLM_PROVIDER_CALLS.labels(provider=provider, model=model, status=status).inc()
+    LLM_PROVIDER_LATENCY.labels(provider=provider, model=model).observe(duration_seconds)
+
+
+def record_llm_tokens(provider: str, model: str, prompt_tokens: int, completion_tokens: int) -> None:
+    """Record LLM token usage.
+
+    Args:
+        provider: Provider name
+        model: Model name
+        prompt_tokens: Number of prompt tokens
+        completion_tokens: Number of completion tokens
+    """
+    if prompt_tokens > 0:
+        LLM_TOKENS_USED.labels(provider=provider, model=model, type="prompt").inc(prompt_tokens)
+    if completion_tokens > 0:
+        LLM_TOKENS_USED.labels(provider=provider, model=model, type="completion").inc(completion_tokens)
+
+
+# ============================================================
+# HTTP Gateway Metric Recording Functions
+# ============================================================
+
+def record_http_request(method: str, path: str, status_code: int, duration_seconds: float) -> None:
+    """Record an HTTP request with duration.
+
+    Args:
+        method: HTTP method (GET, POST, etc.)
+        path: Request path
+        status_code: HTTP status code
+        duration_seconds: Request duration in seconds
+    """
+    HTTP_REQUESTS_TOTAL.labels(method=method, path=path, status_code=str(status_code)).inc()
+    HTTP_REQUEST_DURATION.labels(method=method, path=path).observe(duration_seconds)

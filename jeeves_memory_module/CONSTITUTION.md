@@ -109,7 +109,7 @@ jeeves_memory_module/
 
 | Layer | Name | Scope | Implementation |
 |-------|------|-------|----------------|
-| **L1** | Episodic | Per-request | `GenericEnvelope` (core_engine) |
+| **L1** | Episodic | Per-request | `Envelope` (core_engine) |
 | **L2** | Events | Append-only log | `EventRepository` + `EventEmitter` (CommBus wired) |
 | **L3** | Semantic | Embeddings/search | `ChunkService` + `PgVectorRepository` |
 | **L4** | Working | Per-session state | `SessionStateService` |

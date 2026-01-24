@@ -14,6 +14,7 @@ Layer Extraction Compliant:
 from __future__ import annotations
 
 import asyncio
+import os
 import signal
 from contextlib import asynccontextmanager
 from typing import Any, AsyncIterator, Dict, Optional
@@ -34,15 +35,17 @@ from jeeves_avionics.database.client import DatabaseClientProtocol
 from jeeves_avionics.database.factory import create_database_client, reset_factory
 from jeeves_avionics.logging import get_current_logger
 from jeeves_mission_system.services.chat_service import ChatService
+from jeeves_avionics.observability.tracing import init_tracing, instrument_fastapi, shutdown_tracing
 
 from jeeves_protocols import (
-    GenericEnvelope,
+    Envelope,
     RequestContext,
-    create_generic_envelope,
+    create_envelope,
     TerminalReason,
     get_capability_resource_registry,
 )
 from jeeves_control_tower import ControlTower, SchedulingPriority
+from jeeves_mission_system.capability_wiring import wire_capabilities
 
 
 class SubmitRequestBody(BaseModel):
@@ -195,6 +198,12 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         chat_enabled=current_settings.chat_enabled,
     )
 
+    # Initialize tracing
+    jaeger_endpoint = os.getenv("JAEGER_ENDPOINT", "jaeger:4317")
+    service_name = "jeeves-orchestrator"
+    init_tracing(service_name, jaeger_endpoint)
+    _logger.info("tracing_initialized", service=service_name, jaeger=jaeger_endpoint)
+
     # Database initialization with clear ownership
     db = None
     db_owned_by_lifespan = False
@@ -225,6 +234,10 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
 
     # Initialize event manager (needed for real-time updates)
     event_manager = WebSocketEventManager()
+
+    # Wire capabilities before querying registry
+    _logger.info("wiring_capabilities")
+    wire_capabilities()
 
     # Initialize Control Tower (central orchestration kernel)
     _logger.info("initializing_control_tower")
@@ -365,6 +378,10 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
             await app_state.db.close()
             _logger.info("database_connection_closed")
 
+        # Shutdown tracing
+        shutdown_tracing()
+        _logger.info("tracing_shutdown_complete")
+
         _logger.info("server_shutdown_complete")
 
 
@@ -396,6 +413,9 @@ app = FastAPI(
     version=PLATFORM_VERSION,
     lifespan=lifespan,
 )
+
+# Instrument FastAPI for automatic trace propagation
+instrument_fastapi(app)
 
 # Mount static files for UI
 from fastapi.staticfiles import StaticFiles
@@ -506,10 +526,10 @@ async def ready() -> JSONResponse:
 
 @app.post("/api/v1/requests", response_model=SubmitRequestResponse)
 async def submit_request(body: SubmitRequestBody) -> SubmitRequestResponse:
-    """Submit a new code analysis request for processing.
+    """Submit a new capability request for processing.
 
     Routes through Control Tower for lifecycle management, resource tracking,
-    and service dispatch.
+    and service dispatch. The registered capability determines request behavior.
 
     Args:
         body: Request submission payload
@@ -564,7 +584,7 @@ async def submit_request(body: SubmitRequestBody) -> SubmitRequestResponse:
         )
 
         # Create envelope for Control Tower
-        envelope = create_generic_envelope(
+        envelope = create_envelope(
             raw_input=body.user_message,
             request_context=request_context,
             metadata=body.context,
@@ -600,6 +620,12 @@ async def submit_request(body: SubmitRequestBody) -> SubmitRequestResponse:
             status = "failed"
             response_text = result_envelope.termination_reason
 
+        # Check if capability requires confirmations (from registry)
+        capability_registry = get_capability_resource_registry()
+        default_service = capability_registry.get_default_service()
+        service_config = capability_registry.get_service_config(default_service) if default_service else None
+        requires_confirmation = service_config.requires_confirmation if service_config else False
+
         return SubmitRequestResponse(
             request_id=result_envelope.request_id or "",
             status=status,
@@ -607,7 +633,7 @@ async def submit_request(body: SubmitRequestBody) -> SubmitRequestResponse:
             clarification_needed=clarification_needed,
             clarification_question=result_envelope.clarification_question,
             thread_id=result_envelope.envelope_id if clarification_needed else None,
-            confirmation_needed=False,  # Code analysis is read-only
+            confirmation_needed=requires_confirmation and not service_config.is_readonly if service_config else False,
             confirmation_message=None,
             confirmation_id=None,
         )
@@ -625,8 +651,8 @@ async def submit_request(body: SubmitRequestBody) -> SubmitRequestResponse:
 async def submit_confirmation(body: ConfirmationResponse) -> SubmitRequestResponse:
     """Submit user's response to a confirmation request.
 
-    Note: Code Analysis Agent is read-only and doesn't require confirmations.
-    This endpoint is kept for API compatibility but always returns not found.
+    Confirmation handling depends on the registered capability's configuration.
+    Read-only capabilities do not require confirmations.
 
     Args:
         body: Confirmation response payload
@@ -635,12 +661,25 @@ async def submit_confirmation(body: ConfirmationResponse) -> SubmitRequestRespon
         SubmitRequestResponse: Result of processing the confirmation
 
     Raises:
-        HTTPException: Always returns 404 since code analysis is read-only
+        HTTPException: 404 if capability doesn't support confirmations
     """
-    # Code analysis is read-only - confirmations are not supported
+    # Check if capability requires confirmations (from registry)
+    capability_registry = get_capability_resource_registry()
+    default_service = capability_registry.get_default_service()
+    service_config = capability_registry.get_service_config(default_service) if default_service else None
+
+    # If capability is read-only or doesn't require confirmations, reject
+    if service_config and (service_config.is_readonly or not service_config.requires_confirmation):
+        raise HTTPException(
+            status_code=404,
+            detail=f"{service_config.service_id} does not require confirmations"
+        )
+
+    # TODO: Implement confirmation handling for write-capable capabilities
+    # For now, return not implemented
     raise HTTPException(
-        status_code=404,
-        detail="Code analysis is read-only and does not require confirmations"
+        status_code=501,
+        detail="Confirmation handling not yet implemented for this capability"
     )
 
 
@@ -724,14 +763,13 @@ async def submit_clarification(body: ClarificationBody) -> SubmitRequestResponse
 async def websocket_endpoint(websocket: WebSocket, token: Optional[str] = None) -> None:
     """WebSocket endpoint for real-time event streaming.
 
-    Clients can connect to receive orchestration events:
-    - perception.completed
-    - intent.completed
-    - planner.generated
-    - traverser.completed
-    - critic.completed
-    - integration.completed
-    - orchestrator.completed/failed
+    Clients connect to receive orchestration events from the registered capability.
+    Event types depend on the capability's pipeline stages (configured in registry).
+
+    Common event patterns:
+    - {agent}.started / {agent}.completed - Agent lifecycle events
+    - tool.called / tool.completed - Tool invocation events
+    - orchestrator.completed / orchestrator.failed - Overall status
 
     Args:
         websocket: WebSocket connection

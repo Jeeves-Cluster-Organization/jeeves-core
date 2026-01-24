@@ -8,6 +8,8 @@ import (
 	"runtime/debug"
 	"time"
 
+	"github.com/jeeves-cluster-organization/codeanalysis/coreengine/observability"
+	"go.opentelemetry.io/contrib/instrumentation/google.golang.org/grpc/otelgrpc"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
@@ -218,6 +220,62 @@ func ChainStreamInterceptors(interceptors ...grpc.StreamServerInterceptor) grpc.
 }
 
 // =============================================================================
+// METRICS INTERCEPTOR
+// =============================================================================
+
+// MetricsInterceptor creates a unary server interceptor that records Prometheus metrics.
+func MetricsInterceptor() grpc.UnaryServerInterceptor {
+	return func(
+		ctx context.Context,
+		req interface{},
+		info *grpc.UnaryServerInfo,
+		handler grpc.UnaryHandler,
+	) (interface{}, error) {
+		start := time.Now()
+
+		// Call the handler
+		resp, err := handler(ctx, req)
+
+		// Record metrics
+		durationMS := int(time.Since(start).Milliseconds())
+		statusCode := "OK"
+		if err != nil {
+			st, _ := status.FromError(err)
+			statusCode = st.Code().String()
+		}
+		observability.RecordGRPCRequest(info.FullMethod, statusCode, durationMS)
+
+		return resp, err
+	}
+}
+
+// StreamMetricsInterceptor creates a stream server interceptor that records Prometheus metrics.
+func StreamMetricsInterceptor() grpc.StreamServerInterceptor {
+	return func(
+		srv interface{},
+		ss grpc.ServerStream,
+		info *grpc.StreamServerInfo,
+		handler grpc.StreamHandler,
+	) error {
+		start := time.Now()
+
+		// Call the handler
+		err := handler(srv, ss)
+
+		// Record metrics
+		durationMS := int(time.Since(start).Milliseconds())
+		statusCode := "OK"
+		if err != nil {
+			st, _ := status.FromError(err)
+			statusCode = st.Code().String()
+		}
+		observability.RecordGRPCRequest(info.FullMethod, statusCode, durationMS)
+
+		return err
+	}
+}
+
+// =============================================================================
 // SERVER OPTIONS BUILDER
 // =============================================================================
 
@@ -227,16 +285,19 @@ func ServerOptions(logger Logger) []grpc.ServerOption {
 	// Create interceptor chains
 	unaryInterceptor := ChainUnaryInterceptors(
 		RecoveryInterceptor(logger, nil),
+		MetricsInterceptor(),
 		LoggingInterceptor(logger),
 	)
 
 	streamInterceptor := ChainStreamInterceptors(
 		StreamRecoveryInterceptor(logger, nil),
+		StreamMetricsInterceptor(),
 		StreamLoggingInterceptor(logger),
 	)
 
 	return []grpc.ServerOption{
 		grpc.UnaryInterceptor(unaryInterceptor),
 		grpc.StreamInterceptor(streamInterceptor),
+		grpc.StatsHandler(otelgrpc.NewServerHandler()), // OpenTelemetry trace propagation
 	}
 }

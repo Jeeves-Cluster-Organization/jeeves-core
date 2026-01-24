@@ -1,7 +1,7 @@
 """Agent and envelope fixtures for mission system tests.
 
 Centralized Architecture (v4.0):
-- Uses GenericEnvelope with dynamic outputs dict
+- Uses Envelope with dynamic outputs dict
 - Pre-populated envelope fixtures for each pipeline stage
 - No concrete agent classes (agents are config-driven)
 
@@ -15,8 +15,8 @@ Usage:
 import pytest
 from typing import Callable, Dict, Any
 from jeeves_mission_system.contracts_core import (
-    GenericEnvelope,
-    create_generic_envelope,
+    Envelope,
+    create_envelope,
 )
 from jeeves_protocols import RequestContext
 from jeeves_mission_system.tests.fixtures.mocks import (
@@ -30,7 +30,7 @@ from jeeves_mission_system.tests.fixtures.mocks import (
 # =============================================================================
 
 @pytest.fixture
-def envelope_factory() -> Callable[..., GenericEnvelope]:
+def envelope_factory() -> Callable[..., Envelope]:
     """Factory for creating test envelopes.
 
     Usage:
@@ -42,23 +42,23 @@ def envelope_factory() -> Callable[..., GenericEnvelope]:
         session_id: str = "test-session",
         user_id: str = "test-user",
         **kwargs
-    ) -> GenericEnvelope:
+    ) -> Envelope:
         request_context = RequestContext(
             request_id=kwargs.pop("request_id", "req_test_fixture"),
             capability="test_capability",
             session_id=session_id,
             user_id=user_id,
         )
-        return create_generic_envelope(
+        return create_envelope(
             raw_input=raw_input,
             request_context=request_context,
-            **kwargs
+            **kwargs,
         )
     return _create
 
 
 @pytest.fixture
-def sample_envelope(envelope_factory) -> GenericEnvelope:
+def sample_envelope(envelope_factory) -> Envelope:
     """Basic sample envelope for tests."""
     return envelope_factory(raw_input="Where is the main function defined?")
 
@@ -98,7 +98,7 @@ def mock_llm_provider() -> MockLLMAdapter:
 # =============================================================================
 
 @pytest.fixture
-def envelope_with_perception(envelope_factory) -> GenericEnvelope:
+def envelope_with_perception(envelope_factory) -> Envelope:
     """Envelope with perception output populated.
 
     State: perception -> intent (current)
@@ -115,7 +115,7 @@ def envelope_with_perception(envelope_factory) -> GenericEnvelope:
 
 
 @pytest.fixture
-def envelope_with_intent(envelope_with_perception) -> GenericEnvelope:
+def envelope_with_intent(envelope_with_perception) -> Envelope:
     """Envelope with intent output populated.
 
     State: perception -> intent -> planner (current)
@@ -134,7 +134,7 @@ def envelope_with_intent(envelope_with_perception) -> GenericEnvelope:
 
 
 @pytest.fixture
-def envelope_with_plan(envelope_with_intent) -> GenericEnvelope:
+def envelope_with_plan(envelope_with_intent) -> Envelope:
     """Envelope with plan output populated.
 
     State: perception -> intent -> planner -> executor (current)
@@ -154,7 +154,7 @@ def envelope_with_plan(envelope_with_intent) -> GenericEnvelope:
 
 
 @pytest.fixture
-def envelope_with_execution(envelope_with_plan) -> GenericEnvelope:
+def envelope_with_execution(envelope_with_plan) -> Envelope:
     """Envelope with execution output populated.
 
     State: perception -> intent -> planner -> executor -> synthesizer (current)
@@ -183,7 +183,7 @@ def envelope_with_execution(envelope_with_plan) -> GenericEnvelope:
 
 
 @pytest.fixture
-def envelope_with_synthesizer(envelope_with_execution) -> GenericEnvelope:
+def envelope_with_synthesizer(envelope_with_execution) -> Envelope:
     """Envelope with synthesizer output populated.
 
     State: perception -> intent -> planner -> executor -> synthesizer -> critic (current)
@@ -203,7 +203,7 @@ def envelope_with_synthesizer(envelope_with_execution) -> GenericEnvelope:
 
 
 @pytest.fixture
-def envelope_with_critic(envelope_with_synthesizer) -> GenericEnvelope:
+def envelope_with_critic(envelope_with_synthesizer) -> Envelope:
     """Envelope with critic output populated.
 
     State: perception -> intent -> planner -> executor -> synthesizer -> critic -> integration (current)
@@ -235,7 +235,7 @@ def envelope_with_critic(envelope_with_synthesizer) -> GenericEnvelope:
 # =============================================================================
 
 @pytest.fixture
-def envelope_with_clarification(envelope_with_perception) -> GenericEnvelope:
+def envelope_with_clarification(envelope_with_perception) -> Envelope:
     """Envelope in clarification-required state."""
     env = envelope_with_perception
     env.set_output("intent", {
@@ -252,7 +252,7 @@ def envelope_with_clarification(envelope_with_perception) -> GenericEnvelope:
 
 
 @pytest.fixture
-def envelope_with_loop_back(envelope_with_critic) -> GenericEnvelope:
+def envelope_with_loop_back(envelope_with_critic) -> Envelope:
     """Envelope that needs loop_back (critic verdict=loop_back)."""
     env = envelope_with_critic
     # Override critic output with loop_back verdict

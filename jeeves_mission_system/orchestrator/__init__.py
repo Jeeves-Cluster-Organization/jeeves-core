@@ -1,16 +1,20 @@
 """
-Code Analysis Orchestrator - gRPC service layer.
+Capability Orchestrator - gRPC service layer.
 
 This package provides the gRPC server that:
-- Wraps the 7-agent code analysis orchestration
-- Exposes services for code analysis flow
+- Wraps capability-specific orchestration pipelines
+- Exposes services for capability flow processing
 - Runs as a separate container from the HTTP gateway
 
 The orchestrator owns:
-- Agent pipeline (Perception → Intent → Planner → Traverser → Synthesizer → Critic → Integration)
+- Capability servicer delegation (via CapabilityServicerProtocol)
 - Database connections
 - LLM provider management
 - Tool registry
+
+Capabilities register their orchestrators via CapabilityResourceRegistry.
+The FlowServicer delegates to registered capability servicers without
+hardcoded knowledge of specific capabilities.
 
 Unified Interrupt System (v4.0):
 - ConfirmationOrchestrator has been REMOVED
@@ -26,8 +30,10 @@ from jeeves_mission_system.orchestrator.events import (
     create_event_orchestrator,
     AgentEventType,
     AgentEvent,
-    AgentEventEmitter,
-    AgentEventContext,
+    EventEmitter,
+    EventContext,
+    create_agent_event_emitter,
+    create_event_context,
 )
 
 __all__ = [
@@ -36,6 +42,9 @@ __all__ = [
     "create_event_orchestrator",
     "AgentEventType",
     "AgentEvent",
-    "AgentEventEmitter",
-    "AgentEventContext",
+    "EventEmitter",
+    "EventContext",
+    # Factory functions
+    "create_agent_event_emitter",
+    "create_event_context",
 ]

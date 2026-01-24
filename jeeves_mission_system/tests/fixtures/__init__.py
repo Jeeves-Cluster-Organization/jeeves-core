@@ -1,7 +1,7 @@
 """Test Fixtures Package.
 
 Centralized Architecture (v4.0):
-- Uses GenericEnvelope (not CoreEnvelope)
+- Uses Envelope (not CoreEnvelope)
 - Pre-populated envelope fixtures for each pipeline stage
 - No concrete agent fixtures (agents are config-driven)
 

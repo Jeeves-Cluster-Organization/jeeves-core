@@ -19,7 +19,7 @@ import threading
 from datetime import datetime
 from typing import Any, Callable, Dict, List, Optional, TYPE_CHECKING, Union
 
-from jeeves_protocols import GenericEnvelope, LoggerProtocol, RequestContext
+from jeeves_protocols import Envelope, LoggerProtocol, RequestContext
 
 from jeeves_control_tower.protocols import CommBusCoordinatorProtocol
 from jeeves_control_tower.types import DispatchTarget, ServiceDescriptor
@@ -29,7 +29,7 @@ if TYPE_CHECKING:
 
 
 # Type alias for dispatch handlers
-DispatchHandler = Callable[[GenericEnvelope], "asyncio.Future[GenericEnvelope]"]
+DispatchHandler = Callable[[Envelope], "asyncio.Future[Envelope]"]
 
 
 class CommBusCoordinator(CommBusCoordinatorProtocol):
@@ -178,8 +178,8 @@ class CommBusCoordinator(CommBusCoordinatorProtocol):
     async def dispatch(
         self,
         target: DispatchTarget,
-        envelope: GenericEnvelope,
-    ) -> GenericEnvelope:
+        envelope: Envelope,
+    ) -> Envelope:
         """Dispatch a request to a service."""
         service_name = target.service_name
 
@@ -397,7 +397,7 @@ class CommBusCoordinator(CommBusCoordinatorProtocol):
             else:
                 raise TypeError("request_context must be a dict or RequestContext")
 
-            envelope = GenericEnvelope(request_context=request_context)
+            envelope = Envelope(request_context=request_context)
             envelope.metadata = {"query_type": query_type, **payload}
             try:
                 result = await asyncio.wait_for(

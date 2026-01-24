@@ -608,12 +608,12 @@ async def test_intent_extraction():
 ## Dependencies Note
 
 **Foundation Layers (L0)**:
-- `jeeves_protocols` - Protocol definitions, InterruptKind enum, GenericEnvelope
+- `jeeves_protocols` - Protocol definitions, InterruptKind enum, Envelope
 - `jeeves_shared` - Shared utilities (logging via `get_component_logger`, serialization, UUID)
 
 Tests should import from these foundation layers for types and utilities:
 ```python
-from jeeves_protocols import GenericEnvelope, InterruptKind
+from jeeves_protocols import Envelope, InterruptKind
 from jeeves_shared import get_component_logger, parse_datetime
 ```
 

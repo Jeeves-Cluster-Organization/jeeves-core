@@ -110,11 +110,11 @@ from jeeves_protocols import (
     AgentConfig, PipelineConfig, RoutingRule, ContextBounds,
 
     # Envelope
-    GenericEnvelope, ProcessingRecord,
+    Envelope, ProcessingRecord,
 
     # Agent Runtime
-    UnifiedAgent, Runtime, create_runtime_from_config,
-    create_generic_envelope, LLMProviderFactory,
+    Agent, Runtime, create_pipeline_runner,
+    create_envelope, LLMProviderFactory,
 
     # Protocols
     LoggerProtocol, LLMProviderProtocol, ToolRegistryProtocol,
@@ -162,7 +162,7 @@ from jeeves_mission_system.config import (
 
 # From jeeves_avionics (L1) - Infrastructure (prefer adapters)
 from jeeves_avionics.capability_registry import (
-    CapabilityLLMConfigRegistry, get_capability_registry,
+    DomainLLMRegistry, get_capability_registry,
 )
 
 from jeeves_avionics.logging import (
@@ -435,14 +435,14 @@ agent_config = AgentConfig(
 ### Agent Implementation Pattern
 
 ```python
-from jeeves_protocols import UnifiedAgent, GenericEnvelope
+from jeeves_protocols import Agent, Envelope
 
-class MyAgent(UnifiedAgent):
+class MyAgent(Agent):
     """Custom agent implementation."""
 
     async def run(
         self,
-        envelope: GenericEnvelope,
+        envelope: Envelope,
         context: RunContext,
     ) -> AgentResult:
         # 1. Get previous agent outputs
@@ -527,9 +527,9 @@ AgentEventType.CLARIFICATION_REQUESTED
 ### Event Emission
 
 ```python
-from jeeves_mission_system.orchestrator.event_context import AgentEventContext
+from jeeves_mission_system.orchestrator.event_context import EventContext
 
-async def my_agent_logic(event_context: AgentEventContext):
+async def my_agent_logic(event_context: EventContext):
     # Emit agent started
     await event_context.emit_agent_started("my_agent")
 

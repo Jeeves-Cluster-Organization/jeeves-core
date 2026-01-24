@@ -8,7 +8,7 @@ Constitutional Reference:
     - Capability Constitution R6: Domain Config Ownership
 
 Per-Agent Configuration:
-    Agent-specific LLM settings are now queried from CapabilityLLMConfigRegistry.
+    Agent-specific LLM settings are now queried from DomainLLMRegistry.
     Capabilities register their agent configurations at startup, and the factory
     queries the registry instead of having hardcoded agent names.
 
@@ -35,7 +35,7 @@ from jeeves_avionics.llm.providers import (
     MockProvider,
 )
 from jeeves_avionics.llm.providers import LlamaCppProvider, LlamaServerProvider
-from jeeves_protocols import NodeProfilesProtocol, LoggerProtocol
+from jeeves_protocols import InferenceEndpointsProtocol, LoggerProtocol
 from jeeves_avionics.logging import get_current_logger
 from jeeves_avionics.capability_registry import get_capability_registry
 
@@ -170,7 +170,7 @@ def create_agent_provider(
 def create_agent_provider_with_node_awareness(
     settings: Settings,
     agent_name: str,
-    node_profiles: Optional[NodeProfilesProtocol] = None,
+    node_profiles: Optional[InferenceEndpointsProtocol] = None,
 ) -> LLMProvider:
     """Create provider for agent with node-aware routing (distributed mode).
 
@@ -183,7 +183,7 @@ def create_agent_provider_with_node_awareness(
     Args:
         settings: Application settings object
         agent_name: Agent name (e.g., "planner", "executor")
-        node_profiles: Optional NodeProfilesProtocol for distributed routing
+        node_profiles: Optional InferenceEndpointsProtocol for distributed routing
 
     Returns:
         LLM provider configured for the agent's assigned node
@@ -263,13 +263,13 @@ class LLMFactory:
     def __init__(
         self,
         settings: Settings,
-        node_profiles: Optional[NodeProfilesProtocol] = None,
+        node_profiles: Optional[InferenceEndpointsProtocol] = None,
     ):
         """Initialize factory.
 
         Args:
             settings: Application settings
-            node_profiles: Optional NodeProfilesProtocol for distributed routing
+            node_profiles: Optional InferenceEndpointsProtocol for distributed routing
         """
         self.settings = settings
         self._node_profiles = node_profiles

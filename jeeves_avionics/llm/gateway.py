@@ -24,6 +24,9 @@ from jeeves_avionics.llm.providers.base import TokenChunk
 from jeeves_avionics.settings import Settings
 from jeeves_avionics.logging import get_current_logger
 from jeeves_protocols import LoggerProtocol
+from jeeves_avionics.observability.metrics import record_llm_call, record_llm_tokens
+from jeeves_avionics.observability.tracing import get_tracer
+from opentelemetry.trace import Status, StatusCode
 
 # Type alias for resource tracking callback
 # Callback signature: (tokens_in: int, tokens_out: int) -> Optional[str]
@@ -125,6 +128,10 @@ class LLMResponse:
         data = asdict(self)
         data['timestamp'] = self.timestamp.isoformat()
         return data
+
+
+# Module-level tracer
+tracer = get_tracer(__name__)
 
 
 class LLMGateway:
@@ -324,6 +331,37 @@ class LLMGateway:
     ) -> LLMResponse:
         """Call a specific provider and return standardized response."""
 
+        # Create tracing span
+        with tracer.start_as_current_span(
+            "llm.provider.call",
+            attributes={
+                "jeeves.llm.provider": provider_name,
+                "jeeves.llm.model": model or "default",
+                "jeeves.agent.name": agent_name,
+                "jeeves.request.id": request_id,
+            }
+        ) as span:
+            return await self._call_provider_with_span(
+                span, provider_name, agent_name, prompt, system, model,
+                tools, temperature, max_tokens, request_id, start_time
+            )
+
+    async def _call_provider_with_span(
+        self,
+        span,
+        provider_name: str,
+        agent_name: str,
+        prompt: str,
+        system: Optional[str],
+        model: Optional[str],
+        tools: Optional[List[Dict[str, Any]]],
+        temperature: float,
+        max_tokens: Optional[int],
+        request_id: str,
+        start_time: float
+    ) -> LLMResponse:
+        """Internal implementation with span for tracing."""
+
         # Create provider instance
         provider = create_agent_provider(
             settings=self.settings,
@@ -346,11 +384,24 @@ class LLMGateway:
         model_name = model or self._get_model_for_agent(agent_name)
 
         # Call provider using legacy interface
-        llm_result = await provider.generate(
-            model=model_name,
-            prompt=prompt_text,
-            options=options
-        )
+        try:
+            llm_result = await provider.generate(
+                model=model_name,
+                prompt=prompt_text,
+                options=options
+            )
+        except Exception as e:
+            # Record error metrics
+            latency_ms = (time.time() - start_time) * 1000
+            record_llm_call(
+                provider=provider_name,
+                model=model_name,
+                status="error",
+                duration_seconds=latency_ms / 1000.0
+            )
+            span.record_exception(e)
+            span.set_status(Status(StatusCode.ERROR, str(e)))
+            raise
 
         # Calculate latency
         latency_ms = (time.time() - start_time) * 1000
@@ -368,6 +419,30 @@ class LLMGateway:
             prompt_tokens=prompt_tokens,
             completion_tokens=completion_tokens
         )
+
+        # Record metrics
+        record_llm_call(
+            provider=provider_name,
+            model=model_used,
+            status="success",
+            duration_seconds=latency_ms / 1000.0
+        )
+        record_llm_tokens(
+            provider=provider_name,
+            model=model_used,
+            prompt_tokens=prompt_tokens,
+            completion_tokens=completion_tokens
+        )
+
+        # Record span attributes
+        span.set_attributes({
+            "jeeves.llm.tokens.prompt": prompt_tokens,
+            "jeeves.llm.tokens.completion": completion_tokens,
+            "jeeves.llm.tokens.total": total_tokens,
+            "jeeves.llm.cost_usd": cost_metrics.cost_usd,
+            "jeeves.llm.latency_ms": latency_ms,
+        })
+        span.set_status(Status(StatusCode.OK))
 
         # Parse tool calls (if any)
         tool_calls = self._extract_tool_calls(llm_result)

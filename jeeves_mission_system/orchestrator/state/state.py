@@ -1,12 +1,12 @@
 """
-JeevesState TypedDict for Jeeves runtime workflow.
+PipelineState TypedDict for Jeeves runtime workflow.
 
 Centralized Architecture (v4.0):
-This state container mirrors the GenericEnvelope structure to enable
+This state container mirrors the Envelope structure to enable
 easy conversion between the two. Uses dynamic outputs dict pattern.
 
 Design Principles:
-- Keep close to GenericEnvelope for easy conversion
+- Keep close to Envelope for easy conversion
 - Use plain List types (merge logic handled by runtime)
 - Immutable identity fields, mutable processing fields
 
@@ -29,9 +29,9 @@ REDUCER_FIELDS = [
 ]
 
 
-class JeevesState(TypedDict, total=False):
+class PipelineState(TypedDict, total=False):
     """
-    Jeeves runtime state container - mirrors GenericEnvelope structure.
+    Jeeves runtime state container - mirrors Envelope structure.
 
     This TypedDict flows through all nodes in the pipeline.
     List merging is handled by the runtime's merge_state() function.
@@ -117,7 +117,7 @@ def create_initial_state(
     request_id: str,
     received_at: str,
     metadata: Optional[Dict[str, Any]] = None,
-) -> JeevesState:
+) -> PipelineState:
     """
     Create initial state for a new workflow.
 
@@ -131,9 +131,9 @@ def create_initial_state(
         metadata: Optional metadata dict
 
     Returns:
-        JeevesState with all fields initialized
+        PipelineState with all fields initialized
     """
-    return JeevesState(
+    return PipelineState(
         envelope_id=envelope_id,
         request_id=request_id,
         user_id=user_id,

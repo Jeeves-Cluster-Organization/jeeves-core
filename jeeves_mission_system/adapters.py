@@ -47,7 +47,7 @@ class MissionSystemAdapters:
 
         # In agent - all deps via adapters
         llm = adapters.get_llm_provider("planner")
-        # Model config is owned by capabilities via CapabilityLLMConfigRegistry
+        # Model config is owned by capabilities via DomainLLMRegistry
         bounds = adapters.context_bounds
     """
 
@@ -189,7 +189,7 @@ def get_logger():
     Apps should use this instead of importing from jeeves_avionics.logging directly.
 
     Returns:
-        Logger instance (JeevesLogger)
+        Logger instance (Logger)
 
     Constitutional compliance:
         Apps access infrastructure via adapters, not direct avionics imports.

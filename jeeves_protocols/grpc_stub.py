@@ -5,12 +5,12 @@ to provide a clean import path for the jeeves_protocols package.
 
 Usage:
     from jeeves_protocols import grpc_stub
-    stub = grpc_stub.JeevesCoreServiceStub(channel)
+    stub = grpc_stub.EngineServiceStub(channel)
     request = grpc_stub.CreateEnvelopeRequest(...)
 """
 
 # Re-export from coreengine proto
-from coreengine.proto.jeeves_core_pb2 import (
+from coreengine.proto.engine_pb2 import (
     # Envelope messages
     CreateEnvelopeRequest,
     UpdateEnvelopeRequest,
@@ -32,10 +32,10 @@ from coreengine.proto.jeeves_core_pb2 import (
     ExecutionEventType,
 )
 
-from coreengine.proto.jeeves_core_pb2_grpc import (
-    JeevesCoreServiceStub,
-    JeevesCoreServiceServicer,
-    add_JeevesCoreServiceServicer_to_server,
+from coreengine.proto.engine_pb2_grpc import (
+    EngineServiceStub,
+    EngineServiceServicer,
+    add_EngineServiceServicer_to_server,
 )
 
 __all__ = [
@@ -56,7 +56,7 @@ __all__ = [
     "InterruptKind",
     "ExecutionEventType",
     # Service
-    "JeevesCoreServiceStub",
-    "JeevesCoreServiceServicer",
-    "add_JeevesCoreServiceServicer_to_server",
+    "EngineServiceStub",
+    "EngineServiceServicer",
+    "add_EngineServiceServicer_to_server",
 ]

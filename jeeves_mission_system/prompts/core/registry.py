@@ -1,5 +1,5 @@
 """
-Centralized prompt registry for Code Analysis Agent.
+Centralized prompt registry for mission system agents.
 
 Constitutional Alignment:
 - P6: Observable (version tracking, logging)
