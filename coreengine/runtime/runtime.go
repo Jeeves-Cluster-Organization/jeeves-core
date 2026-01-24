@@ -11,6 +11,10 @@ import (
 	"github.com/jeeves-cluster-organization/codeanalysis/coreengine/config"
 	"github.com/jeeves-cluster-organization/codeanalysis/coreengine/envelope"
 	"github.com/jeeves-cluster-organization/codeanalysis/coreengine/observability"
+	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/codes"
+	"go.opentelemetry.io/otel/trace"
 )
 
 // RunMode from config package.
@@ -23,6 +27,8 @@ const (
 	RunModeSequential = config.RunModeSequential
 	RunModeParallel   = config.RunModeParallel
 )
+
+var tracer = otel.Tracer("jeeves-core/runtime")
 
 // RunOptions configures how the pipeline runs.
 type RunOptions struct {
@@ -133,6 +139,16 @@ func (r *PipelineRunner) SetEventContext(ctx agents.EventContext) {
 
 // Execute runs the pipeline with the given options.
 func (r *PipelineRunner) Execute(ctx context.Context, env *envelope.Envelope, opts RunOptions) (*envelope.Envelope, <-chan StageOutput, error) {
+	// Create tracing span
+	ctx, span := tracer.Start(ctx, "pipeline.execute",
+		trace.WithAttributes(
+			attribute.String("jeeves.pipeline.name", r.Config.Name),
+			attribute.String("jeeves.request.id", env.RequestID),
+			attribute.String("jeeves.envelope.id", env.EnvelopeID),
+		),
+	)
+	defer span.End()
+
 	// Apply defaults from config
 	if opts.Mode == "" {
 		if r.Config.DefaultRunMode != "" {
@@ -201,6 +217,24 @@ func (r *PipelineRunner) Execute(ctx context.Context, env *envelope.Envelope, op
 		status = "terminated"
 	}
 	observability.RecordPipelineExecution(r.Config.Name, status, durationMS)
+
+	// Record span status
+	span.SetAttributes(
+		attribute.String("pipeline.mode", string(opts.Mode)),
+		attribute.String("pipeline.status", status),
+		attribute.Int("pipeline.duration_ms", durationMS),
+	)
+	if err != nil {
+		span.RecordError(err)
+		span.SetStatus(codes.Error, err.Error())
+	} else if resultEnv.Terminated {
+		span.SetStatus(codes.Ok, "terminated")
+		if resultEnv.TerminationReason != nil {
+			span.SetAttributes(attribute.String("termination.reason", *resultEnv.TerminationReason))
+		}
+	} else {
+		span.SetStatus(codes.Ok, "success")
+	}
 
 	completeEvent := "pipeline_completed"
 	if opts.Mode == RunModeParallel {

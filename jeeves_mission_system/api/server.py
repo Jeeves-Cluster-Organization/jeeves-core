@@ -33,6 +33,7 @@ from jeeves_avionics.database.client import DatabaseClientProtocol
 from jeeves_avionics.database.factory import create_database_client, reset_factory
 from jeeves_avionics.logging import get_current_logger
 from jeeves_mission_system.services.chat_service import ChatService
+from jeeves_avionics.observability.tracing import init_tracing, instrument_fastapi, shutdown_tracing
 
 from jeeves_protocols import Envelope, create_envelope, TerminalReason, get_capability_resource_registry
 from jeeves_control_tower import ControlTower, SchedulingPriority
@@ -187,6 +188,12 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         llm_provider=current_settings.llm_provider,
         chat_enabled=current_settings.chat_enabled,
     )
+
+    # Initialize tracing
+    jaeger_endpoint = os.getenv("JAEGER_ENDPOINT", "jaeger:4317")
+    service_name = "jeeves-orchestrator"
+    init_tracing(service_name, jaeger_endpoint)
+    _logger.info("tracing_initialized", service=service_name, jaeger=jaeger_endpoint)
 
     # Database initialization with clear ownership
     db = None
@@ -358,6 +365,10 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
             await app_state.db.close()
             _logger.info("database_connection_closed")
 
+        # Shutdown tracing
+        shutdown_tracing()
+        _logger.info("tracing_shutdown_complete")
+
         _logger.info("server_shutdown_complete")
 
 
@@ -389,6 +400,9 @@ app = FastAPI(
     version=PLATFORM_VERSION,
     lifespan=lifespan,
 )
+
+# Instrument FastAPI for automatic trace propagation
+instrument_fastapi(app)
 
 # Mount static files for UI
 from fastapi.staticfiles import StaticFiles

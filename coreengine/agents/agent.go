@@ -10,6 +10,9 @@ import (
 	"github.com/jeeves-cluster-organization/codeanalysis/coreengine/config"
 	"github.com/jeeves-cluster-organization/codeanalysis/coreengine/envelope"
 	"github.com/jeeves-cluster-organization/codeanalysis/coreengine/observability"
+	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/codes"
 )
 
 // LLMProvider is the interface for LLM providers.
@@ -50,6 +53,8 @@ type OutputHook func(env *envelope.Envelope, output map[string]any) (*envelope.E
 
 // MockHandler generates mock output for testing.
 type MockHandler func(env *envelope.Envelope) (map[string]any, error)
+
+var tracer = otel.Tracer("jeeves-core/agents")
 
 // Agent is the single agent class that handles all agent types via configuration.
 type Agent struct {
@@ -102,6 +107,13 @@ func (a *Agent) SetEventContext(ctx EventContext) {
 
 // Process processes an envelope through this agent.
 func (a *Agent) Process(ctx context.Context, env *envelope.Envelope) (*envelope.Envelope, error) {
+	// Create tracing span
+	ctx, span := tracer.Start(ctx, "agent.process",
+		attribute.String("jeeves.agent.name", a.Name),
+		attribute.String("jeeves.request.id", env.RequestID),
+	)
+	defer span.End()
+
 	startTime := time.Now()
 	llmCalls := 0
 
@@ -115,14 +127,24 @@ func (a *Agent) Process(ctx context.Context, env *envelope.Envelope) (*envelope.
 
 	defer func() {
 		durationMS := int(time.Since(startTime).Milliseconds())
+
+		// Set span attributes
+		span.SetAttributes(
+			attribute.Int("jeeves.llm.calls", llmCalls),
+			attribute.Int("duration_ms", durationMS),
+		)
+
 		if err != nil {
 			observability.RecordAgentExecution(a.Name, "error", durationMS)
+			span.RecordError(err)
+			span.SetStatus(codes.Error, err.Error())
 			a.Logger.Error(fmt.Sprintf("%s_error", a.Name), "error", err.Error(), "duration_ms", durationMS)
 			errStr := err.Error()
 			env.RecordAgentComplete(a.Name, "error", &errStr, llmCalls, durationMS)
 			a.emitCompleted("error", durationMS, err)
 		} else {
 			observability.RecordAgentExecution(a.Name, "success", durationMS)
+			span.SetStatus(codes.Ok, "success")
 			a.Logger.Info(fmt.Sprintf("%s_completed", a.Name), "duration_ms", durationMS, "next_stage", env.CurrentStage)
 			env.RecordAgentComplete(a.Name, "success", nil, llmCalls, durationMS)
 			a.emitCompleted("success", durationMS, nil)
