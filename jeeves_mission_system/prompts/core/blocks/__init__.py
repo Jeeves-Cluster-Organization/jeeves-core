@@ -31,11 +31,12 @@ Usage:
 from .identity_block import IDENTITY_BLOCK
 from .style_block import STYLE_BLOCK
 from .role_invariants import ROLE_INVARIANTS
-from .safety_block import SAFETY_BLOCK
+from .safety_block import SAFETY_BLOCK, get_safety_block
 
 __all__ = [
     "IDENTITY_BLOCK",
     "STYLE_BLOCK",
     "ROLE_INVARIANTS",
     "SAFETY_BLOCK",
+    "get_safety_block",
 ]

@@ -38,6 +38,7 @@ from jeeves_avionics.observability.tracing import init_tracing, instrument_fasta
 
 from jeeves_protocols import Envelope, create_envelope, TerminalReason, get_capability_resource_registry
 from jeeves_control_tower import ControlTower, SchedulingPriority
+from jeeves_mission_system.capability_wiring import wire_capabilities
 
 
 class SubmitRequestBody(BaseModel):
@@ -226,6 +227,10 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
 
     # Initialize event manager (needed for real-time updates)
     event_manager = WebSocketEventManager()
+
+    # Wire capabilities before querying registry
+    _logger.info("wiring_capabilities")
+    wire_capabilities()
 
     # Initialize Control Tower (central orchestration kernel)
     _logger.info("initializing_control_tower")

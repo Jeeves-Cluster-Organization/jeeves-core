@@ -18,7 +18,13 @@ Usage:
 """
 
 from jeeves_mission_system.prompts.core.registry import PromptRegistry, PromptVersion, register_prompt
-from jeeves_mission_system.prompts.core.blocks import IDENTITY_BLOCK, STYLE_BLOCK, ROLE_INVARIANTS, SAFETY_BLOCK
+from jeeves_mission_system.prompts.core.blocks import (
+    IDENTITY_BLOCK,
+    STYLE_BLOCK,
+    ROLE_INVARIANTS,
+    SAFETY_BLOCK,
+    get_safety_block,
+)
 
 __all__ = [
     "PromptRegistry",
@@ -28,6 +34,7 @@ __all__ = [
     "STYLE_BLOCK",
     "ROLE_INVARIANTS",
     "SAFETY_BLOCK",
+    "get_safety_block",
 ]
 
 # Import GENERIC prompt version modules to ensure they're registered
