@@ -1,6 +1,6 @@
 # Lifecycle Module
 
-**Module:** `jeeves_control_tower.lifecycle`  
+**Module:** `control_tower.lifecycle`  
 **Main Class:** `LifecycleManager`
 
 ---
@@ -419,8 +419,8 @@ class LifecycleManagerProtocol(Protocol):
 ## Usage Example
 
 ```python
-from jeeves_control_tower.lifecycle import LifecycleManager
-from jeeves_control_tower.types import ProcessState, SchedulingPriority
+from control_tower.lifecycle import LifecycleManager
+from control_tower.types import ProcessState, SchedulingPriority
 
 lifecycle = LifecycleManager(logger)
 

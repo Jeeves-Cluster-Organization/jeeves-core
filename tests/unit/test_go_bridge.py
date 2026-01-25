@@ -8,7 +8,7 @@ import pytest
 from unittest.mock import patch, MagicMock
 import subprocess
 
-from jeeves_avionics.interop.go_bridge import (
+from avionics.interop.go_bridge import (
     GoBridge,
     GoEnvelopeBridge,
     GoBridgeError,

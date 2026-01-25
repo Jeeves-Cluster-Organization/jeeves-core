@@ -125,10 +125,10 @@ echo '{"envelope_id":"test"}' | go-envelope validate
 
 ## Python Integration
 
-The CLI is invoked by `jeeves_avionics.interop.go_bridge.GoEnvelopeBridge`:
+The CLI is invoked by `avionics.interop.go_bridge.GoEnvelopeBridge`:
 
 ```python
-from jeeves_avionics.interop.go_bridge import GoEnvelopeBridge
+from avionics.interop.go_bridge import GoEnvelopeBridge
 
 bridge = GoEnvelopeBridge()
 
@@ -224,7 +224,7 @@ Validates envelope JSON structure without processing.
 ## Related Documentation
 
 - [coreengine/envelope.md](../coreengine/envelope.md) - Envelope structure
-- [jeeves_avionics/infrastructure.md](../jeeves_avionics/infrastructure.md) - Go bridge
+- [avionics/infrastructure.md](../avionics/infrastructure.md) - Go bridge
 
 ---
 

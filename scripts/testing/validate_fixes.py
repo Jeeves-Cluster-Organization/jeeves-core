@@ -36,7 +36,7 @@ async def main():
 
     # Check 1: Config settings has deployment_mode
     try:
-        from jeeves_avionics.settings import settings
+        from avionics.settings import settings
         has_attr = hasattr(settings, 'deployment_mode')
         if check("Settings has deployment_mode attribute", has_attr):
             checks_passed += 1
@@ -61,8 +61,8 @@ async def main():
 
     # Check 3: LLM Factory works
     try:
-        from jeeves_avionics.settings import settings
-        from jeeves_avionics.llm.factory import LLMFactory
+        from avionics.settings import settings
+        from avionics.llm.factory import LLMFactory
 
         factory = LLMFactory(settings)
         provider = factory.get_provider_for_agent("planner")
@@ -77,8 +77,8 @@ async def main():
 
     # Check 4: Database client API
     try:
-        from jeeves_avionics.database.client import create_database_client
-        from jeeves_avionics.settings import Settings
+        from avionics.database.client import create_database_client
+        from avionics.settings import Settings
 
         settings = Settings()
         db = await create_database_client(settings)
@@ -128,7 +128,7 @@ async def main():
 
     # Check 7: Backward compatibility
     try:
-        from jeeves_avionics.llm.factory import create_agent_provider_with_node_awareness, create_agent_provider
+        from avionics.llm.factory import create_agent_provider_with_node_awareness, create_agent_provider
 
         # Both functions should exist
         if check("Backward compatibility (old and new functions exist)", True):
@@ -142,8 +142,8 @@ async def main():
     # Check 8: Mock mode works
     try:
         os.environ['MOCK_LLM_ENABLED'] = 'true'
-        from jeeves_avionics.settings import settings
-        from jeeves_avionics.llm.factory import create_agent_provider_with_node_awareness
+        from avionics.settings import settings
+        from avionics.llm.factory import create_agent_provider_with_node_awareness
 
         provider = create_agent_provider_with_node_awareness(settings, "planner")
         is_mock = "Mock" in type(provider).__name__

@@ -459,7 +459,7 @@ class RateLimitMiddleware:
 ### Checkpointing
 
 ```python
-from jeeves_avionics.checkpoint.postgres_adapter import PostgresCheckpointAdapter
+from avionics.checkpoint.postgres_adapter import PostgresCheckpointAdapter
 
 adapter = PostgresCheckpointAdapter(postgres_client, logger)
 await adapter.initialize_schema()
@@ -480,8 +480,8 @@ new_ckpt = await adapter.fork_from_checkpoint("ckpt_abc", "env_replay_456")
 ### Distributed Task Queue
 
 ```python
-from jeeves_avionics.distributed.redis_bus import RedisDistributedBus
-from jeeves_protocols import DistributedTask
+from avionics.distributed.redis_bus import RedisDistributedBus
+from protocols import DistributedTask
 
 bus = RedisDistributedBus(redis_client, logger)
 
@@ -509,7 +509,7 @@ while True:
 ### Webhooks
 
 ```python
-from jeeves_avionics.webhooks.service import WebhookService, WebhookConfig
+from avionics.webhooks.service import WebhookService, WebhookConfig
 
 service = WebhookService(logger)
 await service.start_delivery_worker()

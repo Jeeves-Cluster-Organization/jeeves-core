@@ -1,6 +1,6 @@
 # Services Module
 
-**Module:** `jeeves_control_tower.services`  
+**Module:** `control_tower.services`  
 **Main Class:** `InterruptService`
 
 ---
@@ -470,8 +470,8 @@ The `InterruptService` uses `asyncio.Lock` for thread safety:
 ## Usage Example
 
 ```python
-from jeeves_control_tower.services import InterruptService, InterruptConfig
-from jeeves_protocols import InterruptKind, InterruptResponse
+from control_tower.services import InterruptService, InterruptConfig
+from protocols import InterruptKind, InterruptResponse
 from datetime import timedelta
 
 # Create service with custom config

@@ -21,8 +21,8 @@ Renamed `DAGMode` / `dag_mode` to `ParallelMode` / `parallel_mode` throughout th
 - `coreengine/proto/engine.proto` - Comment updated
 
 **Python Files:**
-- `jeeves_protocols/envelope.py` - Field renamed, JSON keys updated
-- `jeeves_protocols/agents.py` - Docstring updated
+- `protocols/envelope.py` - Field renamed, JSON keys updated
+- `protocols/agents.py` - Docstring updated
 
 ### Rationale
 "DAG" (Directed Acyclic Graph) was misleading because:
@@ -159,14 +159,14 @@ Per Contract 6 (Dead Code Removal): Unused code must be removed, not kept "for f
 
 ### Added Modules
 
-1. **`jeeves_protocols/grpc_client.py`** (~710 lines)
+1. **`protocols/grpc_client.py`** (~710 lines)
    - Full gRPC client for Go runtime
    - Contract 11 compliance: Lossless envelope round-trip
    - Contract 12 compliance: Go authoritative for bounds
 
-2. **`jeeves_protocols/grpc_stub.py`** (~60 lines)
+2. **`protocols/grpc_stub.py`** (~60 lines)
    - Clean re-exports of proto types
-   - Provides `jeeves_protocols.grpc_stub` import path
+   - Provides `protocols.grpc_stub` import path
 
 ### Key Types
 

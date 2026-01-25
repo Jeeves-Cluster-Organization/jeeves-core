@@ -33,8 +33,8 @@ from dataclasses import dataclass
 # Add project root to path
 sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 
-from jeeves_avionics.settings import Settings
-from jeeves_avionics.llm.cost_calculator import get_cost_calculator
+from avionics.settings import Settings
+from avionics.llm.cost_calculator import get_cost_calculator
 
 
 @dataclass

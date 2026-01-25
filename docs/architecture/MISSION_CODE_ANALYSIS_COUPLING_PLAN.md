@@ -20,7 +20,7 @@ The mission system has **significant hardcoded coupling to code_analysis**, desp
 
 ### 1.1 FlowServicer (gRPC Layer) — CRITICAL
 
-**File:** `jeeves_mission_system/orchestrator/flow_service.py`
+**File:** `mission_system/orchestrator/flow_service.py`
 
 | Line | Type | Content | Impact |
 |------|------|---------|--------|
@@ -45,7 +45,7 @@ The mission system has **significant hardcoded coupling to code_analysis**, desp
 
 ### 1.2 HTTP API Server — HIGH
 
-**File:** `jeeves_mission_system/api/server.py`
+**File:** `mission_system/api/server.py`
 
 | Line | Type | Content | Impact |
 |------|------|---------|--------|
@@ -61,7 +61,7 @@ The mission system has **significant hardcoded coupling to code_analysis**, desp
 
 ### 1.3 Prompt Blocks — HIGH
 
-**File:** `jeeves_mission_system/prompts/core/blocks/safety_block.py`
+**File:** `mission_system/prompts/core/blocks/safety_block.py`
 
 | Line | Type | Content | Impact |
 |------|------|---------|--------|
@@ -69,20 +69,20 @@ The mission system has **significant hardcoded coupling to code_analysis**, desp
 | 3-6 | Docstring | "Since all operations are read-only, the safety focus is on accuracy" | Assumes read-only |
 | **10** | **Prompt** | "All operations are READ-ONLY - you cannot modify files" | **Cannot be reused for write capabilities** |
 
-**File:** `jeeves_mission_system/prompts/core/blocks/style_block.py`
+**File:** `mission_system/prompts/core/blocks/style_block.py`
 
 | Line | Type | Content | Impact |
 |------|------|---------|--------|
 | 6 | Docstring | "Updated for code analysis focus." | Documentation |
 
-**File:** `jeeves_mission_system/prompts/core/blocks/role_invariants.py`
+**File:** `mission_system/prompts/core/blocks/role_invariants.py`
 
 | Line | Type | Content | Impact |
 |------|------|---------|--------|
 | 5 | Docstring | "Updated for code analysis focus." | Documentation |
 | 9 | Prompt | "Never hallucinate code not present in tool results" | Code-specific |
 
-**File:** `jeeves_mission_system/prompts/core/versions/planner.py`
+**File:** `mission_system/prompts/core/versions/planner.py`
 
 | Line | Type | Content | Impact |
 |------|------|---------|--------|
@@ -94,7 +94,7 @@ The mission system has **significant hardcoded coupling to code_analysis**, desp
 
 ### 1.4 Orchestrator Package Identity — HIGH
 
-**File:** `jeeves_mission_system/orchestrator/__init__.py`
+**File:** `mission_system/orchestrator/__init__.py`
 
 | Line | Type | Content | Impact |
 |------|------|---------|--------|
@@ -103,7 +103,7 @@ The mission system has **significant hardcoded coupling to code_analysis**, desp
 | 6 | Docstring | "Exposes services for code analysis flow" | Capability assumption |
 | 10 | Docstring | "Agent pipeline (Perception → Intent → Planner → Traverser → Synthesizer → Critic → Integration)" | Pipeline stages |
 
-**File:** `jeeves_mission_system/orchestrator/vertical_service.py`
+**File:** `mission_system/orchestrator/vertical_service.py`
 
 | Line | Type | Content | Impact |
 |------|------|---------|--------|
@@ -113,7 +113,7 @@ The mission system has **significant hardcoded coupling to code_analysis**, desp
 
 ### 1.5 Web UI / Governance Dashboard — MEDIUM
 
-**File:** `jeeves_mission_system/api/governance.py`
+**File:** `mission_system/api/governance.py`
 
 | Line | Type | Content | Impact |
 |------|------|---------|--------|
@@ -124,7 +124,7 @@ The mission system has **significant hardcoded coupling to code_analysis**, desp
 
 ### 1.6 Database Schema — MEDIUM
 
-**File:** `jeeves_avionics/database/schemas/001_postgres_schema.sql`
+**File:** `avionics/database/schemas/001_postgres_schema.sql`
 
 | Line | Type | Content | Impact |
 |------|------|---------|--------|
@@ -136,13 +136,13 @@ The mission system has **significant hardcoded coupling to code_analysis**, desp
 
 ### 1.7 Tests — MEDIUM
 
-**File:** `jeeves_mission_system/tests/integration/test_api.py`
+**File:** `mission_system/tests/integration/test_api.py`
 
 | Line | Type | Content | Impact |
 |------|------|---------|--------|
 | 138 | Assertion | `assert data["service"] == "Code Analysis Agent"` | Test expectation |
 
-**File:** `jeeves_mission_system/tests/integration/test_api_ci.py`
+**File:** `mission_system/tests/integration/test_api_ci.py`
 
 | Line | Type | Content | Impact |
 |------|------|---------|--------|
@@ -152,13 +152,13 @@ The mission system has **significant hardcoded coupling to code_analysis**, desp
 
 ### 1.8 Configuration — LOW
 
-**File:** `jeeves_mission_system/config/registry.py`
+**File:** `mission_system/config/registry.py`
 
 | Line | Type | Content | Impact |
 |------|------|---------|--------|
 | 24 | Comment | `"language_config": Language configuration for code analysis capability` | Documentation |
 
-**File:** `jeeves_mission_system/contracts_core.py`
+**File:** `mission_system/contracts_core.py`
 
 | Line | Type | Content | Impact |
 |------|------|---------|--------|
@@ -270,7 +270,7 @@ code_analysis_servicer: Any
 
 #### 1.1 Define CapabilityServicerProtocol
 
-**File to create:** `jeeves_protocols/servicer.py`
+**File to create:** `protocols/servicer.py`
 
 ```python
 from typing import Protocol, AsyncIterator, Any, Optional
@@ -312,7 +312,7 @@ class CapabilityServicerProtocol(Protocol):
 
 #### 1.2 Add Capability Metadata to Registry
 
-**File to modify:** `jeeves_protocols/capability.py`
+**File to modify:** `protocols/capability.py`
 
 Add to `DomainServiceConfig`:
 
@@ -343,7 +343,7 @@ class DomainServiceConfig:
 
 #### 2.1 Rename Parameter and Attribute
 
-**File:** `jeeves_mission_system/orchestrator/flow_service.py`
+**File:** `mission_system/orchestrator/flow_service.py`
 
 **Change:**
 ```python
@@ -398,7 +398,7 @@ self._logger.info("capability_request", ...)
 title = request.title or f"Code Analysis - {datetime.now(...)}"
 
 # After
-from jeeves_protocols.capability import get_capability_resource_registry
+from protocols.capability import get_capability_resource_registry
 
 registry = get_capability_resource_registry()
 default_service = registry.get_default_service()
@@ -430,7 +430,7 @@ title = request.title or f"{default_title} - {datetime.now(...)}"
 
 #### 3.1 Remove Read-Only Assumption
 
-**File:** `jeeves_mission_system/api/server.py`
+**File:** `mission_system/api/server.py`
 
 **Change confirmation endpoint:**
 ```python
@@ -480,7 +480,7 @@ registry = get_capability_resource_registry()
 
 #### 4.1 Make Safety Block Capability-Aware
 
-**File:** `jeeves_mission_system/prompts/core/blocks/safety_block.py`
+**File:** `mission_system/prompts/core/blocks/safety_block.py`
 
 **Change:**
 ```python
@@ -536,7 +536,7 @@ Apply similar pattern to:
 
 #### 5.1 Dynamic UI Branding
 
-**File:** `jeeves_mission_system/api/governance.py`
+**File:** `mission_system/api/governance.py`
 
 **Change:**
 ```python
@@ -598,7 +598,7 @@ Remove code_analysis references from:
 
 #### 6.2 Update Schema Comments
 
-**File:** `jeeves_avionics/database/schemas/001_postgres_schema.sql`
+**File:** `avionics/database/schemas/001_postgres_schema.sql`
 
 Change comments from "Code Analysis Agent" to "Jeeves Platform" or similar generic.
 
@@ -612,7 +612,7 @@ Change comments from "Code Analysis Agent" to "Jeeves Platform" or similar gener
 
 ### Critical Path (Must complete before adding new capability)
 
-- [ ] Create `CapabilityServicerProtocol` in `jeeves_protocols/servicer.py`
+- [ ] Create `CapabilityServicerProtocol` in `protocols/servicer.py`
 - [ ] Add `is_readonly`, `requires_confirmation`, `default_session_title` to `DomainServiceConfig`
 - [ ] Rename `code_analysis_servicer` → `capability_servicer` in FlowServicer
 - [ ] Update session title generation to use registry
@@ -657,25 +657,25 @@ Change comments from "Code Analysis Agent" to "Jeeves Platform" or similar gener
 ## Appendix: Files Requiring Changes
 
 ### Must Change
-1. `jeeves_mission_system/orchestrator/flow_service.py` (17 changes)
-2. `jeeves_mission_system/api/server.py` (6 changes)
-3. `jeeves_mission_system/prompts/core/blocks/safety_block.py` (1 major refactor)
-4. `jeeves_protocols/capability.py` (4 new fields)
+1. `mission_system/orchestrator/flow_service.py` (17 changes)
+2. `mission_system/api/server.py` (6 changes)
+3. `mission_system/prompts/core/blocks/safety_block.py` (1 major refactor)
+4. `protocols/capability.py` (4 new fields)
 
 ### Should Change
-5. `jeeves_mission_system/prompts/core/blocks/style_block.py`
-6. `jeeves_mission_system/prompts/core/blocks/role_invariants.py`
-7. `jeeves_mission_system/prompts/core/versions/planner.py`
-8. `jeeves_mission_system/orchestrator/__init__.py`
-9. `jeeves_mission_system/api/governance.py`
+5. `mission_system/prompts/core/blocks/style_block.py`
+6. `mission_system/prompts/core/blocks/role_invariants.py`
+7. `mission_system/prompts/core/versions/planner.py`
+8. `mission_system/orchestrator/__init__.py`
+9. `mission_system/api/governance.py`
 
 ### Nice to Change
-10. `jeeves_mission_system/tests/integration/test_api.py`
-11. `jeeves_mission_system/tests/integration/test_api_ci.py`
-12. `jeeves_mission_system/orchestrator/vertical_service.py`
-13. `jeeves_avionics/database/schemas/001_postgres_schema.sql`
-14. `jeeves_mission_system/contracts_core.py`
-15. `jeeves_mission_system/config/registry.py`
+10. `mission_system/tests/integration/test_api.py`
+11. `mission_system/tests/integration/test_api_ci.py`
+12. `mission_system/orchestrator/vertical_service.py`
+13. `avionics/database/schemas/001_postgres_schema.sql`
+14. `mission_system/contracts_core.py`
+15. `mission_system/config/registry.py`
 
 ### New Files to Create
-16. `jeeves_protocols/servicer.py` (CapabilityServicerProtocol)
+16. `protocols/servicer.py` (CapabilityServicerProtocol)

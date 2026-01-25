@@ -1,6 +1,6 @@
-# jeeves_mission_system.prompts - Prompt Management
+# mission_system.prompts - Prompt Management
 
-**Package:** `jeeves_mission_system.prompts`  
+**Package:** `mission_system.prompts`  
 **Purpose:** Centralized prompt registry and template system  
 **Updated:** 2026-01-23
 
@@ -144,7 +144,7 @@ Universal constraints for all agents.
 ### Usage
 
 ```python
-from jeeves_mission_system.prompts.core import (
+from mission_system.prompts.core import (
     IDENTITY_BLOCK, STYLE_BLOCK, ROLE_INVARIANTS, SAFETY_BLOCK
 )
 
@@ -226,7 +226,7 @@ Located in `prompts/`:
 ## All Exports
 
 ```python
-from jeeves_mission_system.prompts.core import (
+from mission_system.prompts.core import (
     PromptRegistry,
     PromptVersion,
     register_prompt,
@@ -242,7 +242,7 @@ from jeeves_mission_system.prompts.core import (
 ## Usage Example
 
 ```python
-from jeeves_mission_system.prompts.core import (
+from mission_system.prompts.core import (
     PromptRegistry,
     IDENTITY_BLOCK,
     SAFETY_BLOCK,

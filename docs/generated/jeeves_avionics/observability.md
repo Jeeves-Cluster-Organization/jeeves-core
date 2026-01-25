@@ -435,7 +435,7 @@ class SpanContextPropagator:
 ### Logging Setup
 
 ```python
-from jeeves_avionics.logging import configure_logging, create_logger
+from avionics.logging import configure_logging, create_logger
 
 configure_logging(level="INFO", json_output=True, enable_otel=True)
 
@@ -446,7 +446,7 @@ logger.info("processing_request", user_id="user-456")
 ### Request Scoped Logging
 
 ```python
-from jeeves_avionics.logging.context import request_context
+from avionics.logging.context import request_context
 
 with request_context("req-123", "user-456"):
     logger.info("processing_request")  # Automatically includes request_id, user_id
@@ -455,7 +455,7 @@ with request_context("req-123", "user-456"):
 ### Tracing with Decorators
 
 ```python
-from jeeves_avionics.observability import trace_function
+from avionics.observability import trace_function
 
 @trace_function("process_data")
 async def process_data(data):
@@ -466,7 +466,7 @@ async def process_data(data):
 ### Manual Span Management
 
 ```python
-from jeeves_avionics.observability import get_global_otel_adapter
+from avionics.observability import get_global_otel_adapter
 
 adapter = get_global_otel_adapter()
 if adapter and adapter.enabled:
@@ -478,7 +478,7 @@ if adapter and adapter.enabled:
 ### Prometheus Metrics
 
 ```python
-from jeeves_avionics.observability.metrics import (
+from avionics.observability.metrics import (
     orchestrator_started,
     orchestrator_completed,
     start_metrics_server,

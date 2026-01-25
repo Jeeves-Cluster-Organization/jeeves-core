@@ -86,7 +86,7 @@ class LlamaServerProvider(LLMProvider):
 ### Exports
 
 ```python
-from jeeves_avionics.llm import (
+from avionics.llm import (
     LLMProvider,
     LlamaServerProvider,
     OpenAIProvider,
@@ -562,8 +562,8 @@ def calculate_cost(provider: str, model: str, prompt_tokens: int, completion_tok
 ### Basic Generation
 
 ```python
-from jeeves_avionics.llm import create_llm_provider
-from jeeves_avionics.settings import get_settings
+from avionics.llm import create_llm_provider
+from avionics.settings import get_settings
 
 settings = get_settings()
 provider = create_llm_provider("llamaserver", settings)
@@ -579,8 +579,8 @@ print(response)
 ### Using LLM Gateway
 
 ```python
-from jeeves_avionics.llm.gateway import LLMGateway
-from jeeves_avionics.settings import get_settings
+from avionics.llm.gateway import LLMGateway
+from avionics.settings import get_settings
 
 settings = get_settings()
 gateway = LLMGateway(settings, fallback_providers=["openai"])

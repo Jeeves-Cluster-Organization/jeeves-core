@@ -125,10 +125,10 @@ rate(jeeves_llm_tokens_total[1m])
 
 ### Constitutional Documents
 
-- `jeeves_avionics/CONSTITUTION.md` - Infrastructure layer principles
-- `jeeves_control_tower/CONSTITUTION.md` - Kernel layer principles
-- `jeeves_memory_module/CONSTITUTION.md` - Memory layer principles
-- `jeeves_mission_system/CONSTITUTION.md` - Orchestration layer principles
+- `avionics/CONSTITUTION.md` - Infrastructure layer principles
+- `control_tower/CONSTITUTION.md` - Kernel layer principles
+- `memory_module/CONSTITUTION.md` - Memory layer principles
+- `mission_system/CONSTITUTION.md` - Orchestration layer principles
 
 ---
 
@@ -157,7 +157,7 @@ rate(jeeves_llm_tokens_total[1m])
 - Clear ownership boundaries documented
 - Go: Pipeline orchestration, bounds, circuit breakers
 - Python: Metrics, retry logic, tool resilience
-- TelemetryMiddleware → Python (jeeves_avionics/observability)
+- TelemetryMiddleware → Python (avionics/observability)
 - RetryMiddleware → Python (LLM provider level)
 
 ---

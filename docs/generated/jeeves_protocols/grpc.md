@@ -1,4 +1,4 @@
-# jeeves_protocols.grpc_client
+# protocols.grpc_client
 
 **Layer**: L0 (Foundation)  
 **Purpose**: gRPC client for Go runtime
@@ -161,7 +161,7 @@ with GrpcGoClient() as client:
 ### Basic Connection
 
 ```python
-from jeeves_protocols.grpc_client import GrpcGoClient, GoServerNotRunningError
+from protocols.grpc_client import GrpcGoClient, GoServerNotRunningError
 
 try:
     client = GrpcGoClient(address="localhost:50051")
@@ -239,7 +239,7 @@ def clone_envelope(envelope: Envelope) -> Envelope:
 Re-exports from generated protobuf classes.
 
 ```python
-from jeeves_protocols import grpc_stub
+from protocols import grpc_stub
 
 # Messages
 grpc_stub.CreateEnvelopeRequest

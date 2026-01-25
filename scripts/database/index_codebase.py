@@ -93,10 +93,10 @@ async def main():
 
     # Initialize components
     try:
-        from jeeves_avionics.settings import get_settings
-        from jeeves_avionics.database.factory import create_database_client
-        from jeeves_memory_module.services.embedding_service import EmbeddingService
-        from jeeves_memory_module.services.code_indexer import CodeIndexer
+        from avionics.settings import get_settings
+        from avionics.database.factory import create_database_client
+        from memory_module.services.embedding_service import EmbeddingService
+        from memory_module.services.code_indexer import CodeIndexer
 
         settings = get_settings()
 

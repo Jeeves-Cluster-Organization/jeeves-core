@@ -58,23 +58,23 @@ Jeeves-core is a **layered agentic runtime** combining Python application logic 
 │ YOUR CAPABILITY (e.g., jeeves-capability-finetuning)            │
 │     - Domain-specific agents, tools, configs                    │
 ├─────────────────────────────────────────────────────────────────┤
-│ L4: jeeves_mission_system                                       │
+│ L4: mission_system                                       │
 │     - Orchestration framework, HTTP/gRPC API                    │
 │     - Capability registration, adapters                         │
 ├─────────────────────────────────────────────────────────────────┤
-│ L3: jeeves_avionics                                             │
+│ L3: avionics                                             │
 │     - Infrastructure (LLM providers, DB, Gateway)               │
 │     - Tool execution, settings, feature flags                   │
 ├─────────────────────────────────────────────────────────────────┤
-│ L2: jeeves_memory_module                                        │
+│ L2: memory_module                                        │
 │     - Event sourcing, semantic memory, session state            │
 │     - Entity graphs, tool metrics                               │
 ├─────────────────────────────────────────────────────────────────┤
-│ L1: jeeves_control_tower                                        │
+│ L1: control_tower                                        │
 │     - OS-like kernel (process lifecycle, resources)             │
 │     - Rate limiting, IPC coordination                           │
 ├─────────────────────────────────────────────────────────────────┤
-│ L0: jeeves_protocols + jeeves_shared                            │
+│ L0: protocols + shared                            │
 │     - Type contracts (zero dependencies)                        │
 │     - Shared utilities (UUID, logging, serialization)           │
 ├─────────────────────────────────────────────────────────────────┤
@@ -100,7 +100,7 @@ Jeeves-core is a **layered agentic runtime** combining Python application logic 
 
 ## 3. Core Protocols Reference
 
-All protocols are defined in `jeeves_protocols/` and are `@runtime_checkable`.
+All protocols are defined in `protocols/` and are `@runtime_checkable`.
 
 ### 3.1 Logging
 
@@ -417,7 +417,7 @@ its own ToolId enum in `tools/catalog.py`.
 ```python
 # In your capability's tools/catalog.py
 from enum import Enum
-from jeeves_protocols import ToolCategory, RiskLevel
+from protocols import ToolCategory, RiskLevel
 
 class ToolId(str, Enum):
     """Capability-owned tool identifiers."""
@@ -557,7 +557,7 @@ PIPELINE_CONFIG = PipelineConfig(
 ### 10.1 Capability Resource Registry
 
 ```python
-from jeeves_protocols.capability import (
+from protocols.capability import (
     get_capability_resource_registry,
     CapabilityServiceConfig,
     CapabilityModeConfig,
@@ -581,7 +581,7 @@ registry.register_mode(
 ### 11.1 Mission System Adapters
 
 ```python
-from jeeves_mission_system.adapters import MissionSystemAdapters
+from mission_system.adapters import MissionSystemAdapters
 
 adapters = MissionSystemAdapters(
     db=await create_database_client(),
@@ -682,7 +682,7 @@ Capability layer maps domain concepts to generic verdicts:
 ### 12.6 Go Bridge (Go-Only)
 
 ```python
-from jeeves_avionics.interop.go_bridge import GoEnvelopeBridge
+from avionics.interop.go_bridge import GoEnvelopeBridge
 
 # Go binary is REQUIRED - raises GoNotAvailableError if not found
 bridge = GoEnvelopeBridge()
@@ -696,7 +696,7 @@ result = bridge.get_result(envelope)
 ### 12.7 gRPC Client (Go-Only)
 
 ```python
-from jeeves_protocols.grpc_client import GrpcGoClient
+from protocols.grpc_client import GrpcGoClient
 
 # Go server is REQUIRED - raises GoServerNotRunningError if not available
 with GrpcGoClient() as client:
@@ -732,7 +732,7 @@ jeeves-capability-finetuning/
 ### 13.2 Pipeline Configuration
 
 ```python
-from jeeves_protocols import AgentConfig, PipelineConfig, RoutingRule, ToolAccess
+from protocols import AgentConfig, PipelineConfig, RoutingRule, ToolAccess
 
 STAGE_A = AgentConfig(
     name="stage_a",
@@ -782,7 +782,7 @@ PIPELINE = PipelineConfig(
 ### 14.1 Mock Provider
 
 ```python
-from jeeves_protocols import create_pipeline_runner
+from protocols import create_pipeline_runner
 
 # Use mock mode for testing
 runtime = create_pipeline_runner(
@@ -812,7 +812,7 @@ async def test_pipeline():
 
 ```python
 # Protocols (L0)
-from jeeves_protocols import (
+from protocols import (
     AgentConfig, PipelineConfig, Envelope, RoutingRule,
     ContextBounds, LoopVerdict, InterruptKind,
     Agent, Runtime,
@@ -820,8 +820,8 @@ from jeeves_protocols import (
 )
 
 # Go Bridge (Go-only)
-from jeeves_avionics.interop.go_bridge import GoEnvelopeBridge
-from jeeves_protocols.grpc_client import GrpcGoClient
+from avionics.interop.go_bridge import GoEnvelopeBridge
+from protocols.grpc_client import GrpcGoClient
 ```
 
 ### 15.2 Pipeline Pattern

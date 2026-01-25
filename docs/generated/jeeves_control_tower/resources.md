@@ -1,6 +1,6 @@
 # Resources Module
 
-**Module:** `jeeves_control_tower.resources`  
+**Module:** `control_tower.resources`  
 **Main Classes:** `ResourceTracker`, `RateLimiter`
 
 ---
@@ -334,7 +334,7 @@ def set_user_limits(self, user_id: str, config: RateLimitConfig) -> None:
 **Example:**
 
 ```python
-from jeeves_protocols import RateLimitConfig
+from protocols import RateLimitConfig
 
 limiter.set_user_limits("user-123", RateLimitConfig(
     requests_per_minute=60,
@@ -538,8 +538,8 @@ Both `ResourceTracker` and `RateLimiter` are thread-safe:
 ## Usage Example
 
 ```python
-from jeeves_control_tower.resources import ResourceTracker, RateLimiter
-from jeeves_control_tower.types import ResourceQuota
+from control_tower.resources import ResourceTracker, RateLimiter
+from control_tower.types import ResourceQuota
 
 # Resource tracking
 tracker = ResourceTracker(logger)

@@ -1,6 +1,6 @@
 # CommBus Messages
 
-**Location:** `jeeves_memory_module/messages/`
+**Location:** `memory_module/messages/`
 
 ---
 
@@ -296,7 +296,7 @@ class AddEntityReference:
 Messages are connected to handlers in `handlers.py`:
 
 ```python
-from jeeves_memory_module.handlers import register_memory_handlers
+from memory_module.handlers import register_memory_handlers
 
 # In application startup
 register_memory_handlers(
@@ -326,7 +326,7 @@ register_memory_handlers(
 ### Publishing Events
 
 ```python
-from jeeves_memory_module.services.event_emitter import EventEmitter
+from memory_module.services.event_emitter import EventEmitter
 
 # Events are published automatically by EventEmitter
 await emitter.emit_memory_stored(
@@ -340,7 +340,7 @@ await emitter.emit_memory_stored(
 ### Sending Queries
 
 ```python
-from jeeves_memory_module.messages import GetSessionState
+from memory_module.messages import GetSessionState
 
 # Via CommBus
 query = GetSessionState(session_id="sess-123", user_id="user-456")
@@ -353,7 +353,7 @@ print(response["focus"]["type"])
 ### Sending Commands
 
 ```python
-from jeeves_memory_module.messages import UpdateFocus
+from memory_module.messages import UpdateFocus
 
 # Via CommBus
 command = UpdateFocus(
@@ -368,7 +368,7 @@ await commbus.send(command)
 ### Subscribing to Events
 
 ```python
-from jeeves_memory_module.messages import MemoryStored
+from memory_module.messages import MemoryStored
 
 async def on_memory_stored(event: MemoryStored):
     print(f"Item {event.item_id} stored in layer {event.layer}")

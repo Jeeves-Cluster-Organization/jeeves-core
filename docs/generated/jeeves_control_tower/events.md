@@ -1,6 +1,6 @@
 # Events Module
 
-**Module:** `jeeves_control_tower.events`  
+**Module:** `control_tower.events`  
 **Main Class:** `EventAggregator`
 
 ---

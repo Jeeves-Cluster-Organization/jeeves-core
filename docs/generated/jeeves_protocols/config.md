@@ -1,4 +1,4 @@
-# jeeves_protocols.config
+# protocols.config
 
 **Layer**: L0 (Foundation)  
 **Purpose**: Configuration types - mirrors Go coreengine/config
@@ -133,7 +133,7 @@ class AgentConfig:
 
 **Example**:
 ```python
-from jeeves_protocols import AgentConfig, ToolAccess, RoutingRule
+from protocols import AgentConfig, ToolAccess, RoutingRule
 
 planner_config = AgentConfig(
     name="planner",
@@ -203,7 +203,7 @@ class PipelineConfig:
 
 **Example**:
 ```python
-from jeeves_protocols import PipelineConfig, AgentConfig, RunMode
+from protocols import PipelineConfig, AgentConfig, RunMode
 
 pipeline = PipelineConfig(
     name="code_analysis",

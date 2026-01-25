@@ -43,9 +43,9 @@ async def test_single_node_deployment():
     os.environ['SKIP_CONFIG_VALIDATION'] = '1'
 
     try:
-        from jeeves_avionics.settings import settings
+        from avionics.settings import settings
         from config.node_profiles import get_deployment_mode, get_active_profile_names, get_node_for_agent
-        from jeeves_avionics.llm.factory import LLMFactory
+        from avionics.llm.factory import LLMFactory
 
         # Test 1: Deployment mode detection
         mode = get_deployment_mode()
@@ -163,8 +163,8 @@ async def test_hybrid_mode():
     os.environ['SKIP_CONFIG_VALIDATION'] = '1'
 
     try:
-        from jeeves_avionics.settings import settings
-        from jeeves_avionics.llm.factory import create_agent_provider_with_node_awareness
+        from avionics.settings import settings
+        from avionics.llm.factory import create_agent_provider_with_node_awareness
 
         # Test planner uses override
         planner_provider = create_agent_provider_with_node_awareness(settings, "planner")
@@ -200,8 +200,8 @@ async def test_mock_mode():
     os.environ['SKIP_CONFIG_VALIDATION'] = '1'
 
     try:
-        from jeeves_avionics.settings import settings
-        from jeeves_avionics.llm.factory import LLMFactory
+        from avionics.settings import settings
+        from avionics.llm.factory import LLMFactory
 
         factory = LLMFactory(settings)
         provider = factory.get_provider_for_agent("planner")
@@ -283,7 +283,7 @@ async def test_settings_attributes():
     os.environ['SKIP_CONFIG_VALIDATION'] = '1'
 
     try:
-        from jeeves_avionics.settings import settings
+        from avionics.settings import settings
 
         required_attrs = [
             'deployment_mode',

@@ -13,7 +13,7 @@ from typing import Any, Dict, List, Optional
 
 import pytest
 
-from jeeves_control_tower.services.interrupt_service import (
+from control_tower.services.interrupt_service import (
     FlowInterrupt,
     InterruptKind,
     InterruptResponse,

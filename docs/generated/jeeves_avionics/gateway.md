@@ -344,7 +344,7 @@ class InterruptResponseRequest(BaseModel):
 ```python
 # Starting the gateway
 import uvicorn
-from jeeves_avionics.gateway.main import app
+from avionics.gateway.main import app
 
 uvicorn.run(app, host="0.0.0.0", port=8000)
 

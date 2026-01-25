@@ -1,6 +1,6 @@
-# jeeves_mission_system.services - Application Services
+# mission_system.services - Application Services
 
-**Package:** `jeeves_mission_system.services`  
+**Package:** `mission_system.services`  
 **Purpose:** Business logic and application services  
 **Updated:** 2026-01-23
 
@@ -15,7 +15,7 @@ The `services` package provides application-level services for:
 
 ### Unified Interrupt System (v4.0)
 
-Note: `ConfirmationCoordinator` has been **removed**. All interrupt handling now goes through `jeeves_control_tower.services.InterruptService`.
+Note: `ConfirmationCoordinator` has been **removed**. All interrupt handling now goes through `control_tower.services.InterruptService`.
 
 ---
 
@@ -278,7 +278,7 @@ await coordinator.run_worker(WorkerConfig(
 ## All Exports
 
 ```python
-from jeeves_mission_system.services import (
+from mission_system.services import (
     # Chat Service
     ChatService,
     

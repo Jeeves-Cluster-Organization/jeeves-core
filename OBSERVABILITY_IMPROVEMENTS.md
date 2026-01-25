@@ -134,7 +134,7 @@ var (
 )
 ```
 
-**Python (jeeves_avionics):**
+**Python (avionics):**
 ```python
 from prometheus_client import Counter, Histogram, Gauge, Info
 
@@ -218,7 +218,7 @@ func (a *Agent) Process(...) (*Envelope, error) {
 }
 ```
 
-**LLM Provider (`jeeves_avionics/llm/`):**
+**LLM Provider (`avionics/llm/`):**
 ```python
 async def generate(self, model: str, prompt: str, options: dict) -> str:
     start = time.time()
@@ -254,7 +254,7 @@ func StartMetricsServer(port int) {
 }
 ```
 
-**Add to FastAPI gateway (`jeeves_avionics/gateway/main.py`):**
+**Add to FastAPI gateway (`avionics/gateway/main.py`):**
 ```python
 from prometheus_client import make_asgi_app
 
@@ -347,7 +347,7 @@ func (r *PipelineRunner) Execute(...) (*Envelope, <-chan StageOutput, error) {
 }
 ```
 
-**Python tracing setup (`jeeves_avionics/observability/tracing.py`):**
+**Python tracing setup (`avionics/observability/tracing.py`):**
 ```python
 from opentelemetry import trace
 from opentelemetry.exporter.otlp.proto.grpc.trace_exporter import OTLPSpanExporter

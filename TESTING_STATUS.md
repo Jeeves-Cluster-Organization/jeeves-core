@@ -51,8 +51,8 @@ GOTOOLCHAIN=local go test ./... -cover
 **Test Execution (no Docker required):**
 ```bash
 pip install pytest pytest-cov pytest-asyncio
-pip install -e jeeves_protocols -e jeeves_shared -e jeeves_control_tower \
-    -e jeeves_memory_module -e jeeves_avionics -e jeeves_mission_system
+pip install -e protocols -e shared -e control_tower \
+    -e memory_module -e avionics -e mission_system
 pytest jeeves_*/tests/unit/ -v
 ```
 
@@ -60,7 +60,7 @@ pytest jeeves_*/tests/unit/ -v
 ```bash
 pip install opentelemetry-exporter-otlp opentelemetry-instrumentation-fastapi \
     opentelemetry-instrumentation-grpc prometheus-client redis
-pytest jeeves_control_tower/tests/integration/ jeeves_mission_system/tests/integration/ -v
+pytest control_tower/tests/integration/ mission_system/tests/integration/ -v
 # 59 pass, 25 need PostgreSQL
 ```
 
@@ -180,13 +180,13 @@ go test ./coreengine/runtime -run TestPipelineExecute -v
 docker-compose run --rm test pytest -v
 
 # Specific module
-docker-compose run --rm test pytest jeeves_avionics/ -v
+docker-compose run --rm test pytest avionics/ -v
 
 # With coverage
-docker-compose run --rm test pytest --cov=jeeves_avionics --cov-report=html
+docker-compose run --rm test pytest --cov=avionics --cov-report=html
 
 # Specific test file
-docker-compose run --rm test pytest jeeves_avionics/llm/test_gateway.py -v
+docker-compose run --rm test pytest avionics/llm/test_gateway.py -v
 ```
 
 ### Running Tests in CI/CD
@@ -222,8 +222,8 @@ jobs:
       - uses: actions/setup-python@v4
         with:
           python-version: '3.11'
-      - run: pip install -e jeeves_avionics[dev]
-      - run: pytest jeeves_avionics/ -v --cov
+      - run: pip install -e avionics[dev]
+      - run: pytest avionics/ -v --cov
 ```
 
 ---

@@ -60,7 +60,7 @@ class ToolId(str, Enum):
 ### Imported Enums
 
 ```python
-from jeeves_protocols import RiskLevel, ToolCategory
+from protocols import RiskLevel, ToolCategory
 
 class ToolCategory(str, Enum):
     UNIFIED = "unified"
@@ -336,7 +336,7 @@ async def execute_tool(
 ### Registering Tools
 
 ```python
-from jeeves_avionics.tools import tool_catalog, ToolId, ToolCategory
+from avionics.tools import tool_catalog, ToolId, ToolCategory
 
 @tool_catalog.register(
     tool_id=ToolId.LOCATE,
@@ -352,7 +352,7 @@ async def locate(symbol: str, scope: str = None):
 ### Checking Tool Availability
 
 ```python
-from jeeves_avionics.tools import tool_catalog, ToolId
+from avionics.tools import tool_catalog, ToolId
 
 if tool_catalog.has_tool_id(ToolId.LOCATE):
     entry = tool_catalog.get_entry(ToolId.LOCATE)
@@ -362,7 +362,7 @@ if tool_catalog.has_tool_id(ToolId.LOCATE):
 ### Generating Planner Prompt
 
 ```python
-from jeeves_avionics.tools import tool_catalog, EXPOSED_TOOL_IDS
+from avionics.tools import tool_catalog, EXPOSED_TOOL_IDS
 
 prompt = tool_catalog.generate_planner_prompt(EXPOSED_TOOL_IDS)
 print(prompt)
@@ -380,7 +380,7 @@ print(prompt)
 ### Using ToolExecutionCore
 
 ```python
-from jeeves_avionics.tools.executor_core import ToolExecutionCore
+from avionics.tools.executor_core import ToolExecutionCore
 
 core = ToolExecutionCore(logger)
 

@@ -24,7 +24,7 @@ from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import List, Optional
 
-from jeeves_avionics.logging import get_current_logger
+from avionics.logging import get_current_logger
 
 
 @dataclass

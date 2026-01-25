@@ -9,13 +9,13 @@ BOUNDARY RULES:
 - RULE 0: jeeves_commbus/ must have ZERO dependencies on other Jeeves packages
     - The foundation layer cannot import from core_engine, avionics, or mission_system
 - RULE 1: jeeves_core_engine/ may depend on commbus only
-    - Must not import from jeeves_avionics.*, jeeves_mission_system.*, verticals.*
+    - Must not import from avionics.*, jeeves_mission_system.*, verticals.*
 - RULE 2: jeeves_avionics/ may depend on core_engine and commbus only
-    - Must not import from jeeves_mission_system.*, verticals.*
+    - Must not import from mission_system.*, verticals.*
 - RULE 3: jeeves_mission_system/ may depend on avionics, core_engine, and commbus
     - Must not import from capability packages directly (use contracts)
 - RULE 4: Capabilities access core only through mission_system.contracts
-    - jeeves-capability-* should import from jeeves_mission_system.contracts, not directly
+    - jeeves-capability-* should import from mission_system.contracts, not directly
 - RULE 5: Shared modules must not import agents (except envelope, contracts, base)
 
 Directory Structure (Four-Layer Architecture):
@@ -95,8 +95,8 @@ class ImportBoundaryChecker:
 
         forbidden_patterns = [
             "jeeves_core_engine",
-            "jeeves_avionics",
-            "jeeves_mission_system",
+            "avionics",
+            "mission_system",
             "jeeves-capability",
         ]
 
@@ -123,8 +123,8 @@ class ImportBoundaryChecker:
             return
 
         forbidden_patterns = [
-            "jeeves_avionics",
-            "jeeves_mission_system",
+            "avionics",
+            "mission_system",
             "jeeves-capability",
             "verticals.",
         ]
@@ -144,12 +144,12 @@ class ImportBoundaryChecker:
 
     def _check_rule2_avionics_isolation(self) -> None:
         """RULE 2: jeeves_avionics may depend on core_engine and commbus only."""
-        avionics_dir = self.root_dir / "jeeves_avionics"
+        avionics_dir = self.root_dir / "avionics"
         if not avionics_dir.exists():
             return
 
         forbidden_patterns = [
-            "jeeves_mission_system",
+            "mission_system",
             "jeeves-capability",
             "verticals.",
         ]
@@ -169,7 +169,7 @@ class ImportBoundaryChecker:
 
     def _check_rule3_mission_system(self) -> None:
         """RULE 3: Mission system may not import capability packages directly."""
-        mission_dir = self.root_dir / "jeeves_mission_system"
+        mission_dir = self.root_dir / "mission_system"
         if not mission_dir.exists():
             return
 
@@ -218,8 +218,8 @@ class ImportBoundaryChecker:
     def _check_rule5_shared_agents(self) -> None:
         """RULE 5: Shared modules must not import agents."""
         shared_dirs = [
-            (self.root_dir / "jeeves_mission_system" / "prompts", "prompts/"),
-            (self.root_dir / "jeeves_mission_system" / "common", "common/"),
+            (self.root_dir / "mission_system" / "prompts", "prompts/"),
+            (self.root_dir / "mission_system" / "common", "common/"),
         ]
 
         for shared_dir, prefix in shared_dirs:

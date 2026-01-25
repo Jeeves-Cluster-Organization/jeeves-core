@@ -1,4 +1,4 @@
-# jeeves_protocols.protocols
+# protocols.protocols
 
 **Layer**: L0 (Foundation)  
 **Purpose**: Protocol definitions - interfaces for dependency injection
@@ -23,8 +23,8 @@ class RequestContext:
 
 **Usage with ContextVars (ADR-001 Decision 5)**:
 ```python
-from jeeves_protocols import RequestContext
-from jeeves_shared import request_scope
+from protocols import RequestContext
+from shared import request_scope
 
 ctx = RequestContext(request_id=str(uuid4()), user_id="user-123")
 with request_scope(ctx, logger):
@@ -499,7 +499,7 @@ class FeatureFlagsProviderProtocol(Protocol):
 Used to break circular dependencies where memory_module imports from avionics.feature_flags. Instead, the provider is injected.
 
 **Constitutional Reference**:
-- Memory Module: FORBIDDEN jeeves_memory_module → jeeves_avionics.*
+- Memory Module: FORBIDDEN memory_module → avionics.*
 - Use protocol injection instead of direct imports
 
 ---

@@ -1,4 +1,4 @@
-# jeeves_protocols.envelope
+# protocols.envelope
 
 **Layer**: L0 (Foundation)  
 **Purpose**: Envelope types - mirrors Go coreengine/envelope
@@ -124,7 +124,7 @@ class Envelope:
 ### Creating an Envelope
 
 ```python
-from jeeves_protocols import create_envelope
+from protocols import create_envelope
 
 envelope = create_envelope(
     raw_input="Analyze the authentication module",

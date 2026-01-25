@@ -1,6 +1,6 @@
 # Services
 
-**Location:** `jeeves_memory_module/services/`
+**Location:** `memory_module/services/`
 
 ---
 
@@ -24,7 +24,7 @@ The services layer provides the business logic for memory operations. Services u
 ## Service Exports
 
 ```python
-from jeeves_memory_module.services import (
+from memory_module.services import (
     # Protocol Adapters
     SessionStateAdapter,
     
@@ -51,7 +51,7 @@ from jeeves_memory_module.services import (
 **See:** [Session State Documentation](./session_state.md)
 
 ```python
-from jeeves_memory_module.services import SessionStateAdapter
+from memory_module.services import SessionStateAdapter
 
 adapter = SessionStateAdapter(db)
 memory = await adapter.get_or_create("sess-123", "user-456")
@@ -69,7 +69,7 @@ memory = await adapter.get_or_create("sess-123", "user-456")
 ### Quick Reference
 
 ```python
-from jeeves_memory_module.services import EmbeddingService
+from memory_module.services import EmbeddingService
 
 service = EmbeddingService(
     model_name="all-MiniLM-L6-v2",  # 384 dimensions
@@ -165,7 +165,7 @@ def verify_claims_batch(
 ### Usage
 
 ```python
-from jeeves_memory_module.services import NLIService, get_nli_service
+from memory_module.services import NLIService, get_nli_service
 
 # Singleton pattern
 nli = get_nli_service()
@@ -295,7 +295,7 @@ async def get_ref_stats(self) -> Dict[str, Any]:
 ### Usage
 
 ```python
-from jeeves_memory_module.services import CrossRefManager
+from memory_module.services import CrossRefManager
 
 xref = CrossRefManager(db)
 
@@ -329,7 +329,7 @@ related = await xref.get_related_items(
 ### Quick Reference
 
 ```python
-from jeeves_memory_module.services import EventEmitter
+from memory_module.services import EventEmitter
 
 emitter = EventEmitter(event_repository)
 
@@ -399,7 +399,7 @@ async def trace_context(self, ...):
 ### Usage
 
 ```python
-from jeeves_memory_module.services import TraceRecorder
+from memory_module.services import TraceRecorder
 
 recorder = TraceRecorder(trace_repository)
 
@@ -427,7 +427,7 @@ async with recorder.trace_context(
 ### Quick Reference
 
 ```python
-from jeeves_memory_module.services import SessionStateService
+from memory_module.services import SessionStateService
 
 service = SessionStateService(db)
 
@@ -455,7 +455,7 @@ context = await service.get_context_for_prompt("sess-123")
 ### Quick Reference
 
 ```python
-from jeeves_memory_module.services import ChunkService
+from memory_module.services import ChunkService
 
 service = ChunkService(db, embedding_service)
 
@@ -492,7 +492,7 @@ context = await service.get_context_for_query(
 ### Quick Reference
 
 ```python
-from jeeves_memory_module.services import ToolHealthService
+from memory_module.services import ToolHealthService
 
 service = ToolHealthService(db)
 
@@ -524,7 +524,7 @@ if await service.should_circuit_break("code_search"):
 ### Quick Reference
 
 ```python
-from jeeves_memory_module.services import CodeIndexer
+from memory_module.services import CodeIndexer
 
 indexer = CodeIndexer(postgres_client, embedding_service)
 

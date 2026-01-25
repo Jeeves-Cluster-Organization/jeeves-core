@@ -2,7 +2,7 @@
 
 **Layer:** L6 - Skills  
 **Scope:** Learned patterns  
-**Location:** `jeeves_memory_module/repositories/skill_stub.py`
+**Location:** `memory_module/repositories/skill_stub.py`
 
 ---
 
@@ -39,7 +39,7 @@ Skills are learned patterns that capture successful behaviors:
           ▼
 ┌─────────────────────────┐
 │  SkillStorageProtocol   │
-│  (from jeeves_protocols)│
+│  (from protocols)│
 └─────────────────────────┘
 ```
 
@@ -285,7 +285,7 @@ Common skill types in Jeeves:
 ### Storing Skills
 
 ```python
-from jeeves_memory_module.repositories.skill_stub import InMemorySkillStorage
+from memory_module.repositories.skill_stub import InMemorySkillStorage
 
 skills = InMemorySkillStorage()
 
@@ -368,7 +368,7 @@ await skills.update_confidence(
 
 ## Protocol Compliance
 
-The `InMemorySkillStorage` class implements `SkillStorageProtocol` from `jeeves_protocols`:
+The `InMemorySkillStorage` class implements `SkillStorageProtocol` from `protocols`:
 
 ```python
 # Verify protocol implementation

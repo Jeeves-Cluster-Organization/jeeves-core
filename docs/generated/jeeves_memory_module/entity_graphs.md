@@ -2,7 +2,7 @@
 
 **Layer:** L5 - Graph  
 **Scope:** Entity relationships  
-**Location:** `jeeves_memory_module/repositories/graph_stub.py`
+**Location:** `memory_module/repositories/graph_stub.py`
 
 ---
 
@@ -31,14 +31,14 @@ The Entity Graphs layer provides relationship tracking between entities in the J
           ▼
 ┌─────────────────────────┐
 │  GraphStorageProtocol   │
-│  (from jeeves_protocols)│
+│  (from protocols)│
 └─────────────────────────┘
 ```
 
 ### Extension Points
 
 For production, the stub can be replaced with:
-- `PostgresGraphAdapter` from `jeeves_avionics.database`
+- `PostgresGraphAdapter` from `avionics.database`
 - Custom Neo4j adapter
 - Any implementation of `GraphStorageProtocol`
 
@@ -231,7 +231,7 @@ async def _load_graph(self) -> None:
 ### Basic Graph Operations
 
 ```python
-from jeeves_memory_module.repositories.graph_stub import InMemoryGraphStorage
+from memory_module.repositories.graph_stub import InMemoryGraphStorage
 
 graph = InMemoryGraphStorage()
 
@@ -285,14 +285,14 @@ subgraph = await graph.query_subgraph(
 ### Production Pattern
 
 ```python
-from jeeves_protocols import GraphStorageProtocol
+from protocols import GraphStorageProtocol
 
 # Development: use in-memory stub
-from jeeves_memory_module.repositories import InMemoryGraphStorage
+from memory_module.repositories import InMemoryGraphStorage
 graph: GraphStorageProtocol = InMemoryGraphStorage()
 
 # Production: use PostgreSQL adapter
-from jeeves_avionics.database import PostgresGraphAdapter
+from avionics.database import PostgresGraphAdapter
 graph: GraphStorageProtocol = PostgresGraphAdapter(db_client)
 await graph.ensure_tables()
 ```
@@ -317,7 +317,7 @@ Common relationship types used in Jeeves:
 
 ## Protocol Compliance
 
-The `InMemoryGraphStorage` class implements `GraphStorageProtocol` from `jeeves_protocols`. This is verified at module load:
+The `InMemoryGraphStorage` class implements `GraphStorageProtocol` from `protocols`. This is verified at module load:
 
 ```python
 # Verify protocol implementation

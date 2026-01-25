@@ -1,4 +1,4 @@
-# jeeves_protocols.agents
+# protocols.agents
 
 **Layer**: L0 (Foundation)  
 **Purpose**: Unified Agent Runtime - Go-backed pipeline execution
@@ -161,7 +161,7 @@ class Agent:
 
 **Example**:
 ```python
-from jeeves_protocols import Agent, AgentConfig
+from protocols import Agent, AgentConfig
 
 agent = Agent(
     config=AgentConfig(
@@ -213,7 +213,7 @@ class Runtime:
 
 **Example**:
 ```python
-from jeeves_protocols import Runtime, PipelineConfig, create_envelope
+from protocols import Runtime, PipelineConfig, create_envelope
 
 runtime = Runtime(
     config=pipeline_config,

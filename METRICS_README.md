@@ -2,7 +2,7 @@
 
 ## Overview
 
-This implementation adds comprehensive Prometheus metrics instrumentation to the entire jeeves-core stack. Metrics are collected from both Go (coreengine) and Python (jeeves_avionics) layers and exposed via `/metrics` endpoints.
+This implementation adds comprehensive Prometheus metrics instrumentation to the entire jeeves-core stack. Metrics are collected from both Go (coreengine) and Python (avionics) layers and exposed via `/metrics` endpoints.
 
 ## What Was Implemented
 
@@ -39,9 +39,9 @@ This implementation adds comprehensive Prometheus metrics instrumentation to the
    jeeves_grpc_request_duration_seconds{method}
    ```
 
-### Python Side (jeeves_avionics)
+### Python Side (avionics)
 
-1. **Extended Metrics** (`jeeves_avionics/observability/metrics.py`)
+1. **Extended Metrics** (`avionics/observability/metrics.py`)
    - LLM provider metrics (calls, duration, tokens)
    - HTTP gateway metrics (requests, duration)
    - Helper functions: `record_llm_call()`, `record_llm_tokens()`, `record_http_request()`
@@ -172,10 +172,10 @@ docker-compose run --rm test go test ./coreengine/observability/... -v
 
 ```bash
 # In Docker
-docker-compose run --rm test pytest jeeves_avionics/observability/ -v
+docker-compose run --rm test pytest avionics/observability/ -v
 
 # Test LLM gateway metrics
-docker-compose run --rm test pytest jeeves_avionics/llm/test_gateway.py -v -k metrics
+docker-compose run --rm test pytest avionics/llm/test_gateway.py -v -k metrics
 ```
 
 ### Integration Test (End-to-End)
@@ -375,11 +375,11 @@ If metrics fail to import in local development:
 
 ```bash
 # Install dependencies
-pip install -e jeeves_avionics[dev]
+pip install -e avionics[dev]
 pip install prometheus-client
 
 # Or use Docker
-docker-compose run --rm test python -c "from jeeves_avionics.observability.metrics import *"
+docker-compose run --rm test python -c "from avionics.observability.metrics import *"
 ```
 
 ## Next Steps (Phase 2 & 3)

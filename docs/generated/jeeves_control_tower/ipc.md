@@ -1,6 +1,6 @@
 # IPC Module
 
-**Module:** `jeeves_control_tower.ipc`  
+**Module:** `control_tower.ipc`  
 **Main Classes:** `CommBusCoordinator`, `InMemoryCommBus`
 
 ---
@@ -64,7 +64,7 @@ def register_service(
 **Example:**
 
 ```python
-from jeeves_control_tower.types import ServiceDescriptor
+from control_tower.types import ServiceDescriptor
 
 coordinator.register_service(ServiceDescriptor(
     name="flow_service",
@@ -142,7 +142,7 @@ async def dispatch(
 **Example:**
 
 ```python
-from jeeves_control_tower.types import DispatchTarget
+from control_tower.types import DispatchTarget
 
 result = await coordinator.dispatch(
     target=DispatchTarget(
@@ -493,7 +493,7 @@ class DispatchTarget:
 The `adapters/` subdirectory provides bridges to external message buses:
 
 ```python
-# jeeves_control_tower/ipc/adapters/__init__.py
+# control_tower/ipc/adapters/__init__.py
 __all__: list[str] = []  # Currently empty, adapters added as needed
 ```
 
@@ -545,8 +545,8 @@ class CommBusCoordinatorProtocol(Protocol):
 ## Usage Example
 
 ```python
-from jeeves_control_tower.ipc import get_commbus, CommBusCoordinator
-from jeeves_control_tower.types import ServiceDescriptor, DispatchTarget
+from control_tower.ipc import get_commbus, CommBusCoordinator
+from control_tower.types import ServiceDescriptor, DispatchTarget
 
 # Get singleton CommBus
 bus = get_commbus()

@@ -1,6 +1,6 @@
 # MemoryManager and IntentClassifier
 
-**Location:** `jeeves_memory_module/manager.py`, `jeeves_memory_module/intent_classifier.py`
+**Location:** `memory_module/manager.py`, `memory_module/intent_classifier.py`
 
 ---
 
@@ -194,9 +194,9 @@ async def close(self) -> None:
 ### Usage Example
 
 ```python
-from jeeves_memory_module.manager import MemoryManager
-from jeeves_memory_module.adapters import SQLAdapter
-from jeeves_memory_module.services import CrossRefManager
+from memory_module.manager import MemoryManager
+from memory_module.adapters import SQLAdapter
+from memory_module.services import CrossRefManager
 
 # Initialize components
 sql_adapter = SQLAdapter(db_client)
@@ -358,7 +358,7 @@ When confidence meets threshold, additional attributes are extracted:
 ### Usage Example
 
 ```python
-from jeeves_memory_module.intent_classifier import IntentClassifier
+from memory_module.intent_classifier import IntentClassifier
 
 classifier = IntentClassifier(
     llm_provider=llm_provider,

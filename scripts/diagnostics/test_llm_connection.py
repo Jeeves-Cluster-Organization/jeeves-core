@@ -121,7 +121,7 @@ async def test_openai(api_key: str = None) -> bool:
         return False
 
     try:
-        from jeeves_avionics.llm.providers import OpenAIProvider
+        from avionics.llm.providers import OpenAIProvider
     except ImportError:
         print_error("OpenAI dependencies not installed")
         print_info("Install with: pip install openai")
@@ -172,7 +172,7 @@ async def test_anthropic(api_key: str = None) -> bool:
         return False
 
     try:
-        from jeeves_avionics.llm.providers import AnthropicProvider
+        from avionics.llm.providers import AnthropicProvider
     except ImportError:
         print_error("Anthropic dependencies not installed")
         print_info("Install with: pip install anthropic")
@@ -215,7 +215,7 @@ def test_mock() -> bool:
     print_header("Testing Mock Provider")
 
     try:
-        from jeeves_avionics.llm.providers import MockProvider
+        from avionics.llm.providers import MockProvider
     except ImportError:
         print_error("Cannot import MockProvider")
         return False
