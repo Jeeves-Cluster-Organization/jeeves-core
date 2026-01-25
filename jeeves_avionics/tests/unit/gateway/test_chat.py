@@ -8,6 +8,7 @@ import pytest
 from jeeves_avionics.gateway.routers.chat import (
     _classify_event_category,
     _build_grpc_request,
+    _is_internal_event,
     EVENT_CATEGORY_MAP,
     MessageSend,
 )
@@ -59,6 +60,30 @@ class TestBuildGrpcRequest:
         assert result.session_id == "sess123"
         assert result.context["mode"] == "code-analysis"
         assert result.context["repo_path"] == "/path/to/repo"
+
+
+@pytest.mark.skipif(jeeves_pb2 is None, reason="gRPC stubs not generated")
+class TestIsInternalEvent:
+    """Test internal event type classification."""
+
+    def test_is_internal_event_lifecycle(self):
+        """Test internal lifecycle events return True."""
+        assert _is_internal_event(jeeves_pb2.FlowEvent.FLOW_STARTED) == True
+        assert _is_internal_event(jeeves_pb2.FlowEvent.AGENT_STARTED) == True
+        assert _is_internal_event(jeeves_pb2.FlowEvent.AGENT_COMPLETED) == True
+        assert _is_internal_event(jeeves_pb2.FlowEvent.TOOL_STARTED) == True
+        assert _is_internal_event(jeeves_pb2.FlowEvent.TOOL_COMPLETED) == True
+        assert _is_internal_event(jeeves_pb2.FlowEvent.PLAN_CREATED) == True
+        assert _is_internal_event(jeeves_pb2.FlowEvent.CRITIC_DECISION) == True
+        assert _is_internal_event(jeeves_pb2.FlowEvent.SYNTHESIZER_COMPLETE) == True
+        assert _is_internal_event(jeeves_pb2.FlowEvent.STAGE_TRANSITION) == True
+
+    def test_is_internal_event_terminal(self):
+        """Test terminal events return False."""
+        assert _is_internal_event(jeeves_pb2.FlowEvent.RESPONSE_READY) == False
+        assert _is_internal_event(jeeves_pb2.FlowEvent.CLARIFICATION) == False
+        assert _is_internal_event(jeeves_pb2.FlowEvent.CONFIRMATION) == False
+        assert _is_internal_event(jeeves_pb2.FlowEvent.ERROR) == False
 
 
 class TestEventCategoryClassification:

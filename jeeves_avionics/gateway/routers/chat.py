@@ -293,6 +293,50 @@ def _build_grpc_request(user_id: str, body: MessageSend) -> "jeeves_pb2.FlowRequ
     )
 
 
+def _is_internal_event(event_type: "jeeves_pb2.FlowEvent") -> bool:
+    """
+    Check if event should be broadcast to frontend via SSE.
+
+    Internal events are lifecycle/trace events that provide visibility into
+    agent execution. Terminal events (RESPONSE_READY, CLARIFICATION, etc.)
+    are NOT broadcast because they're returned in the POST response.
+
+    Args:
+        event_type: gRPC FlowEvent type enum value
+
+    Returns:
+        True if event should be broadcast, False if it's a terminal event
+
+    Constitutional Pattern:
+        - Avionics (Gateway) emits internal events to gateway_events bus
+        - WebSocket handler subscribes and broadcasts to frontend
+        - Zero coupling between router and WebSocket implementation
+
+    Extended mapping for 7-agent pipeline visibility:
+        - AGENT_STARTED/COMPLETED: Generic agent lifecycle events
+        - PLAN_CREATED: Planner generates execution plan
+        - TOOL_STARTED/COMPLETED: Traverser tool executions
+        - CRITIC_DECISION: Critic validates results
+        - SYNTHESIZER_COMPLETE: Understanding structure built
+        - STAGE_TRANSITION: Multi-stage execution transitions
+
+    Note: RESPONSE_READY, CLARIFICATION, CONFIRMATION, ERROR are NOT broadcast
+    because those are returned in the POST response and would cause duplicates.
+    """
+    internal_event_types = {
+        jeeves_pb2.FlowEvent.FLOW_STARTED,
+        jeeves_pb2.FlowEvent.PLAN_CREATED,
+        jeeves_pb2.FlowEvent.TOOL_STARTED,
+        jeeves_pb2.FlowEvent.TOOL_COMPLETED,
+        jeeves_pb2.FlowEvent.CRITIC_DECISION,
+        jeeves_pb2.FlowEvent.AGENT_STARTED,
+        jeeves_pb2.FlowEvent.AGENT_COMPLETED,
+        jeeves_pb2.FlowEvent.SYNTHESIZER_COMPLETE,
+        jeeves_pb2.FlowEvent.STAGE_TRANSITION,
+    }
+    return event_type in internal_event_types
+
+
 # =============================================================================
 # Chat Message Endpoints
 # =============================================================================
@@ -333,31 +377,6 @@ async def send_message(
         request_id = ""
         session_id = body.session_id or ""
 
-        # Map event types to agent event names for frontend display
-        # Only broadcast internal/trace events, NOT final response events
-        # (final response is returned via POST, broadcasting it causes duplicates)
-        #
-        # Extended mapping for 7-agent pipeline visibility:
-        # - AGENT_STARTED/COMPLETED: Generic agent lifecycle events
-        # - PLAN_CREATED: Planner generates execution plan
-        # - TOOL_STARTED/COMPLETED: Traverser tool executions
-        # - CRITIC_DECISION: Critic validates results
-        # - SYNTHESIZER_COMPLETE: Understanding structure built
-        # - STAGE_TRANSITION: Multi-stage execution transitions
-        internal_event_types = {
-            jeeves_pb2.FlowEvent.FLOW_STARTED,
-            jeeves_pb2.FlowEvent.PLAN_CREATED,
-            jeeves_pb2.FlowEvent.TOOL_STARTED,
-            jeeves_pb2.FlowEvent.TOOL_COMPLETED,
-            jeeves_pb2.FlowEvent.CRITIC_DECISION,
-            jeeves_pb2.FlowEvent.AGENT_STARTED,
-            jeeves_pb2.FlowEvent.AGENT_COMPLETED,
-            jeeves_pb2.FlowEvent.SYNTHESIZER_COMPLETE,
-            jeeves_pb2.FlowEvent.STAGE_TRANSITION,
-            # Note: RESPONSE_READY, CLARIFICATION, CONFIRMATION, ERROR are NOT broadcast
-            # because those are returned in the POST response and would cause duplicates
-        }
-
         async for event in client.flow.StartFlow(grpc_request):
             request_id = event.request_id or request_id
             session_id = event.session_id or session_id
@@ -372,7 +391,7 @@ async def send_message(
 
             # Publish internal/trace events for frontend visibility (not final responses)
             # Convert gRPC events to Event and publish to gateway_events
-            if event.type in internal_event_types:
+            if _is_internal_event(event.type):
                 # Merge gRPC context with payload for Event creation
                 event_data = {
                     "request_id": request_id,
