@@ -450,6 +450,15 @@ if isCycleEdge(from, to) {
 
 ## Changelog
 
+### 2026-01-25 - v1.3.1 (Test Alignment)
+- Fixed test drift: aligned tests with current API signatures
+- Added `UNKNOWN` to `HealthStatus` enum (used by L7 ToolHealthService)
+- Made `sentence-transformers` a lazy/optional dependency
+- Moved `test_sql_adapter.py` to integration/ (requires PostgreSQL)
+- Fixed DI pattern in `test_trace_recorder.py` (use `is_enabled()` not patching)
+- All unit tests passing (Go: 100%, Python: 325/325)
+- Integration tests passing without external services (59/59)
+
 ### 2026-01-19 - v1.3.0 (Architecture Audit)
 - Documented Memory Module → Avionics exception (L2 → L3 for database.factory)
 - Clarified import rules with exceptions section

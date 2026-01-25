@@ -1,9 +1,37 @@
 # Jeeves Core Documentation
 
-**Version:** 2.0.1
+**Version:** 2.0.2
 **Last Updated:** 2026-01-25
 
 This documentation provides a comprehensive guide to understanding the jeeves-core runtime architecture, components, and data flow.
+
+---
+
+## Test Status
+
+| Suite | Status | Coverage |
+|-------|--------|----------|
+| **Go Unit** | ✅ All pass | 77-100% |
+| **Python Unit** | ✅ 325 pass | 64% |
+| **Integration (no DB)** | ✅ 59 pass | - |
+| **Integration (needs PostgreSQL)** | ⏭️ 25 skipped | - |
+
+### Go Coverage by Package
+
+| Package | Coverage |
+|---------|----------|
+| coreengine/tools | 100% |
+| coreengine/config | 95.6% |
+| coreengine/runtime | 91.8% |
+| coreengine/agents | 87.1% |
+| coreengine/envelope | 85.2% |
+| commbus | 77.9% |
+
+### Dependencies for Full Test Suite
+
+- **Unit tests**: No external deps (sentence-transformers optional)
+- **Integration**: `opentelemetry-*`, `prometheus-client`, `redis`
+- **Database tests**: PostgreSQL required
 
 ---
 
