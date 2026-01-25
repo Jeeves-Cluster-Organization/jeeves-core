@@ -13,7 +13,7 @@ Provides:
 from __future__ import annotations
 
 import json
-from typing import Optional, List, AsyncIterator
+from typing import Optional, List, AsyncIterator, Dict
 
 from fastapi import APIRouter, Request, Query, HTTPException, status
 from fastapi.responses import StreamingResponse
@@ -36,6 +36,94 @@ router = APIRouter()
 # =============================================================================
 # Event Publishing (Constitutional Pattern)
 # =============================================================================
+
+# Event type → category mapping (Configuration Over Code - Avionics R2)
+EVENT_CATEGORY_MAP: Dict[str, "EventCategory"] = {
+    # Agent lifecycle events
+    "agent.started": "AGENT_LIFECYCLE",
+    "agent.completed": "AGENT_LIFECYCLE",
+    "agent.perception": "AGENT_LIFECYCLE",
+    "agent.intent": "AGENT_LIFECYCLE",
+    "agent.planner": "AGENT_LIFECYCLE",
+    "agent.executor": "AGENT_LIFECYCLE",
+    "agent.synthesizer": "AGENT_LIFECYCLE",
+    "agent.integration": "AGENT_LIFECYCLE",
+
+    # Critic events
+    "agent.critic": "CRITIC_DECISION",
+    "critic.decision": "CRITIC_DECISION",
+
+    # Tool events
+    "tool.started": "TOOL_EXECUTION",
+    "tool.completed": "TOOL_EXECUTION",
+    "tool.failed": "TOOL_EXECUTION",
+
+    # Pipeline events
+    "orchestrator.started": "PIPELINE_FLOW",
+    "orchestrator.completed": "PIPELINE_FLOW",
+    "flow.started": "PIPELINE_FLOW",
+    "flow.completed": "PIPELINE_FLOW",
+
+    # Stage events
+    "stage.transition": "STAGE_TRANSITION",
+    "stage.completed": "STAGE_TRANSITION",
+}
+
+
+def _classify_event_category(event_type: str) -> "EventCategory":
+    """
+    Classify event type into category.
+
+    Uses exact match lookup first (O(1)), then falls back to prefix matching
+    for backward compatibility with legacy event types. This pattern reduces
+    cyclomatic complexity from 17 to 3 and makes adding new event types a
+    configuration change (just update EVENT_CATEGORY_MAP).
+
+    Args:
+        event_type: Event type string (e.g., "agent.started", "tool.completed")
+
+    Returns:
+        EventCategory enum value
+
+    Constitutional Alignment:
+        - Avionics R2 (Configuration Over Code): Event mappings are configuration
+        - Avionics R3 (No Domain Logic): Pure infrastructure categorization
+
+    Examples:
+        >>> _classify_event_category("agent.started")
+        EventCategory.AGENT_LIFECYCLE
+
+        >>> _classify_event_category("perception.complete")  # legacy
+        EventCategory.AGENT_LIFECYCLE  # via prefix match
+    """
+    from jeeves_protocols.events import EventCategory
+
+    # Exact match (preferred - O(1) lookup)
+    if event_type in EVENT_CATEGORY_MAP:
+        return getattr(EventCategory, EVENT_CATEGORY_MAP[event_type])
+
+    # Fallback: prefix matching for legacy events
+    # TODO: Remove this block once all event types are standardized to use
+    # the agent.* naming convention
+    for prefix, category_str in [
+        ("perception", "AGENT_LIFECYCLE"),
+        ("intent", "AGENT_LIFECYCLE"),
+        ("planner", "AGENT_LIFECYCLE"),
+        ("executor", "AGENT_LIFECYCLE"),
+        ("synthesizer", "AGENT_LIFECYCLE"),
+        ("integration", "AGENT_LIFECYCLE"),
+        ("critic", "CRITIC_DECISION"),
+        ("tool", "TOOL_EXECUTION"),
+        ("orchestrator", "PIPELINE_FLOW"),
+        ("flow", "PIPELINE_FLOW"),
+        ("stage", "STAGE_TRANSITION"),
+    ]:
+        if prefix in event_type:
+            return getattr(EventCategory, category_str)
+
+    # Default category for unknown event types
+    return EventCategory.DOMAIN_EVENT
+
 
 async def _publish_unified_event(event: dict):
     """
@@ -74,21 +162,8 @@ async def _publish_unified_event(event: dict):
     payload = event.get("payload", {})
     agent_name = event.get("agent_name", "")
 
-    # Determine category from event_type
-    if "perception" in event_type or "intent" in event_type or "planner" in event_type or \
-       "executor" in event_type or "synthesizer" in event_type or "integration" in event_type or \
-       "agent.started" in event_type or "agent.completed" in event_type:
-        category = EventCategory.AGENT_LIFECYCLE
-    elif "critic" in event_type:
-        category = EventCategory.CRITIC_DECISION
-    elif "tool" in event_type:
-        category = EventCategory.TOOL_EXECUTION
-    elif "orchestrator" in event_type or "flow" in event_type:
-        category = EventCategory.PIPELINE_FLOW
-    elif "stage" in event_type:
-        category = EventCategory.STAGE_TRANSITION
-    else:
-        category = EventCategory.DOMAIN_EVENT
+    # Classify event type into category using lookup table (CCN 17 → 3)
+    category = _classify_event_category(event_type)
 
     # Create Event
     dt = datetime.fromtimestamp(timestamp_ms / 1000, tz=timezone.utc)
