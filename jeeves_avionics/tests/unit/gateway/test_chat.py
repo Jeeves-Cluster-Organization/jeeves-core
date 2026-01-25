@@ -11,8 +11,14 @@ from jeeves_avionics.gateway.routers.chat import (
     _is_internal_event,
     EVENT_CATEGORY_MAP,
     MessageSend,
+    ResponseReadyHandler,
+    ClarificationHandler,
+    ConfirmationHandler,
+    ErrorHandler,
+    EVENT_HANDLERS,
 )
 from jeeves_protocols.events import EventCategory
+from unittest.mock import MagicMock
 
 # Import proto types (generated)
 try:
@@ -84,6 +90,138 @@ class TestIsInternalEvent:
         assert _is_internal_event(jeeves_pb2.FlowEvent.CLARIFICATION) == False
         assert _is_internal_event(jeeves_pb2.FlowEvent.CONFIRMATION) == False
         assert _is_internal_event(jeeves_pb2.FlowEvent.ERROR) == False
+
+
+class TestResponseReadyHandler:
+    """Test ResponseReadyHandler event processing."""
+
+    def test_handle_without_mode_config(self):
+        """Test handling RESPONSE_READY without mode configuration."""
+        handler = ResponseReadyHandler()
+        payload = {"response_text": "Task completed successfully"}
+
+        result = handler.handle(payload, mode_config=None)
+
+        assert result["status"] == "completed"
+        assert result["response"] == "Task completed successfully"
+        assert len(result) == 2  # Only status and response fields
+
+    def test_handle_with_mode_config(self):
+        """Test handling RESPONSE_READY with mode configuration fields."""
+        handler = ResponseReadyHandler()
+        payload = {
+            "response": "Analysis complete",
+            "files_examined": ["/path/to/file.py"],
+            "citations": ["ref1", "ref2"],
+        }
+
+        # Mock mode_config with response_fields
+        mock_mode_config = MagicMock()
+        mock_mode_config.response_fields = ["files_examined", "citations"]
+
+        result = handler.handle(payload, mode_config=mock_mode_config)
+
+        assert result["status"] == "completed"
+        assert result["response"] == "Analysis complete"
+        assert result["files_examined"] == ["/path/to/file.py"]
+        assert result["citations"] == ["ref1", "ref2"]
+
+
+class TestClarificationHandler:
+    """Test ClarificationHandler event processing."""
+
+    def test_handle_without_mode_config(self):
+        """Test handling CLARIFICATION without mode configuration."""
+        handler = ClarificationHandler()
+        payload = {"question": "Please provide more details"}
+
+        result = handler.handle(payload, mode_config=None)
+
+        assert result["status"] == "clarification"
+        assert result["clarification_needed"] == True
+        assert result["clarification_question"] == "Please provide more details"
+        assert len(result) == 3  # Only status, flag, and question
+
+    def test_handle_with_mode_config(self):
+        """Test handling CLARIFICATION with mode configuration fields."""
+        handler = ClarificationHandler()
+        payload = {
+            "question": "Which file to analyze?",
+            "thread_id": "thread123",
+        }
+
+        # Mock mode_config with response_fields
+        mock_mode_config = MagicMock()
+        mock_mode_config.response_fields = ["thread_id"]
+
+        result = handler.handle(payload, mode_config=mock_mode_config)
+
+        assert result["status"] == "clarification"
+        assert result["clarification_needed"] == True
+        assert result["clarification_question"] == "Which file to analyze?"
+        assert result["thread_id"] == "thread123"
+
+
+class TestConfirmationHandler:
+    """Test ConfirmationHandler event processing."""
+
+    def test_handle_confirmation(self):
+        """Test handling CONFIRMATION event."""
+        handler = ConfirmationHandler()
+        payload = {
+            "message": "Delete 5 files?",
+            "confirmation_id": "confirm123",
+        }
+
+        result = handler.handle(payload, mode_config=None)
+
+        assert result["status"] == "confirmation"
+        assert result["confirmation_needed"] == True
+        assert result["confirmation_message"] == "Delete 5 files?"
+        assert result["confirmation_id"] == "confirm123"
+
+
+class TestErrorHandler:
+    """Test ErrorHandler event processing."""
+
+    def test_handle_error_with_message(self):
+        """Test handling ERROR with error message."""
+        handler = ErrorHandler()
+        payload = {"error": "Failed to connect to database"}
+
+        result = handler.handle(payload, mode_config=None)
+
+        assert result["status"] == "error"
+        assert result["response"] == "Failed to connect to database"
+
+    def test_handle_error_without_message(self):
+        """Test handling ERROR without error message (default)."""
+        handler = ErrorHandler()
+        payload = {}
+
+        result = handler.handle(payload, mode_config=None)
+
+        assert result["status"] == "error"
+        assert result["response"] == "Unknown error"
+
+
+@pytest.mark.skipif(jeeves_pb2 is None, reason="gRPC stubs not generated")
+class TestEventHandlersRegistry:
+    """Test EVENT_HANDLERS registry configuration."""
+
+    def test_registry_contains_all_handlers(self):
+        """Test that EVENT_HANDLERS contains all terminal event types."""
+        assert jeeves_pb2.FlowEvent.RESPONSE_READY in EVENT_HANDLERS
+        assert jeeves_pb2.FlowEvent.CLARIFICATION in EVENT_HANDLERS
+        assert jeeves_pb2.FlowEvent.CONFIRMATION in EVENT_HANDLERS
+        assert jeeves_pb2.FlowEvent.ERROR in EVENT_HANDLERS
+
+    def test_registry_handler_types(self):
+        """Test that registry contains correct handler instances."""
+        assert isinstance(EVENT_HANDLERS[jeeves_pb2.FlowEvent.RESPONSE_READY], ResponseReadyHandler)
+        assert isinstance(EVENT_HANDLERS[jeeves_pb2.FlowEvent.CLARIFICATION], ClarificationHandler)
+        assert isinstance(EVENT_HANDLERS[jeeves_pb2.FlowEvent.CONFIRMATION], ConfirmationHandler)
+        assert isinstance(EVENT_HANDLERS[jeeves_pb2.FlowEvent.ERROR], ErrorHandler)
 
 
 class TestEventCategoryClassification:

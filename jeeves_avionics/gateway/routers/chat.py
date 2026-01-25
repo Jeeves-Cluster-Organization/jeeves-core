@@ -13,6 +13,7 @@ Provides:
 from __future__ import annotations
 
 import json
+from abc import ABC, abstractmethod
 from typing import Optional, List, AsyncIterator, Dict
 
 from fastapi import APIRouter, Request, Query, HTTPException, status
@@ -338,6 +339,154 @@ def _is_internal_event(event_type: "jeeves_pb2.FlowEvent") -> bool:
 
 
 # =============================================================================
+# Event Handler Strategy Pattern
+# =============================================================================
+
+class EventHandler(ABC):
+    """
+    Abstract base for terminal event handlers.
+
+    Strategy Pattern for handling different gRPC FlowEvent types.
+    Each handler converts gRPC payload to MessageResponse dict format.
+
+    Constitutional Compliance:
+        - Avionics R1 (Adapter Pattern): Implements gRPC → HTTP response transformation
+    """
+
+    @abstractmethod
+    def handle(self, payload: Dict, mode_config: Optional["CapabilityModeConfig"]) -> Dict:
+        """
+        Handle event payload and return response dict.
+
+        Args:
+            payload: Parsed JSON payload from gRPC event
+            mode_config: Optional mode configuration for response field injection
+
+        Returns:
+            Dict suitable for MessageResponse(**result)
+        """
+        pass
+
+
+class ResponseReadyHandler(EventHandler):
+    """Handle RESPONSE_READY events - successful agent completions."""
+
+    def handle(self, payload: Dict, mode_config: Optional["CapabilityModeConfig"]) -> Dict:
+        """
+        Convert RESPONSE_READY payload to completed response.
+
+        Args:
+            payload: gRPC event payload with response_text or response field
+            mode_config: Optional mode configuration for additional response fields
+
+        Returns:
+            Dict with status='completed' and response text
+        """
+        final_response = {
+            "status": "completed",
+            "response": payload.get("response_text") or payload.get("response"),
+        }
+
+        # Include mode-specific response fields from registry configuration
+        # Constitutional: Capabilities register which fields they need in responses
+        if mode_config:
+            for field in mode_config.response_fields:
+                if payload.get(field):
+                    final_response[field] = payload.get(field)
+
+        return final_response
+
+
+class ClarificationHandler(EventHandler):
+    """Handle CLARIFICATION events - agent needs more information."""
+
+    def handle(self, payload: Dict, mode_config: Optional["CapabilityModeConfig"]) -> Dict:
+        """
+        Convert CLARIFICATION payload to clarification response.
+
+        Args:
+            payload: gRPC event payload with question and optional thread_id
+            mode_config: Optional mode configuration for additional response fields
+
+        Returns:
+            Dict with status='clarification' and clarification fields
+        """
+        from jeeves_avionics.logging import get_current_logger
+        _logger = get_current_logger()
+
+        _logger.info(
+            "gateway_received_clarification",
+            clarification_question=payload.get("question"),
+            thread_id=payload.get("thread_id"),
+        )
+
+        final_response = {
+            "status": "clarification",
+            "clarification_needed": True,  # P1 compliance: frontend checks this flag
+            "clarification_question": payload.get("question"),
+        }
+
+        # Include mode-specific fields for clarification responses
+        if mode_config:
+            for field in mode_config.response_fields:
+                if payload.get(field):
+                    final_response[field] = payload.get(field)
+
+        return final_response
+
+
+class ConfirmationHandler(EventHandler):
+    """Handle CONFIRMATION events - agent needs user confirmation."""
+
+    def handle(self, payload: Dict, mode_config: Optional["CapabilityModeConfig"]) -> Dict:
+        """
+        Convert CONFIRMATION payload to confirmation response.
+
+        Args:
+            payload: gRPC event payload with confirmation message and ID
+            mode_config: Not used for confirmation events
+
+        Returns:
+            Dict with status='confirmation' and confirmation fields
+        """
+        return {
+            "status": "confirmation",
+            "confirmation_needed": True,  # Flag for frontend
+            "confirmation_message": payload.get("message"),
+            "confirmation_id": payload.get("confirmation_id"),
+        }
+
+
+class ErrorHandler(EventHandler):
+    """Handle ERROR events - agent encountered an error."""
+
+    def handle(self, payload: Dict, mode_config: Optional["CapabilityModeConfig"]) -> Dict:
+        """
+        Convert ERROR payload to error response.
+
+        Args:
+            payload: gRPC event payload with error field
+            mode_config: Not used for error events
+
+        Returns:
+            Dict with status='error' and error message
+        """
+        return {
+            "status": "error",
+            "response": payload.get("error", "Unknown error"),
+        }
+
+
+# Registry mapping event types to handlers
+EVENT_HANDLERS: Dict["jeeves_pb2.FlowEvent", EventHandler] = {
+    jeeves_pb2.FlowEvent.RESPONSE_READY: ResponseReadyHandler(),
+    jeeves_pb2.FlowEvent.CLARIFICATION: ClarificationHandler(),
+    jeeves_pb2.FlowEvent.CONFIRMATION: ConfirmationHandler(),
+    jeeves_pb2.FlowEvent.ERROR: ErrorHandler(),
+} if jeeves_pb2 is not None else {}
+
+
+# =============================================================================
 # Chat Message Endpoints
 # =============================================================================
 
@@ -401,47 +550,10 @@ async def send_message(
                 }
                 await _publish_unified_event(event_data)
 
-            if event.type == jeeves_pb2.FlowEvent.RESPONSE_READY:
-                final_response = {
-                    "status": "completed",
-                    "response": payload.get("response_text") or payload.get("response"),
-                }
-                # Include mode-specific response fields from registry configuration
-                # Constitutional: Capabilities register which fields they need in responses
-                if mode_config:
-                    for field in mode_config.response_fields:
-                        if payload.get(field):
-                            final_response[field] = payload.get(field)
-            elif event.type == jeeves_pb2.FlowEvent.CLARIFICATION:
-                _logger.info(
-                    "gateway_received_clarification",
-                    request_id=request_id,
-                    session_id=session_id,
-                    clarification_question=payload.get("question"),
-                    thread_id=payload.get("thread_id"),
-                )
-                final_response = {
-                    "status": "clarification",
-                    "clarification_needed": True,  # P1 compliance: frontend checks this flag
-                    "clarification_question": payload.get("question"),
-                }
-                # Include mode-specific fields for clarification responses
-                if mode_config:
-                    for field in mode_config.response_fields:
-                        if payload.get(field):
-                            final_response[field] = payload.get(field)
-            elif event.type == jeeves_pb2.FlowEvent.CONFIRMATION:
-                final_response = {
-                    "status": "confirmation",
-                    "confirmation_needed": True,  # Flag for frontend
-                    "confirmation_message": payload.get("message"),
-                    "confirmation_id": payload.get("confirmation_id"),
-                }
-            elif event.type == jeeves_pb2.FlowEvent.ERROR:
-                final_response = {
-                    "status": "error",
-                    "response": payload.get("error", "Unknown error"),
-                }
+            # Handle terminal events using Strategy Pattern
+            handler = EVENT_HANDLERS.get(event.type)
+            if handler:
+                final_response = handler.handle(payload, mode_config)
 
         if final_response is None:
             raise HTTPException(
