@@ -261,6 +261,39 @@ class MessageListResponse(BaseModel):
 
 
 # =============================================================================
+# Chat Message Endpoints - Helper Functions
+# =============================================================================
+
+def _build_grpc_request(user_id: str, body: MessageSend) -> "jeeves_pb2.FlowRequest":
+    """
+    Build gRPC FlowRequest from HTTP request body.
+
+    Args:
+        user_id: User identifier
+        body: HTTP request body with message and optional context
+
+    Returns:
+        jeeves_pb2.FlowRequest ready for gRPC call
+
+    Constitutional Compliance:
+        - Avionics R1 (Adapter Pattern): Adapts HTTP → gRPC
+        - Avionics R3 (No Domain Logic): Pure request transformation
+    """
+    context = {}
+    if body.mode:
+        context["mode"] = body.mode
+    if body.repo_path:
+        context["repo_path"] = body.repo_path
+
+    return jeeves_pb2.FlowRequest(
+        user_id=user_id,
+        session_id=body.session_id or "",
+        message=body.message,
+        context=context,
+    )
+
+
+# =============================================================================
 # Chat Message Endpoints
 # =============================================================================
 
@@ -283,21 +316,10 @@ async def send_message(
             detail="gRPC stubs not generated. Run proto compilation first."
         )
 
+    # Build gRPC request from HTTP body
+    grpc_request = _build_grpc_request(user_id, body)
+
     client = get_grpc_client()
-
-    # Build context for gRPC request
-    context = {}
-    if body.mode:
-        context["mode"] = body.mode
-    if body.repo_path:
-        context["repo_path"] = body.repo_path
-
-    grpc_request = jeeves_pb2.FlowRequest(
-        user_id=user_id,
-        session_id=body.session_id or "",
-        message=body.message,
-        context=context,
-    )
 
     # Look up mode configuration from capability registry (constitutional pattern)
     # Avionics R3: No Domain Logic - registry lookup instead of hardcoded mode names

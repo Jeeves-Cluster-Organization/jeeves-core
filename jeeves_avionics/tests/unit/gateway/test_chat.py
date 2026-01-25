@@ -7,9 +7,58 @@ Integration tests for the full endpoint are in integration tests.
 import pytest
 from jeeves_avionics.gateway.routers.chat import (
     _classify_event_category,
+    _build_grpc_request,
     EVENT_CATEGORY_MAP,
+    MessageSend,
 )
 from jeeves_protocols.events import EventCategory
+
+# Import proto types (generated)
+try:
+    from proto import jeeves_pb2
+except ImportError:
+    jeeves_pb2 = None
+
+
+@pytest.mark.skipif(jeeves_pb2 is None, reason="gRPC stubs not generated")
+class TestBuildGrpcRequest:
+    """Test gRPC request building helper."""
+
+    def test_build_grpc_request_minimal(self):
+        """Test building request with only required fields."""
+        body = MessageSend(message="Hello")
+        result = _build_grpc_request("user123", body)
+
+        assert result.user_id == "user123"
+        assert result.message == "Hello"
+        assert result.session_id == ""
+        assert result.context == {}
+
+    def test_build_grpc_request_with_mode(self):
+        """Test building request with mode."""
+        body = MessageSend(message="Analyze", mode="code-analysis")
+        result = _build_grpc_request("user123", body)
+
+        assert result.user_id == "user123"
+        assert result.message == "Analyze"
+        assert result.context["mode"] == "code-analysis"
+        assert "repo_path" not in result.context
+
+    def test_build_grpc_request_full(self):
+        """Test building request with all fields."""
+        body = MessageSend(
+            message="Analyze",
+            mode="code-analysis",
+            session_id="sess123",
+            repo_path="/path/to/repo"
+        )
+        result = _build_grpc_request("user123", body)
+
+        assert result.user_id == "user123"
+        assert result.message == "Analyze"
+        assert result.session_id == "sess123"
+        assert result.context["mode"] == "code-analysis"
+        assert result.context["repo_path"] == "/path/to/repo"
 
 
 class TestEventCategoryClassification:
