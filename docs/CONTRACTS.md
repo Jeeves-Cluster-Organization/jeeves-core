@@ -1,7 +1,7 @@
 # Jeeves-Core Architectural Contracts
 
-**Last Updated:** 2026-01-06
-**Version:** 1.1.0
+**Last Updated:** 2026-01-25
+**Version:** 1.3.1
 
 This document defines the architectural contracts that govern the Jeeves-Core codebase. These contracts ensure consistency, maintainability, and proper separation of concerns.
 
