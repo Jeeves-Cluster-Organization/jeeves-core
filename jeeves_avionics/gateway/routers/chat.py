@@ -579,8 +579,6 @@ async def send_message(
     # Build gRPC request from HTTP body
     grpc_request = _build_grpc_request(user_id, body)
 
-    client = get_grpc_client()
-
     # Look up mode configuration from capability registry (constitutional pattern)
     # Avionics R3: No Domain Logic - registry lookup instead of hardcoded mode names
     from jeeves_protocols import get_capability_resource_registry
@@ -588,7 +586,8 @@ async def send_message(
     mode_config = mode_registry.get_mode_config(body.mode) if body.mode else None
 
     try:
-        # Get gRPC client and process stream
+        # Process gRPC stream and collect final response
+        client = get_grpc_client()
         final_response, request_id, session_id = await _process_event_stream(
             client.flow.StartFlow(grpc_request),
             user_id,
