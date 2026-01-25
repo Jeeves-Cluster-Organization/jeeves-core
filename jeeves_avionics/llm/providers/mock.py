@@ -21,6 +21,7 @@ class MockProvider(LLMProvider):
     def __init__(self):
         """Initialize mock provider."""
         self.call_count = 0
+        self.call_history = []
 
     async def generate(
         self,
@@ -34,6 +35,12 @@ class MockProvider(LLMProvider):
         realistic responses for common agent tasks.
         """
         self.call_count += 1
+        self.call_history.append({
+            'method': 'generate',
+            'model': model,
+            'prompt': prompt,
+            'options': options
+        })
 
         prompt_lower = prompt.lower()
 

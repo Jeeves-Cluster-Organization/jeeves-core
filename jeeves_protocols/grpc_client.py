@@ -462,9 +462,129 @@ class GrpcGoClient:
     # Envelope Conversion (Contract 11: Lossless round-trip)
     # =========================================================================
 
+    def _parse_outputs_from_proto(self, proto: Any) -> Dict[str, Any]:
+        """Parse outputs map from protobuf bytes to Python dict."""
+        outputs: Dict[str, Any] = {}
+        for key, val in proto.outputs.items():
+            try:
+                outputs[key] = json.loads(val.decode()) if val else None
+            except (json.JSONDecodeError, UnicodeDecodeError):
+                outputs[key] = {"raw": val.decode()} if val else None
+        return outputs
+
+    def _parse_request_context_from_metadata(self, metadata: Dict[str, Any]) -> RequestContext:
+        """Extract and parse request_context from metadata dict."""
+        request_context_raw = metadata.get("request_context")
+        if not request_context_raw:
+            raise ValueError("request_context missing in proto metadata")
+
+        if isinstance(request_context_raw, str):
+            try:
+                request_context_data = json.loads(request_context_raw)
+            except json.JSONDecodeError as exc:
+                raise ValueError("request_context metadata is not valid JSON") from exc
+        elif isinstance(request_context_raw, dict):
+            request_context_data = request_context_raw
+        else:
+            raise TypeError("request_context metadata must be JSON string or dict")
+
+        return RequestContext(**request_context_data)
+
+    def _parse_interrupt_from_proto(self, proto: Any) -> Optional[Dict[str, Any]]:
+        """Parse interrupt message from protobuf to Python dict."""
+        if not (proto.HasField("interrupt") if hasattr(proto, 'HasField') else proto.interrupt.interrupt_id):
+            return None
+
+        pi = proto.interrupt
+        interrupt_data: Dict[str, Any] = {}
+        if pi.data:
+            try:
+                interrupt_data = json.loads(pi.data.decode())
+            except (json.JSONDecodeError, UnicodeDecodeError):
+                interrupt_data = {}
+
+        interrupt = {
+            "kind": pi.kind,
+            "id": pi.interrupt_id,
+            "interrupt_id": pi.interrupt_id,
+            "question": pi.question,
+            "message": pi.message,
+            "data": interrupt_data,
+            "created_at_ms": pi.created_at_ms,
+        }
+
+        # Parse response if present
+        if hasattr(pi, 'response') and pi.response:
+            resp = pi.response
+            interrupt["response"] = {
+                "text": resp.text,
+                "approved": resp.approved,
+                "decision": resp.decision,
+                "resolved_at_ms": resp.resolved_at_ms,
+            }
+            if resp.data:
+                try:
+                    interrupt["response"]["data"] = json.loads(resp.data.decode())
+                except (json.JSONDecodeError, UnicodeDecodeError):
+                    pass
+
+        return interrupt
+
+    def _serialize_outputs_to_proto(self, proto: Any, outputs: Optional[Dict[str, Any]]) -> None:
+        """Serialize outputs dict to protobuf bytes map."""
+        if outputs:
+            for key, val in outputs.items():
+                proto.outputs[key] = json.dumps(val).encode() if val else b""
+
+    def _serialize_stage_maps_to_proto(self, proto: Any, envelope: Envelope) -> None:
+        """Serialize parallel execution state maps to protobuf."""
+        if envelope.active_stages:
+            for key, val in envelope.active_stages.items():
+                proto.active_stages[key] = val
+
+        if envelope.completed_stage_set:
+            for key, val in envelope.completed_stage_set.items():
+                proto.completed_stage_set[key] = val
+
+        if envelope.failed_stages:
+            for key, val in envelope.failed_stages.items():
+                proto.failed_stages[key] = val
+
+        if envelope.goal_completion_status:
+            for key, val in envelope.goal_completion_status.items():
+                proto.goal_completion_status[key] = val
+
+    def _serialize_metadata_to_proto(self, proto: Any, envelope: Envelope) -> None:
+        """Serialize metadata dict and request_context to protobuf."""
+        if envelope.metadata:
+            for key, val in envelope.metadata.items():
+                proto.metadata_str[key] = str(val) if val is not None else ""
+        # Always embed request_context for round-trip fidelity
+        proto.metadata_str["request_context"] = json.dumps(
+            envelope.request_context.to_dict()
+        )
+
+    def _serialize_interrupt_to_proto(self, proto: Any, interrupt: Optional[Any]) -> None:
+        """Serialize interrupt to protobuf message."""
+        if not interrupt:
+            return
+
+        interrupt_data = interrupt
+        if hasattr(interrupt_data, 'to_dict'):
+            interrupt_data = interrupt_data.to_dict()
+
+        if isinstance(interrupt_data, dict):
+            proto.interrupt.kind = interrupt_data.get('kind', 0)
+            proto.interrupt.interrupt_id = interrupt_data.get('interrupt_id', '') or interrupt_data.get('id', '')
+            proto.interrupt.question = interrupt_data.get('question', '')
+            proto.interrupt.message = interrupt_data.get('message', '')
+            if interrupt_data.get('data'):
+                proto.interrupt.data = json.dumps(interrupt_data['data']).encode()
+            proto.interrupt.created_at_ms = int(interrupt_data.get('created_at_ms', 0))
+
     def _envelope_to_proto(self, envelope: Envelope) -> Any:
         """Convert Python envelope to proto message.
-        
+
         Contract 11 compliance: All fields must be serialized for lossless round-trip.
         """
         from jeeves_protocols import grpc_stub
@@ -503,126 +623,28 @@ class GrpcGoClient:
             # Timing
             created_at_ms=int(envelope.created_at.timestamp() * 1000) if envelope.created_at else 0,
         )
-        
-        # Outputs as JSON bytes (map<string, bytes>)
-        if envelope.outputs:
-            for key, val in envelope.outputs.items():
-                proto.outputs[key] = json.dumps(val).encode() if val else b""
-        
-        # Parallel execution state (map<string, bool>)
-        if envelope.active_stages:
-            for key, val in envelope.active_stages.items():
-                proto.active_stages[key] = val
-        
-        if envelope.completed_stage_set:
-            for key, val in envelope.completed_stage_set.items():
-                proto.completed_stage_set[key] = val
-        
-        if envelope.failed_stages:
-            for key, val in envelope.failed_stages.items():
-                proto.failed_stages[key] = val
-        
-        # Goal completion status (map<string, string>)
-        if envelope.goal_completion_status:
-            for key, val in envelope.goal_completion_status.items():
-                proto.goal_completion_status[key] = val
-        
-        # Metadata as string map
-        if envelope.metadata:
-            for key, val in envelope.metadata.items():
-                proto.metadata_str[key] = str(val) if val is not None else ""
-        # Always embed request_context for round-trip fidelity
-        proto.metadata_str["request_context"] = json.dumps(
-            envelope.request_context.to_dict()
-        )
-        
-        # Interrupt (FlowInterrupt message)
-        if envelope.interrupt:
-            interrupt_data = envelope.interrupt
-            if hasattr(interrupt_data, 'to_dict'):
-                interrupt_data = interrupt_data.to_dict()
-            if isinstance(interrupt_data, dict):
-                proto.interrupt.kind = interrupt_data.get('kind', 0)
-                proto.interrupt.interrupt_id = interrupt_data.get('interrupt_id', '') or interrupt_data.get('id', '')
-                proto.interrupt.question = interrupt_data.get('question', '')
-                proto.interrupt.message = interrupt_data.get('message', '')
-                if interrupt_data.get('data'):
-                    proto.interrupt.data = json.dumps(interrupt_data['data']).encode()
-                proto.interrupt.created_at_ms = int(interrupt_data.get('created_at_ms', 0))
-        
+
+        # Serialize complex fields using helpers
+        self._serialize_outputs_to_proto(proto, envelope.outputs)
+        self._serialize_stage_maps_to_proto(proto, envelope)
+        self._serialize_metadata_to_proto(proto, envelope)
+        self._serialize_interrupt_to_proto(proto, envelope.interrupt)
+
         return proto
 
     def _envelope_from_proto(self, proto: Any) -> Envelope:
         """Convert proto message to Python envelope.
-        
+
         Contract 11 compliance: All fields must be deserialized for lossless round-trip.
         """
-        # Parse outputs from bytes
-        outputs: Dict[str, Any] = {}
-        for key, val in proto.outputs.items():
-            try:
-                outputs[key] = json.loads(val.decode()) if val else None
-            except (json.JSONDecodeError, UnicodeDecodeError):
-                outputs[key] = {"raw": val.decode()} if val else None
-        
-        # Parse terminal reason from proto enum
+        # Parse complex fields using helpers
+        outputs = self._parse_outputs_from_proto(proto)
+        metadata = dict(proto.metadata_str)
+        request_context = self._parse_request_context_from_metadata(metadata)
+        metadata.pop("request_context", None)  # Remove to avoid duplication
+        interrupt = self._parse_interrupt_from_proto(proto)
         terminal_reason = _proto_to_terminal_reason(proto.terminal_reason)
-        
-        # Parse metadata from metadata_str
-        metadata: Dict[str, Any] = dict(proto.metadata_str)
 
-        # Extract request_context from metadata (required)
-        request_context_raw = metadata.get("request_context")
-        if not request_context_raw:
-            raise ValueError("request_context missing in proto metadata")
-        if isinstance(request_context_raw, str):
-            try:
-                request_context_data = json.loads(request_context_raw)
-            except json.JSONDecodeError as exc:
-                raise ValueError("request_context metadata is not valid JSON") from exc
-        elif isinstance(request_context_raw, dict):
-            request_context_data = request_context_raw
-        else:
-            raise TypeError("request_context metadata must be JSON string or dict")
-
-        request_context = RequestContext(**request_context_data)
-        # Remove raw request_context from metadata to avoid duplication
-        metadata.pop("request_context", None)
-        
-        # Parse interrupt
-        interrupt = None
-        if proto.HasField("interrupt") if hasattr(proto, 'HasField') else proto.interrupt.interrupt_id:
-            pi = proto.interrupt
-            interrupt_data: Dict[str, Any] = {}
-            if pi.data:
-                try:
-                    interrupt_data = json.loads(pi.data.decode())
-                except (json.JSONDecodeError, UnicodeDecodeError):
-                    interrupt_data = {}
-            interrupt = {
-                "kind": pi.kind,
-                "id": pi.interrupt_id,
-                "interrupt_id": pi.interrupt_id,
-                "question": pi.question,
-                "message": pi.message,
-                "data": interrupt_data,
-                "created_at_ms": pi.created_at_ms,
-            }
-            # Parse response if present
-            if hasattr(pi, 'response') and pi.response:
-                resp = pi.response
-                interrupt["response"] = {
-                    "text": resp.text,
-                    "approved": resp.approved,
-                    "decision": resp.decision,
-                    "resolved_at_ms": resp.resolved_at_ms,
-                }
-                if resp.data:
-                    try:
-                        interrupt["response"]["data"] = json.loads(resp.data.decode())
-                    except (json.JSONDecodeError, UnicodeDecodeError):
-                        pass
-        
         return Envelope(
             # Identification
             request_context=request_context,

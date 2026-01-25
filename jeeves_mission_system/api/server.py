@@ -524,6 +524,113 @@ async def ready() -> JSONResponse:
     )
 
 
+# =============================================================================
+# Request Submission Helpers
+# =============================================================================
+
+
+def _validate_submit_request_state() -> None:
+    """Validate server state for request submission."""
+    if app_state.shutdown_event.is_set():
+        raise HTTPException(status_code=503, detail="Service is shutting down")
+    if not app_state.control_tower:
+        raise HTTPException(status_code=503, detail="Control Tower not ready")
+
+
+def _resolve_capability(body: SubmitRequestBody) -> str:
+    """Resolve and validate the capability to use for the request."""
+    capability_registry = get_capability_resource_registry()
+    capabilities = capability_registry.list_capabilities()
+
+    requested_capability = None
+    if body.context and isinstance(body.context, dict):
+        requested_capability = body.context.get("capability")
+
+    if requested_capability:
+        if requested_capability not in capabilities:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Unknown capability: {requested_capability}",
+            )
+        return requested_capability
+
+    if len(capabilities) == 1:
+        return capabilities[0]
+
+    raise HTTPException(
+        status_code=400,
+        detail="capability is required when multiple capabilities are registered",
+    )
+
+
+def _resolve_request_id(body: SubmitRequestBody) -> str:
+    """Extract or generate request ID from request body."""
+    if body.context and isinstance(body.context, dict):
+        request_id = body.context.get("request_id")
+        if request_id:
+            return request_id
+    return f"req_{uuid4().hex[:16]}"
+
+
+def _determine_response_status(result_envelope: Envelope) -> tuple[str, Optional[str], bool]:
+    """Determine response status from result envelope.
+
+    Returns:
+        Tuple of (status, response_text, clarification_needed)
+    """
+    from jeeves_protocols import InterruptKind
+
+    clarification_needed = (
+        result_envelope.interrupt_pending
+        and result_envelope.interrupt
+        and result_envelope.interrupt.kind == InterruptKind.CLARIFICATION
+    )
+
+    if clarification_needed:
+        return "clarification_needed", None, True
+
+    integration = result_envelope.outputs.get("integration", {})
+    if result_envelope.terminal_reason == TerminalReason.COMPLETED:
+        return "completed", integration.get("final_response"), False
+
+    return "failed", result_envelope.termination_reason, False
+
+
+def _get_confirmation_settings() -> tuple[bool, Optional[Any]]:
+    """Get confirmation settings from capability registry.
+
+    Returns:
+        Tuple of (requires_confirmation, service_config)
+    """
+    capability_registry = get_capability_resource_registry()
+    default_service = capability_registry.get_default_service()
+    service_config = capability_registry.get_service_config(default_service) if default_service else None
+    requires_confirmation = service_config.requires_confirmation if service_config else False
+    return requires_confirmation, service_config
+
+
+def _build_submit_response(
+    result_envelope: Envelope,
+    status: str,
+    response_text: Optional[str],
+    clarification_needed: bool,
+    requires_confirmation: bool,
+    service_config: Optional[Any],
+) -> SubmitRequestResponse:
+    """Build the submit request response object."""
+    return SubmitRequestResponse(
+        request_id=result_envelope.request_id or "",
+        status=status,
+        response_text=response_text,
+        clarification_needed=clarification_needed,
+        clarification_question=result_envelope.clarification_question,
+        thread_id=result_envelope.envelope_id if clarification_needed else None,
+        confirmation_needed=requires_confirmation and not service_config.is_readonly if service_config else False,
+        confirmation_message=None,
+        confirmation_id=None,
+    )
+
+
 @app.post("/api/v1/requests", response_model=SubmitRequestResponse)
 async def submit_request(body: SubmitRequestBody) -> SubmitRequestResponse:
     """Submit a new capability request for processing.
@@ -540,42 +647,15 @@ async def submit_request(body: SubmitRequestBody) -> SubmitRequestResponse:
     Raises:
         HTTPException: If orchestration fails
     """
-    # Check shutdown first - takes precedence over other checks
-    if app_state.shutdown_event.is_set():
-        raise HTTPException(status_code=503, detail="Service is shutting down")
-
-    if not app_state.control_tower:
-        raise HTTPException(status_code=503, detail="Control Tower not ready")
+    _validate_submit_request_state()
 
     try:
+        # Resolve capability and request ID
+        capability_id = _resolve_capability(body)
+        request_id = _resolve_request_id(body)
         session_id = body.session_id or f"session_{body.user_id}"
 
-        capability_registry = get_capability_resource_registry()
-        capabilities = capability_registry.list_capabilities()
-        requested_capability = None
-        if body.context and isinstance(body.context, dict):
-            requested_capability = body.context.get("capability")
-        if requested_capability:
-            if requested_capability not in capabilities:
-                raise HTTPException(
-                    status_code=400,
-                    detail=f"Unknown capability: {requested_capability}",
-                )
-            capability_id = requested_capability
-        elif len(capabilities) == 1:
-            capability_id = capabilities[0]
-        else:
-            raise HTTPException(
-                status_code=400,
-                detail="capability is required when multiple capabilities are registered",
-            )
-
-        request_id = None
-        if body.context and isinstance(body.context, dict):
-            request_id = body.context.get("request_id")
-        if not request_id:
-            request_id = f"req_{uuid4().hex[:16]}"
-
+        # Build request context and envelope
         request_context = RequestContext(
             request_id=request_id,
             capability=capability_id,
@@ -583,61 +663,33 @@ async def submit_request(body: SubmitRequestBody) -> SubmitRequestResponse:
             user_id=body.user_id,
         )
 
-        # Create envelope for Control Tower
         envelope = create_envelope(
             raw_input=body.user_message,
             request_context=request_context,
             metadata=body.context,
         )
 
-        # Submit to Control Tower (routes through lifecycle manager → service dispatch)
+        # Submit to Control Tower
         result_envelope = await app_state.control_tower.submit_request(
             envelope=envelope,
             priority=SchedulingPriority.NORMAL,
         )
 
-        # Extract result from envelope
-        integration = result_envelope.outputs.get("integration", {})
-        traversal = result_envelope.metadata.get("traversal_state", {})
+        # Determine response status and build response
+        status, response_text, clarification_needed = _determine_response_status(result_envelope)
+        requires_confirmation, service_config = _get_confirmation_settings()
 
-        # Check for clarification (EventBridge handles WebSocket broadcast)
-        # Use unified interrupt mechanism
-        from jeeves_protocols import InterruptKind
-        clarification_needed = (
-            result_envelope.interrupt_pending
-            and result_envelope.interrupt
-            and result_envelope.interrupt.kind == InterruptKind.CLARIFICATION
+        return _build_submit_response(
+            result_envelope,
+            status,
+            response_text,
+            clarification_needed,
+            requires_confirmation,
+            service_config,
         )
 
-        # Determine status
-        if clarification_needed:
-            status = "clarification_needed"
-            response_text = None
-        elif result_envelope.terminal_reason == TerminalReason.COMPLETED:
-            status = "completed"
-            response_text = integration.get("final_response")
-        else:
-            status = "failed"
-            response_text = result_envelope.termination_reason
-
-        # Check if capability requires confirmations (from registry)
-        capability_registry = get_capability_resource_registry()
-        default_service = capability_registry.get_default_service()
-        service_config = capability_registry.get_service_config(default_service) if default_service else None
-        requires_confirmation = service_config.requires_confirmation if service_config else False
-
-        return SubmitRequestResponse(
-            request_id=result_envelope.request_id or "",
-            status=status,
-            response_text=response_text,
-            clarification_needed=clarification_needed,
-            clarification_question=result_envelope.clarification_question,
-            thread_id=result_envelope.envelope_id if clarification_needed else None,
-            confirmation_needed=requires_confirmation and not service_config.is_readonly if service_config else False,
-            confirmation_message=None,
-            confirmation_id=None,
-        )
-
+    except HTTPException:
+        raise
     except Exception as exc:
         get_current_logger().error(
             "submit_request_error",

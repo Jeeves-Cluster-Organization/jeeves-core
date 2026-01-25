@@ -29,8 +29,6 @@ class SQLAdapter:
     # ============================================================
     # WRITE OPERATIONS
     # ============================================================
-    # Note: write_task and write_journal methods removed in v3.0 pivot
-    # (tasks and journal_entries tables deleted per Constitution v3.0)
 
     async def write_fact(self, user_id: str, data: Dict[str, Any]) -> str:
         """
@@ -42,11 +40,9 @@ class SQLAdapter:
 
         Returns:
             Fact ID (UUID string)
-
-        Note: v3.0 - Uses knowledge_facts table (kv_store removed)
         """
         fact_id = data.get('fact_id') or str(uuid4())
-        domain = data.get('domain', data.get('store', 'preferences'))  # Support legacy 'store' param
+        domain = data.get('domain', 'preferences')
         key = data.get('key', '')
         value = data.get('value', '')
         confidence = data.get('confidence', 1.0)
@@ -132,8 +128,6 @@ class SQLAdapter:
 
         Returns:
             Item data or None if not found
-
-        Note: v3.0 - task and journal types removed (tables deleted)
         """
         type_to_table = {
             'fact': 'knowledge_facts',
@@ -191,8 +185,6 @@ class SQLAdapter:
 
         Returns:
             List of matching items
-
-        Note: v3.0 - task and journal types removed (tables deleted)
         """
         type_to_table = {
             'fact': 'knowledge_facts',
@@ -262,8 +254,6 @@ class SQLAdapter:
 
         Returns:
             True if successful
-
-        Note: v3.0 - task and journal types removed (tables deleted)
         """
         type_to_table = {
             'fact': 'knowledge_facts',
@@ -328,8 +318,6 @@ class SQLAdapter:
 
         Returns:
             True if successful
-
-        Note: v3.0 - task and journal types removed (tables deleted)
         """
         type_to_table = {
             'fact': 'knowledge_facts',

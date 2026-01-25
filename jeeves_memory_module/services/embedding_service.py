@@ -258,7 +258,7 @@ class EmbeddingService:
     def clear_cache(self) -> None:
         """Clear the embedding cache."""
         self._cache.clear()
-        self.logger.info("cache_cleared")
+        self._logger.info("cache_cleared")
 
     def _get_cache_key(self, text: str) -> str:
         """

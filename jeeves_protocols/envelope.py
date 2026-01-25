@@ -121,24 +121,24 @@ class Envelope:
             self.session_id = ctx_session_id
 
     @classmethod
-    def from_dict(cls, data: Dict[str, Any]) -> "Envelope":
-        """Create envelope from dictionary (Go JSON response)."""
-        from jeeves_protocols.interrupts import FlowInterrupt
-
+    def _extract_request_context(cls, data: Dict[str, Any]) -> RequestContext:
+        """Extract and parse request_context from dict data."""
         ctx_data = data.get("request_context")
         if ctx_data is None:
             raise ValueError("request_context missing in envelope data")
         if isinstance(ctx_data, RequestContext):
-            ctx = ctx_data
-        elif isinstance(ctx_data, dict):
-            ctx = RequestContext(**ctx_data)
-        else:
-            raise TypeError("request_context must be a dict or RequestContext")
+            return ctx_data
+        if isinstance(ctx_data, dict):
+            return RequestContext(**ctx_data)
+        raise TypeError("request_context must be a dict or RequestContext")
 
-        # Validate identifiers if present in data
+    @classmethod
+    def _validate_identifiers(cls, data: Dict[str, Any], ctx: RequestContext) -> tuple[str, str, str]:
+        """Validate identifiers against request_context and return them."""
         data_request_id = data.get("request_id") or ""
         data_user_id = data.get("user_id") or ""
         data_session_id = data.get("session_id") or ""
+
         if data_request_id and data_request_id != ctx.request_id:
             raise ValueError("request_id does not match request_context.request_id")
         if data_user_id and (ctx.user_id is None or data_user_id != ctx.user_id):
@@ -146,23 +146,41 @@ class Envelope:
         if data_session_id and (ctx.session_id is None or data_session_id != ctx.session_id):
             raise ValueError("session_id does not match request_context.session_id")
 
+        return data_request_id, data_user_id, data_session_id
+
+    @classmethod
+    def _convert_field_value(cls, key: str, value: Any) -> Any:
+        """Convert field value based on field type (enum, object, etc)."""
+        if key == "terminal_reason" and value is not None:
+            if isinstance(value, str):
+                return TerminalReason(value)
+        elif key == "interrupt" and value is not None:
+            if isinstance(value, dict):
+                from jeeves_protocols.interrupts import FlowInterrupt
+                return FlowInterrupt.from_db_row(value)
+        return value
+
+    @classmethod
+    def from_dict(cls, data: Dict[str, Any]) -> "Envelope":
+        """Create envelope from dictionary (Go JSON response)."""
+        # Extract and validate core fields
+        ctx = cls._extract_request_context(data)
+        request_id, user_id, session_id = cls._validate_identifiers(data, ctx)
+
+        # Create envelope with validated identifiers
         env = cls(
             request_context=ctx,
-            request_id=data_request_id,
-            user_id=data_user_id,
-            session_id=data_session_id,
+            request_id=request_id,
+            user_id=user_id,
+            session_id=session_id,
         )
+
+        # Apply remaining fields with type conversions
         for key, value in data.items():
             if hasattr(env, key):
-                # Handle enum conversion for terminal_reason
-                if key == "terminal_reason" and value is not None:
-                    if isinstance(value, str):
-                        value = TerminalReason(value)
-                # Handle FlowInterrupt conversion
-                elif key == "interrupt" and value is not None:
-                    if isinstance(value, dict):
-                        value = FlowInterrupt.from_db_row(value)
-                setattr(env, key, value)
+                converted_value = cls._convert_field_value(key, value)
+                setattr(env, key, converted_value)
+
         return env
 
     def initialize_goals(self, goals: List[str]) -> None:

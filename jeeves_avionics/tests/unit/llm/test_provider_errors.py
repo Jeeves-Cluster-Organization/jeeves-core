@@ -13,6 +13,13 @@ from jeeves_avionics.llm.providers import (
 )
 from jeeves_avionics.llm.providers.base import TokenChunk
 
+# Check if optional providers are available
+try:
+    from jeeves_avionics.llm.providers import OpenAIProvider
+    OPENAI_AVAILABLE = True
+except (ImportError, RuntimeError):
+    OPENAI_AVAILABLE = False
+
 
 # =============================================================================
 # MockProvider Error Tests
@@ -190,16 +197,18 @@ class TestProviderFactoryErrors:
         with pytest.raises(ValueError, match="Unknown provider type"):
             create_llm_provider("nonexistent_provider", settings)
 
+    @pytest.mark.skipif(not OPENAI_AVAILABLE, reason="Requires openai package")
     def test_factory_handles_missing_api_key(self):
         """Test that factory handles missing API keys gracefully."""
         from jeeves_avionics.llm.factory import create_llm_provider
         from jeeves_avionics.settings import Settings
-        
+        import openai
+
         settings = Settings()
-        
-        # Should not raise during creation - key validation happens at call time
-        provider = create_llm_provider("openai", settings)
-        assert provider is not None
+
+        # OpenAI SDK now requires API key at client creation time
+        with pytest.raises(openai.OpenAIError, match="api_key"):
+            provider = create_llm_provider("openai", settings)
 
 
 # =============================================================================
