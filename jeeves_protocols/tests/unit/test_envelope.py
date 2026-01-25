@@ -14,7 +14,8 @@ class TestEnvelope:
         """Test creating envelope with default values."""
         from jeeves_protocols import Envelope
 
-        with pytest.raises(ValueError):
+        # request_context is a required field with no default
+        with pytest.raises(TypeError):
             Envelope()
 
     def test_create_envelope_with_values(self, sample_envelope):

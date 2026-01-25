@@ -20,8 +20,10 @@ Memory Module Audit (2025-12-09):
 - Moved from jeeves_avionics/memory/services/
 """
 
-from jeeves_memory_module.services.embedding_service import EmbeddingService
 from jeeves_memory_module.services.nli_service import NLIService, get_nli_service
+
+# Lazy import: EmbeddingService requires sentence-transformers (1.5GB+ ML dep)
+# Import directly when needed: from jeeves_memory_module.services.embedding_service import EmbeddingService
 from jeeves_memory_module.services.xref_manager import CrossRefManager
 from jeeves_memory_module.services.event_emitter import EventEmitter
 from jeeves_memory_module.services.trace_recorder import TraceRecorder
@@ -34,8 +36,7 @@ from jeeves_memory_module.services.code_indexer import CodeIndexer
 __all__ = [
     # Protocol Adapters (implements Core protocols)
     "SessionStateAdapter",
-    # Infrastructure Services
-    "EmbeddingService",
+    # Infrastructure Services (EmbeddingService is lazy - import directly when needed)
     "NLIService",
     "get_nli_service",
     "CrossRefManager",

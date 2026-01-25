@@ -2,13 +2,10 @@
 
 import pytest
 from datetime import datetime, timezone
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock
 
 from jeeves_memory_module.services.trace_recorder import TraceRecorder
 from jeeves_memory_module.repositories.trace_repository import TraceRepository, AgentTrace
-
-# Requires PostgreSQL database
-pytestmark = pytest.mark.requires_postgres
 
 
 class TestRecorder:
@@ -27,26 +24,28 @@ class TestRecorder:
         return repo
 
     @pytest.fixture
-    def recorder_enabled(self, mock_repository):
-        """Create recorder with tracing enabled."""
-        with patch('memory.services.trace_recorder.get_feature_flags') as mock_flags:
-            flags = MagicMock()
-            flags.memory_agent_tracing = True
-            mock_flags.return_value = flags
-            recorder = TraceRecorder(mock_repository)
-            recorder._flags = flags
-            return recorder
+    def mock_flags_enabled(self):
+        """Create mock feature flags with tracing enabled."""
+        flags = MagicMock()
+        flags.is_enabled = MagicMock(return_value=True)
+        return flags
 
     @pytest.fixture
-    def recorder_disabled(self, mock_repository):
-        """Create recorder with tracing disabled."""
-        with patch('memory.services.trace_recorder.get_feature_flags') as mock_flags:
-            flags = MagicMock()
-            flags.memory_agent_tracing = False
-            mock_flags.return_value = flags
-            recorder = TraceRecorder(mock_repository)
-            recorder._flags = flags
-            return recorder
+    def mock_flags_disabled(self):
+        """Create mock feature flags with tracing disabled."""
+        flags = MagicMock()
+        flags.is_enabled = MagicMock(return_value=False)
+        return flags
+
+    @pytest.fixture
+    def recorder_enabled(self, mock_repository, mock_flags_enabled):
+        """Create recorder with tracing enabled via DI."""
+        return TraceRecorder(mock_repository, feature_flags=mock_flags_enabled)
+
+    @pytest.fixture
+    def recorder_disabled(self, mock_repository, mock_flags_disabled):
+        """Create recorder with tracing disabled via DI."""
+        return TraceRecorder(mock_repository, feature_flags=mock_flags_disabled)
 
     def test_start_trace(self, recorder_enabled):
         """Test starting a trace."""

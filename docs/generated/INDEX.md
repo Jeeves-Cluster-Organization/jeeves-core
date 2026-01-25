@@ -1,7 +1,7 @@
 # Jeeves Core Documentation
 
-**Version:** 2.0.0  
-**Last Updated:** 2026-01-23
+**Version:** 2.0.1
+**Last Updated:** 2026-01-25
 
 This documentation provides a comprehensive guide to understanding the jeeves-core runtime architecture, components, and data flow.
 
@@ -406,4 +406,4 @@ PIPELINE = PipelineConfig(
 
 ---
 
-*This documentation is auto-generated. Last updated: 2026-01-23*
+*This documentation is auto-generated. Last updated: 2026-01-25*
