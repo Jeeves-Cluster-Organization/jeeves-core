@@ -151,11 +151,11 @@ class TestKernelProperties:
 class TestKernelResourceRecording:
     """Tests for kernel resource recording methods."""
 
-    def test_record_llm_call_tracks_usage(self, kernel, sample_envelope):
+    def test_record_llm_call_tracks_usage(self, kernel, sample_envelope, default_quota):
         """Test that record_llm_call updates tracking."""
         # First, allocate the process
         pid = sample_envelope.request_id
-        kernel.resources.allocate(pid)
+        kernel.resources.allocate(pid, default_quota)
         
         # Record LLM call
         result = kernel.record_llm_call(pid, tokens_in=100, tokens_out=50)
@@ -184,10 +184,10 @@ class TestKernelResourceRecording:
         assert result2 is not None
         assert "llm" in result2.lower()
 
-    def test_record_tool_call_tracks_usage(self, kernel):
+    def test_record_tool_call_tracks_usage(self, kernel, default_quota):
         """Test that record_tool_call updates tracking."""
         pid = "test_process"
-        kernel.resources.allocate(pid)
+        kernel.resources.allocate(pid, default_quota)
         
         result = kernel.record_tool_call(pid)
         
@@ -195,10 +195,10 @@ class TestKernelResourceRecording:
         usage = kernel.resources.get_usage(pid)
         assert usage.tool_calls == 1
 
-    def test_record_agent_hop_tracks_usage(self, kernel):
+    def test_record_agent_hop_tracks_usage(self, kernel, default_quota):
         """Test that record_agent_hop updates tracking."""
         pid = "test_process"
-        kernel.resources.allocate(pid)
+        kernel.resources.allocate(pid, default_quota)
         
         result = kernel.record_agent_hop(pid)
         
@@ -262,11 +262,11 @@ class TestKernelSystemStatus:
         assert "events" in status
         assert "services" in status
 
-    def test_get_system_status_tracks_processes(self, kernel):
+    def test_get_system_status_tracks_processes(self, kernel, default_quota):
         """Test that system status reflects process count."""
         # Allocate some processes
-        kernel.resources.allocate("pid1")
-        kernel.resources.allocate("pid2")
+        kernel.resources.allocate("pid1", default_quota)
+        kernel.resources.allocate("pid2", default_quota)
         
         status = kernel.get_system_status()
         
@@ -294,10 +294,10 @@ class TestKernelCancelRequest:
         assert result is False
 
     @pytest.mark.anyio
-    async def test_cancel_request_cleans_up_resources(self, kernel):
+    async def test_cancel_request_cleans_up_resources(self, kernel, default_quota):
         """Test that cancel_request releases resources."""
         pid = "test_process"
-        kernel.resources.allocate(pid)
+        kernel.resources.allocate(pid, default_quota)
         
         # Submit a process to lifecycle
         from jeeves_protocols import Envelope
@@ -340,15 +340,16 @@ class TestKernelLifecycleIntegration:
     def test_submit_to_lifecycle_creates_pcb(self, kernel, sample_envelope):
         """Test that submitting to lifecycle creates a PCB."""
         pcb = kernel.lifecycle.submit(sample_envelope)
-        
+
         assert pcb is not None
-        assert pcb.pid == sample_envelope.request_id
+        # Lifecycle uses envelope_id as the process ID
+        assert pcb.pid == sample_envelope.envelope_id
         assert pcb.state == ProcessState.NEW
 
-    def test_submit_allocates_resources(self, kernel, sample_envelope):
+    def test_submit_allocates_resources(self, kernel, sample_envelope, default_quota):
         """Test that submitting allocates resources."""
         pcb = kernel.lifecycle.submit(sample_envelope)
-        kernel.resources.allocate(pcb.pid)
+        kernel.resources.allocate(pcb.pid, default_quota)
         
         # Verify resources are tracked
         assert kernel.resources.is_tracked(pcb.pid)
@@ -360,10 +361,10 @@ class TestKernelLifecycleIntegration:
         # Initial state
         assert pcb.state == ProcessState.NEW
         
-        # Schedule it
+        # Schedule it (NEW -> READY)
         kernel.lifecycle.schedule(pcb.pid)
         process = kernel.lifecycle.get_process(pcb.pid)
-        assert process.state == ProcessState.SCHEDULED
+        assert process.state == ProcessState.READY
         
         # Transition to running
         kernel.lifecycle.transition_state(pcb.pid, ProcessState.RUNNING)

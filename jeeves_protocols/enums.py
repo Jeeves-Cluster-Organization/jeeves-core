@@ -69,6 +69,7 @@ class HealthStatus(str, Enum):
     HEALTHY = "healthy"
     DEGRADED = "degraded"
     UNHEALTHY = "unhealthy"
+    UNKNOWN = "unknown"  # Insufficient data to determine health
 
 
 class TerminalReason(str, Enum):
