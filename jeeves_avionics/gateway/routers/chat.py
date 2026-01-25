@@ -486,6 +486,73 @@ EVENT_HANDLERS: Dict["jeeves_pb2.FlowEvent", EventHandler] = {
 } if jeeves_pb2 is not None else {}
 
 
+async def _process_event_stream(
+    stream: AsyncIterator["jeeves_pb2.FlowEvent"],
+    user_id: str,
+    mode_config: Optional["CapabilityModeConfig"],
+) -> tuple[dict, str, str]:
+    """
+    Process gRPC event stream and return final response.
+
+    Consumes stream, publishes internal events to gateway_events bus,
+    and handles terminal events using EVENT_HANDLERS registry.
+
+    Args:
+        stream: AsyncIterator of gRPC FlowEvent messages
+        user_id: User identifier for event publishing
+        mode_config: Optional mode configuration for response field injection
+
+    Returns:
+        Tuple of (final_response_dict, request_id, session_id)
+
+    Raises:
+        HTTPException: If stream completes without a terminal event
+
+    Constitutional Pattern:
+        - Avionics (Gateway) emits internal events to gateway_events bus
+        - WebSocket handler subscribes and broadcasts to frontend
+        - Zero coupling between router and WebSocket implementation
+    """
+    final_response = None
+    request_id = ""
+    session_id = ""
+
+    async for event in stream:
+        request_id = event.request_id or request_id
+        session_id = event.session_id or session_id
+
+        # Parse payload
+        payload = {}
+        if event.payload:
+            try:
+                payload = json.loads(event.payload)
+            except json.JSONDecodeError:
+                pass
+
+        # Publish internal events for frontend visibility
+        if _is_internal_event(event.type):
+            event_data = {
+                "request_id": request_id,
+                "session_id": session_id,
+                "user_id": user_id,
+                **payload
+            }
+            await _publish_unified_event(event_data)
+
+        # Handle terminal events
+        handler = EVENT_HANDLERS.get(event.type)
+        if handler:
+            final_response = handler.handle(payload, mode_config)
+
+    if final_response is None:
+        raise HTTPException(
+            status_code=500,
+            detail="No response received from orchestrator"
+        )
+
+    return final_response, request_id, session_id
+
+
 # =============================================================================
 # Chat Message Endpoints
 # =============================================================================
@@ -521,45 +588,12 @@ async def send_message(
     mode_config = mode_registry.get_mode_config(body.mode) if body.mode else None
 
     try:
-        # Consume the stream, collect final result
-        final_response = None
-        request_id = ""
-        session_id = body.session_id or ""
-
-        async for event in client.flow.StartFlow(grpc_request):
-            request_id = event.request_id or request_id
-            session_id = event.session_id or session_id
-
-            # Parse payload once
-            payload = {}
-            if event.payload:
-                try:
-                    payload = json.loads(event.payload)
-                except json.JSONDecodeError:
-                    pass
-
-            # Publish internal/trace events for frontend visibility (not final responses)
-            # Convert gRPC events to Event and publish to gateway_events
-            if _is_internal_event(event.type):
-                # Merge gRPC context with payload for Event creation
-                event_data = {
-                    "request_id": request_id,
-                    "session_id": session_id,
-                    "user_id": user_id,
-                    **payload
-                }
-                await _publish_unified_event(event_data)
-
-            # Handle terminal events using Strategy Pattern
-            handler = EVENT_HANDLERS.get(event.type)
-            if handler:
-                final_response = handler.handle(payload, mode_config)
-
-        if final_response is None:
-            raise HTTPException(
-                status_code=500,
-                detail="No response received from orchestrator"
-            )
+        # Get gRPC client and process stream
+        final_response, request_id, session_id = await _process_event_stream(
+            client.flow.StartFlow(grpc_request),
+            user_id,
+            mode_config,
+        )
 
         _logger.info(
             "gateway_returning_response",
