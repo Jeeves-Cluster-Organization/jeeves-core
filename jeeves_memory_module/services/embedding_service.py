@@ -6,16 +6,23 @@ Provides:
 - Batch embedding (more efficient)
 - Similarity calculation
 - LRU cache for performance
+
+Note: This module requires sentence-transformers (1.5GB+ ML dependency).
+      It is NOT eagerly imported by jeeves_memory_module.services.
+      Import directly when needed:
+          from jeeves_memory_module.services.embedding_service import EmbeddingService
 """
 
-from sentence_transformers import SentenceTransformer
-from typing import List, Dict, Any, Optional
+from typing import List, Dict, Any, Optional, TYPE_CHECKING
 import hashlib
 import numpy as np
 from functools import lru_cache
 
 from jeeves_shared import get_component_logger
 from jeeves_protocols import LoggerProtocol
+
+if TYPE_CHECKING:
+    from sentence_transformers import SentenceTransformer
 
 
 class EmbeddingService:
@@ -39,8 +46,9 @@ class EmbeddingService:
         self.model_name = model_name
         self.cache_size = cache_size
 
-        # Initialize model
+        # Lazy import - only load heavy ML dep when actually instantiating
         try:
+            from sentence_transformers import SentenceTransformer
             self.model = SentenceTransformer(model_name)
             self._logger.info("embedding_service_initialized", model=model_name)
         except PermissionError as e:
