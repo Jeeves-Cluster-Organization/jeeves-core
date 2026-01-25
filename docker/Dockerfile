@@ -5,7 +5,7 @@
 # Targets:
 #   - base:        Base Python image with dependencies
 #   - go-builder:  Go binary builder (envelope CLI)
-#   - gateway:     FastAPI HTTP gateway (jeeves_avionics/gateway)
+#   - gateway:     FastAPI HTTP gateway (avionics/gateway)
 #   - orchestrator: Full 7-agent orchestration runtime
 #   - test:        Test runner with all dependencies
 #
@@ -117,15 +117,15 @@ RUN pip install \
 FROM dependencies AS gateway
 
 # Copy Python packages (L0 Foundation)
-COPY jeeves_protocols/ ./jeeves_protocols/
-COPY jeeves_shared/ ./jeeves_shared/
+COPY protocols/ ./protocols/
+COPY shared/ ./shared/
 
 # Copy Python packages (L1 Infrastructure)
-COPY jeeves_avionics/ ./jeeves_avionics/
-COPY jeeves_control_tower/ ./jeeves_control_tower/
+COPY avionics/ ./avionics/
+COPY control_tower/ ./control_tower/
 
 # Copy Python packages (Memory)
-COPY jeeves_memory_module/ ./jeeves_memory_module/
+COPY memory_module/ ./memory_module/
 
 # Set ownership
 RUN chown -R jeeves:jeeves /app
@@ -144,7 +144,7 @@ HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
     CMD curl -f http://localhost:8000/health || exit 1
 
 # Start gateway
-CMD ["python", "-m", "uvicorn", "jeeves_avionics.gateway.main:app", "--host", "0.0.0.0", "--port", "8000"]
+CMD ["python", "-m", "uvicorn", "avionics.gateway.main:app", "--host", "0.0.0.0", "--port", "8000"]
 
 # ------------------------------------------------------------------------------
 # Stage 5: Orchestrator Target (Full Runtime)
@@ -152,18 +152,18 @@ CMD ["python", "-m", "uvicorn", "jeeves_avionics.gateway.main:app", "--host", "0
 FROM dependencies AS orchestrator
 
 # Copy Python packages (L0 Foundation)
-COPY jeeves_protocols/ ./jeeves_protocols/
-COPY jeeves_shared/ ./jeeves_shared/
+COPY protocols/ ./protocols/
+COPY shared/ ./shared/
 
 # Copy Python packages (L1 Infrastructure)
-COPY jeeves_avionics/ ./jeeves_avionics/
-COPY jeeves_control_tower/ ./jeeves_control_tower/
+COPY avionics/ ./avionics/
+COPY control_tower/ ./control_tower/
 
 # Copy Python packages (Memory)
-COPY jeeves_memory_module/ ./jeeves_memory_module/
+COPY memory_module/ ./memory_module/
 
 # Copy Python packages (L2 Application)
-COPY jeeves_mission_system/ ./jeeves_mission_system/
+COPY mission_system/ ./mission_system/
 
 # Copy configuration files
 COPY .env ./
@@ -186,7 +186,7 @@ HEALTHCHECK --interval=30s --timeout=10s --start-period=10s --retries=3 \
     CMD curl -f http://localhost:8000/health || exit 1
 
 # Start orchestrator (mission system API)
-CMD ["python", "-m", "uvicorn", "jeeves_mission_system.api.server:app", "--host", "0.0.0.0", "--port", "8000"]
+CMD ["python", "-m", "uvicorn", "mission_system.api.server:app", "--host", "0.0.0.0", "--port", "8000"]
 
 # ------------------------------------------------------------------------------
 # Stage 6: Test Target
@@ -205,12 +205,12 @@ RUN pip install \
     testcontainers>=3.7.0
 
 # Copy all Python packages
-COPY jeeves_protocols/ ./jeeves_protocols/
-COPY jeeves_shared/ ./jeeves_shared/
-COPY jeeves_avionics/ ./jeeves_avionics/
-COPY jeeves_control_tower/ ./jeeves_control_tower/
-COPY jeeves_memory_module/ ./jeeves_memory_module/
-COPY jeeves_mission_system/ ./jeeves_mission_system/
+COPY protocols/ ./protocols/
+COPY shared/ ./shared/
+COPY avionics/ ./avionics/
+COPY control_tower/ ./control_tower/
+COPY memory_module/ ./memory_module/
+COPY mission_system/ ./mission_system/
 
 # Copy test configuration
 COPY tests/ ./tests/

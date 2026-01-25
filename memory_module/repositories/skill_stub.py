@@ -6,7 +6,7 @@ skills to a database.
 
 Constitutional Reference:
 - Memory Module CONSTITUTION: L6 Skills - Learned patterns (not yet implemented)
-- jeeves_protocols.SkillStorageProtocol: Extensible interface
+- protocols.SkillStorageProtocol: Extensible interface
 
 Skills are learned patterns that help the system improve over time:
 - Tool usage patterns (what worked before)

@@ -2,7 +2,7 @@
 Mission System Adapters - Avionics Service Wrappers.
 
 This module provides convenience wrappers for avionics services.
-Apps/verticals should use these instead of importing jeeves_avionics directly.
+Apps/verticals should use these instead of importing avionics directly.
 
 Architecture enforcement:
     apps/verticals → mission_system (adapters) → avionics
@@ -349,7 +349,7 @@ def create_tool_executor(registry: Optional[ToolRegistryProtocol] = None) -> Any
     """
     Create tool executor with access control.
 
-    Wrapper for jeeves_avionics.wiring.create_tool_executor.
+    Wrapper for avionics.wiring.create_tool_executor.
     Apps should use this instead of importing from avionics directly.
 
     Args:
@@ -370,7 +370,7 @@ def create_llm_provider_factory(settings: Optional[SettingsProtocol] = None) -> 
     """
     Create LLM provider factory.
 
-    Wrapper for jeeves_avionics.llm.factory.create_llm_provider_factory.
+    Wrapper for avionics.llm.factory.create_llm_provider_factory.
     Apps should use this instead of importing from avionics directly.
 
     Args:

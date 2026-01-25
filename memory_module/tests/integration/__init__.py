@@ -1,1 +1,1 @@
-"""Integration tests for jeeves_memory_module package."""
+"""Integration tests for memory_module package."""

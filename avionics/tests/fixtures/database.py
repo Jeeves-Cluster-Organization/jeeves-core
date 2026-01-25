@@ -1,4 +1,4 @@
-"""Database fixtures for jeeves_avionics tests.
+"""Database fixtures for avionics tests.
 
 Provides PostgreSQL container management and database fixtures
 for testing avionics database components.

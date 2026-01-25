@@ -1,1 +1,1 @@
-"""Unit tests for jeeves_avionics.memory.services module."""
+"""Unit tests for avionics.memory.services module."""

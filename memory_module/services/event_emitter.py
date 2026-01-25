@@ -189,7 +189,7 @@ class EventEmitter:
     during retries within the same session.
 
     Constitutional Reference:
-        - Memory Module: FORBIDDEN jeeves_memory_module → jeeves_avionics.*
+        - Memory Module: FORBIDDEN memory_module → avionics.*
         - Use protocol injection instead of direct imports
     """
 
@@ -795,7 +795,7 @@ class EventEmitter:
 
     # ============================================================
     # Memory Event Factories (CommBus integration)
-    # Emits events defined in jeeves_memory_module/messages/events.py
+    # Emits events defined in memory_module/messages/events.py
     # ============================================================
 
     async def emit_memory_stored(

@@ -11,7 +11,7 @@ Requirements:
 - Docker must be running
 - pytest-asyncio and testcontainers installed
 
-Run with: pytest jeeves_mission_system/tests/e2e/test_distributed_mode.py -v -s
+Run with: pytest mission_system/tests/e2e/test_distributed_mode.py -v -s
 """
 
 import asyncio

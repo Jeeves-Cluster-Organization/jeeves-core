@@ -13,7 +13,7 @@ class TestRefactoredLlamaServerProvider:
     @pytest.mark.asyncio
     async def test_provider_initialization(self):
         """Test provider initializes with correct Airframe components."""
-        with patch('jeeves_avionics.llm.providers.llamaserver_provider.get_current_logger'):
+        with patch('avionics.llm.providers.llamaserver_provider.get_current_logger'):
             provider = LlamaServerProvider(
                 base_url="http://localhost:8080",
                 timeout=60.0,
@@ -37,7 +37,7 @@ class TestRefactoredLlamaServerProvider:
     @pytest.mark.asyncio
     async def test_generate_delegates_to_airframe(self):
         """Test generate() delegates to Airframe adapter."""
-        with patch('jeeves_avionics.llm.providers.llamaserver_provider.get_current_logger'):
+        with patch('avionics.llm.providers.llamaserver_provider.get_current_logger'):
             provider = LlamaServerProvider(base_url="http://localhost:8080")
 
             # Mock Airframe adapter
@@ -64,7 +64,7 @@ class TestRefactoredLlamaServerProvider:
     @pytest.mark.asyncio
     async def test_generate_tracks_cost(self):
         """Test generate() tracks token cost."""
-        with patch('jeeves_avionics.llm.providers.llamaserver_provider.get_current_logger') as mock_logger_fn:
+        with patch('avionics.llm.providers.llamaserver_provider.get_current_logger') as mock_logger_fn:
             mock_logger = Mock()
             mock_logger_fn.return_value = mock_logger
 
@@ -93,7 +93,7 @@ class TestRefactoredLlamaServerProvider:
     @pytest.mark.asyncio
     async def test_generate_handles_airframe_error(self):
         """Test generate() handles errors from Airframe adapter."""
-        with patch('jeeves_avionics.llm.providers.llamaserver_provider.get_current_logger'):
+        with patch('avionics.llm.providers.llamaserver_provider.get_current_logger'):
             provider = LlamaServerProvider(base_url="http://localhost:8080")
 
             # Mock Airframe adapter returning error
@@ -112,7 +112,7 @@ class TestRefactoredLlamaServerProvider:
     @pytest.mark.asyncio
     async def test_generate_stream_delegates_to_airframe(self):
         """Test generate_stream() delegates to Airframe and converts events."""
-        with patch('jeeves_avionics.llm.providers.llamaserver_provider.get_current_logger'):
+        with patch('avionics.llm.providers.llamaserver_provider.get_current_logger'):
             provider = LlamaServerProvider(base_url="http://localhost:8080")
 
             # Mock Airframe streaming response
@@ -140,7 +140,7 @@ class TestRefactoredLlamaServerProvider:
     @pytest.mark.asyncio
     async def test_generate_stream_handles_error(self):
         """Test generate_stream() handles Airframe errors."""
-        with patch('jeeves_avionics.llm.providers.llamaserver_provider.get_current_logger'):
+        with patch('avionics.llm.providers.llamaserver_provider.get_current_logger'):
             provider = LlamaServerProvider(base_url="http://localhost:8080")
 
             # Mock Airframe error during streaming
@@ -166,7 +166,7 @@ class TestRefactoredLlamaServerProvider:
     @pytest.mark.asyncio
     async def test_health_check_success(self):
         """Test health_check() delegates to Airframe."""
-        with patch('jeeves_avionics.llm.providers.llamaserver_provider.get_current_logger'):
+        with patch('avionics.llm.providers.llamaserver_provider.get_current_logger'):
             provider = LlamaServerProvider(base_url="http://localhost:8080")
 
             # Mock healthy response from Airframe
@@ -181,7 +181,7 @@ class TestRefactoredLlamaServerProvider:
     @pytest.mark.asyncio
     async def test_health_check_failure(self):
         """Test health_check() detects Airframe errors."""
-        with patch('jeeves_avionics.llm.providers.llamaserver_provider.get_current_logger'):
+        with patch('avionics.llm.providers.llamaserver_provider.get_current_logger'):
             provider = LlamaServerProvider(base_url="http://localhost:8080")
 
             # Mock error from Airframe
@@ -199,7 +199,7 @@ class TestRefactoredLlamaServerProvider:
     @pytest.mark.asyncio
     async def test_health_check_exception(self):
         """Test health_check() handles exceptions gracefully."""
-        with patch('jeeves_avionics.llm.providers.llamaserver_provider.get_current_logger'):
+        with patch('avionics.llm.providers.llamaserver_provider.get_current_logger'):
             provider = LlamaServerProvider(base_url="http://localhost:8080")
 
             # Mock exception during health check
@@ -213,13 +213,13 @@ class TestRefactoredLlamaServerProvider:
 
     def test_supports_streaming(self):
         """Test provider reports streaming support."""
-        with patch('jeeves_avionics.llm.providers.llamaserver_provider.get_current_logger'):
+        with patch('avionics.llm.providers.llamaserver_provider.get_current_logger'):
             provider = LlamaServerProvider(base_url="http://localhost:8080")
             assert provider.supports_streaming is True
 
     def test_get_stats(self):
         """Test get_stats() returns provider configuration."""
-        with patch('jeeves_avionics.llm.providers.llamaserver_provider.get_current_logger'):
+        with patch('avionics.llm.providers.llamaserver_provider.get_current_logger'):
             provider = LlamaServerProvider(
                 base_url="http://node1:8080",
                 timeout=90.0,
@@ -237,7 +237,7 @@ class TestRefactoredLlamaServerProvider:
     @pytest.mark.asyncio
     async def test_request_conversion_to_airframe_format(self):
         """Test Avionics request correctly converts to Airframe InferenceRequest."""
-        with patch('jeeves_avionics.llm.providers.llamaserver_provider.get_current_logger'):
+        with patch('avionics.llm.providers.llamaserver_provider.get_current_logger'):
             provider = LlamaServerProvider(base_url="http://localhost:8080")
 
             captured_request = None
@@ -270,7 +270,7 @@ class TestRefactoredLlamaServerProvider:
     @pytest.mark.asyncio
     async def test_streaming_request_sets_stream_true(self):
         """Test generate_stream() sets stream=True in Airframe request."""
-        with patch('jeeves_avionics.llm.providers.llamaserver_provider.get_current_logger'):
+        with patch('avionics.llm.providers.llamaserver_provider.get_current_logger'):
             provider = LlamaServerProvider(base_url="http://localhost:8080")
 
             captured_request = None

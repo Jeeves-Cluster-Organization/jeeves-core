@@ -17,7 +17,7 @@ For production graph storage, use PostgresGraphAdapter from avionics.database.
 
 Constitutional Reference:
 - Memory Module CONSTITUTION: L5 Graph, L6 Skills (extensible)
-- Architecture: PostgreSQL-specific code lives in jeeves_avionics (L3)
+- Architecture: PostgreSQL-specific code lives in avionics (L3)
 """
 
 from memory_module.repositories.event_repository import EventRepository, DomainEvent

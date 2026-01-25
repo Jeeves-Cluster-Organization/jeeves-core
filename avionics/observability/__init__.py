@@ -7,7 +7,7 @@ Components:
 - TracingMiddleware: Middleware for adding trace context to requests
 - MetricsCollector: Metrics collection and export
 
-Constitutional Reference: Infrastructure layer (jeeves_avionics)
+Constitutional Reference: Infrastructure layer (avionics)
 """
 
 from avionics.observability.otel_adapter import (

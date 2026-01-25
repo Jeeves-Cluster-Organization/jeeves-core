@@ -8,7 +8,7 @@ Provides:
 - LRU cache for performance
 
 Note: This module requires sentence-transformers (1.5GB+ ML dependency).
-      It is NOT eagerly imported by jeeves_memory_module.services.
+      It is NOT eagerly imported by memory_module.services.
       Import directly when needed:
           from memory_module.services.embedding_service import EmbeddingService
 """

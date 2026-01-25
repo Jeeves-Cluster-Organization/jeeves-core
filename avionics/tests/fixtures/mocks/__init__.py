@@ -1,4 +1,4 @@
-"""Mock implementations for testing jeeves_avionics.
+"""Mock implementations for testing avionics.
 
 This package provides mocks for jeeves_core_engine protocols,
 allowing avionics tests to run in isolation.

@@ -8,7 +8,7 @@ Provides:
 - CommBus handler registration
 
 Constitutional Reference:
-- Memory Module CONSTITUTION: Memory types and protocols in jeeves_protocols
+- Memory Module CONSTITUTION: Memory types and protocols in protocols
 """
 
 from memory_module.handlers import register_memory_handlers, reset_cached_services

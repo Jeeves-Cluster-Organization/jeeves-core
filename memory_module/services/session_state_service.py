@@ -9,7 +9,7 @@ High-level service for managing session state, providing:
 
 Unified Interrupt System (v4.0):
 - Clarification and confirmation methods have been REMOVED
-- All interrupt handling now goes through jeeves_control_tower.services.InterruptService
+- All interrupt handling now goes through control_tower.services.InterruptService
 - See docs/audits/interrupt_unification_plan.md for migration details
 
 Constitutional Alignment:
@@ -326,7 +326,7 @@ These methods have been removed as part of the Unified Interrupt System (v4.0):
 - get_critic_decisions()
 
 All interrupt-related functionality is now handled by:
-    jeeves_control_tower.services.InterruptService
+    control_tower.services.InterruptService
 
 Migration: Use InterruptService.create_clarification() and InterruptService.respond()
 instead of the old methods.

@@ -3,8 +3,8 @@
 JSON repair, string normalization, datetime helpers, and other utilities.
 
 Note: This module provides datetime utilities (utc_now, utc_now_iso) that are
-also available in jeeves_shared. Having them here allows jeeves_protocols to
-remain at L0 without depending on jeeves_shared (which sits above protocols
+also available in shared. Having them here allows protocols to
+remain at L0 without depending on shared (which sits above protocols
 in the constitutional hierarchy).
 """
 
@@ -152,8 +152,8 @@ def truncate_string(text: str, max_length: int = 100, suffix: str = "...") -> st
 def utc_now() -> datetime:
     """Return timezone-aware UTC datetime.
 
-    This function is provided in jeeves_protocols to allow L0 modules to
-    get the current UTC time without depending on jeeves_shared.
+    This function is provided in protocols to allow L0 modules to
+    get the current UTC time without depending on shared.
 
     Returns:
         Current UTC datetime with timezone info

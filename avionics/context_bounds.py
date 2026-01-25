@@ -14,7 +14,7 @@ Usage:
 """
 
 # This module is kept for backward compatibility of imports only.
-# The actual ContextBounds type is in jeeves_protocols.config
+# The actual ContextBounds type is in protocols.config
 from protocols.config import ContextBounds
 
 __all__ = ["ContextBounds"]

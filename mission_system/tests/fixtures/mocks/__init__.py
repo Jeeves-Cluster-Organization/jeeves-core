@@ -1,10 +1,10 @@
-"""Mock implementations for testing jeeves_mission_system.
+"""Mock implementations for testing mission_system.
 
 Centralized Architecture (v4.0):
 - MockEnvelope replaces MockCoreEnvelope
 - No MockAgent (agents are config-driven)
 
-This package provides mocks for jeeves_core_engine and jeeves_avionics
+This package provides mocks for jeeves_core_engine and avionics
 dependencies, allowing mission system tests to run in isolation.
 
 Usage:

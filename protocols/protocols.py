@@ -893,7 +893,7 @@ class FeatureFlagsProviderProtocol(Protocol):
     from avionics.feature_flags. Instead, the provider is injected.
 
     Constitutional Reference:
-        - Memory Module: FORBIDDEN jeeves_memory_module → jeeves_avionics.*
+        - Memory Module: FORBIDDEN memory_module → avionics.*
         - Use protocol injection instead of direct imports
     """
 

@@ -1,7 +1,7 @@
 """Shared testing utilities used across jeeves packages.
 
 Provides common test helper functions to avoid duplication across
-jeeves_avionics, jeeves_mission_system, and other test suites.
+avionics, mission_system, and other test suites.
 
 Usage:
     from shared.testing import is_running_in_docker, parse_postgres_url

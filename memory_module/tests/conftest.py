@@ -1,4 +1,4 @@
-"""Pytest configuration for jeeves_memory_module tests.
+"""Pytest configuration for memory_module tests.
 
 This conftest.py provides fixtures and configuration for the Memory Module
 test suite. Memory tests may need database access but should mock services

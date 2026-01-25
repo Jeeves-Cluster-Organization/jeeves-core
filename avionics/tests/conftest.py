@@ -1,4 +1,4 @@
-"""Pytest configuration for jeeves_avionics tests.
+"""Pytest configuration for avionics tests.
 
 This conftest.py provides fixtures and configuration for the avionics
 test suite. Avionics tests may use database containers but should mock

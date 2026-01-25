@@ -1,4 +1,4 @@
-"""Test fixtures for jeeves_avionics.
+"""Test fixtures for avionics.
 
 This package provides reusable fixtures for testing the infrastructure layer.
 Includes database containers, LLM mocks, and core engine protocol mocks.

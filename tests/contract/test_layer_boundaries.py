@@ -6,11 +6,11 @@ by programmatically checking import dependencies.
 Contract: Each layer may only import from layers below it.
 
 Layers (top to bottom):
-- L4: jeeves_mission_system (application)
-- L3: jeeves_avionics (infrastructure)  
-- L2: jeeves_memory_module (memory)
-- L1: jeeves_control_tower (kernel)
-- L0: jeeves_protocols, jeeves_shared (foundation)
+- L4: mission_system (application)
+- L3: avionics (infrastructure)  
+- L2: memory_module (memory)
+- L1: control_tower (kernel)
+- L0: protocols, shared (foundation)
 """
 
 import pytest
@@ -148,8 +148,8 @@ def check_layer_violation(
 class TestLayerBoundariesStatic:
     """Static analysis tests for layer boundaries."""
 
-    def test_jeeves_protocols_has_no_internal_deps(self):
-        """Test that jeeves_protocols doesn't import from other jeeves packages."""
+    def test_protocols_has_no_internal_deps(self):
+        """Test that protocols doesn't import from other jeeves packages."""
         project_root = Path(__file__).parent.parent.parent
         protocols_dir = project_root / "protocols"
         
@@ -161,7 +161,7 @@ class TestLayerBoundariesStatic:
             imports = get_imports_from_file(py_file)
             for import_path, line in imports:
                 pkg = get_package_name(import_path)
-                # jeeves_protocols can only import from shared
+                # protocols can only import from shared
                 if pkg in JEEVES_PACKAGES and pkg != "protocols" and pkg != "shared":
                     violations.append(
                         f"{py_file.relative_to(project_root)}:{line} imports {import_path}"
@@ -169,8 +169,8 @@ class TestLayerBoundariesStatic:
         
         assert len(violations) == 0, f"Layer violations found:\n" + "\n".join(violations)
 
-    def test_jeeves_control_tower_respects_layer(self):
-        """Test that jeeves_control_tower only imports from L0."""
+    def test_control_tower_respects_layer(self):
+        """Test that control_tower only imports from L0."""
         project_root = Path(__file__).parent.parent.parent
         control_tower_dir = project_root / "control_tower"
         
@@ -191,8 +191,8 @@ class TestLayerBoundariesStatic:
         
         assert len(violations) == 0, f"Layer violations found:\n" + "\n".join(violations)
 
-    def test_jeeves_avionics_respects_layer(self):
-        """Test that jeeves_avionics doesn't import from mission_system."""
+    def test_avionics_respects_layer(self):
+        """Test that avionics doesn't import from mission_system."""
         project_root = Path(__file__).parent.parent.parent
         avionics_dir = project_root / "avionics"
         
@@ -218,7 +218,7 @@ class TestLayerBoundariesRuntime:
     """Runtime tests for layer boundary enforcement."""
 
     def test_protocols_can_be_imported_standalone(self):
-        """Test that jeeves_protocols can be imported without other packages."""
+        """Test that protocols can be imported without other packages."""
         # This should work because protocols has no internal deps
         try:
             import protocols
@@ -227,7 +227,7 @@ class TestLayerBoundariesRuntime:
             pytest.fail(f"protocols could not be imported: {e}")
 
     def test_shared_can_be_imported_standalone(self):
-        """Test that jeeves_shared can be imported without other packages."""
+        """Test that shared can be imported without other packages."""
         try:
             import shared
             assert True

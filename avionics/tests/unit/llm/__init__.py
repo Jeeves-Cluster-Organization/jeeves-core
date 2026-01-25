@@ -1,1 +1,1 @@
-"""Unit tests for jeeves_avionics.llm module."""
+"""Unit tests for avionics.llm module."""

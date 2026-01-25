@@ -13,7 +13,7 @@ from memory_module.services.embedding_service import EmbeddingService
 @pytest.fixture
 def mock_sentence_transformer():
     """Mock SentenceTransformer class."""
-    with patch('jeeves_memory_module.services.embedding_service.SentenceTransformer') as mock_st:
+    with patch('memory_module.services.embedding_service.SentenceTransformer') as mock_st:
         # Create mock model instance
         mock_model = MagicMock()
 
@@ -62,7 +62,7 @@ def test_init_success(mock_sentence_transformer, mock_logger):
 
 def test_init_permission_error(mock_logger):
     """Test PermissionError with actionable message."""
-    with patch('jeeves_memory_module.services.embedding_service.SentenceTransformer') as mock_st:
+    with patch('memory_module.services.embedding_service.SentenceTransformer') as mock_st:
         mock_st.side_effect = PermissionError("Access denied to cache directory")
 
         with pytest.raises(PermissionError, match="PermissionError when downloading"):
@@ -71,7 +71,7 @@ def test_init_permission_error(mock_logger):
 
 def test_init_generic_error(mock_logger):
     """Test RuntimeError on model load failure."""
-    with patch('jeeves_memory_module.services.embedding_service.SentenceTransformer') as mock_st:
+    with patch('memory_module.services.embedding_service.SentenceTransformer') as mock_st:
         mock_st.side_effect = ValueError("Invalid model name")
 
         with pytest.raises(RuntimeError, match="Failed to initialize embedding model"):

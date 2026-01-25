@@ -12,7 +12,7 @@ Per-Agent Configuration:
     Capabilities register their agent configurations at startup, and the factory
     queries the registry instead of having hardcoded agent names.
 
-    See: jeeves_avionics/capability_registry.py
+    See: avionics/capability_registry.py
 
 **Distributed Multi-Node Support:**
 When DEPLOYMENT_MODE=distributed, this factory automatically routes agents

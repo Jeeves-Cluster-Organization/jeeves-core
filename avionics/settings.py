@@ -10,7 +10,7 @@ Per-Agent Configuration:
     capabilities and registered via DomainLLMRegistry. This file contains
     only generic infrastructure configuration.
 
-    See: jeeves_avionics/capability_registry.py
+    See: avionics/capability_registry.py
     See: jeeves-capability-*/config/llm_config.py (for capability registration)
 """
 

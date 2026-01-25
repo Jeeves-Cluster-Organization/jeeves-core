@@ -3,16 +3,16 @@
 Import Boundary Checker - Enforces Four-Layer Architecture (Phase F).
 
 FOUR-LAYER ARCHITECTURE:
-    capability → jeeves_mission_system → jeeves_avionics → jeeves_core_engine → jeeves_commbus
+    capability → mission_system → avionics → jeeves_core_engine → jeeves_commbus
 
 BOUNDARY RULES:
 - RULE 0: jeeves_commbus/ must have ZERO dependencies on other Jeeves packages
     - The foundation layer cannot import from core_engine, avionics, or mission_system
 - RULE 1: jeeves_core_engine/ may depend on commbus only
-    - Must not import from avionics.*, jeeves_mission_system.*, verticals.*
-- RULE 2: jeeves_avionics/ may depend on core_engine and commbus only
+    - Must not import from avionics.*, mission_system.*, verticals.*
+- RULE 2: avionics/ may depend on core_engine and commbus only
     - Must not import from mission_system.*, verticals.*
-- RULE 3: jeeves_mission_system/ may depend on avionics, core_engine, and commbus
+- RULE 3: mission_system/ may depend on avionics, core_engine, and commbus
     - Must not import from capability packages directly (use contracts)
 - RULE 4: Capabilities access core only through mission_system.contracts
     - jeeves-capability-* should import from mission_system.contracts, not directly
@@ -21,8 +21,8 @@ BOUNDARY RULES:
 Directory Structure (Four-Layer Architecture):
 - jeeves_commbus/           - Foundation layer (zero dependencies)
 - jeeves_core_engine/       - Pure orchestration runtime (depends on commbus only)
-- jeeves_avionics/          - Infrastructure (depends on core_engine, commbus)
-- jeeves_mission_system/    - Application layer (depends on avionics, core_engine, commbus)
+- avionics/          - Infrastructure (depends on core_engine, commbus)
+- mission_system/    - Application layer (depends on avionics, core_engine, commbus)
 - jeeves-capability-*/      - Capabilities (depends on mission_system.contracts)
 
 Usage:
@@ -143,7 +143,7 @@ class ImportBoundaryChecker:
                         ))
 
     def _check_rule2_avionics_isolation(self) -> None:
-        """RULE 2: jeeves_avionics may depend on core_engine and commbus only."""
+        """RULE 2: avionics may depend on core_engine and commbus only."""
         avionics_dir = self.root_dir / "avionics"
         if not avionics_dir.exists():
             return
@@ -199,8 +199,8 @@ class ImportBoundaryChecker:
         # Direct imports that should go through contracts instead
         direct_patterns = [
             # Direct core_engine imports (except envelope which is re-exported)
-            ("jeeves_core_engine.agents.base", "Use jeeves_mission_system.contracts.Agent"),
-            ("jeeves_core_engine.protocols", "Use jeeves_mission_system.contracts for protocols"),
+            ("jeeves_core_engine.agents.base", "Use mission_system.contracts.Agent"),
+            ("jeeves_core_engine.protocols", "Use mission_system.contracts for protocols"),
         ]
 
         for cap_dir in capability_dirs:
@@ -304,8 +304,8 @@ def main():
         print("Rules checked (Four-Layer Architecture):")
         print("  RULE 0: jeeves_commbus has ZERO dependencies")
         print("  RULE 1: jeeves_core_engine may depend on commbus only")
-        print("  RULE 2: jeeves_avionics may depend on core_engine and commbus only")
-        print("  RULE 3: jeeves_mission_system may not import capability packages")
+        print("  RULE 2: avionics may depend on core_engine and commbus only")
+        print("  RULE 3: mission_system may not import capability packages")
         print("  RULE 4: Capabilities should use mission_system.contracts")
         print("  RULE 5: Shared modules must not import agents")
 

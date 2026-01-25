@@ -6,7 +6,7 @@ a proper graph database (Neo4j, etc.) or PostgreSQL with recursive CTEs.
 
 Constitutional Reference:
 - Memory Module CONSTITUTION: L5 Graph - Entity relationships
-- jeeves_protocols.GraphStorageProtocol: Extensible interface
+- protocols.GraphStorageProtocol: Extensible interface
 
 Extension Points:
 - Subclass and override methods for different backends

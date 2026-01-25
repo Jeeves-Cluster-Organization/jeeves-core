@@ -1,6 +1,6 @@
 """Database infrastructure - PostgreSQL and Redis clients.
 
-Note: create_vector_adapter moved to jeeves_mission_system.adapters
+Note: create_vector_adapter moved to mission_system.adapters
       to respect layer boundaries (avionics should not import from memory_module).
 
 Graph Storage:

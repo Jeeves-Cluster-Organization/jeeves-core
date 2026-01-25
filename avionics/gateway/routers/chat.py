@@ -209,7 +209,7 @@ class MessageResponse(BaseModel):
 """
 NOTE: ConfirmationSend and ClarificationSend models have been removed.
 All interrupt responses now go through the unified /interrupts/{id}/respond endpoint.
-See jeeves_avionics/gateway/routers/interrupts.py
+See avionics/gateway/routers/interrupts.py
 """
 
 
@@ -700,7 +700,7 @@ REMOVED: /confirmations and /clarifications endpoints
 These endpoints have been replaced by the unified interrupt system:
 - POST /interrupts/{id}/respond
 
-See jeeves_avionics/gateway/routers/interrupts.py for the unified implementation.
+See avionics/gateway/routers/interrupts.py for the unified implementation.
 
 Migration path:
 - Old: POST /chat/confirmations with {confirmation_id, response}

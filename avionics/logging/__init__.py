@@ -2,7 +2,7 @@
 
 This module provides logging configuration with optional OTEL tracing support.
 Base logging functionality comes from shared.logging.
-Real OpenTelemetry tracing is provided by jeeves_avionics.observability.
+Real OpenTelemetry tracing is provided by avionics.observability.
 
 Constitutional Compliance:
 - Avionics owns OTEL configuration flag
@@ -79,7 +79,7 @@ def configure_logging(
     This should be called ONCE at application startup.
     All subsequent logging uses the configuration set here.
 
-    For actual OpenTelemetry tracing, use jeeves_avionics.observability.
+    For actual OpenTelemetry tracing, use avionics.observability.
 
     Args:
         level: Default log level (DEBUG, INFO, WARNING, ERROR)

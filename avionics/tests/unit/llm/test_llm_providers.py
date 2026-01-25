@@ -369,7 +369,7 @@ class TestAnthropicProvider:
 
     def test_anthropic_unavailable_raises_runtime_error(self):
         """Test that missing anthropic package raises RuntimeError."""
-        with patch('jeeves_avionics.llm.providers.anthropic.ANTHROPIC_AVAILABLE', False):
+        with patch('avionics.llm.providers.anthropic.ANTHROPIC_AVAILABLE', False):
             from avionics.llm.providers.anthropic import AnthropicProvider
 
             with pytest.raises(RuntimeError, match="Anthropic package not installed"):
@@ -384,7 +384,7 @@ class TestAnthropicProvider:
         mock_anthropic.AsyncAnthropic = Mock(return_value=mock_client)
 
         with patch.dict('sys.modules', {'anthropic': mock_anthropic}), \
-             patch('jeeves_avionics.llm.providers.anthropic.ANTHROPIC_AVAILABLE', True):
+             patch('avionics.llm.providers.anthropic.ANTHROPIC_AVAILABLE', True):
 
             from avionics.llm.providers.anthropic import AnthropicProvider
 
@@ -420,7 +420,7 @@ class TestAnthropicProvider:
         mock_anthropic.AsyncAnthropic = Mock(return_value=mock_client)
 
         with patch.dict('sys.modules', {'anthropic': mock_anthropic}), \
-             patch('jeeves_avionics.llm.providers.anthropic.ANTHROPIC_AVAILABLE', True):
+             patch('avionics.llm.providers.anthropic.ANTHROPIC_AVAILABLE', True):
 
             from avionics.llm.providers.anthropic import AnthropicProvider
 
@@ -445,8 +445,8 @@ class TestAnthropicProvider:
     @pytest.mark.asyncio
     async def test_anthropic_provider_generate_empty_response(self):
         """Test Anthropic provider handles empty response."""
-        with patch('jeeves_avionics.llm.providers.anthropic.ANTHROPIC_AVAILABLE', True), \
-             patch('jeeves_avionics.llm.providers.anthropic.anthropic') as mock_anthropic:
+        with patch('avionics.llm.providers.anthropic.ANTHROPIC_AVAILABLE', True), \
+             patch('avionics.llm.providers.anthropic.anthropic') as mock_anthropic:
 
             from avionics.llm.providers.anthropic import AnthropicProvider
 
@@ -467,8 +467,8 @@ class TestAnthropicProvider:
     @pytest.mark.asyncio
     async def test_anthropic_provider_generate_stream(self):
         """Test Anthropic provider streaming generation."""
-        with patch('jeeves_avionics.llm.providers.anthropic.ANTHROPIC_AVAILABLE', True), \
-             patch('jeeves_avionics.llm.providers.anthropic.anthropic') as mock_anthropic:
+        with patch('avionics.llm.providers.anthropic.ANTHROPIC_AVAILABLE', True), \
+             patch('avionics.llm.providers.anthropic.anthropic') as mock_anthropic:
 
             from avionics.llm.providers.anthropic import AnthropicProvider
 
@@ -510,8 +510,8 @@ class TestAnthropicProvider:
     @pytest.mark.asyncio
     async def test_anthropic_provider_supports_streaming(self):
         """Test that Anthropic provider supports streaming."""
-        with patch('jeeves_avionics.llm.providers.anthropic.ANTHROPIC_AVAILABLE', True), \
-             patch('jeeves_avionics.llm.providers.anthropic.anthropic'):
+        with patch('avionics.llm.providers.anthropic.ANTHROPIC_AVAILABLE', True), \
+             patch('avionics.llm.providers.anthropic.anthropic'):
 
             from avionics.llm.providers.anthropic import AnthropicProvider
 
@@ -521,8 +521,8 @@ class TestAnthropicProvider:
     @pytest.mark.asyncio
     async def test_anthropic_provider_health_check_success(self):
         """Test Anthropic provider health check succeeds."""
-        with patch('jeeves_avionics.llm.providers.anthropic.ANTHROPIC_AVAILABLE', True), \
-             patch('jeeves_avionics.llm.providers.anthropic.anthropic') as mock_anthropic:
+        with patch('avionics.llm.providers.anthropic.ANTHROPIC_AVAILABLE', True), \
+             patch('avionics.llm.providers.anthropic.anthropic') as mock_anthropic:
 
             from avionics.llm.providers.anthropic import AnthropicProvider
 
@@ -544,8 +544,8 @@ class TestAnthropicProvider:
     @pytest.mark.asyncio
     async def test_anthropic_provider_health_check_failure(self):
         """Test Anthropic provider health check handles failures."""
-        with patch('jeeves_avionics.llm.providers.anthropic.ANTHROPIC_AVAILABLE', True), \
-             patch('jeeves_avionics.llm.providers.anthropic.anthropic') as mock_anthropic:
+        with patch('avionics.llm.providers.anthropic.ANTHROPIC_AVAILABLE', True), \
+             patch('avionics.llm.providers.anthropic.anthropic') as mock_anthropic:
 
             from avionics.llm.providers.anthropic import AnthropicProvider
 
@@ -569,7 +569,7 @@ class TestOpenAIProvider:
 
     def test_openai_unavailable_raises_runtime_error(self):
         """Test that missing openai package raises RuntimeError."""
-        with patch('jeeves_avionics.llm.providers.openai.OPENAI_AVAILABLE', False):
+        with patch('avionics.llm.providers.openai.OPENAI_AVAILABLE', False):
             from avionics.llm.providers.openai import OpenAIProvider
 
             with pytest.raises(RuntimeError, match="OpenAI package not installed"):
@@ -578,8 +578,8 @@ class TestOpenAIProvider:
     @pytest.mark.asyncio
     async def test_openai_provider_initialization(self):
         """Test that OpenAI provider initializes with required parameters."""
-        with patch('jeeves_avionics.llm.providers.openai.OPENAI_AVAILABLE', True), \
-             patch('jeeves_avionics.llm.providers.openai.openai') as mock_openai:
+        with patch('avionics.llm.providers.openai.OPENAI_AVAILABLE', True), \
+             patch('avionics.llm.providers.openai.openai') as mock_openai:
 
             from avionics.llm.providers.openai import OpenAIProvider
 
@@ -603,8 +603,8 @@ class TestOpenAIProvider:
     @pytest.mark.asyncio
     async def test_openai_provider_generate(self):
         """Test OpenAI provider generate method."""
-        with patch('jeeves_avionics.llm.providers.openai.OPENAI_AVAILABLE', True), \
-             patch('jeeves_avionics.llm.providers.openai.openai') as mock_openai:
+        with patch('avionics.llm.providers.openai.OPENAI_AVAILABLE', True), \
+             patch('avionics.llm.providers.openai.openai') as mock_openai:
 
             from avionics.llm.providers.openai import OpenAIProvider
 
@@ -644,8 +644,8 @@ class TestOpenAIProvider:
     @pytest.mark.asyncio
     async def test_openai_provider_generate_with_json_mode(self):
         """Test OpenAI provider with JSON mode enabled."""
-        with patch('jeeves_avionics.llm.providers.openai.OPENAI_AVAILABLE', True), \
-             patch('jeeves_avionics.llm.providers.openai.openai') as mock_openai:
+        with patch('avionics.llm.providers.openai.OPENAI_AVAILABLE', True), \
+             patch('avionics.llm.providers.openai.openai') as mock_openai:
 
             from avionics.llm.providers.openai import OpenAIProvider
 
@@ -679,8 +679,8 @@ class TestOpenAIProvider:
     @pytest.mark.asyncio
     async def test_openai_provider_generate_empty_response(self):
         """Test OpenAI provider handles None content."""
-        with patch('jeeves_avionics.llm.providers.openai.OPENAI_AVAILABLE', True), \
-             patch('jeeves_avionics.llm.providers.openai.openai') as mock_openai:
+        with patch('avionics.llm.providers.openai.OPENAI_AVAILABLE', True), \
+             patch('avionics.llm.providers.openai.openai') as mock_openai:
 
             from avionics.llm.providers.openai import OpenAIProvider
 
@@ -705,8 +705,8 @@ class TestOpenAIProvider:
     @pytest.mark.asyncio
     async def test_openai_provider_generate_stream(self):
         """Test OpenAI provider streaming generation."""
-        with patch('jeeves_avionics.llm.providers.openai.OPENAI_AVAILABLE', True), \
-             patch('jeeves_avionics.llm.providers.openai.openai') as mock_openai:
+        with patch('avionics.llm.providers.openai.OPENAI_AVAILABLE', True), \
+             patch('avionics.llm.providers.openai.openai') as mock_openai:
 
             from avionics.llm.providers.openai import OpenAIProvider
 
@@ -759,8 +759,8 @@ class TestOpenAIProvider:
     @pytest.mark.asyncio
     async def test_openai_provider_supports_streaming(self):
         """Test that OpenAI provider supports streaming."""
-        with patch('jeeves_avionics.llm.providers.openai.OPENAI_AVAILABLE', True), \
-             patch('jeeves_avionics.llm.providers.openai.openai'):
+        with patch('avionics.llm.providers.openai.OPENAI_AVAILABLE', True), \
+             patch('avionics.llm.providers.openai.openai'):
 
             from avionics.llm.providers.openai import OpenAIProvider
 
@@ -770,8 +770,8 @@ class TestOpenAIProvider:
     @pytest.mark.asyncio
     async def test_openai_provider_health_check_success(self):
         """Test OpenAI provider health check succeeds."""
-        with patch('jeeves_avionics.llm.providers.openai.OPENAI_AVAILABLE', True), \
-             patch('jeeves_avionics.llm.providers.openai.openai') as mock_openai:
+        with patch('avionics.llm.providers.openai.OPENAI_AVAILABLE', True), \
+             patch('avionics.llm.providers.openai.openai') as mock_openai:
 
             from avionics.llm.providers.openai import OpenAIProvider
 
@@ -788,8 +788,8 @@ class TestOpenAIProvider:
     @pytest.mark.asyncio
     async def test_openai_provider_health_check_failure(self):
         """Test OpenAI provider health check handles failures."""
-        with patch('jeeves_avionics.llm.providers.openai.OPENAI_AVAILABLE', True), \
-             patch('jeeves_avionics.llm.providers.openai.openai') as mock_openai:
+        with patch('avionics.llm.providers.openai.OPENAI_AVAILABLE', True), \
+             patch('avionics.llm.providers.openai.openai') as mock_openai:
 
             from avionics.llm.providers.openai import OpenAIProvider
 
@@ -814,7 +814,7 @@ class TestLlamaServerProvider:
 
     def test_llamaserver_missing_httpx_raises_import_error(self):
         """Test that missing httpx raises ImportError."""
-        with patch('jeeves_avionics.llm.providers.llamaserver_provider.httpx', None):
+        with patch('avionics.llm.providers.llamaserver_provider.httpx', None):
             from avionics.llm.providers.llamaserver_provider import LlamaServerProvider
 
             with pytest.raises(ImportError, match="httpx not installed"):
@@ -823,8 +823,8 @@ class TestLlamaServerProvider:
     @pytest.mark.asyncio
     async def test_llamaserver_provider_initialization(self):
         """Test LlamaServer provider initialization."""
-        with patch('jeeves_avionics.llm.providers.llamaserver_provider.httpx') as mock_httpx, \
-             patch('jeeves_avionics.llm.providers.llamaserver_provider.get_current_logger'):
+        with patch('avionics.llm.providers.llamaserver_provider.httpx') as mock_httpx, \
+             patch('avionics.llm.providers.llamaserver_provider.get_current_logger'):
 
             from avionics.llm.providers.llamaserver_provider import LlamaServerProvider
 
@@ -848,8 +848,8 @@ class TestLlamaServerProvider:
     @pytest.mark.asyncio
     async def test_llamaserver_provider_generate_native_api(self):
         """Test LlamaServer provider generate with native API."""
-        with patch('jeeves_avionics.llm.providers.llamaserver_provider.httpx') as mock_httpx, \
-             patch('jeeves_avionics.llm.providers.llamaserver_provider.get_current_logger'):
+        with patch('avionics.llm.providers.llamaserver_provider.httpx') as mock_httpx, \
+             patch('avionics.llm.providers.llamaserver_provider.get_current_logger'):
 
             from avionics.llm.providers.llamaserver_provider import LlamaServerProvider
 
@@ -889,8 +889,8 @@ class TestLlamaServerProvider:
     @pytest.mark.asyncio
     async def test_llamaserver_provider_health_check_success(self):
         """Test LlamaServer provider health check succeeds."""
-        with patch('jeeves_avionics.llm.providers.llamaserver_provider.httpx') as mock_httpx, \
-             patch('jeeves_avionics.llm.providers.llamaserver_provider.get_current_logger'):
+        with patch('avionics.llm.providers.llamaserver_provider.httpx') as mock_httpx, \
+             patch('avionics.llm.providers.llamaserver_provider.get_current_logger'):
 
             from avionics.llm.providers.llamaserver_provider import LlamaServerProvider
 
@@ -913,8 +913,8 @@ class TestLlamaServerProvider:
     @pytest.mark.asyncio
     async def test_llamaserver_provider_health_check_failure(self):
         """Test LlamaServer provider health check handles failures."""
-        with patch('jeeves_avionics.llm.providers.llamaserver_provider.httpx') as mock_httpx, \
-             patch('jeeves_avionics.llm.providers.llamaserver_provider.get_current_logger'):
+        with patch('avionics.llm.providers.llamaserver_provider.httpx') as mock_httpx, \
+             patch('avionics.llm.providers.llamaserver_provider.get_current_logger'):
 
             from avionics.llm.providers.llamaserver_provider import LlamaServerProvider
 
@@ -932,8 +932,8 @@ class TestLlamaServerProvider:
     @pytest.mark.asyncio
     async def test_llamaserver_provider_supports_streaming(self):
         """Test that LlamaServer provider supports streaming."""
-        with patch('jeeves_avionics.llm.providers.llamaserver_provider.httpx'), \
-             patch('jeeves_avionics.llm.providers.llamaserver_provider.get_current_logger'):
+        with patch('avionics.llm.providers.llamaserver_provider.httpx'), \
+             patch('avionics.llm.providers.llamaserver_provider.get_current_logger'):
 
             from avionics.llm.providers.llamaserver_provider import LlamaServerProvider
 

@@ -1,1 +1,1 @@
-"""Integration tests for jeeves_control_tower package."""
+"""Integration tests for control_tower package."""

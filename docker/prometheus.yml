@@ -14,7 +14,7 @@ scrape_configs:
     static_configs:
       - targets: ['gateway:8000']
         labels:
-          service: 'jeeves-avionics'
+          service: 'avionics'
           component: 'http-gateway'
     metrics_path: '/metrics'
 
@@ -24,13 +24,13 @@ scrape_configs:
       # Python FastAPI metrics (orchestrator, workflow, LLM)
       - targets: ['orchestrator:8000']
         labels:
-          service: 'jeeves-orchestrator'
+          service: 'orchestrator'
           component: 'http-api'
           language: 'python'
       # Go gRPC metrics (pipeline, agents, gRPC)
       - targets: ['orchestrator:9090']
         labels:
-          service: 'jeeves-orchestrator'
+          service: 'orchestrator'
           component: 'grpc-server'
           language: 'go'
     metrics_path: '/metrics'

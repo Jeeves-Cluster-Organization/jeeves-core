@@ -6,7 +6,7 @@ This is the production adapter for L5 graph storage.
 Constitutional Reference:
 - Memory Module CONSTITUTION: L5 Graph - Entity relationships
 - Avionics CONSTITUTION R4: Swappable Implementations
-- Architecture: PostgreSQL-specific code lives in jeeves_avionics (L3)
+- Architecture: PostgreSQL-specific code lives in avionics (L3)
 
 Usage:
     from avionics.database.postgres_graph import PostgresGraphAdapter

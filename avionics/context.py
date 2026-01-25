@@ -102,7 +102,7 @@ class AppContext:
     clock: ClockProtocol = field(default_factory=SystemClock)
     config_registry: Optional[ConfigRegistryProtocol] = None
 
-    # Core configuration (previously global state in jeeves_protocols)
+    # Core configuration (previously global state in protocols)
     core_config: ExecutionConfig = field(default_factory=ExecutionConfig)
     orchestration_flags: OrchestrationFlags = field(default_factory=OrchestrationFlags)
     vertical_registry: Dict[str, bool] = field(default_factory=dict)

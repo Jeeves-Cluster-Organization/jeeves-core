@@ -1,4 +1,4 @@
-"""LLM fixtures for jeeves_avionics tests.
+"""LLM fixtures for avionics tests.
 
 Provides mock LLM providers for testing without network calls.
 """

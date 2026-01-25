@@ -1,7 +1,7 @@
 """Interrupt types and protocols for flow control.
 
 These types define the contract for interrupt handling across layers.
-Implementations live in jeeves_control_tower.
+Implementations live in control_tower.
 """
 
 from dataclasses import dataclass, field

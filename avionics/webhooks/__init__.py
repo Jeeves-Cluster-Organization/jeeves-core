@@ -20,7 +20,7 @@ Usage:
 
     # Webhook will be called when matching events occur
 
-Constitutional Reference: Infrastructure layer (jeeves_avionics)
+Constitutional Reference: Infrastructure layer (avionics)
 """
 
 from avionics.webhooks.service import (

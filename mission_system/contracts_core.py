@@ -187,6 +187,6 @@ __all__ = [
     # ─── Tool Types (from protocols) ───
     # NOTE: ToolId, ToolCatalog, etc. are CAPABILITY-OWNED (not re-exported here)
     # Capabilities import from their own tools/catalog.py
-    "ToolCategory",  # From jeeves_protocols
+    "ToolCategory",  # From protocols
 
 ]

@@ -1,7 +1,7 @@
-"""gRPC stub re-exports for jeeves_protocols.
+"""gRPC stub re-exports for protocols.
 
 This module re-exports the generated protobuf classes from coreengine.proto
-to provide a clean import path for the jeeves_protocols package.
+to provide a clean import path for the protocols package.
 
 Usage:
     from protocols import grpc_stub

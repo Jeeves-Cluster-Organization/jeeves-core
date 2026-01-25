@@ -778,7 +778,7 @@ scrape_configs:
     static_configs:
       - targets: ['gateway:8000']
         labels:
-          service: 'jeeves-avionics'
+          service: 'avionics'
           component: 'http-gateway'
 
   # Python orchestrator metrics (if separate)
@@ -787,7 +787,7 @@ scrape_configs:
     static_configs:
       - targets: ['orchestrator:8000']
         labels:
-          service: 'jeeves-avionics'
+          service: 'avionics'
           component: 'orchestrator'
 
   # Prometheus self-monitoring

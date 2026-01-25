@@ -1,4 +1,4 @@
-"""Pytest configuration for jeeves_protocols tests.
+"""Pytest configuration for protocols tests.
 
 This conftest.py provides fixtures and configuration for the Protocols
 test suite. Protocol tests validate type definitions and utility functions.

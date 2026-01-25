@@ -102,7 +102,7 @@ class ToolId(str, Enum):
 
     # ═══════════════════════════════════════════════════════════════════════════
     # NOTE: Capability-specific tools are NOT defined here.
-    # Each capability owns its own CapabilityToolCatalog (see jeeves_protocols.capability).
+    # Each capability owns its own CapabilityToolCatalog (see protocols.capability).
     # This enum only contains core/infrastructure tools and code-analysis tools.
     # ═══════════════════════════════════════════════════════════════════════════
 

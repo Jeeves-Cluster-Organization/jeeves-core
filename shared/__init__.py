@@ -1,7 +1,7 @@
 """Shared utilities for the Jeeves runtime.
 
 This package provides common utilities that can be used by all layers
-without creating circular dependencies. It sits at L0 alongside jeeves_protocols.
+without creating circular dependencies. It sits at L0 alongside protocols.
 
 Exports:
 - Logging: get_component_logger, get_current_logger, set_current_logger, Logger

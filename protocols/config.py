@@ -1,7 +1,7 @@
 """Configuration types - mirrors Go coreengine/config.
 
 Pure data types for configuration. No global state.
-Configuration is injected via AppContext (see jeeves_avionics/context.py).
+Configuration is injected via AppContext (see avionics/context.py).
 """
 
 from dataclasses import dataclass, field

@@ -1,1 +1,1 @@
-"""Tests for jeeves_protocols package."""
+"""Tests for protocols package."""

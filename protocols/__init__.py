@@ -5,7 +5,7 @@ that form the contract between layers in the Jeeves architecture.
 
 Constitutional Reference:
     - All layers import from protocols for type definitions
-    - jeeves_protocols sits at L0 (no dependencies on other Jeeves packages)
+    - protocols sits at L0 (no dependencies on other Jeeves packages)
     - Protocols define interfaces; implementations are in other packages
 
 Package Structure:
@@ -233,7 +233,7 @@ from protocols.utils import (
     JSONRepairKit,
     normalize_string_list,
     truncate_string,
-    # Datetime utilities (L0-safe, no jeeves_shared dependency)
+    # Datetime utilities (L0-safe, no shared dependency)
     utc_now,
     utc_now_iso,
     parse_datetime,

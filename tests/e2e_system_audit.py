@@ -90,22 +90,22 @@ class SystemAudit:
 
         phase = PhaseResult(phase="Phase 1: Static Analysis")
 
-        # 1.1 jeeves_protocols imports (should be stdlib only)
+        # 1.1 protocols imports (should be stdlib only)
         result = self._check_protocols_imports()
         phase.tests.append(result)
         self.log_test(result.name, result.passed, result.message)
 
-        # 1.2 jeeves_control_tower imports (only jeeves_protocols)
+        # 1.2 control_tower imports (only protocols)
         result = self._check_control_tower_imports()
         phase.tests.append(result)
         self.log_test(result.name, result.passed, result.message)
 
-        # 1.3 jeeves_avionics imports (no mission_system/capability)
+        # 1.3 avionics imports (no mission_system/capability)
         result = self._check_avionics_imports()
         phase.tests.append(result)
         self.log_test(result.name, result.passed, result.message)
 
-        # 1.4 jeeves_mission_system imports (no direct capability imports)
+        # 1.4 mission_system imports (no direct capability imports)
         result = self._check_mission_system_imports()
         phase.tests.append(result)
         self.log_test(result.name, result.passed, result.message)
@@ -124,7 +124,7 @@ class SystemAudit:
         return phase
 
     def _check_protocols_imports(self) -> TestResult:
-        """Check jeeves_protocols has no imports from other jeeves_* packages."""
+        """Check protocols has no imports from other jeeves_* packages."""
         protocols_dir = self.project_root / "protocols"
         violations = []
 
@@ -137,7 +137,7 @@ class SystemAudit:
                 match = re.match(r"^(from|import)\s+(jeeves_\w+)", line)
                 if match:
                     module = match.group(2)
-                    # Allow internal jeeves_protocols imports
+                    # Allow internal protocols imports
                     if module != "protocols":
                         violations.append(f"{py_file.name}: {line.strip()}")
 
@@ -154,7 +154,7 @@ class SystemAudit:
         )
 
     def _check_control_tower_imports(self) -> TestResult:
-        """Check jeeves_control_tower only imports from protocols."""
+        """Check control_tower only imports from protocols."""
         ct_dir = self.project_root / "control_tower"
         violations = []
         allowed = {"protocols", "control_tower"}
@@ -172,18 +172,18 @@ class SystemAudit:
 
         if violations:
             return TestResult(
-                name="control_tower imports only jeeves_protocols",
+                name="control_tower imports only protocols",
                 passed=False,
                 message=f"Found {len(violations)} violations",
                 details={"violations": violations}
             )
         return TestResult(
-            name="control_tower imports only jeeves_protocols",
+            name="control_tower imports only protocols",
             passed=True
         )
 
     def _check_avionics_imports(self) -> TestResult:
-        """Check jeeves_avionics doesn't import mission_system or capabilities."""
+        """Check avionics doesn't import mission_system or capabilities."""
         avionics_dir = self.project_root / "avionics"
         violations = []
         forbidden = {"mission_system", "jeeves-capability"}
@@ -210,7 +210,7 @@ class SystemAudit:
         )
 
     def _check_mission_system_imports(self) -> TestResult:
-        """Check jeeves_mission_system doesn't directly import capabilities."""
+        """Check mission_system doesn't directly import capabilities."""
         ms_dir = self.project_root / "mission_system"
         violations = []
 

@@ -5,8 +5,8 @@ Centralizes operational constants. Product identity is capability-specific
 and should be queried from CapabilityResourceRegistry (Avionics R4).
 
 NOTE: LLM parameters and agent thresholds have been moved to:
-- jeeves_mission_system/config/agent_profiles.py (AgentProfile, LLMProfile, ThresholdProfile)
-- jeeves_avionics/thresholds.py (operational thresholds)
+- mission_system/config/agent_profiles.py (AgentProfile, LLMProfile, ThresholdProfile)
+- avionics/thresholds.py (operational thresholds)
 """
 
 # Import operational thresholds from canonical source (Avionics Constitution)

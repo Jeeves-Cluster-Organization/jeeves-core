@@ -1,1 +1,1 @@
-"""Unit tests for jeeves_avionics.database module."""
+"""Unit tests for avionics.database module."""

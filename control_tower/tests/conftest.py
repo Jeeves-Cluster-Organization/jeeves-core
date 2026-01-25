@@ -1,11 +1,11 @@
-"""Pytest configuration for jeeves_control_tower tests.
+"""Pytest configuration for control_tower tests.
 
 This conftest.py provides fixtures and configuration for the Control Tower
 test suite. Control Tower tests should test kernel-level components in isolation.
 
 Key Principles:
 - Control Tower is a kernel layer - test without external dependencies
-- Mock jeeves_protocols types when needed
+- Mock protocols types when needed
 - Test resource tracking, lifecycle management, and IPC coordination
 
 Constitutional Compliance:
