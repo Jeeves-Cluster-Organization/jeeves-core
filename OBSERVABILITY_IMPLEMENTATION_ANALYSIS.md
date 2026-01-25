@@ -24,13 +24,13 @@ This document analyzes the jeeves-core codebase to determine the optimal impleme
 ### ✅ What Already Exists (Strong Foundation)
 
 #### Python Side
-- **Prometheus Client Library**: Already integrated in `jeeves_avionics/observability/metrics.py`
+- **Prometheus Client Library**: Already integrated in `avionics/observability/metrics.py`
   - Graceful fallback if not installed (lines 5-37)
   - Production-ready patterns: Counter, Gauge, Histogram
   - Existing metrics: orchestrator, meta-validation, retry tracking
   - Clean API: `orchestrator_started()`, `orchestrator_completed(outcome, duration)`
 
-- **OpenTelemetry**: Dependencies already in `jeeves_avionics/pyproject.toml`
+- **OpenTelemetry**: Dependencies already in `avionics/pyproject.toml`
   - `opentelemetry-api>=1.22.0`
   - `opentelemetry-sdk>=1.22.0`
   - Ready for Phase 2 (distributed tracing)
@@ -68,7 +68,7 @@ This document analyzes the jeeves-core codebase to determine the optimal impleme
 - No metrics endpoint handler
 
 #### Python Side
-- FastAPI gateway (`jeeves_avionics/gateway/main.py`) doesn't expose `/metrics`
+- FastAPI gateway (`avionics/gateway/main.py`) doesn't expose `/metrics`
 - LLM provider metrics not recorded (gateway has timing, but no Prometheus calls)
 - No HTTP request middleware for metrics
 
@@ -91,7 +91,7 @@ This document analyzes the jeeves-core codebase to determine the optimal impleme
                              │
                    ┌─────────▼──────────┐
                    │   FastAPI Gateway   │ ← Python metrics here
-                   │  (jeeves_avionics)  │   (HTTP middleware)
+                   │  (avionics)  │   (HTTP middleware)
                    │   Port 8000         │
                    └─────────┬───────────┘
                              │ gRPC
@@ -553,7 +553,7 @@ if err := server.Start(":50051"); err != nil {
 
 #### Step 1: Add LLM Gateway Metrics
 
-**File:** `jeeves_avionics/llm/gateway.py`
+**File:** `avionics/llm/gateway.py`
 
 **Current code (lines 345-370):**
 ```python
@@ -574,7 +574,7 @@ async def _call_provider(...):
 
 **Add metrics (import at top):**
 ```python
-from jeeves_avionics.observability.metrics import (
+from avionics.observability.metrics import (
     llm_provider_calls,
     llm_provider_latency,
     llm_tokens_used
@@ -624,7 +624,7 @@ except Exception as e:
 
 #### Step 2: Update metrics.py with Missing Metrics
 
-**File:** `jeeves_avionics/observability/metrics.py`
+**File:** `avionics/observability/metrics.py`
 
 **Add after line 100:**
 ```python
@@ -671,11 +671,11 @@ http_request_duration = Histogram(
 
 #### Step 3: Add FastAPI Metrics Middleware
 
-**File:** `jeeves_avionics/gateway/main.py`
+**File:** `avionics/gateway/main.py`
 
 **Add import (after line 73):**
 ```python
-from jeeves_avionics.observability.metrics import http_requests_total, http_request_duration
+from avionics.observability.metrics import http_requests_total, http_request_duration
 import time
 ```
 
@@ -706,7 +706,7 @@ async def metrics_middleware(request: Request, call_next):
 
 #### Step 4: Expose /metrics Endpoint
 
-**File:** `jeeves_avionics/gateway/main.py`
+**File:** `avionics/gateway/main.py`
 
 **Add import:**
 ```python
@@ -853,11 +853,11 @@ func TestRecordAgentExecution(t *testing.T) {
 ```
 
 #### Python Metrics Test
-**File:** `jeeves_avionics/observability/test_metrics.py` (NEW)
+**File:** `avionics/observability/test_metrics.py` (NEW)
 
 ```python
 import pytest
-from jeeves_avionics.observability.metrics import (
+from avionics.observability.metrics import (
     llm_provider_calls,
     llm_provider_latency,
     http_requests_total
@@ -953,7 +953,7 @@ curl 'http://localhost:9090/api/v1/query?query=histogram_quantile(0.95, rate(jee
 - [ ] Instrument LLM Gateway in `llm/gateway.py`
 - [ ] Add HTTP middleware to `gateway/main.py`
 - [ ] Mount `/metrics` endpoint in `gateway/main.py`
-- [ ] Test: `pytest jeeves_avionics/observability/`
+- [ ] Test: `pytest avionics/observability/`
 
 **Validation:** Run gateway, curl `localhost:8000/metrics`, see Python metrics
 

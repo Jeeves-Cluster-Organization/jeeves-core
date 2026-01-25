@@ -2,7 +2,7 @@
 
 **Layer:** L7 - Meta (System Introspection)  
 **Scope:** Tool metrics and health monitoring  
-**Location:** `jeeves_memory_module/repositories/tool_metrics_repository.py`, `jeeves_memory_module/services/tool_health_service.py`
+**Location:** `memory_module/repositories/tool_metrics_repository.py`, `memory_module/services/tool_health_service.py`
 
 ---
 
@@ -415,7 +415,7 @@ def set_registered_tools(self, tool_names: List[str]) -> None:
 
 ## HealthStatus Enum
 
-From `jeeves_protocols`:
+From `protocols`:
 
 ```python
 class HealthStatus(Enum):
@@ -432,7 +432,7 @@ class HealthStatus(Enum):
 ### Recording Metrics
 
 ```python
-from jeeves_memory_module.services.tool_health_service import ToolHealthService
+from memory_module.services.tool_health_service import ToolHealthService
 
 health_service = ToolHealthService(db)
 

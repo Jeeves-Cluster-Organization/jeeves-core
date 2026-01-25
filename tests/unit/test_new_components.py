@@ -22,21 +22,21 @@ class TestInMemoryCommBus:
 
     def test_import(self):
         """Test that CommBus can be imported."""
-        from jeeves_control_tower.ipc import InMemoryCommBus, get_commbus, reset_commbus
+        from control_tower.ipc import InMemoryCommBus, get_commbus, reset_commbus
         assert InMemoryCommBus is not None
         assert get_commbus is not None
         assert reset_commbus is not None
 
     def test_create_instance(self):
         """Test creating a CommBus instance."""
-        from jeeves_control_tower.ipc import InMemoryCommBus
+        from control_tower.ipc import InMemoryCommBus
         bus = InMemoryCommBus()
         assert bus is not None
 
     @pytest.mark.asyncio
     async def test_publish_subscribe(self):
         """Test event publishing and subscription."""
-        from jeeves_control_tower.ipc import InMemoryCommBus
+        from control_tower.ipc import InMemoryCommBus
 
         bus = InMemoryCommBus()
         received = []
@@ -62,7 +62,7 @@ class TestInMemoryCommBus:
     @pytest.mark.asyncio
     async def test_query_response(self):
         """Test query-response pattern."""
-        from jeeves_control_tower.ipc import InMemoryCommBus
+        from control_tower.ipc import InMemoryCommBus
 
         bus = InMemoryCommBus()
 
@@ -85,7 +85,7 @@ class TestInMemoryCommBus:
     @pytest.mark.asyncio
     async def test_send_command(self):
         """Test fire-and-forget command."""
-        from jeeves_control_tower.ipc import InMemoryCommBus
+        from control_tower.ipc import InMemoryCommBus
 
         bus = InMemoryCommBus()
         executed = []
@@ -118,7 +118,7 @@ class TestInMemoryGraphStorage:
 
     def test_import(self):
         """Test that graph storage can be imported."""
-        from jeeves_memory_module.repositories import InMemoryGraphStorage, GraphNode, GraphEdge
+        from memory_module.repositories import InMemoryGraphStorage, GraphNode, GraphEdge
         assert InMemoryGraphStorage is not None
         assert GraphNode is not None
         assert GraphEdge is not None
@@ -126,7 +126,7 @@ class TestInMemoryGraphStorage:
     @pytest.mark.asyncio
     async def test_add_node(self):
         """Test adding a node to the graph."""
-        from jeeves_memory_module.repositories import InMemoryGraphStorage
+        from memory_module.repositories import InMemoryGraphStorage
 
         graph = InMemoryGraphStorage()
         result = await graph.add_node(
@@ -147,7 +147,7 @@ class TestInMemoryGraphStorage:
     @pytest.mark.asyncio
     async def test_add_edge(self):
         """Test adding an edge between nodes."""
-        from jeeves_memory_module.repositories import InMemoryGraphStorage
+        from memory_module.repositories import InMemoryGraphStorage
 
         graph = InMemoryGraphStorage()
 
@@ -166,7 +166,7 @@ class TestInMemoryGraphStorage:
     @pytest.mark.asyncio
     async def test_get_node(self):
         """Test getting a node by ID."""
-        from jeeves_memory_module.repositories import InMemoryGraphStorage
+        from memory_module.repositories import InMemoryGraphStorage
 
         graph = InMemoryGraphStorage()
         await graph.add_node("test:node", "test", {"key": "value"})
@@ -184,7 +184,7 @@ class TestInMemoryGraphStorage:
     @pytest.mark.asyncio
     async def test_get_neighbors(self):
         """Test getting neighbors of a node."""
-        from jeeves_memory_module.repositories import InMemoryGraphStorage
+        from memory_module.repositories import InMemoryGraphStorage
 
         graph = InMemoryGraphStorage()
 
@@ -208,7 +208,7 @@ class TestInMemoryGraphStorage:
     @pytest.mark.asyncio
     async def test_find_path(self):
         """Test finding a path between nodes."""
-        from jeeves_memory_module.repositories import InMemoryGraphStorage
+        from memory_module.repositories import InMemoryGraphStorage
 
         graph = InMemoryGraphStorage()
 
@@ -241,14 +241,14 @@ class TestUUIDGenerator:
 
     def test_import(self):
         """Test that ID generator can be imported."""
-        from jeeves_shared import UUIDGenerator, DeterministicIdGenerator, get_id_generator
+        from shared import UUIDGenerator, DeterministicIdGenerator, get_id_generator
         assert UUIDGenerator is not None
         assert DeterministicIdGenerator is not None
         assert get_id_generator is not None
 
     def test_generate(self):
         """Test generating a UUID."""
-        from jeeves_shared import UUIDGenerator
+        from shared import UUIDGenerator
 
         gen = UUIDGenerator()
         id1 = gen.generate()
@@ -263,7 +263,7 @@ class TestUUIDGenerator:
 
     def test_generate_prefixed(self):
         """Test generating a prefixed ID."""
-        from jeeves_shared import UUIDGenerator
+        from shared import UUIDGenerator
 
         gen = UUIDGenerator()
         id1 = gen.generate_prefixed("req")
@@ -274,7 +274,7 @@ class TestUUIDGenerator:
 
     def test_deterministic_generator(self):
         """Test the deterministic generator for testing."""
-        from jeeves_shared import DeterministicIdGenerator
+        from shared import DeterministicIdGenerator
 
         gen1 = DeterministicIdGenerator(seed="test")
         gen2 = DeterministicIdGenerator(seed="test")
@@ -290,8 +290,8 @@ class TestUUIDGenerator:
 
     def test_protocol_compliance(self):
         """Test that UUIDGenerator implements IdGeneratorProtocol."""
-        from jeeves_shared import UUIDGenerator
-        from jeeves_protocols import IdGeneratorProtocol
+        from shared import UUIDGenerator
+        from protocols import IdGeneratorProtocol
 
         gen = UUIDGenerator()
         assert isinstance(gen, IdGeneratorProtocol)
@@ -307,13 +307,13 @@ class TestPostgresGraphAdapterStructure:
 
     def test_import(self):
         """Test that adapter can be imported."""
-        from jeeves_avionics.database import PostgresGraphAdapter
+        from avionics.database import PostgresGraphAdapter
         assert PostgresGraphAdapter is not None
 
     def test_protocol_compliance(self):
         """Test that adapter implements GraphStorageProtocol."""
-        from jeeves_avionics.database import PostgresGraphAdapter
-        from jeeves_protocols import GraphStorageProtocol
+        from avionics.database import PostgresGraphAdapter
+        from protocols import GraphStorageProtocol
 
         # The adapter should implement the protocol
         # (verified at module load time)

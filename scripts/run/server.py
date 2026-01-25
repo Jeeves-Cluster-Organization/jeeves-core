@@ -67,7 +67,7 @@ if __name__ == "__main__":
     print()
 
     uvicorn.run(
-        "jeeves_mission_system.api.server:app",
+        "mission_system.api.server:app",
         host=os.environ.get('API_HOST', '0.0.0.0'),
         port=int(os.environ.get('API_PORT', '8000')),
         reload=os.environ.get('API_RELOAD', 'false').lower() == 'true',

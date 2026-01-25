@@ -1,10 +1,10 @@
-# jeeves_shared Package
+# shared Package
 
-**Layer**: L0 (Foundation Layer - Alongside jeeves_protocols)
+**Layer**: L0 (Foundation Layer - Alongside protocols)
 
 ## Overview
 
-The `jeeves_shared` package provides common utilities that can be used by all layers without creating circular dependencies. It sits at L0 alongside `jeeves_protocols`.
+The `shared` package provides common utilities that can be used by all layers without creating circular dependencies. It sits at L0 alongside `protocols`.
 
 ## Package Exports
 
@@ -76,12 +76,12 @@ The `jeeves_shared` package provides common utilities that can be used by all la
 
 ## Module Documentation
 
-### Logging (`jeeves_shared.logging`)
+### Logging (`shared.logging`)
 
-Centralized logging infrastructure implementing `LoggerProtocol` from `jeeves_protocols`.
+Centralized logging infrastructure implementing `LoggerProtocol` from `protocols`.
 
 ```python
-from jeeves_shared import configure_logging, create_logger, get_component_logger
+from shared import configure_logging, create_logger, get_component_logger
 
 # Configure at startup
 configure_logging(level="INFO", json_output=True)
@@ -108,8 +108,8 @@ class Logger:
 
 **Request Scope**:
 ```python
-from jeeves_shared import request_scope
-from jeeves_protocols import RequestContext
+from shared import request_scope
+from protocols import RequestContext
 
 ctx = RequestContext(request_id="req-123", user_id="user-456")
 with request_scope(ctx, logger):
@@ -119,12 +119,12 @@ with request_scope(ctx, logger):
 
 ---
 
-### Serialization (`jeeves_shared.serialization`)
+### Serialization (`shared.serialization`)
 
 Datetime, JSON, and UUID serialization utilities.
 
 ```python
-from jeeves_shared import parse_datetime, to_json, from_json, utc_now
+from shared import parse_datetime, to_json, from_json, utc_now
 
 # Parse various datetime formats
 dt = parse_datetime("2025-01-15T10:30:00+00:00")
@@ -142,12 +142,12 @@ now_iso = utc_now_iso()  # "2025-01-15T10:30:00+00:00"
 
 ---
 
-### UUID Utilities (`jeeves_shared.uuid_utils`)
+### UUID Utilities (`shared.uuid_utils`)
 
 Consistent UUID handling across the codebase.
 
 ```python
-from jeeves_shared import uuid_str, uuid_read, UUIDStr
+from shared import uuid_str, uuid_read, UUIDStr
 
 # Universal converter
 session_id = uuid_str("test-session-1")  # Deterministic UUID from string
@@ -168,12 +168,12 @@ class Task(BaseModel):
 
 ---
 
-### ID Generation (`jeeves_shared.id_generator`)
+### ID Generation (`shared.id_generator`)
 
 UUID-based ID generation implementing `IdGeneratorProtocol`.
 
 ```python
-from jeeves_shared import (
+from shared import (
     UUIDGenerator,
     DeterministicIdGenerator,
     get_id_generator,
@@ -205,12 +205,12 @@ gen = get_id_generator()
 
 ---
 
-### Fuzzy Matching (`jeeves_shared.fuzzy_matcher`)
+### Fuzzy Matching (`shared.fuzzy_matcher`)
 
 Multi-strategy fuzzy text matching.
 
 ```python
-from jeeves_shared import FuzzyMatcher, fuzzy_match_score
+from shared import FuzzyMatcher, fuzzy_match_score
 
 # Simple matching
 score = fuzzy_match_score("auth", "authentication")  # 0.0-1.0
@@ -255,12 +255,12 @@ for candidate, score in matches:
 
 ---
 
-### Testing Utilities (`jeeves_shared.testing`)
+### Testing Utilities (`shared.testing`)
 
 Helpers for test suites.
 
 ```python
-from jeeves_shared.testing import is_running_in_docker, parse_postgres_url
+from shared.testing import is_running_in_docker, parse_postgres_url
 
 # Check execution environment
 if is_running_in_docker():
@@ -288,7 +288,7 @@ env = parse_postgres_url(url)
 
 ```python
 # Logging
-from jeeves_shared import (
+from shared import (
     Logger,
     configure_logging,
     create_logger,
@@ -296,7 +296,7 @@ from jeeves_shared import (
 )
 
 # Serialization
-from jeeves_shared import (
+from shared import (
     parse_datetime,
     to_json,
     from_json,
@@ -304,19 +304,19 @@ from jeeves_shared import (
 )
 
 # UUID
-from jeeves_shared import uuid_str, UUIDStr
+from shared import uuid_str, UUIDStr
 
 # ID Generation
-from jeeves_shared import UUIDGenerator, get_id_generator
+from shared import UUIDGenerator, get_id_generator
 
 # Fuzzy Matching
-from jeeves_shared import FuzzyMatcher, fuzzy_match_score
+from shared import FuzzyMatcher, fuzzy_match_score
 ```
 
 ### Full Package Import
 
 ```python
-from jeeves_shared import (
+from shared import (
     # Logging
     Logger,
     configure_logging,
@@ -361,8 +361,8 @@ from jeeves_shared import (
 
 ## Design Principles
 
-1. **Zero Jeeves Dependencies**: Does not import from other Jeeves packages (except `jeeves_protocols`)
-2. **Protocol Compliance**: Implements protocols defined in `jeeves_protocols`
+1. **Zero Jeeves Dependencies**: Does not import from other Jeeves packages (except `protocols`)
+2. **Protocol Compliance**: Implements protocols defined in `protocols`
 3. **Testing Support**: Provides deterministic alternatives for testing
 4. **Type Safety**: Full type annotations with Pydantic integration
 5. **Constitutional Reference**: Follows Contracts C3 (Dependency Injection)

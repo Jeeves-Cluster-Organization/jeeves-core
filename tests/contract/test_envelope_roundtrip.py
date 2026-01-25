@@ -12,9 +12,9 @@ from datetime import datetime, timezone
 
 import pytest
 
-from jeeves_protocols import RequestContext
-from jeeves_protocols.envelope import Envelope
-from jeeves_protocols.enums import TerminalReason
+from protocols import RequestContext
+from protocols.envelope import Envelope
+from protocols.enums import TerminalReason
 
 
 # =============================================================================
@@ -306,7 +306,7 @@ class TestEnvelopeInvariants:
 
     def test_envelope_id_is_unique_format(self):
         """Test envelope ID follows expected format."""
-        from jeeves_protocols.grpc_client import GrpcGoClient
+        from protocols.grpc_client import GrpcGoClient
 
         client = GrpcGoClient()
         envelope = client.create_envelope(

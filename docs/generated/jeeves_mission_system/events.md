@@ -1,6 +1,6 @@
-# jeeves_mission_system.events - Event Integration Layer
+# mission_system.events - Event Integration Layer
 
-**Package:** `jeeves_mission_system.events`  
+**Package:** `mission_system.events`  
 **Purpose:** Event integration between Control Tower and Mission System  
 **Updated:** 2026-01-23
 
@@ -76,7 +76,7 @@ The EventBridge translates kernel events to frontend event formats:
 ### Usage
 
 ```python
-from jeeves_mission_system.events import EventBridge
+from mission_system.events import EventBridge
 
 # Create bridge during server startup
 event_bridge = EventBridge(
@@ -203,7 +203,7 @@ event_bridge.stop()
 
 ## Interrupt Kinds
 
-From `jeeves_protocols`:
+From `protocols`:
 
 | Kind | Value | Description |
 |------|-------|-------------|
@@ -254,7 +254,7 @@ ws.onmessage = (event) => {
 ## All Exports
 
 ```python
-from jeeves_mission_system.events import (
+from mission_system.events import (
     EventBridge,
 )
 ```

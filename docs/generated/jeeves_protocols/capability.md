@@ -1,4 +1,4 @@
-# jeeves_protocols.capability
+# protocols.capability
 
 **Layer**: L0 (Foundation)  
 **Purpose**: Capability Registration Protocols for dynamic resource management
@@ -85,7 +85,7 @@ class CapabilityToolCatalog:
 
 **Example**:
 ```python
-from jeeves_protocols.capability import CapabilityToolCatalog
+from protocols.capability import CapabilityToolCatalog
 
 catalog = CapabilityToolCatalog("code_analysis")
 
@@ -295,7 +295,7 @@ def reset_capability_resource_registry() -> None:
 ### Capability Startup
 
 ```python
-from jeeves_protocols.capability import (
+from protocols.capability import (
     get_capability_resource_registry,
     CapabilityModeConfig,
     CapabilityServiceConfig,
@@ -339,7 +339,7 @@ registry.register_tools("code_analysis", CapabilityToolsConfig(
 ### Infrastructure Query
 
 ```python
-from jeeves_protocols.capability import get_capability_resource_registry
+from protocols.capability import get_capability_resource_registry
 
 registry = get_capability_resource_registry()
 

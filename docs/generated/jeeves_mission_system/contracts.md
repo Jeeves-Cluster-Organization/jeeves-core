@@ -1,6 +1,6 @@
-# jeeves_mission_system.contracts - Contract Definitions
+# mission_system.contracts - Contract Definitions
 
-**Package:** `jeeves_mission_system.contracts`  
+**Package:** `mission_system.contracts`  
 **Purpose:** Type contracts and protocol re-exports for capability integration  
 **Updated:** 2026-01-23
 
@@ -8,7 +8,7 @@
 
 ## Overview
 
-The `contracts` package re-exports core types from `jeeves_protocols` and provides the stable API that capabilities build upon. This is the **canonical import location** for capabilities.
+The `contracts` package re-exports core types from `protocols` and provides the stable API that capabilities build upon. This is the **canonical import location** for capabilities.
 
 ### Architecture
 
@@ -32,7 +32,7 @@ Capabilities → mission_system.contracts (types only)
 
 ### Centralized Agent Architecture
 
-From `jeeves_protocols`:
+From `protocols`:
 
 ```python
 # Agent configuration
@@ -62,7 +62,7 @@ RiskApproval       # Risk approval levels
 
 ### Protocols
 
-From `jeeves_protocols`:
+From `protocols`:
 
 ```python
 # App context protocols
@@ -135,7 +135,7 @@ get_latency_budget
 ### Tool Types
 
 ```python
-ToolCategory       # Tool categorization (from jeeves_protocols)
+ToolCategory       # Tool categorization (from protocols)
 ```
 
 **Note:** `ToolId` and `ToolCatalog` are **capability-owned** and NOT re-exported here.
@@ -148,7 +148,7 @@ ToolCategory       # Tool categorization (from jeeves_protocols)
 
 ```python
 # ✅ CORRECT - Import from contracts
-from jeeves_mission_system.contracts import (
+from mission_system.contracts import (
     AgentConfig,
     PipelineConfig,
     Envelope,
@@ -164,7 +164,7 @@ from jeeves_core_engine import AgentConfig  # WRONG
 ### Creating a Runtime
 
 ```python
-from jeeves_mission_system.contracts import (
+from mission_system.contracts import (
     PipelineConfig,
     AgentConfig,
     Runtime,
@@ -192,7 +192,7 @@ result = await runtime.run(envelope)
 ### Working with Envelope
 
 ```python
-from jeeves_mission_system.contracts import (
+from mission_system.contracts import (
     Envelope,
     create_envelope,
 )

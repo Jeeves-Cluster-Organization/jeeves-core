@@ -1,4 +1,4 @@
-# jeeves_protocols.core
+# protocols.core
 
 **Layer**: L0 (Foundation)  
 **Purpose**: Core enums and constants - mirrors Go definitions
@@ -35,7 +35,7 @@ class RiskLevel(str, Enum):
 
 **Example**:
 ```python
-from jeeves_protocols import RiskLevel
+from protocols import RiskLevel
 
 if RiskLevel.requires_confirmation(RiskLevel.DESTRUCTIVE):
     await request_user_confirmation()
@@ -192,7 +192,7 @@ class OperationResult:
 
 **Example**:
 ```python
-from jeeves_protocols import OperationResult
+from protocols import OperationResult
 
 # Success
 result = OperationResult.success({"items": ["file1.py", "file2.py"]})

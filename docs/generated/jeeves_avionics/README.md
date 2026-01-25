@@ -1,6 +1,6 @@
-# jeeves_avionics - Infrastructure Layer (L3)
+# avionics - Infrastructure Layer (L3)
 
-The `jeeves_avionics` package provides infrastructure services for the Jeeves runtime. This is **Layer 3** (L3) in the system architecture - the infrastructure layer that provides LLM, database, and gateway services.
+The `avionics` package provides infrastructure services for the Jeeves runtime. This is **Layer 3** (L3) in the system architecture - the infrastructure layer that provides LLM, database, and gateway services.
 
 ## Constitutional Reference
 
@@ -12,7 +12,7 @@ The `jeeves_avionics` package provides infrastructure services for the Jeeves ru
 ## Package Overview
 
 ```
-jeeves_avionics/
+avionics/
 ├── __init__.py              # Package entry point
 ├── settings.py              # Infrastructure settings (pydantic-settings)
 ├── feature_flags.py         # Runtime toggles for phased rollout
@@ -97,28 +97,28 @@ jeeves_avionics/
 
 ### From Other Layers
 
-Other layers should import from `jeeves_avionics` for:
+Other layers should import from `avionics` for:
 
 ```python
 # Settings and configuration
-from jeeves_avionics.settings import get_settings, Settings
-from jeeves_avionics.feature_flags import get_feature_flags, FeatureFlags
-from jeeves_avionics.thresholds import PLAN_MIN_CONFIDENCE
+from avionics.settings import get_settings, Settings
+from avionics.feature_flags import get_feature_flags, FeatureFlags
+from avionics.thresholds import PLAN_MIN_CONFIDENCE
 
 # Logging
-from jeeves_avionics.logging import create_logger, configure_logging
+from avionics.logging import create_logger, configure_logging
 
 # Database
-from jeeves_avionics.database import create_database_client
+from avionics.database import create_database_client
 
 # LLM
-from jeeves_avionics.llm import create_llm_provider, LLMGateway
+from avionics.llm import create_llm_provider, LLMGateway
 
 # Tools
-from jeeves_avionics.tools import ToolCatalog, ToolId
+from avionics.tools import ToolCatalog, ToolId
 
 # Context
-from jeeves_avionics.context import AppContext
+from avionics.context import AppContext
 ```
 
 ### Internal Imports
@@ -126,9 +126,9 @@ from jeeves_avionics.context import AppContext
 Within avionics, prefer direct imports:
 
 ```python
-# Within jeeves_avionics/gateway/routers/chat.py
-from jeeves_avionics.gateway.grpc_client import get_grpc_client
-from jeeves_avionics.logging import get_current_logger
+# Within avionics/gateway/routers/chat.py
+from avionics.gateway.grpc_client import get_grpc_client
+from avionics.logging import get_current_logger
 ```
 
 ## Key Concepts
@@ -151,7 +151,7 @@ See [llm.md](./llm.md) for detailed architecture and delegation pattern examples
 
 ### 2. Protocol-Based Design
 
-All implementations follow protocols from `jeeves_protocols`:
+All implementations follow protocols from `protocols`:
 
 - `DatabaseClientProtocol` - Database operations
 - `LLMProviderProtocol` - LLM generation

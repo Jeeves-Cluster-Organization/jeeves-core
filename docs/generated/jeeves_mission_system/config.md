@@ -1,6 +1,6 @@
-# jeeves_mission_system.config - Configuration Types
+# mission_system.config - Configuration Types
 
-**Package:** `jeeves_mission_system.config`  
+**Package:** `mission_system.config`  
 **Purpose:** Generic configuration mechanisms and agent profiles  
 **Updated:** 2026-01-23
 
@@ -86,7 +86,7 @@ class AgentProfile:
 **Usage:**
 
 ```python
-from jeeves_mission_system.config import AgentProfile, LLMProfile, ThresholdProfile
+from mission_system.config import AgentProfile, LLMProfile, ThresholdProfile
 
 AGENT_PROFILES = {
     "planner": AgentProfile(
@@ -147,7 +147,7 @@ class ConfigRegistry:
 **Usage:**
 
 ```python
-from jeeves_mission_system.config import ConfigRegistry, ConfigKeys
+from mission_system.config import ConfigRegistry, ConfigKeys
 
 # At capability bootstrap
 registry = ConfigRegistry()
@@ -203,7 +203,7 @@ AGENT_COUNT = 7
 ### Fuzzy Matching
 
 ```python
-FUZZY_MATCH_THRESHOLD = 0.8  # from jeeves_avionics/thresholds.py
+FUZZY_MATCH_THRESHOLD = 0.8  # from avionics/thresholds.py
 FUZZY_MATCH_CONFIDENCE_THRESHOLD = 0.7
 FUZZY_MATCH_SUBSTRING_WEIGHT = 1.0
 FUZZY_MATCH_WORD_OVERLAP_WEIGHT = 0.9
@@ -242,7 +242,7 @@ TOOL_EXECUTION_TIMEOUT = 60
 ### Error Handling
 
 ```python
-MAX_RETRY_ATTEMPTS = 3  # from jeeves_avionics/thresholds.py
+MAX_RETRY_ATTEMPTS = 3  # from avionics/thresholds.py
 RETRY_BACKOFF_MULTIPLIER = 2.0
 RETRY_INITIAL_DELAY = 1.0
 ```
@@ -278,7 +278,7 @@ from my_capability.config import (
 )
 
 # ❌ INCORRECT - Domain configs do not belong in mission_system
-from jeeves_mission_system.config.domain_config import DomainConfig  # WRONG
+from mission_system.config.domain_config import DomainConfig  # WRONG
 ```
 
 ---
@@ -286,7 +286,7 @@ from jeeves_mission_system.config.domain_config import DomainConfig  # WRONG
 ## All Exports
 
 ```python
-from jeeves_mission_system.config import (
+from mission_system.config import (
     # Platform Identity
     PLATFORM_NAME,
     PLATFORM_VERSION,

@@ -1,6 +1,6 @@
-# jeeves_mission_system - Application Layer (L4)
+# mission_system - Application Layer (L4)
 
-**Package:** `jeeves_mission_system`  
+**Package:** `mission_system`  
 **Layer:** Application Layer (L4)  
 **Version:** 4.0.0  
 **Updated:** 2026-01-23
@@ -9,20 +9,20 @@
 
 ## Overview
 
-The `jeeves_mission_system` package is the **Application Layer** of the Jeeves runtime. It provides the orchestration framework, API endpoints, and foundational infrastructure that capabilities build upon.
+The `mission_system` package is the **Application Layer** of the Jeeves runtime. It provides the orchestration framework, API endpoints, and foundational infrastructure that capabilities build upon.
 
 ### Position in Architecture
 
 ```
 Capability Layer (external)       →  Domain-specific capabilities (e.g., code analysis)
         ↓
-jeeves_mission_system/            →  Application layer (THIS)
+mission_system/            →  Application layer (THIS)
         ↓
-jeeves_avionics/                  →  Infrastructure (database, LLM, gateway)
+avionics/                  →  Infrastructure (database, LLM, gateway)
         ↓
-jeeves_control_tower/             →  Kernel layer (lifecycle, resources, IPC)
+control_tower/             →  Kernel layer (lifecycle, resources, IPC)
         ↓
-jeeves_protocols/, jeeves_shared/ →  Foundation (L0)
+protocols/, shared/ →  Foundation (L0)
         ↓
 commbus/, coreengine/             →  Go core
 ```
@@ -96,7 +96,7 @@ Perception → Intent → Planner → Traverser → Synthesizer → Critic ─�
 ### From `api/__init__.py`
 
 ```python
-from jeeves_mission_system.api import (
+from mission_system.api import (
     MissionRuntime,
     create_mission_runtime,
     ConfigRegistry,
@@ -106,7 +106,7 @@ from jeeves_mission_system.api import (
 ### From `contracts/__init__.py`
 
 ```python
-from jeeves_mission_system.contracts import (
+from mission_system.contracts import (
     # Centralized Agent Architecture
     AgentConfig, PipelineConfig, RoutingRule, ToolAccess,
     Agent, Runtime, create_pipeline_runner,
@@ -123,7 +123,7 @@ from jeeves_mission_system.contracts import (
 ### From `orchestrator/__init__.py`
 
 ```python
-from jeeves_mission_system.orchestrator import (
+from mission_system.orchestrator import (
     EventOrchestrator,
     create_event_orchestrator,
     AgentEventType,
@@ -142,16 +142,16 @@ from jeeves_mission_system.orchestrator import (
 
 ### Mission System MAY Import
 
-- ✅ `jeeves_protocols` - Protocol definitions, types
-- ✅ `jeeves_shared` - Shared utilities (logging, serialization)
-- ✅ `jeeves_avionics` - Infrastructure layer
-- ✅ `jeeves_control_tower` - Kernel layer
+- ✅ `protocols` - Protocol definitions, types
+- ✅ `shared` - Shared utilities (logging, serialization)
+- ✅ `avionics` - Infrastructure layer
+- ✅ `control_tower` - Kernel layer
 
 ### Mission System MUST NOT Be Imported By
 
 - ❌ `coreengine` (core is standalone Go)
-- ❌ `jeeves_avionics` (one-way dependency)
-- ❌ `jeeves_control_tower` (one-way dependency)
+- ❌ `avionics` (one-way dependency)
+- ❌ `control_tower` (one-way dependency)
 
 ### Capabilities MUST
 
@@ -224,9 +224,9 @@ Capabilities define their own tool sets. The runtime provides:
 
 ## Related Documents
 
-- [CONSTITUTION.md](../../../jeeves_mission_system/CONSTITUTION.md) - Full constitutional rules
-- [ARCHITECTURE_DIAGRAM.md](../../../jeeves_mission_system/ARCHITECTURE_DIAGRAM.md) - Visual architecture
-- [INDEX.md](../../../jeeves_mission_system/INDEX.md) - Directory index
+- [CONSTITUTION.md](../../../mission_system/CONSTITUTION.md) - Full constitutional rules
+- [ARCHITECTURE_DIAGRAM.md](../../../mission_system/ARCHITECTURE_DIAGRAM.md) - Visual architecture
+- [INDEX.md](../../../mission_system/INDEX.md) - Directory index
 
 ---
 

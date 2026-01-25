@@ -2,7 +2,7 @@
 
 **Layer:** L4 - Working Memory  
 **Scope:** Per-session state  
-**Location:** `jeeves_memory_module/repositories/session_state_repository.py`, `jeeves_memory_module/services/session_state_service.py`, `jeeves_memory_module/services/session_state_adapter.py`
+**Location:** `memory_module/repositories/session_state_repository.py`, `memory_module/services/session_state_service.py`, `memory_module/services/session_state_adapter.py`
 
 ---
 
@@ -411,7 +411,7 @@ The adapter converts between Core's `FocusType` enum and Avionics focus type str
 ### Basic Session Management
 
 ```python
-from jeeves_memory_module.services.session_state_service import SessionStateService
+from memory_module.services.session_state_service import SessionStateService
 
 service = SessionStateService(db)
 
@@ -441,7 +441,7 @@ await service.record_entity_reference(
 ### Using the Protocol Adapter
 
 ```python
-from jeeves_memory_module.services.session_state_adapter import SessionStateAdapter
+from memory_module.services.session_state_adapter import SessionStateAdapter
 
 adapter = SessionStateAdapter(db)
 
@@ -454,7 +454,7 @@ print(memory.turn_count)        # 0
 print(memory.referenced_entities)  # []
 
 # Update via protocol
-from jeeves_protocols import FocusState, FocusType
+from protocols import FocusState, FocusType
 focus = FocusState(focus_type=FocusType.TASK, focus_id="task-789")
 await adapter.update_focus("sess-123", focus)
 ```
@@ -506,7 +506,7 @@ CREATE INDEX idx_session_state_user ON session_state(user_id);
 
 ## Clarification Handling Note
 
-**Unified Interrupt System (v4.0):** Clarification and confirmation methods have been removed from SessionStateService. All interrupt-related functionality is now handled by `jeeves_control_tower.services.InterruptService`.
+**Unified Interrupt System (v4.0):** Clarification and confirmation methods have been removed from SessionStateService. All interrupt-related functionality is now handled by `control_tower.services.InterruptService`.
 
 ---
 

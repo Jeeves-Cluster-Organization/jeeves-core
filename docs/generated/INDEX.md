@@ -49,12 +49,12 @@ This documentation provides a comprehensive guide to understanding the jeeves-co
 
 | Module | Layer | Description | Documentation |
 |--------|-------|-------------|---------------|
-| **jeeves_protocols** | L0 | Type contracts, protocols, enums | [README](jeeves_protocols/README.md) |
-| **jeeves_shared** | L0 | Shared utilities (UUID, logging, serialization) | [README](jeeves_shared/README.md) |
-| **jeeves_control_tower** | L1 | OS-like kernel (lifecycle, resources, IPC) | [README](jeeves_control_tower/README.md) |
-| **jeeves_memory_module** | L2 | Memory services (events, semantic, session) | [README](jeeves_memory_module/README.md) |
-| **jeeves_avionics** | L3 | Infrastructure (LLM, DB, Gateway, Tools) | [README](jeeves_avionics/README.md) |
-| **jeeves_mission_system** | L4 | Orchestration framework, API, contracts | [README](jeeves_mission_system/README.md) |
+| **protocols** | L0 | Type contracts, protocols, enums | [README](protocols/README.md) |
+| **shared** | L0 | Shared utilities (UUID, logging, serialization) | [README](shared/README.md) |
+| **control_tower** | L1 | OS-like kernel (lifecycle, resources, IPC) | [README](control_tower/README.md) |
+| **memory_module** | L2 | Memory services (events, semantic, session) | [README](memory_module/README.md) |
+| **avionics** | L3 | Infrastructure (LLM, DB, Gateway, Tools) | [README](avionics/README.md) |
+| **mission_system** | L4 | Orchestration framework, API, contracts | [README](mission_system/README.md) |
 
 ---
 
@@ -69,7 +69,7 @@ This documentation provides a comprehensive guide to understanding the jeeves-co
                                     │
                                     ▼
 ┌─────────────────────────────────────────────────────────────────────────────┐
-│  L4: jeeves_mission_system        │  Application Layer                      │
+│  L4: mission_system        │  Application Layer                      │
 │  ┌─────────────┐ ┌──────────────┐ │  - Orchestration framework              │
 │  │ Orchestrator│ │  REST API    │ │  - HTTP/gRPC endpoints                  │
 │  └─────────────┘ └──────────────┘ │  - Capability registration              │
@@ -78,7 +78,7 @@ This documentation provides a comprehensive guide to understanding the jeeves-co
                     ┌───────────────┴───────────────┐
                     ▼                               ▼
 ┌───────────────────────────────┐   ┌─────────────────────────────────────────┐
-│  L1: jeeves_control_tower     │   │  L3: jeeves_avionics                    │
+│  L1: control_tower     │   │  L3: avionics                    │
 │  ┌─────────┐ ┌─────────────┐  │   │  ┌─────────┐ ┌──────┐ ┌─────────────┐  │
 │  │ Kernel  │ │ Lifecycle   │  │   │  │ Gateway │ │ LLM  │ │  Database   │  │
 │  └─────────┘ └─────────────┘  │   │  └─────────┘ └──────┘ └─────────────┘  │
@@ -90,7 +90,7 @@ This documentation provides a comprehensive guide to understanding the jeeves-co
                     └───────────────┬───────────────┘
                                     ▼
 ┌─────────────────────────────────────────────────────────────────────────────┐
-│  L2: jeeves_memory_module                                                   │
+│  L2: memory_module                                                   │
 │  ┌─────────────┐ ┌───────────────┐ ┌─────────────┐ ┌──────────────────────┐ │
 │  │Event Source │ │Semantic Memory│ │Session State│ │   Tool Health        │ │
 │  └─────────────┘ └───────────────┘ └─────────────┘ └──────────────────────┘ │
@@ -98,7 +98,7 @@ This documentation provides a comprehensive guide to understanding the jeeves-co
                                     │
                                     ▼
 ┌─────────────────────────────────────────────────────────────────────────────┐
-│  L0: jeeves_protocols + jeeves_shared     │  Foundation Layer               │
+│  L0: protocols + shared     │  Foundation Layer               │
 │  ┌───────────────┐ ┌──────────────┐ ┌───────────────┐ ┌──────────────────┐  │
 │  │  Protocols    │ │    Enums     │ │  Dataclasses  │ │    Utilities     │  │
 │  └───────────────┘ └──────────────┘ └───────────────┘ └──────────────────┘  │
@@ -360,8 +360,8 @@ def process(logger: StructLogger, llm: OpenAIProvider): ...
 
 ```python
 # 1. Define your capability's wiring
-from jeeves_protocols import get_capability_resource_registry, CapabilityModeConfig
-from jeeves_avionics.capability_registry import get_capability_registry
+from protocols import get_capability_resource_registry, CapabilityModeConfig
+from avionics.capability_registry import get_capability_registry
 
 def register_capability():
     # Register mode
@@ -380,7 +380,7 @@ def register_capability():
 async def main():
     register_capability()  # FIRST
     
-    from jeeves_mission_system.adapters import get_logger
+    from mission_system.adapters import get_logger
     logger = get_logger()
     
     await start_server()
@@ -416,12 +416,12 @@ PIPELINE = PipelineConfig(
 
 | Document | Topics |
 |----------|--------|
-| [jeeves_protocols/README.md](jeeves_protocols/README.md) | L0 foundation, type contracts |
-| [jeeves_shared/README.md](jeeves_shared/README.md) | Utilities, UUID, serialization |
-| [jeeves_control_tower/README.md](jeeves_control_tower/README.md) | Kernel, lifecycle, resources, IPC |
-| [jeeves_avionics/README.md](jeeves_avionics/README.md) | Infrastructure, gateway, LLM, database |
-| [jeeves_memory_module/README.md](jeeves_memory_module/README.md) | Memory layers, event sourcing, semantic |
-| [jeeves_mission_system/README.md](jeeves_mission_system/README.md) | Orchestration, API, contracts |
+| [protocols/README.md](protocols/README.md) | L0 foundation, type contracts |
+| [shared/README.md](shared/README.md) | Utilities, UUID, serialization |
+| [control_tower/README.md](control_tower/README.md) | Kernel, lifecycle, resources, IPC |
+| [avionics/README.md](avionics/README.md) | Infrastructure, gateway, LLM, database |
+| [memory_module/README.md](memory_module/README.md) | Memory layers, event sourcing, semantic |
+| [mission_system/README.md](mission_system/README.md) | Orchestration, API, contracts |
 
 ---
 

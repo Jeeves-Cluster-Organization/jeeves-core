@@ -27,49 +27,49 @@ from typing import Set, List, Tuple
 
 LAYER_HIERARCHY = {
     # Layer 4: Application (can import from L3, L2, L1, L0)
-    "jeeves_mission_system": {
+    "mission_system": {
         "level": 4,
         "allowed": [
-            "jeeves_avionics",
-            "jeeves_memory_module", 
-            "jeeves_control_tower",
-            "jeeves_protocols",
-            "jeeves_shared",
+            "avionics",
+            "memory_module", 
+            "control_tower",
+            "protocols",
+            "shared",
         ],
     },
     # Layer 3: Infrastructure (can import from L2, L1, L0)
-    "jeeves_avionics": {
+    "avionics": {
         "level": 3,
         "allowed": [
-            "jeeves_memory_module",
-            "jeeves_control_tower",
-            "jeeves_protocols",
-            "jeeves_shared",
+            "memory_module",
+            "control_tower",
+            "protocols",
+            "shared",
         ],
     },
     # Layer 2: Memory (can import from L1, L0)
-    "jeeves_memory_module": {
+    "memory_module": {
         "level": 2,
         "allowed": [
-            "jeeves_control_tower",
-            "jeeves_protocols",
-            "jeeves_shared",
+            "control_tower",
+            "protocols",
+            "shared",
         ],
     },
     # Layer 1: Kernel (can import from L0 only)
-    "jeeves_control_tower": {
+    "control_tower": {
         "level": 1,
         "allowed": [
-            "jeeves_protocols",
-            "jeeves_shared",
+            "protocols",
+            "shared",
         ],
     },
     # Layer 0: Foundation (no internal deps)
-    "jeeves_protocols": {
+    "protocols": {
         "level": 0,
-        "allowed": ["jeeves_shared"],
+        "allowed": ["shared"],
     },
-    "jeeves_shared": {
+    "shared": {
         "level": 0,
         "allowed": [],
     },
@@ -151,18 +151,18 @@ class TestLayerBoundariesStatic:
     def test_jeeves_protocols_has_no_internal_deps(self):
         """Test that jeeves_protocols doesn't import from other jeeves packages."""
         project_root = Path(__file__).parent.parent.parent
-        protocols_dir = project_root / "jeeves_protocols"
+        protocols_dir = project_root / "protocols"
         
         if not protocols_dir.exists():
-            pytest.skip("jeeves_protocols not found")
+            pytest.skip("protocols not found")
         
         violations = []
         for py_file in protocols_dir.rglob("*.py"):
             imports = get_imports_from_file(py_file)
             for import_path, line in imports:
                 pkg = get_package_name(import_path)
-                # jeeves_protocols can only import from jeeves_shared
-                if pkg in JEEVES_PACKAGES and pkg != "jeeves_protocols" and pkg != "jeeves_shared":
+                # jeeves_protocols can only import from shared
+                if pkg in JEEVES_PACKAGES and pkg != "protocols" and pkg != "shared":
                     violations.append(
                         f"{py_file.relative_to(project_root)}:{line} imports {import_path}"
                     )
@@ -172,13 +172,13 @@ class TestLayerBoundariesStatic:
     def test_jeeves_control_tower_respects_layer(self):
         """Test that jeeves_control_tower only imports from L0."""
         project_root = Path(__file__).parent.parent.parent
-        control_tower_dir = project_root / "jeeves_control_tower"
+        control_tower_dir = project_root / "control_tower"
         
         if not control_tower_dir.exists():
-            pytest.skip("jeeves_control_tower not found")
+            pytest.skip("control_tower not found")
         
         violations = []
-        allowed = {"jeeves_protocols", "jeeves_shared", "jeeves_control_tower"}
+        allowed = {"protocols", "shared", "control_tower"}
         
         for py_file in control_tower_dir.rglob("*.py"):
             imports = get_imports_from_file(py_file)
@@ -192,15 +192,15 @@ class TestLayerBoundariesStatic:
         assert len(violations) == 0, f"Layer violations found:\n" + "\n".join(violations)
 
     def test_jeeves_avionics_respects_layer(self):
-        """Test that jeeves_avionics doesn't import from jeeves_mission_system."""
+        """Test that jeeves_avionics doesn't import from mission_system."""
         project_root = Path(__file__).parent.parent.parent
-        avionics_dir = project_root / "jeeves_avionics"
+        avionics_dir = project_root / "avionics"
         
         if not avionics_dir.exists():
-            pytest.skip("jeeves_avionics not found")
+            pytest.skip("avionics not found")
         
         violations = []
-        forbidden = {"jeeves_mission_system"}
+        forbidden = {"mission_system"}
         
         for py_file in avionics_dir.rglob("*.py"):
             imports = get_imports_from_file(py_file)
@@ -221,24 +221,24 @@ class TestLayerBoundariesRuntime:
         """Test that jeeves_protocols can be imported without other packages."""
         # This should work because protocols has no internal deps
         try:
-            import jeeves_protocols
+            import protocols
             assert True
         except ImportError as e:
-            pytest.fail(f"jeeves_protocols could not be imported: {e}")
+            pytest.fail(f"protocols could not be imported: {e}")
 
     def test_shared_can_be_imported_standalone(self):
         """Test that jeeves_shared can be imported without other packages."""
         try:
-            import jeeves_shared
+            import shared
             assert True
         except ImportError as e:
-            pytest.fail(f"jeeves_shared could not be imported: {e}")
+            pytest.fail(f"shared could not be imported: {e}")
 
     def test_control_tower_imports_only_from_l0(self):
         """Test that control_tower modules import correctly."""
         try:
-            from jeeves_control_tower import kernel
-            from jeeves_control_tower.types import ResourceQuota
+            from control_tower import kernel
+            from control_tower.types import ResourceQuota
             assert True
         except ImportError as e:
             pytest.fail(f"Control tower import failed: {e}")
@@ -253,16 +253,16 @@ class TestCrossLayerContracts:
 
     def test_envelope_type_same_across_layers(self):
         """Test that Envelope is the same type everywhere."""
-        from jeeves_protocols import Envelope as ProtocolEnvelope
-        from jeeves_protocols.envelope import Envelope as EnvelopeModule
+        from protocols import Envelope as ProtocolEnvelope
+        from protocols.envelope import Envelope as EnvelopeModule
         
         # Should be the exact same class
         assert ProtocolEnvelope is EnvelopeModule
 
     def test_terminal_reason_enum_consistent(self):
         """Test that TerminalReason enum is consistent."""
-        from jeeves_protocols import TerminalReason as ProtocolReason
-        from jeeves_protocols.enums import TerminalReason as CoreReason
+        from protocols import TerminalReason as ProtocolReason
+        from protocols.enums import TerminalReason as CoreReason
         
         # Should be the exact same enum
         assert ProtocolReason is CoreReason
@@ -282,8 +282,8 @@ class TestCrossLayerContracts:
 
     def test_logger_protocol_consistent(self):
         """Test that LoggerProtocol is consistent across layers."""
-        from jeeves_protocols import LoggerProtocol as ProtocolLogger
-        from jeeves_protocols.protocols import LoggerProtocol as ModuleLogger
+        from protocols import LoggerProtocol as ProtocolLogger
+        from protocols.protocols import LoggerProtocol as ModuleLogger
         
         assert ProtocolLogger is ModuleLogger
 
@@ -298,20 +298,20 @@ class TestNoCyclicImports:
     def test_no_cycle_protocols_to_control_tower(self):
         """Test no cycle between protocols and control_tower."""
         # If this import works without hanging, no cycle exists
-        from jeeves_protocols import Envelope
-        from jeeves_control_tower.kernel import ControlTower
+        from protocols import Envelope
+        from control_tower.kernel import ControlTower
         assert True
 
     def test_no_cycle_control_tower_to_avionics(self):
         """Test no cycle between control_tower and avionics."""
-        from jeeves_control_tower.types import ResourceQuota
+        from control_tower.types import ResourceQuota
         # Avionics can import from control_tower
         # Control tower should not import from avionics
         assert True
 
     def test_no_cycle_avionics_to_mission_system(self):
         """Test no cycle between avionics and mission_system."""
-        from jeeves_avionics.settings import Settings
+        from avionics.settings import Settings
         # Mission system can import from avionics
         # Avionics should not import from mission_system
         assert True

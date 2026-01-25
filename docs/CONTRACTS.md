@@ -13,19 +13,19 @@ The codebase follows a strict layered architecture where each layer may only dep
 
 ```
 ┌─────────────────────────────────────────────────────────────────┐
-│ L4: jeeves_mission_system                                       │
+│ L4: mission_system                                       │
 │     (API layer - orchestration, services, adapters)             │
 ├─────────────────────────────────────────────────────────────────┤
-│ L3: jeeves_avionics                                             │
+│ L3: avionics                                             │
 │     (Infrastructure - LLM, DB, Gateway, Observability)          │
 ├─────────────────────────────────────────────────────────────────┤
-│ L2: jeeves_memory_module                                        │
+│ L2: memory_module                                        │
 │     (Event sourcing, semantic memory, repositories)             │
 ├─────────────────────────────────────────────────────────────────┤
-│ L1: jeeves_control_tower                                        │
+│ L1: control_tower                                        │
 │     (OS-like kernel - process lifecycle, resources, IPC)        │
 ├─────────────────────────────────────────────────────────────────┤
-│ L0: jeeves_shared, jeeves_protocols                             │
+│ L0: shared, protocols                             │
 │     (Zero dependencies - types, utilities, protocols)           │
 └─────────────────────────────────────────────────────────────────┘
 ```
@@ -43,14 +43,14 @@ The codebase follows a strict layered architecture where each layer may only dep
 ### Documented Exceptions
 
 **Memory Module → Avionics (L2 → L3):**
-The Memory Module CONSTITUTION explicitly allows importing from `jeeves_avionics.database.factory` for database connection pooling. This is a controlled exception because:
+The Memory Module CONSTITUTION explicitly allows importing from `avionics.database.factory` for database connection pooling. This is a controlled exception because:
 - Database connection management requires avionics infrastructure
 - The import is limited to factory functions, not domain logic
 - Memory Module implementations need database access for persistence
 
 ```python
-# Allowed exception per jeeves_memory_module/CONSTITUTION.md
-from jeeves_avionics.database.factory import get_async_pool
+# Allowed exception per memory_module/CONSTITUTION.md
+from avionics.database.factory import get_async_pool
 ```
 
 ---
@@ -58,7 +58,7 @@ from jeeves_avionics.database.factory import get_async_pool
 ## Contract 1: Protocol-Based State Management
 
 ### Rule
-All state transitions in `jeeves_control_tower` MUST go through the appropriate manager protocols.
+All state transitions in `control_tower` MUST go through the appropriate manager protocols.
 
 ### Rationale
 Direct state manipulation bypasses validation, logging, and event emission built into managers.
@@ -103,7 +103,7 @@ def _set_otel_enabled(value: bool) -> None:
 ```
 
 ### Affected Modules
-- `jeeves_avionics/logging/__init__.py` - OTEL state, active spans
+- `avionics/logging/__init__.py` - OTEL state, active spans
 
 ---
 
@@ -121,13 +121,13 @@ Single access point for infrastructure services enables:
 ### Pattern
 ```python
 # CORRECT: Access via adapters
-from jeeves_mission_system.adapters import get_logger, get_settings
+from mission_system.adapters import get_logger, get_settings
 
 logger = get_logger()
 settings = get_settings()
 
 # INCORRECT: Direct avionics import in apps
-from jeeves_avionics.logging import get_current_logger  # DO NOT DO THIS IN APPS
+from avionics.logging import get_current_logger  # DO NOT DO THIS IN APPS
 ```
 
 ### Architecture Enforcement
@@ -151,7 +151,7 @@ from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
     # CORRECT: Absolute imports
-    from jeeves_mission_system.orchestrator.agent_events import EventEmitter
+    from mission_system.orchestrator.agent_events import EventEmitter
 
     # INCORRECT: Relative imports
     # from orchestrator.agent_events import EventEmitter
@@ -162,7 +162,7 @@ if TYPE_CHECKING:
 ## Contract 5: Single Source for Protocols
 
 ### Rule
-Each protocol MUST be defined in exactly one place within `jeeves_protocols`.
+Each protocol MUST be defined in exactly one place within `protocols`.
 
 ### Rationale
 Duplicate protocol definitions lead to:
@@ -173,11 +173,11 @@ Duplicate protocol definitions lead to:
 ### Canonical Locations
 | Protocol | Location |
 |----------|----------|
-| `LoggerProtocol` | `jeeves_protocols/protocols.py` |
-| `LLMProviderProtocol` | `jeeves_protocols/protocols.py` |
-| `PersistenceProtocol` | `jeeves_protocols/protocols.py` |
-| `ToolRegistryProtocol` | `jeeves_protocols/protocols.py` |
-| `SettingsProtocol` | `jeeves_protocols/protocols.py` |
+| `LoggerProtocol` | `protocols/protocols.py` |
+| `LLMProviderProtocol` | `protocols/protocols.py` |
+| `PersistenceProtocol` | `protocols/protocols.py` |
+| `ToolRegistryProtocol` | `protocols/protocols.py` |
+| `SettingsProtocol` | `protocols/protocols.py` |
 
 ---
 
@@ -288,15 +288,15 @@ class ToolId(str, Enum):
     READ_CODE = "read_code"
 
 # ❌ INCORRECT - ToolId in avionics (removed)
-# from jeeves_avionics.tools.catalog import ToolId  # NO LONGER EXISTS
+# from avionics.tools.catalog import ToolId  # NO LONGER EXISTS
 
 # ❌ INCORRECT - ToolId re-exported from contracts_core
-# from jeeves_mission_system.contracts_core import ToolId  # REMOVED
+# from mission_system.contracts_core import ToolId  # REMOVED
 ```
 
 ### Affected Components
-- `jeeves_avionics.tools.catalog` - Still provides generic ToolCategory, ToolDefinition
-- `jeeves_mission_system.contracts_core` - No longer exports ToolId, ToolCatalog
+- `avionics.tools.catalog` - Still provides generic ToolCategory, ToolDefinition
+- `mission_system.contracts_core` - No longer exports ToolId, ToolCatalog
 - Capability `tools/catalog.py` - Defines capability-specific ToolId enum
 
 ---
@@ -347,8 +347,8 @@ def test_flow_interrupt_typing():
 
 ### Affected Components
 - `coreengine/envelope/envelope.go` - Go envelope
-- `jeeves_protocols/envelope.py` - Python envelope
-- `jeeves_protocols/grpc_client.py` - gRPC client (to be implemented)
+- `protocols/envelope.py` - Python envelope
+- `protocols/grpc_client.py` - gRPC client (to be implemented)
 
 ---
 
@@ -380,7 +380,7 @@ func (e *Envelope) CanContinue() bool {
 ```
 
 ```python
-# Python: post-hoc audit (jeeves_control_tower/kernel.py)
+# Python: post-hoc audit (control_tower/kernel.py)
 quota_exceeded = self._resources.check_quota(pid)
 if quota_exceeded:
     # This should NEVER happen if Go enforced correctly

@@ -1,4 +1,4 @@
-# jeeves_protocols.interrupts
+# protocols.interrupts
 
 **Layer**: L0 (Foundation)  
 **Purpose**: Interrupt types and protocols for flow control
@@ -110,7 +110,7 @@ class FlowInterrupt:
 
 **Example**:
 ```python
-from jeeves_protocols import FlowInterrupt, InterruptKind
+from protocols import FlowInterrupt, InterruptKind
 
 # Create clarification interrupt
 interrupt = FlowInterrupt(
@@ -224,7 +224,7 @@ class RateLimitResult:
 
 **Example**:
 ```python
-from jeeves_protocols import RateLimitResult
+from protocols import RateLimitResult
 
 # Request allowed
 result = RateLimitResult.ok(remaining=55)
@@ -275,7 +275,7 @@ class RateLimiterProtocol(Protocol):
 ### Creating and Responding to Interrupts
 
 ```python
-from jeeves_protocols import (
+from protocols import (
     FlowInterrupt,
     InterruptKind,
     InterruptResponse,
@@ -311,7 +311,7 @@ if resolved.response.text:
 ### Rate Limiting
 
 ```python
-from jeeves_protocols import RateLimitConfig, RateLimiterProtocol
+from protocols import RateLimitConfig, RateLimiterProtocol
 
 # Configure limits for a user
 config = RateLimitConfig(

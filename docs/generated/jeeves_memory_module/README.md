@@ -2,7 +2,7 @@
 
 **Layer:** L2 (Memory Services)  
 **Updated:** 2026-01-23  
-**Constitution:** `jeeves_memory_module/CONSTITUTION.md`
+**Constitution:** `memory_module/CONSTITUTION.md`
 
 ---
 
@@ -24,15 +24,15 @@ The Jeeves Memory Module provides comprehensive memory services (L1-L7) for the 
 ## Constitutional Hierarchy
 
 ```
-jeeves_protocols/         ← Foundation (protocols, memory types)
+protocols/         ← Foundation (protocols, memory types)
           ↑
-jeeves_shared/            ← Shared utilities (logging, serialization)
+shared/            ← Shared utilities (logging, serialization)
           ↑
-jeeves_memory_module/     ← THIS (memory services, implementations)
+memory_module/     ← THIS (memory services, implementations)
           ↑
-jeeves_avionics/          ← Infrastructure (database factory only)
+avionics/          ← Infrastructure (database factory only)
           ↑
-jeeves_mission_system/    ← Application layer
+mission_system/    ← Application layer
 ```
 
 ---
@@ -54,7 +54,7 @@ jeeves_mission_system/    ← Application layer
 ## Module Structure
 
 ```
-jeeves_memory_module/
+memory_module/
 ├── CONSTITUTION.md          # Constitutional rules and principles
 ├── __init__.py              # Public exports (register_memory_handlers, reset_cached_services)
 ├── manager.py               # MemoryManager facade
@@ -105,7 +105,7 @@ jeeves_memory_module/
 ### Handler Registration
 
 ```python
-from jeeves_memory_module import register_memory_handlers
+from memory_module import register_memory_handlers
 
 # In application startup
 register_memory_handlers(
@@ -118,7 +118,7 @@ register_memory_handlers(
 ### Using MemoryManager
 
 ```python
-from jeeves_memory_module.manager import MemoryManager
+from memory_module.manager import MemoryManager
 
 manager = MemoryManager(
     sql_adapter=sql_adapter,
@@ -145,18 +145,18 @@ results = await manager.read(
 
 ## Core Principles
 
-### P1: Memory Types in jeeves_protocols
+### P1: Memory Types in protocols
 
-All memory types are defined in `jeeves_protocols/memory.py`:
+All memory types are defined in `protocols/memory.py`:
 - `WorkingMemory` - Session-level cognitive state
 - `FocusState` / `FocusType` - Focus tracking
 - `EntityRef` - Entity reference tracking
 - `MemoryItem` - Generic memory item
 - `Finding` - Exploration finding
 
-### P2: Memory Protocols in jeeves_protocols
+### P2: Memory Protocols in protocols
 
-Memory protocols are defined in `jeeves_protocols/protocols.py`:
+Memory protocols are defined in `protocols/protocols.py`:
 - `MemoryServiceProtocol` - CRUD + search operations
 - `SemanticSearchProtocol` - Embedding-based search
 - `SessionStateProtocol` - Session state management
@@ -183,19 +183,19 @@ Memory operations publish events via CommBus for observability:
 ### ALLOWED Dependencies
 
 ```python
-from jeeves_protocols import WorkingMemory, Finding, DatabaseClientProtocol
-from jeeves_shared import create_logger, to_json, uuid_str
-from jeeves_avionics.database.factory import create_database_client
+from protocols import WorkingMemory, Finding, DatabaseClientProtocol
+from shared import create_logger, to_json, uuid_str
+from avionics.database.factory import create_database_client
 ```
 
 ### FORBIDDEN Dependencies
 
 ```
-jeeves_memory_module ✗→ jeeves_avionics.database.postgres_client
-jeeves_memory_module ✗→ jeeves_avionics.llm/*
-jeeves_memory_module ✗→ jeeves_mission_system
-jeeves_memory_module ✗→ jeeves-capability-*
-jeeves_memory_module ✗→ jeeves_control_tower
+memory_module ✗→ avionics.database.postgres_client
+memory_module ✗→ avionics.llm/*
+memory_module ✗→ mission_system
+memory_module ✗→ jeeves-capability-*
+memory_module ✗→ control_tower
 ```
 
 ---
@@ -221,9 +221,9 @@ jeeves_memory_module ✗→ jeeves_control_tower
 
 ```bash
 # Run memory module tests
-pytest jeeves-core/jeeves_memory_module/tests/ -v
+pytest jeeves-core/memory_module/tests/ -v
 
 # Run specific layer tests
-pytest jeeves-core/jeeves_memory_module/tests/unit/repositories/ -v
-pytest jeeves-core/jeeves_memory_module/tests/unit/services/ -v
+pytest jeeves-core/memory_module/tests/unit/repositories/ -v
+pytest jeeves-core/memory_module/tests/unit/services/ -v
 ```

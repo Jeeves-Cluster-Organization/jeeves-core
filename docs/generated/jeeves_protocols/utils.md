@@ -1,4 +1,4 @@
-# jeeves_protocols.utils
+# protocols.utils
 
 **Layer**: L0 (Foundation)  
 **Purpose**: JSON repair, string normalization, datetime helpers
@@ -7,7 +7,7 @@
 
 This module provides utility functions and classes for common operations. These utilities are L0-safe with no dependencies on other Jeeves packages.
 
-Note: Datetime utilities (`utc_now`, `utc_now_iso`) are also available in `jeeves_shared`. Having them here allows `jeeves_protocols` to remain at L0 without depending on `jeeves_shared`.
+Note: Datetime utilities (`utc_now`, `utc_now_iso`) are also available in `shared`. Having them here allows `protocols` to remain at L0 without depending on `shared`.
 
 ---
 
@@ -42,7 +42,7 @@ Extracts JSON from text that may contain markdown code blocks or other content.
 
 **Example**:
 ```python
-from jeeves_protocols import JSONRepairKit
+from protocols import JSONRepairKit
 
 # Extract from markdown
 text = """
@@ -144,7 +144,7 @@ def normalize_string_list(value: Union[str, List[str], None]) -> List[str]:
 
 **Example**:
 ```python
-from jeeves_protocols import normalize_string_list
+from protocols import normalize_string_list
 
 normalize_string_list(None)
 # []
@@ -175,7 +175,7 @@ def truncate_string(text: str, max_length: int = 100, suffix: str = "...") -> st
 
 **Example**:
 ```python
-from jeeves_protocols import truncate_string
+from protocols import truncate_string
 
 truncate_string("Hello, World!", max_length=10)
 # "Hello, ..."
@@ -202,7 +202,7 @@ def utc_now() -> datetime:
 
 **Example**:
 ```python
-from jeeves_protocols import utc_now
+from protocols import utc_now
 
 now = utc_now()
 # datetime.datetime(2025, 1, 15, 10, 30, 0, tzinfo=timezone.utc)
@@ -221,7 +221,7 @@ def utc_now_iso() -> str:
 
 **Example**:
 ```python
-from jeeves_protocols import utc_now_iso
+from protocols import utc_now_iso
 
 now_str = utc_now_iso()
 # "2025-01-15T10:30:00.123456+00:00"
@@ -246,7 +246,7 @@ def parse_datetime(value: Any) -> Optional[datetime]:
 
 **Example**:
 ```python
-from jeeves_protocols import parse_datetime
+from protocols import parse_datetime
 
 # Parse ISO with Z
 dt = parse_datetime("2025-01-15T10:30:00Z")
@@ -270,7 +270,7 @@ dt = parse_datetime(None)
 The `JSONRepairKit` is particularly useful for parsing LLM outputs:
 
 ```python
-from jeeves_protocols.utils import JSONRepairKit
+from protocols.utils import JSONRepairKit
 
 async def _call_llm(self, envelope):
     # Get raw LLM response

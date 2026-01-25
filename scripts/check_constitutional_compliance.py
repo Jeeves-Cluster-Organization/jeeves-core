@@ -67,12 +67,12 @@ class ConstitutionalComplianceChecker:
         "jeeves_core_engine/agents",
         "jeeves_core_engine/pipeline",
         "jeeves_core_engine/config",
-        "jeeves_avionics/llm",
-        "jeeves_avionics/memory",
-        "jeeves_avionics/database",
-        "jeeves_avionics/gateway",
-        "jeeves_mission_system/orchestrator",
-        "jeeves_mission_system/services",
+        "avionics/llm",
+        "avionics/memory",
+        "avionics/database",
+        "avionics/gateway",
+        "mission_system/orchestrator",
+        "mission_system/services",
         "jeeves-capability-code-analyser/agents",
         "jeeves-capability-code-analyser/tools",
         "jeeves-capability-code-analyser/orchestration",
@@ -187,7 +187,7 @@ class ConstitutionalComplianceChecker:
             (r'max_retries\s*[=:]\s*(\d+)', 'max_retries'),
         ]
 
-        for component in ["jeeves_core_engine", "jeeves_avionics", "jeeves_mission_system"]:
+        for component in ["jeeves_core_engine", "avionics", "mission_system"]:
             component_dir = self.root_dir / component
             if not component_dir.exists():
                 continue
@@ -249,7 +249,7 @@ class ConstitutionalComplianceChecker:
         S2: Environment Variables Only for API Keys
         S3: No passwords in connection strings
         """
-        for component in ["jeeves_core_engine", "jeeves_avionics", "jeeves_mission_system",
+        for component in ["jeeves_core_engine", "avionics", "mission_system",
                           "jeeves-capability-code-analyser"]:
             component_dir = self.root_dir / component
             if not component_dir.exists():
@@ -316,7 +316,7 @@ class ConstitutionalComplianceChecker:
 
         forbidden_patterns = [
             "jeeves_core_engine.",
-            "jeeves_avionics.",
+            "avionics.",
         ]
 
         for py_file in capability_dir.rglob("*.py"):

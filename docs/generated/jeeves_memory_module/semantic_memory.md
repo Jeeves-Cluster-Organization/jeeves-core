@@ -2,7 +2,7 @@
 
 **Layer:** L3 - Semantic  
 **Scope:** Embeddings-based search  
-**Location:** `jeeves_memory_module/repositories/chunk_repository.py`, `jeeves_memory_module/repositories/pgvector_repository.py`, `jeeves_memory_module/services/chunk_service.py`, `jeeves_memory_module/services/embedding_service.py`, `jeeves_memory_module/services/code_indexer.py`
+**Location:** `memory_module/repositories/chunk_repository.py`, `memory_module/repositories/pgvector_repository.py`, `memory_module/services/chunk_service.py`, `memory_module/services/embedding_service.py`, `memory_module/services/code_indexer.py`
 
 ---
 
@@ -501,8 +501,8 @@ async def search(
 ### Chunking and Storing Content
 
 ```python
-from jeeves_memory_module.services.chunk_service import ChunkService
-from jeeves_memory_module.services.embedding_service import EmbeddingService
+from memory_module.services.chunk_service import ChunkService
+from memory_module.services.embedding_service import EmbeddingService
 
 embedding_service = EmbeddingService()
 chunk_service = ChunkService(db, embedding_service)
@@ -539,7 +539,7 @@ context = await chunk_service.get_context_for_query(
 ### Code Indexing
 
 ```python
-from jeeves_memory_module.services.code_indexer import CodeIndexer
+from memory_module.services.code_indexer import CodeIndexer
 
 indexer = CodeIndexer(postgres_client, embedding_service)
 

@@ -25,8 +25,8 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
-from jeeves_shared.serialization import utc_now
-from jeeves_protocols import RequestContext
+from shared.serialization import utc_now
+from protocols import RequestContext
 
 # Add paths
 PROJECT_ROOT = Path(__file__).parent.parent
@@ -125,7 +125,7 @@ class SystemAudit:
 
     def _check_protocols_imports(self) -> TestResult:
         """Check jeeves_protocols has no imports from other jeeves_* packages."""
-        protocols_dir = self.project_root / "jeeves_protocols"
+        protocols_dir = self.project_root / "protocols"
         violations = []
 
         for py_file in protocols_dir.rglob("*.py"):
@@ -138,26 +138,26 @@ class SystemAudit:
                 if match:
                     module = match.group(2)
                     # Allow internal jeeves_protocols imports
-                    if module != "jeeves_protocols":
+                    if module != "protocols":
                         violations.append(f"{py_file.name}: {line.strip()}")
 
         if violations:
             return TestResult(
-                name="jeeves_protocols imports stdlib only",
+                name="protocols imports stdlib only",
                 passed=False,
                 message=f"Found {len(violations)} violations",
                 details={"violations": violations}
             )
         return TestResult(
-            name="jeeves_protocols imports stdlib only",
+            name="protocols imports stdlib only",
             passed=True
         )
 
     def _check_control_tower_imports(self) -> TestResult:
-        """Check jeeves_control_tower only imports from jeeves_protocols."""
-        ct_dir = self.project_root / "jeeves_control_tower"
+        """Check jeeves_control_tower only imports from protocols."""
+        ct_dir = self.project_root / "control_tower"
         violations = []
-        allowed = {"jeeves_protocols", "jeeves_control_tower"}
+        allowed = {"protocols", "control_tower"}
 
         for py_file in ct_dir.rglob("*.py"):
             if "__pycache__" in str(py_file) or "tests" in str(py_file):
@@ -172,21 +172,21 @@ class SystemAudit:
 
         if violations:
             return TestResult(
-                name="jeeves_control_tower imports only jeeves_protocols",
+                name="control_tower imports only jeeves_protocols",
                 passed=False,
                 message=f"Found {len(violations)} violations",
                 details={"violations": violations}
             )
         return TestResult(
-            name="jeeves_control_tower imports only jeeves_protocols",
+            name="control_tower imports only jeeves_protocols",
             passed=True
         )
 
     def _check_avionics_imports(self) -> TestResult:
         """Check jeeves_avionics doesn't import mission_system or capabilities."""
-        avionics_dir = self.project_root / "jeeves_avionics"
+        avionics_dir = self.project_root / "avionics"
         violations = []
-        forbidden = {"jeeves_mission_system", "jeeves-capability"}
+        forbidden = {"mission_system", "jeeves-capability"}
 
         for py_file in avionics_dir.rglob("*.py"):
             if "__pycache__" in str(py_file) or "tests" in str(py_file):
@@ -199,19 +199,19 @@ class SystemAudit:
 
         if violations:
             return TestResult(
-                name="jeeves_avionics no mission_system/capability imports",
+                name="avionics no mission_system/capability imports",
                 passed=False,
                 message=f"Found {len(violations)} violations",
                 details={"violations": violations}
             )
         return TestResult(
-            name="jeeves_avionics no mission_system/capability imports",
+            name="avionics no mission_system/capability imports",
             passed=True
         )
 
     def _check_mission_system_imports(self) -> TestResult:
         """Check jeeves_mission_system doesn't directly import capabilities."""
-        ms_dir = self.project_root / "jeeves_mission_system"
+        ms_dir = self.project_root / "mission_system"
         violations = []
 
         for py_file in ms_dir.rglob("*.py"):
@@ -228,13 +228,13 @@ class SystemAudit:
 
         if violations:
             return TestResult(
-                name="jeeves_mission_system no direct capability imports",
+                name="mission_system no direct capability imports",
                 passed=False,
                 message=f"Found {len(violations)} violations",
                 details={"violations": violations}
             )
         return TestResult(
-            name="jeeves_mission_system no direct capability imports",
+            name="mission_system no direct capability imports",
             passed=True
         )
 
@@ -242,14 +242,14 @@ class SystemAudit:
         """Check for circular imports by importing each module."""
         # Core modules that must import cleanly
         modules = [
-            "jeeves_protocols",
-            "jeeves_control_tower",
-            "jeeves_avionics.settings",
-            "jeeves_avionics.logging",
+            "protocols",
+            "control_tower",
+            "avionics.settings",
+            "avionics.logging",
         ]
         # Optional modules with heavy dependencies
         optional_modules = [
-            "jeeves_memory_module",  # Requires sentence_transformers
+            "memory_module",  # Requires sentence_transformers
         ]
 
         failures = []
@@ -357,8 +357,8 @@ class SystemAudit:
         """Test Control Tower can be instantiated."""
         try:
             from unittest.mock import MagicMock
-            from jeeves_control_tower import ControlTower
-            from jeeves_control_tower.types import ResourceQuota
+            from control_tower import ControlTower
+            from control_tower.types import ResourceQuota
 
             logger = MagicMock()
             logger.bind.return_value = logger
@@ -391,8 +391,8 @@ class SystemAudit:
         """Test Resource Tracker functionality."""
         try:
             from unittest.mock import MagicMock
-            from jeeves_control_tower.resources.tracker import ResourceTracker
-            from jeeves_control_tower.types import ResourceQuota
+            from control_tower.resources.tracker import ResourceTracker
+            from control_tower.types import ResourceQuota
 
             logger = MagicMock()
             logger.bind.return_value = logger
@@ -435,9 +435,9 @@ class SystemAudit:
         """Test Lifecycle Manager state transitions."""
         try:
             from unittest.mock import MagicMock
-            from jeeves_control_tower.lifecycle.manager import LifecycleManager
-            from jeeves_control_tower.types import ProcessState, ResourceQuota
-            from jeeves_protocols import Envelope
+            from control_tower.lifecycle.manager import LifecycleManager
+            from control_tower.types import ProcessState, ResourceQuota
+            from protocols import Envelope
 
             logger = MagicMock()
             logger.bind.return_value = logger
@@ -494,7 +494,7 @@ class SystemAudit:
     def _test_envelope_creation(self) -> TestResult:
         """Test Envelope creation and serialization."""
         try:
-            from jeeves_protocols import Envelope, create_envelope
+            from protocols import Envelope, create_envelope
 
             # Create via factory
             request_context = RequestContext(
@@ -541,14 +541,14 @@ class SystemAudit:
     def _test_protocol_compliance(self) -> TestResult:
         """Test protocol type compliance."""
         try:
-            from jeeves_control_tower.protocols import (
+            from control_tower.protocols import (
                 ControlTowerProtocol,
                 LifecycleManagerProtocol,
                 ResourceTrackerProtocol,
             )
-            from jeeves_control_tower import ControlTower
-            from jeeves_control_tower.lifecycle.manager import LifecycleManager
-            from jeeves_control_tower.resources.tracker import ResourceTracker
+            from control_tower import ControlTower
+            from control_tower.lifecycle.manager import LifecycleManager
+            from control_tower.resources.tracker import ResourceTracker
             from unittest.mock import MagicMock
 
             logger = MagicMock()
@@ -614,8 +614,8 @@ class SystemAudit:
     def _test_envelope_state_mapping(self) -> TestResult:
         """Test Envelope ↔ ProcessState mapping."""
         try:
-            from jeeves_control_tower.types import ProcessState
-            from jeeves_protocols import Envelope
+            from control_tower.types import ProcessState
+            from protocols import Envelope
 
             # Map of ProcessState to envelope conditions
             mappings = {
@@ -667,8 +667,8 @@ class SystemAudit:
     def _test_quota_config_mapping(self) -> TestResult:
         """Test ResourceQuota ↔ ExecutionConfig mapping."""
         try:
-            from jeeves_control_tower.types import ResourceQuota
-            from jeeves_protocols import ExecutionConfig, ContextBounds
+            from control_tower.types import ResourceQuota
+            from protocols import ExecutionConfig, ContextBounds
 
             # Create ExecutionConfig
             core_config = ExecutionConfig(
@@ -713,7 +713,7 @@ class SystemAudit:
     def _test_interrupt_envelope_mapping(self) -> TestResult:
         """Test InterruptKind ↔ Envelope flags mapping."""
         try:
-            from jeeves_protocols import Envelope
+            from protocols import Envelope
 
             request_context = RequestContext(
                 request_id="req",
@@ -762,7 +762,7 @@ class SystemAudit:
     def _test_outputs_flow(self) -> TestResult:
         """Test outputs dictionary flows through pipeline."""
         try:
-            from jeeves_protocols import Envelope
+            from protocols import Envelope
 
             request_context = RequestContext(
                 request_id="req",
@@ -848,11 +848,11 @@ class SystemAudit:
     def _test_database_client_import(self) -> TestResult:
         """Test database client can be imported."""
         try:
-            from jeeves_avionics.database.client import (
+            from avionics.database.client import (
                 DatabaseClientProtocol,
                 create_database_client,
             )
-            from jeeves_avionics.database.postgres_client import PostgreSQLClient
+            from avionics.database.postgres_client import PostgreSQLClient
 
             # Verify protocol methods exist
             assert hasattr(DatabaseClientProtocol, 'connect')
@@ -875,7 +875,7 @@ class SystemAudit:
     def _test_llm_gateway_import(self) -> TestResult:
         """Test LLM Gateway can be imported and instantiated."""
         try:
-            from jeeves_avionics.llm.gateway import LLMGateway, LLMResponse
+            from avionics.llm.gateway import LLMGateway, LLMResponse
             from unittest.mock import MagicMock
 
             # Create with mock settings
@@ -912,7 +912,7 @@ class SystemAudit:
     def _test_settings_load(self) -> TestResult:
         """Test Settings can be loaded."""
         try:
-            from jeeves_avionics.settings import Settings, get_settings
+            from avionics.settings import Settings, get_settings
 
             # Settings should be loadable (uses defaults for missing env vars)
             settings = get_settings()
@@ -938,7 +938,7 @@ class SystemAudit:
         """Test tool registry can be imported."""
         try:
             # Import from avionics layer (base infrastructure)
-            from jeeves_avionics.tools.catalog import (
+            from avionics.tools.catalog import (
                 ToolCatalog,
                 ToolId,
                 ToolCategory,
@@ -1003,7 +1003,7 @@ class SystemAudit:
             from fastapi import FastAPI, APIRouter
 
             # Test core API components (without capability dependencies)
-            from jeeves_mission_system.api.health import HealthChecker
+            from mission_system.api.health import HealthChecker
 
             # Test API can create FastAPI app
             app = FastAPI(title="Test App")
@@ -1178,7 +1178,7 @@ class SystemAudit:
     def _test_structured_logging(self) -> TestResult:
         """Test structured logging works."""
         try:
-            from jeeves_avionics.logging import get_current_logger
+            from avionics.logging import get_current_logger
             import io
             import logging
 
@@ -1205,9 +1205,9 @@ class SystemAudit:
     def _test_event_system(self) -> TestResult:
         """Test event system components."""
         try:
-            from jeeves_control_tower.events.aggregator import EventAggregator
-            from jeeves_control_tower.types import KernelEvent
-            from jeeves_protocols import InterruptKind
+            from control_tower.events.aggregator import EventAggregator
+            from control_tower.types import KernelEvent
+            from protocols import InterruptKind
             from unittest.mock import MagicMock
             from datetime import datetime
 
@@ -1263,8 +1263,8 @@ class SystemAudit:
     def _test_kernel_events(self) -> TestResult:
         """Test kernel event types."""
         try:
-            from jeeves_control_tower.types import KernelEvent, ProcessState
-            from jeeves_protocols import InterruptKind
+            from control_tower.types import KernelEvent, ProcessState
+            from protocols import InterruptKind
 
             # Test factory methods
             request_context = RequestContext(
@@ -1349,8 +1349,8 @@ class SystemAudit:
     def _test_quota_exceeded_handling(self) -> TestResult:
         """Test quota exceeded is handled correctly."""
         try:
-            from jeeves_control_tower.resources.tracker import ResourceTracker
-            from jeeves_control_tower.types import ResourceQuota, ResourceUsage
+            from control_tower.resources.tracker import ResourceTracker
+            from control_tower.types import ResourceQuota, ResourceUsage
             from unittest.mock import MagicMock
 
             logger = MagicMock()
@@ -1392,7 +1392,7 @@ class SystemAudit:
     def _test_invalid_envelope_handling(self) -> TestResult:
         """Test invalid envelope data is handled."""
         try:
-            from jeeves_protocols import Envelope
+            from protocols import Envelope
 
             # Envelope requires request_context
             try:
@@ -1437,7 +1437,7 @@ class SystemAudit:
     def _test_terminal_reason_propagation(self) -> TestResult:
         """Test terminal reason propagates through envelope."""
         try:
-            from jeeves_protocols import Envelope, TerminalReason
+            from protocols import Envelope, TerminalReason
 
             request_context = RequestContext(
                 request_id="req",
@@ -1518,7 +1518,7 @@ class SystemAudit:
     def _test_settings_defaults(self) -> TestResult:
         """Test settings have sensible defaults."""
         try:
-            from jeeves_avionics.settings import Settings
+            from avionics.settings import Settings
 
             # Create with no env vars (uses defaults)
             settings = Settings()
@@ -1543,7 +1543,7 @@ class SystemAudit:
     def _test_feature_flags(self) -> TestResult:
         """Test feature flags are accessible."""
         try:
-            from jeeves_avionics.feature_flags import FeatureFlags, get_feature_flags
+            from avionics.feature_flags import FeatureFlags, get_feature_flags
 
             flags = get_feature_flags()
 
@@ -1567,7 +1567,7 @@ class SystemAudit:
     def _test_context_bounds(self) -> TestResult:
         """Test context bounds configuration."""
         try:
-            from jeeves_protocols import ContextBounds, ExecutionConfig
+            from protocols import ContextBounds, ExecutionConfig
 
             # Default bounds
             bounds = ContextBounds()
@@ -1599,7 +1599,7 @@ class SystemAudit:
     def _test_pipeline_config(self) -> TestResult:
         """Test pipeline configuration types are available."""
         try:
-            from jeeves_protocols import (
+            from protocols import (
                 AgentConfig,
                 PipelineConfig,
                 ToolAccess,

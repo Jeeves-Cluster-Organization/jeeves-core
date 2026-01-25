@@ -381,10 +381,10 @@ func ServerOptions(logger Logger) []grpc.ServerOption {
 
 #### Task 2.1: Create Tracing Module
 
-**File:** `jeeves_avionics/observability/tracing.py` (NEW)
+**File:** `avionics/observability/tracing.py` (NEW)
 
 ```python
-"""OpenTelemetry tracing configuration for jeeves_avionics."""
+"""OpenTelemetry tracing configuration for avionics."""
 
 from opentelemetry import trace
 from opentelemetry.exporter.otlp.proto.grpc.trace_exporter import OTLPSpanExporter
@@ -462,10 +462,10 @@ def shutdown_tracing() -> None:
 
 #### Task 2.2: Instrument LLM Gateway
 
-**File:** `jeeves_avionics/llm/gateway.py`
+**File:** `avionics/llm/gateway.py`
 
 ```python
-from jeeves_avionics.observability.tracing import get_tracer
+from avionics.observability.tracing import get_tracer
 from opentelemetry import trace
 from opentelemetry.trace import Status, StatusCode
 
@@ -513,10 +513,10 @@ async def _call_provider(...) -> LLMResponse:
 
 #### Task 2.3: Update FastAPI Gateway
 
-**File:** `jeeves_avionics/gateway/main.py`
+**File:** `avionics/gateway/main.py`
 
 ```python
-from jeeves_avionics.observability.tracing import init_tracing, instrument_fastapi, instrument_grpc_client
+from avionics.observability.tracing import init_tracing, instrument_fastapi, instrument_grpc_client
 
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncIterator[None]:

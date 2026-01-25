@@ -59,7 +59,7 @@ Capabilities provide domain-specific logic; core provides the runtime.
                               │ imports
                               ↓
 ┌─────────────────────────────────────────────────────────────┐
-│  jeeves_mission_system (L2 - Application Layer)             │
+│  mission_system (L2 - Application Layer)             │
 │  - Orchestration framework                                  │
 │  - HTTP API endpoints                                       │
 │  - Capability registration                                  │
@@ -68,7 +68,7 @@ Capabilities provide domain-specific logic; core provides the runtime.
                               │ imports
                               ↓
 ┌─────────────────────────────────────────────────────────────┐
-│  jeeves_avionics (L1 - Infrastructure Layer)                │
+│  avionics (L1 - Infrastructure Layer)                │
 │  - LLM providers and factory                                │
 │  - Database clients                                         │
 │  - Memory services                                          │
@@ -77,7 +77,7 @@ Capabilities provide domain-specific logic; core provides the runtime.
                               │ imports
                               ↓
 ┌─────────────────────────────────────────────────────────────┐
-│  jeeves_control_tower (L1 - Kernel Layer)                   │
+│  control_tower (L1 - Kernel Layer)                   │
 │  - Request lifecycle management                             │
 │  - Resource quota enforcement                               │
 │  - Service dispatch                                         │
@@ -86,7 +86,7 @@ Capabilities provide domain-specific logic; core provides the runtime.
                               │ imports
                               ↓
 ┌─────────────────────────────────────────────────────────────┐
-│  jeeves_protocols, jeeves_shared (L0 - Foundation)          │
+│  protocols, shared (L0 - Foundation)          │
 │  - Protocol definitions                                     │
 │  - Type contracts                                           │
 │  - Shared utilities                                         │
@@ -100,8 +100,8 @@ Capabilities provide domain-specific logic; core provides the runtime.
 ### Allowed Imports for Capabilities
 
 ```python
-# From jeeves_protocols (L0) - Protocol definitions and types
-from jeeves_protocols import (
+# From protocols (L0) - Protocol definitions and types
+from protocols import (
     # Enums
     RiskLevel, ToolAccess, ToolCategory, OperationStatus,
     TerminalReason, LoopVerdict, RiskApproval,
@@ -131,14 +131,14 @@ from jeeves_protocols import (
     JSONRepairKit, normalize_string_list,
 )
 
-# From jeeves_shared (L0) - Shared utilities
-from jeeves_shared import (
+# From shared (L0) - Shared utilities
+from shared import (
     uuid_str, uuid_read, get_component_logger,
     to_json, from_json, utc_now,
 )
 
-# From jeeves_mission_system (L2) - Framework APIs
-from jeeves_mission_system.contracts import (
+# From mission_system (L2) - Framework APIs
+from mission_system.contracts import (
     LoggerProtocol, ContextBounds, WorkingMemory,
     get_config_registry, ConfigKeys,
     StandardToolResult, ToolErrorDetails,
@@ -147,7 +147,7 @@ from jeeves_mission_system.contracts import (
 # NOTE: ToolId is CAPABILITY-OWNED - import from your capability's tools/catalog.py
 # from my_capability.tools.catalog import ToolId  # Capability-owned enum
 
-from jeeves_mission_system.adapters import (
+from mission_system.adapters import (
     get_logger, get_settings, get_feature_flags,
     MissionSystemAdapters,
     create_database_client,
@@ -155,17 +155,17 @@ from jeeves_mission_system.adapters import (
     create_nli_service, create_vector_adapter,
 )
 
-from jeeves_mission_system.config import (
+from mission_system.config import (
     AgentProfile, LLMProfile, ThresholdProfile,
     ConfigRegistry, get_config_registry,
 )
 
-# From jeeves_avionics (L1) - Infrastructure (prefer adapters)
-from jeeves_avionics.capability_registry import (
+# From avionics (L1) - Infrastructure (prefer adapters)
+from avionics.capability_registry import (
     DomainLLMRegistry, get_capability_registry,
 )
 
-from jeeves_avionics.logging import (
+from avionics.logging import (
     create_logger, create_capability_logger,
 )
 ```
@@ -177,14 +177,14 @@ from jeeves_avionics.logging import (
 # from coreengine import ...  # FORBIDDEN
 
 # NEVER import core internals that aren't exported
-# from jeeves_mission_system.internal import ...  # FORBIDDEN
+# from mission_system.internal import ...  # FORBIDDEN
 ```
 
 ### gRPC Client Imports
 
 ```python
 # gRPC client for Go runtime (Go server REQUIRED)
-from jeeves_protocols.grpc_client import (
+from protocols.grpc_client import (
     GrpcGoClient,
     BoundsResult,
     ExecutionEvent,
@@ -202,7 +202,7 @@ from jeeves_protocols.grpc_client import (
 )
 
 # gRPC stub re-exports (for advanced usage)
-from jeeves_protocols import grpc_stub
+from protocols import grpc_stub
 ```
 
 ---
@@ -285,12 +285,12 @@ Capabilities MUST implement a registration function:
 
 ```python
 # my_capability/wiring.py
-from jeeves_protocols import (
+from protocols import (
     get_capability_resource_registry,
     CapabilityModeConfig,
     AgentLLMConfig,
 )
-from jeeves_avionics.capability_registry import get_capability_registry
+from avionics.capability_registry import get_capability_registry
 
 def register_capability():
     """Register capability with jeeves-core."""
@@ -329,7 +329,7 @@ async def bootstrap():
     register_capability()
 
     # 2. Then import and use runtime services
-    from jeeves_mission_system.adapters import get_logger
+    from mission_system.adapters import get_logger
     logger = get_logger()
 
     # 3. Start your application
@@ -348,7 +348,7 @@ generic `ToolExecutor` that works with string tool names.
 ```python
 # In your capability's tools/catalog.py
 from enum import Enum
-from jeeves_protocols import ToolCategory, RiskLevel
+from protocols import ToolCategory, RiskLevel
 
 class ToolId(str, Enum):
     """Capability-owned tool identifiers."""
@@ -412,7 +412,7 @@ class StandardToolResult:
 ### Agent Configuration
 
 ```python
-from jeeves_protocols import AgentConfig, RoutingRule, ToolAccess
+from protocols import AgentConfig, RoutingRule, ToolAccess
 
 agent_config = AgentConfig(
     name="my_agent",
@@ -435,7 +435,7 @@ agent_config = AgentConfig(
 ### Agent Implementation Pattern
 
 ```python
-from jeeves_protocols import Agent, Envelope
+from protocols import Agent, Envelope
 
 class MyAgent(Agent):
     """Custom agent implementation."""
@@ -479,7 +479,7 @@ class MyAgent(Agent):
 ### Working Memory Interface
 
 ```python
-from jeeves_protocols import WorkingMemory, Finding, FocusType
+from protocols import WorkingMemory, Finding, FocusType
 
 # Create working memory
 memory = WorkingMemory(
@@ -509,7 +509,7 @@ merged = merge_working_memory(memory1, memory2)
 ### Event Types
 
 ```python
-from jeeves_mission_system.orchestrator.agent_events import (
+from mission_system.orchestrator.agent_events import (
     AgentEventType, AgentEvent,
 )
 
@@ -527,7 +527,7 @@ AgentEventType.CLARIFICATION_REQUESTED
 ### Event Emission
 
 ```python
-from jeeves_mission_system.orchestrator.event_context import EventContext
+from mission_system.orchestrator.event_context import EventContext
 
 async def my_agent_logic(event_context: EventContext):
     # Emit agent started
@@ -549,7 +549,7 @@ async def my_agent_logic(event_context: EventContext):
 ### Context Bounds
 
 ```python
-from jeeves_protocols import ContextBounds
+from protocols import ContextBounds
 
 bounds = ContextBounds(
     max_input_tokens=4096,
@@ -564,7 +564,7 @@ bounds = ContextBounds(
 ### Agent Profiles
 
 ```python
-from jeeves_mission_system.config import (
+from mission_system.config import (
     AgentProfile, LLMProfile, ThresholdProfile,
 )
 
@@ -585,7 +585,7 @@ profile = AgentProfile(
 ### Config Registry
 
 ```python
-from jeeves_mission_system.config import (
+from mission_system.config import (
     get_config_registry, ConfigKeys,
 )
 
@@ -623,11 +623,11 @@ my_capability/
 ### Minimal wiring.py
 
 ```python
-from jeeves_protocols import (
+from protocols import (
     get_capability_resource_registry,
     CapabilityModeConfig,
 )
-from jeeves_avionics.capability_registry import get_capability_registry
+from avionics.capability_registry import get_capability_registry
 from my_capability.config.agents import AGENT_LLM_CONFIGS
 from my_capability.tools import register_tools
 
@@ -668,7 +668,7 @@ async def main():
     register_capability()
 
     # 2. Import runtime after registration
-    from jeeves_mission_system.adapters import get_logger
+    from mission_system.adapters import get_logger
     logger = get_logger()
     logger.info("Capability registered")
 
@@ -697,16 +697,16 @@ jeeves-core/
 │   ├── envelope/
 │   ├── runtime/
 │   └── tools/
-├── jeeves_protocols/          # Python: L0 Foundation - Type contracts
-├── jeeves_shared/             # Python: L0 Foundation - Shared utilities
-├── jeeves_avionics/           # Python: L1 Infrastructure
+├── protocols/          # Python: L0 Foundation - Type contracts
+├── shared/             # Python: L0 Foundation - Shared utilities
+├── avionics/           # Python: L1 Infrastructure
 │   ├── gateway/               # HTTP gateway (FastAPI)
 │   ├── llm/                   # LLM providers
 │   ├── database/              # Database clients
 │   └── logging/               # Logging module
-├── jeeves_control_tower/      # Python: L1 Kernel - Request lifecycle
-├── jeeves_memory_module/      # Python: Memory services
-├── jeeves_mission_system/     # Python: L2 Application
+├── control_tower/      # Python: L1 Kernel - Request lifecycle
+├── memory_module/      # Python: Memory services
+├── mission_system/     # Python: L2 Application
 │   ├── api/                   # REST API (server.py)
 │   ├── orchestrator/          # Orchestration framework
 │   └── proto/                 # gRPC proto files
@@ -727,8 +727,8 @@ The Dockerfile provides three targets:
 
 | Target | Image | Entry Point | Purpose |
 |--------|-------|-------------|---------|
-| `gateway` | `jeeves-gateway:latest` | `jeeves_avionics.gateway.main:app` | HTTP gateway |
-| `orchestrator` | `jeeves-core:latest` | `jeeves_mission_system.api.server:app` | Full runtime |
+| `gateway` | `jeeves-gateway:latest` | `avionics.gateway.main:app` | HTTP gateway |
+| `orchestrator` | `jeeves-core:latest` | `mission_system.api.server:app` | Full runtime |
 | `test` | `jeeves-core:test` | `pytest` | Test runner |
 
 ### Building Images
@@ -802,10 +802,10 @@ Capability Dockerfile paths should reference the submodule:
 
 ```dockerfile
 # Copy from submodule
-COPY jeeves-core/jeeves_protocols/ ./jeeves_protocols/
-COPY jeeves-core/jeeves_shared/ ./jeeves_shared/
-COPY jeeves-core/jeeves_avionics/ ./jeeves_avionics/
-COPY jeeves-core/jeeves_mission_system/ ./jeeves_mission_system/
+COPY jeeves-core/protocols/ ./protocols/
+COPY jeeves-core/shared/ ./shared/
+COPY jeeves-core/avionics/ ./avionics/
+COPY jeeves-core/mission_system/ ./mission_system/
 ```
 
 ### Required Services
@@ -826,7 +826,7 @@ The `GrpcGoClient` provides Python access to the Go runtime. **Go server is REQU
 ### Connection
 
 ```python
-from jeeves_protocols.grpc_client import GrpcGoClient, GoServerNotRunningError
+from protocols.grpc_client import GrpcGoClient, GoServerNotRunningError
 
 # Context manager (recommended)
 with GrpcGoClient() as client:
@@ -859,7 +859,7 @@ except GoServerNotRunningError:
 ### Bounds Checking (Contract 12 Compliance)
 
 ```python
-from jeeves_protocols.grpc_client import check_bounds
+from protocols.grpc_client import check_bounds
 
 bounds = check_bounds(envelope)
 if not bounds.can_continue:

@@ -1,6 +1,6 @@
-# jeeves_mission_system.orchestrator - Orchestration Framework
+# mission_system.orchestrator - Orchestration Framework
 
-**Package:** `jeeves_mission_system.orchestrator`  
+**Package:** `mission_system.orchestrator`  
 **Purpose:** Flow orchestration, event emission, pipeline execution  
 **Updated:** 2026-01-23
 
@@ -366,7 +366,7 @@ Perception → Intent → Planner → Traverser → Synthesizer → Critic
 
 ## Interrupt Integration
 
-The orchestrator integrates with the unified interrupt system via `jeeves_protocols.interrupts`:
+The orchestrator integrates with the unified interrupt system via `protocols.interrupts`:
 
 | Kind | Description |
 |------|-------------|

@@ -1,6 +1,6 @@
 # Jeeves Control Tower
 
-**Package:** `jeeves_control_tower`  
+**Package:** `control_tower`  
 **Layer:** L1 (Kernel Layer)  
 **Version:** 1.3  
 **Updated:** 2026-01-23
@@ -51,7 +51,7 @@ Control Tower mirrors operating system kernel concepts:
 | Interrupt Handler | `EventAggregator` | `events/aggregator.py` |
 | Process States | `ProcessState` enum | `types.py` |
 | PCB | `ProcessControlBlock` | `types.py` |
-| System Calls | `jeeves_protocols` | External package |
+| System Calls | `protocols` | External package |
 
 ---
 
@@ -77,7 +77,7 @@ Control Tower mirrors operating system kernel concepts:
 ## Package Structure
 
 ```
-jeeves_control_tower/
+control_tower/
 ├── __init__.py              # Public API exports
 ├── kernel.py                # Main ControlTower class
 ├── protocols.py             # Protocol interfaces (ABIs)
@@ -116,8 +116,8 @@ jeeves_control_tower/
 ### Basic Usage
 
 ```python
-from jeeves_control_tower import ControlTower
-from jeeves_protocols import GenericEnvelope
+from control_tower import ControlTower
+from protocols import GenericEnvelope
 
 # 1. Create kernel instance
 kernel = ControlTower(logger=logger)
@@ -188,8 +188,8 @@ if result.interrupt_pending:
 
 | Type | Source | Description |
 |------|--------|-------------|
-| `InterruptKind` | `jeeves_protocols` | Types of interrupts |
-| `InterruptResponse` | `jeeves_protocols` | Response to an interrupt |
+| `InterruptKind` | `protocols` | Types of interrupts |
+| `InterruptResponse` | `protocols` | Response to an interrupt |
 | `InterruptService` | `services/` | Unified interrupt handling service |
 
 ---
@@ -200,13 +200,13 @@ Control Tower follows strict import boundaries as defined in CONSTITUTION.md:
 
 ```python
 # ALLOWED: Import from protocols and shared only
-from jeeves_protocols import GenericEnvelope, LoggerProtocol
-from jeeves_shared import utc_now
+from protocols import GenericEnvelope, LoggerProtocol
+from shared import utc_now
 
 # FORBIDDEN: Direct imports from other layers
-# from jeeves_mission_system import FlowService  # NO
-# from jeeves_avionics import DatabaseClient     # NO
-# from jeeves_memory_module import MemoryService # NO
+# from mission_system import FlowService  # NO
+# from avionics import DatabaseClient     # NO
+# from memory_module import MemoryService # NO
 ```
 
 **Rationale:** Control Tower is the kernel. It dispatches TO services, not imports FROM them.
@@ -217,7 +217,7 @@ from jeeves_shared import utc_now
 
 - **CONSTITUTION.md** - Component rules and contracts
 - **Architectural Contracts** - `../docs/CONTRACTS.md`
-- **Protocols Package** - `../jeeves_protocols/`
-- **Shared Utilities** - `../jeeves_shared/`
-- **Mission System** - `../jeeves_mission_system/`
-- **Avionics** - `../jeeves_avionics/`
+- **Protocols Package** - `../protocols/`
+- **Shared Utilities** - `../shared/`
+- **Mission System** - `../mission_system/`
+- **Avionics** - `../avionics/`

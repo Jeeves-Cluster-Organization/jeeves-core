@@ -1,15 +1,15 @@
-# jeeves_protocols Package
+# protocols Package
 
 **Layer**: L0 (Foundation Layer - Zero Dependencies on Other Jeeves Packages)
 
 ## Overview
 
-The `jeeves_protocols` package provides the canonical type definitions, protocols, and data classes that form the contract between all layers in the Jeeves architecture. This is the foundation layer that all other Jeeves packages depend on.
+The `protocols` package provides the canonical type definitions, protocols, and data classes that form the contract between all layers in the Jeeves architecture. This is the foundation layer that all other Jeeves packages depend on.
 
 ## Constitutional Authority
 
-- All layers import from `jeeves_protocols` for type definitions
-- `jeeves_protocols` sits at L0 (no dependencies on other Jeeves packages)
+- All layers import from `protocols` for type definitions
+- `protocols` sits at L0 (no dependencies on other Jeeves packages)
 - Protocols define interfaces; implementations are in other packages
 
 ## Package Structure
@@ -33,7 +33,7 @@ The `jeeves_protocols` package provides the canonical type definitions, protocol
 ### Recommended Imports for Capability Layers
 
 ```python
-from jeeves_protocols import (
+from protocols import (
     # Core Enums
     RiskLevel,
     ToolAccess,
@@ -91,7 +91,7 @@ from jeeves_protocols import (
 ### Quick Start Example
 
 ```python
-from jeeves_protocols import (
+from protocols import (
     Envelope,
     create_envelope,
     RiskLevel,

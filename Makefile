@@ -108,8 +108,8 @@ test-tier1:
 	@echo ""
 	python -m pytest -c pytest-light.ini \
 		jeeves_core_engine/tests \
-		jeeves_avionics/tests/unit/llm \
-		jeeves_mission_system/tests/contract \
+		avionics/tests/unit/llm \
+		mission_system/tests/contract \
 		jeeves-capability-code-analyser/tests \
 		-v
 	@echo ""
@@ -124,8 +124,8 @@ test-tier2:
 	@echo "Prerequisites: docker compose up -d postgres"
 	@echo ""
 	python -m pytest \
-		jeeves_avionics/tests/unit/database \
-		jeeves_mission_system/tests/unit \
+		avionics/tests/unit/database \
+		mission_system/tests/unit \
 		-m "not requires_llamaserver and not requires_ml" \
 		-v
 	@echo ""
@@ -140,7 +140,7 @@ test-tier3:
 	@echo "Prerequisites: docker compose up -d postgres llama-server"
 	@echo ""
 	python -m pytest \
-		jeeves_mission_system/tests/integration \
+		mission_system/tests/integration \
 		-m "not e2e and not heavy" \
 		-v
 	@echo ""
@@ -154,7 +154,7 @@ test-tier4:
 	@echo "Prerequisites: docker compose up -d (all services)"
 	@echo ""
 	python -m pytest \
-		jeeves_mission_system/tests \
+		mission_system/tests \
 		-m e2e \
 		-v
 	@echo ""
@@ -181,7 +181,7 @@ test-core:
 ## test-avionics: Test avionics layer (lightweight - no ML/Docker)
 test-avionics:
 	@echo "🛠️  Testing avionics layer (LLM providers, cost calculator)"
-	python -m pytest jeeves_avionics/tests -m "not heavy and not requires_ml and not requires_docker" -v
+	python -m pytest avionics/tests -m "not heavy and not requires_ml and not requires_docker" -v
 	@echo ""
 	@echo "✅ Avionics tests complete (lightweight)"
 
@@ -189,7 +189,7 @@ test-avionics:
 test-avionics-full:
 	@echo "🛠️  Testing avionics layer (full - requires Docker)"
 	@echo "Prerequisites: docker compose up -d postgres"
-	python -m pytest jeeves_avionics/tests -m "not heavy and not requires_ml" -v
+	python -m pytest avionics/tests -m "not heavy and not requires_ml" -v
 	@echo ""
 	@echo "✅ Avionics tests complete (full)"
 
@@ -197,8 +197,8 @@ test-avionics-full:
 test-mission:
 	@echo "🎯 Testing mission system (contract + unit tests)"
 	python -m pytest \
-		jeeves_mission_system/tests/contract \
-		jeeves_mission_system/tests/unit \
+		mission_system/tests/contract \
+		mission_system/tests/unit \
 		-m "not requires_llamaserver and not requires_postgres" \
 		-v
 	@echo ""
@@ -208,7 +208,7 @@ test-mission:
 test-mission-full:
 	@echo "🎯 Testing mission system (full - requires Docker services)"
 	@echo "Prerequisites: docker compose up -d postgres llama-server"
-	python -m pytest jeeves_mission_system/tests -m "not e2e and not heavy" -v
+	python -m pytest mission_system/tests -m "not e2e and not heavy" -v
 	@echo ""
 	@echo "✅ Mission system tests complete (full)"
 
@@ -225,7 +225,7 @@ test-contract:
 	@echo "   - Import boundary validation"
 	@echo "   - Layer boundary enforcement"
 	@echo "   - Evidence chain integrity (P1)"
-	python -m pytest jeeves_mission_system/tests/contract -v
+	python -m pytest mission_system/tests/contract -v
 	@echo ""
 	@echo "✅ Contract tests complete"
 
@@ -239,7 +239,7 @@ test-ci:
 	@echo ""
 	python -m pytest -c pytest-light.ini \
 		jeeves_core_engine/tests \
-		jeeves_avionics/tests/unit/llm \
+		avionics/tests/unit/llm \
 		-v
 	@echo ""
 	@echo "✅ CI test suite complete"
@@ -275,21 +275,21 @@ test-services-check:
 ## test-protocols: Test protocols layer (fast, no external deps)
 test-protocols:
 	@echo "📋 Testing protocols layer (type definitions, utilities)"
-	python -m pytest jeeves_protocols/tests -v
+	python -m pytest protocols/tests -v
 	@echo ""
 	@echo "✅ Protocols tests complete"
 
 ## test-control-tower: Test control tower kernel (fast, no external deps)
 test-control-tower:
 	@echo "🗼 Testing control tower kernel"
-	python -m pytest jeeves_control_tower/tests -v
+	python -m pytest control_tower/tests -v
 	@echo ""
 	@echo "✅ Control tower tests complete"
 
 ## test-memory: Test memory module (lightweight)
 test-memory:
 	@echo "🧠 Testing memory module"
-	python -m pytest jeeves_memory_module/tests -v
+	python -m pytest memory_module/tests -v
 	@echo ""
 	@echo "✅ Memory module tests complete"
 
@@ -298,19 +298,19 @@ test-all-unit:
 	@echo "🧪 Running ALL unit tests across all modules"
 	@echo ""
 	@echo "Modules:"
-	@echo "   - jeeves_protocols"
-	@echo "   - jeeves_control_tower"
-	@echo "   - jeeves_memory_module"
-	@echo "   - jeeves_avionics"
-	@echo "   - jeeves_mission_system"
+	@echo "   - protocols"
+	@echo "   - control_tower"
+	@echo "   - memory_module"
+	@echo "   - avionics"
+	@echo "   - mission_system"
 	@echo "   - jeeves-capability-code-analyser"
 	@echo ""
 	python -m pytest \
-		jeeves_protocols/tests/unit \
-		jeeves_control_tower/tests/unit \
-		jeeves_memory_module/tests/unit \
-		jeeves_avionics/tests/unit \
-		jeeves_mission_system/tests/unit \
+		protocols/tests/unit \
+		control_tower/tests/unit \
+		memory_module/tests/unit \
+		avionics/tests/unit \
+		mission_system/tests/unit \
 		jeeves-capability-code-analyser/tests/unit \
 		-v --tb=short
 	@echo ""
@@ -323,10 +323,10 @@ test-all-integration:
 	@echo "Prerequisites: docker compose up -d postgres"
 	@echo ""
 	python -m pytest \
-		jeeves_control_tower/tests/integration \
-		jeeves_memory_module/tests/integration \
-		jeeves_avionics/tests/unit/database \
-		jeeves_mission_system/tests/integration \
+		control_tower/tests/integration \
+		memory_module/tests/integration \
+		avionics/tests/unit/database \
+		mission_system/tests/integration \
 		-v --tb=short -m "not e2e and not requires_llamaserver"
 	@echo ""
 	@echo "✅ All integration tests complete"
@@ -344,12 +344,12 @@ test-comprehensive:
 	@echo "   6. Code Analyser App"
 	@echo ""
 	python -m pytest \
-		jeeves_protocols/tests \
-		jeeves_control_tower/tests \
-		jeeves_memory_module/tests \
-		jeeves_avionics/tests \
-		jeeves_mission_system/tests/contract \
-		jeeves_mission_system/tests/unit \
+		protocols/tests \
+		control_tower/tests \
+		memory_module/tests \
+		avionics/tests \
+		mission_system/tests/contract \
+		mission_system/tests/unit \
 		jeeves-capability-code-analyser/tests \
 		-v --tb=short \
 		-m "not requires_llamaserver and not requires_postgres and not e2e and not heavy"
@@ -361,21 +361,21 @@ test-comprehensive-cov:
 	@echo "📊 Running comprehensive test suite with coverage"
 	@echo ""
 	python -m pytest \
-		jeeves_protocols/tests \
-		jeeves_control_tower/tests \
-		jeeves_memory_module/tests \
-		jeeves_avionics/tests \
-		jeeves_mission_system/tests/contract \
-		jeeves_mission_system/tests/unit \
+		protocols/tests \
+		control_tower/tests \
+		memory_module/tests \
+		avionics/tests \
+		mission_system/tests/contract \
+		mission_system/tests/unit \
 		jeeves-capability-code-analyser/tests \
 		-v --tb=short \
 		-m "not requires_llamaserver and not requires_postgres and not e2e and not heavy" \
-		--cov=jeeves_protocols \
-		--cov=jeeves_control_tower \
-		--cov=jeeves_memory_module \
-		--cov=jeeves_avionics \
-		--cov=jeeves_mission_system \
-		--cov=jeeves_shared \
+		--cov=protocols \
+		--cov=control_tower \
+		--cov=memory_module \
+		--cov=avionics \
+		--cov=mission_system \
+		--cov=shared \
 		--cov-report=html \
 		--cov-report=term
 	@echo ""
@@ -385,11 +385,11 @@ test-comprehensive-cov:
 test-parallel:
 	@echo "⚡ Running tests in parallel"
 	python -m pytest \
-		jeeves_protocols/tests \
-		jeeves_control_tower/tests \
-		jeeves_memory_module/tests \
-		jeeves_avionics/tests/unit \
-		jeeves_mission_system/tests/unit \
+		protocols/tests \
+		control_tower/tests \
+		memory_module/tests \
+		avionics/tests/unit \
+		mission_system/tests/unit \
 		jeeves-capability-code-analyser/tests \
 		-v --tb=short \
 		-m "not requires_llamaserver and not requires_postgres and not e2e and not heavy" \
@@ -410,8 +410,8 @@ test-discover:
 test-quick:
 	@echo "⚡ Running quick sanity check"
 	python -m pytest \
-		jeeves_protocols/tests/unit/test_enums.py \
-		jeeves_control_tower/tests/unit/test_resource_tracker.py \
+		protocols/tests/unit/test_enums.py \
+		control_tower/tests/unit/test_resource_tracker.py \
 		-v --tb=short
 	@echo ""
 	@echo "✅ Quick sanity check complete"

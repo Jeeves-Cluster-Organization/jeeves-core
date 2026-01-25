@@ -1,4 +1,4 @@
-# jeeves_protocols.memory
+# protocols.memory
 
 **Layer**: L0 (Foundation)  
 **Purpose**: Working memory types, findings, and focus state
@@ -339,7 +339,7 @@ def deserialize_working_memory(data: Dict[str, Any]) -> WorkingMemory:
 ### Creating and Managing Memory
 
 ```python
-from jeeves_protocols import (
+from protocols import (
     create_working_memory,
     set_focus,
     add_entity_ref,
@@ -383,7 +383,7 @@ memory.add_finding(Finding(
 ### Serialization Round-Trip
 
 ```python
-from jeeves_protocols import (
+from protocols import (
     serialize_working_memory,
     deserialize_working_memory,
 )

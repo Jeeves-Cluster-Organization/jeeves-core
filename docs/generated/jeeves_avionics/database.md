@@ -22,7 +22,7 @@ Protocol re-exports and registry functions.
 ### Re-exported Protocols
 
 ```python
-from jeeves_protocols import DatabaseClientProtocol, VectorStorageProtocol
+from protocols import DatabaseClientProtocol, VectorStorageProtocol
 ```
 
 ### Factory Function
@@ -334,7 +334,7 @@ async def create_database_client(
 The database module exports:
 
 ```python
-from jeeves_avionics.database import (
+from avionics.database import (
     DatabaseClientProtocol,
     ConnectionManager,
     create_database_client,
@@ -351,8 +351,8 @@ from jeeves_avionics.database import (
 ### PostgreSQL Client
 
 ```python
-from jeeves_avionics.database import create_database_client
-from jeeves_avionics.settings import get_settings
+from avionics.database import create_database_client
+from avionics.settings import get_settings
 
 settings = get_settings()
 client = await create_database_client(settings)
@@ -374,7 +374,7 @@ await client.disconnect()
 ### Redis Client
 
 ```python
-from jeeves_avionics.database.redis_client import get_redis_client
+from avionics.database.redis_client import get_redis_client
 
 redis = get_redis_client("redis://localhost:6379")
 await redis.connect()
@@ -398,8 +398,8 @@ await redis.disconnect()
 ### Connection Manager
 
 ```python
-from jeeves_avionics.database.connection_manager import ConnectionManager
-from jeeves_avionics.settings import get_settings
+from avionics.database.connection_manager import ConnectionManager
+from avionics.settings import get_settings
 
 settings = get_settings()
 manager = ConnectionManager(settings)

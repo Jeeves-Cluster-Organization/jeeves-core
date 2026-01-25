@@ -1,4 +1,4 @@
-# jeeves_protocols.events
+# protocols.events
 
 **Layer**: L0 (Foundation)  
 **Purpose**: Unified Event Schema - Constitutional Event Standard
@@ -98,7 +98,7 @@ class Event:
 
 **Example**:
 ```python
-from jeeves_protocols import Event, EventCategory, EventSeverity
+from protocols import Event, EventCategory, EventSeverity
 
 # Create event manually
 event = Event(
@@ -231,7 +231,7 @@ class StandardEventTypes:
 
 **Usage**:
 ```python
-from jeeves_protocols import Event, EventCategory, StandardEventTypes
+from protocols import Event, EventCategory, StandardEventTypes
 
 event = Event.create_now(
     event_type=StandardEventTypes.PLANNER_COMPLETED,

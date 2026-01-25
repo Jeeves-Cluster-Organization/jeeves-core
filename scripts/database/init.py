@@ -23,8 +23,8 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent))
 
 try:
-    from jeeves_avionics.database.postgres_client import PostgreSQLClient
-    from jeeves_avionics.settings import settings
+    from avionics.database.postgres_client import PostgreSQLClient
+    from avionics.settings import settings
 except ImportError as e:
     print(f"❌ Error: Failed to import required modules: {e}")
     print("Make sure you're running from the project root directory")
@@ -38,7 +38,7 @@ class DatabaseInitializer:
     def __init__(self, force: bool = False, verify: bool = False):
         self.force = force
         self.verify = verify
-        self.schemas_dir = Path(__file__).parent.parent.parent.parent / "jeeves_avionics" / "database" / "schemas"
+        self.schemas_dir = Path(__file__).parent.parent.parent.parent / "avionics" / "database" / "schemas"
         self.postgres_schema_path = self.schemas_dir / "001_postgres_schema.sql"
 
     def print_info(self, message: str):

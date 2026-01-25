@@ -90,7 +90,7 @@ Comprehensive Prometheus metrics instrumentation across entire jeeves-core stack
 - ✅ Added `grpc/server.go` - `/metrics` HTTP endpoint (port 9090)
 - ✅ Updated `go.mod` - prometheus/client_golang dependency
 
-**Python Side (jeeves_avionics):**
+**Python Side (avionics):**
 - ✅ Extended `observability/metrics.py` - LLM and HTTP metrics
 - ✅ Instrumented `llm/gateway.py` - LLM call tracking with tokens
 - ✅ Instrumented `gateway/main.py` - HTTP middleware + `/metrics` endpoint
@@ -158,11 +158,11 @@ Comprehensive distributed tracing instrumentation using OpenTelemetry and Jaeger
 - ✅ Updated `grpc/interceptors.go` - Added otelgrpc.NewServerHandler() for automatic trace propagation
 - ✅ Updated `go.mod` - OpenTelemetry dependencies (otel, otlp, otelgrpc)
 
-**Python Side (jeeves_avionics):**
-- ✅ Created `jeeves_avionics/observability/tracing.py` - Tracer initialization and instrumentation helpers
+**Python Side (avionics):**
+- ✅ Created `avionics/observability/tracing.py` - Tracer initialization and instrumentation helpers
 - ✅ Instrumented `llm/gateway.py` - LLM provider call spans with token/cost metrics
 - ✅ Instrumented `gateway/main.py` - FastAPI HTTP span creation and gRPC client instrumentation
-- ✅ Instrumented `jeeves_mission_system/api/server.py` - Orchestrator service tracing initialization
+- ✅ Instrumented `mission_system/api/server.py` - Orchestrator service tracing initialization
 
 **Infrastructure:**
 - ✅ Added Jaeger service to `docker/docker-compose.yml` (ports: 16686 UI, 4317 OTLP gRPC, 4318 OTLP HTTP)

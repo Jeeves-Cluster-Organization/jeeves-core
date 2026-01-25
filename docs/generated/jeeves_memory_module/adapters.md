@@ -1,6 +1,6 @@
 # Adapters
 
-**Location:** `jeeves_memory_module/adapters/`
+**Location:** `memory_module/adapters/`
 
 ---
 
@@ -202,7 +202,7 @@ async def delete_item(
 ### Usage Example
 
 ```python
-from jeeves_memory_module.adapters import SQLAdapter
+from memory_module.adapters import SQLAdapter
 
 adapter = SQLAdapter(db_client)
 
@@ -305,10 +305,10 @@ All database errors are re-raised after logging for caller handling.
 
 ## UUID Handling
 
-The adapter uses `convert_uuids_to_strings` from `jeeves_shared` to ensure consistent string representation of UUIDs in returned data:
+The adapter uses `convert_uuids_to_strings` from `shared` to ensure consistent string representation of UUIDs in returned data:
 
 ```python
-from jeeves_shared import convert_uuids_to_strings
+from shared import convert_uuids_to_strings
 
 # In read operations
 return convert_uuids_to_strings(dict(result))

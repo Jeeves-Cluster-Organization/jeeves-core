@@ -1,7 +1,7 @@
 # Control Tower Kernel
 
-**Module:** `jeeves_control_tower.kernel`  
-**Protocol:** `jeeves_control_tower.protocols`
+**Module:** `control_tower.kernel`  
+**Protocol:** `control_tower.protocols`
 
 ---
 

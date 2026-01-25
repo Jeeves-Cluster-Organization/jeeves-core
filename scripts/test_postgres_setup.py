@@ -13,14 +13,14 @@ from pathlib import Path
 # Add parent directory to path
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from jeeves_avionics.settings import Settings
-from jeeves_avionics.database.postgres_client import PostgreSQLClient
-from jeeves_memory_module.services.embedding_service import EmbeddingService
+from avionics.settings import Settings
+from avionics.database.postgres_client import PostgreSQLClient
+from memory_module.services.embedding_service import EmbeddingService
 # Direct import for low-level testing only - production code should use
-# create_vector_adapter() from jeeves_mission_system.adapters
-from jeeves_memory_module.repositories.pgvector_repository import PgVectorRepository
+# create_vector_adapter() from mission_system.adapters
+from memory_module.repositories.pgvector_repository import PgVectorRepository
 
-from jeeves_avionics.logging import get_current_logger
+from avionics.logging import get_current_logger
 
 
 async def test_postgres_connection():
@@ -141,7 +141,7 @@ async def test_schema_initialization():
             await client.initialize_schema("database/schemas/001_postgres_schema.sql")
 
             # Initialize capability schemas from registry (constitutional pattern)
-            from jeeves_protocols import get_capability_resource_registry
+            from protocols import get_capability_resource_registry
             registry = get_capability_resource_registry()
             for schema_path in registry.get_schemas():
                 if Path(schema_path).exists():

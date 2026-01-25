@@ -45,12 +45,12 @@ async def test_imports():
     """Test critical imports."""
     try:
         # Test database factory
-        from jeeves_avionics.database.factory import create_database_client
-        from jeeves_mission_system.adapters import create_vector_adapter
+        from avionics.database.factory import create_database_client
+        from mission_system.adapters import create_vector_adapter
         print_test("Import database.factory", True, "Factory functions available")
 
         # Test PostgreSQL client
-        from jeeves_avionics.database.postgres_client import PostgreSQLClient
+        from avionics.database.postgres_client import PostgreSQLClient
         print_test("Import database.postgres_client", True, "PostgreSQLClient available")
 
         # Test memory tools
@@ -58,7 +58,7 @@ async def test_imports():
         print_test("Import tools.memory_tools", True, "Async memory tools available")
 
         # Test settings
-        from jeeves_avionics.settings import settings
+        from avionics.settings import settings
         print_test("Import config.settings", True, f"Backend: {settings.database_backend}")
 
         return True
@@ -73,8 +73,8 @@ async def test_imports():
 async def test_postgres_connection():
     """Test PostgreSQL connection."""
     try:
-        from jeeves_avionics.database.postgres_client import PostgreSQLClient
-        from jeeves_avionics.settings import settings
+        from avionics.database.postgres_client import PostgreSQLClient
+        from avionics.settings import settings
 
         if settings.database_backend != "postgres":
             print_info("Skipping PostgreSQL test (not configured for postgres)")
@@ -135,7 +135,7 @@ async def test_postgres_connection():
 async def test_configuration():
     """Test configuration settings."""
     try:
-        from jeeves_avionics.settings import settings
+        from avionics.settings import settings
 
         print_info(f"Current configuration:")
         print(f"       Database Backend: {settings.database_backend}")

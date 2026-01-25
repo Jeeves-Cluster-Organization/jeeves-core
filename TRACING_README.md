@@ -148,7 +148,7 @@ func ServerOptions(logger Logger) []grpc.ServerOption {
 
 ### 2. Python Tracing
 
-#### Tracer Initialization (`jeeves_avionics/observability/tracing.py`)
+#### Tracer Initialization (`avionics/observability/tracing.py`)
 
 ```python
 def init_tracing(service_name: str, jaeger_endpoint: str = "jaeger:4317") -> None
@@ -192,7 +192,7 @@ def instrument_grpc_client() -> None:
 - RPC attributes (method, status)
 - Error propagation to spans
 
-#### LLM Gateway Tracing (`jeeves_avionics/llm/gateway.py`)
+#### LLM Gateway Tracing (`avionics/llm/gateway.py`)
 
 **Span:** `llm.provider.call`
 
@@ -504,7 +504,7 @@ GET /api/v1/requests
 go test ./coreengine/... -v
 
 # Python tests (verify trace context propagation)
-pytest jeeves_avionics/tests/unit/observability/
+pytest avionics/tests/unit/observability/
 ```
 
 **Integration tests** verify end-to-end traces:

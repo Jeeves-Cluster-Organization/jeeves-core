@@ -1,6 +1,6 @@
-# jeeves_mission_system.api - REST API Layer
+# mission_system.api - REST API Layer
 
-**Package:** `jeeves_mission_system.api`  
+**Package:** `mission_system.api`  
 **Purpose:** HTTP REST API endpoints for the Mission System  
 **Updated:** 2026-01-23
 
@@ -67,7 +67,7 @@ def create_mission_runtime(
 
 **Usage:**
 ```python
-from jeeves_mission_system.api import create_mission_runtime
+from mission_system.api import create_mission_runtime
 
 runtime = create_mission_runtime(
     tool_registry=my_tool_registry,

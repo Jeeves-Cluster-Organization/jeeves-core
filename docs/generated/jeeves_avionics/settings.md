@@ -403,8 +403,8 @@ Example: For agent `planner`, use `PLANNER_MODEL`, `PLANNER_TEMPERATURE`, etc.
 #### Usage Example
 
 ```python
-from jeeves_avionics.capability_registry import get_capability_registry
-from jeeves_protocols import AgentLLMConfig
+from avionics.capability_registry import get_capability_registry
+from protocols import AgentLLMConfig
 
 registry = get_capability_registry()
 registry.register("my_capability", "my_agent", AgentLLMConfig(
