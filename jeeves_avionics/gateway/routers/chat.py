@@ -39,20 +39,29 @@ router = APIRouter()
 # =============================================================================
 
 # Event type → category mapping (Configuration Over Code - Avionics R2)
+# Standardized naming convention: <component>.<subcomponent>.<action>
 EVENT_CATEGORY_MAP: Dict[str, "EventCategory"] = {
-    # Agent lifecycle events
+    # Generic agent lifecycle events
     "agent.started": "AGENT_LIFECYCLE",
     "agent.completed": "AGENT_LIFECYCLE",
-    "agent.perception": "AGENT_LIFECYCLE",
-    "agent.intent": "AGENT_LIFECYCLE",
-    "agent.planner": "AGENT_LIFECYCLE",
-    "agent.executor": "AGENT_LIFECYCLE",
-    "agent.synthesizer": "AGENT_LIFECYCLE",
-    "agent.integration": "AGENT_LIFECYCLE",
+
+    # Specific agent lifecycle events (agent.<component>.<action>)
+    "agent.perception.started": "AGENT_LIFECYCLE",
+    "agent.perception.completed": "AGENT_LIFECYCLE",
+    "agent.intent.started": "AGENT_LIFECYCLE",
+    "agent.intent.completed": "AGENT_LIFECYCLE",
+    "agent.planner.started": "AGENT_LIFECYCLE",
+    "agent.planner.completed": "AGENT_LIFECYCLE",
+    "agent.traverser.started": "AGENT_LIFECYCLE",
+    "agent.traverser.completed": "AGENT_LIFECYCLE",
+    "agent.synthesizer.started": "AGENT_LIFECYCLE",
+    "agent.synthesizer.completed": "AGENT_LIFECYCLE",
+    "agent.integration.started": "AGENT_LIFECYCLE",
+    "agent.integration.completed": "AGENT_LIFECYCLE",
 
     # Critic events
-    "agent.critic": "CRITIC_DECISION",
-    "critic.decision": "CRITIC_DECISION",
+    "agent.critic.started": "CRITIC_DECISION",
+    "agent.critic.decision": "CRITIC_DECISION",
 
     # Tool events
     "tool.started": "TOOL_EXECUTION",
@@ -99,28 +108,9 @@ def _classify_event_category(event_type: str) -> "EventCategory":
     """
     from jeeves_protocols.events import EventCategory
 
-    # Exact match (preferred - O(1) lookup)
+    # Exact match lookup (O(1))
     if event_type in EVENT_CATEGORY_MAP:
         return getattr(EventCategory, EVENT_CATEGORY_MAP[event_type])
-
-    # Fallback: prefix matching for legacy events
-    # TODO: Remove this block once all event types are standardized to use
-    # the agent.* naming convention
-    for prefix, category_str in [
-        ("perception", "AGENT_LIFECYCLE"),
-        ("intent", "AGENT_LIFECYCLE"),
-        ("planner", "AGENT_LIFECYCLE"),
-        ("executor", "AGENT_LIFECYCLE"),
-        ("synthesizer", "AGENT_LIFECYCLE"),
-        ("integration", "AGENT_LIFECYCLE"),
-        ("critic", "CRITIC_DECISION"),
-        ("tool", "TOOL_EXECUTION"),
-        ("orchestrator", "PIPELINE_FLOW"),
-        ("flow", "PIPELINE_FLOW"),
-        ("stage", "STAGE_TRANSITION"),
-    ]:
-        if prefix in event_type:
-            return getattr(EventCategory, category_str)
 
     # Default category for unknown event types
     return EventCategory.DOMAIN_EVENT
