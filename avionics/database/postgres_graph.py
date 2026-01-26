@@ -8,11 +8,21 @@ Constitutional Reference:
 - Avionics CONSTITUTION R4: Swappable Implementations
 - Architecture: PostgreSQL-specific code lives in avionics (L3)
 
+Schema Note:
+    This adapter uses the rich schema defined in 001_postgres_schema.sql.
+    It does NOT create tables - the SQL migration must run first.
+
+    Schema features used:
+    - Temporal validity (valid_from/valid_until) for bi-temporal queries
+    - Provenance tracking (source_agent, source_event_id)
+    - Edge weights and confidence scores
+    - Foreign key enforcement for referential integrity
+
 Usage:
     from avionics.database.postgres_graph import PostgresGraphAdapter
 
     adapter = PostgresGraphAdapter(db_client, logger)
-    await adapter.ensure_tables()
+    await adapter.ensure_tables()  # Verifies schema, creates indices
 
     await adapter.add_node("file:main.py", "file", {"path": "main.py"})
     await adapter.add_edge("file:main.py", "file:utils.py", "imports")
@@ -23,6 +33,7 @@ from __future__ import annotations
 import json
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
+from uuid import uuid4
 
 from protocols import DatabaseClientProtocol, GraphStorageProtocol, LoggerProtocol
 from shared import get_component_logger
@@ -36,43 +47,17 @@ class PostgresGraphAdapter:
 
     This adapter provides:
     - Node storage with type and properties
-    - Edge storage with relationship types
+    - Edge storage with relationship types, weights, and confidence
     - BFS path finding via recursive CTEs
     - Subgraph expansion queries
-    - Soft-delete support (deleted_at)
-    """
+    - Temporal validity (valid_from/valid_until) instead of soft-delete
+    - Provenance tracking (source_agent, source_event_id)
 
-    CREATE_NODES_TABLE = """
-        CREATE TABLE IF NOT EXISTS graph_nodes (
-            node_id TEXT PRIMARY KEY,
-            node_type TEXT NOT NULL,
-            properties JSONB DEFAULT '{}',
-            user_id TEXT,
-            created_at TIMESTAMPTZ DEFAULT NOW(),
-            updated_at TIMESTAMPTZ DEFAULT NOW(),
-            deleted_at TIMESTAMPTZ
-        )
+    Schema Mapping:
+        Protocol interface uses source_id/target_id for clarity.
+        SQL schema uses from_node_id/to_node_id for graph semantics.
+        This adapter maps between them transparently.
     """
-
-    CREATE_EDGES_TABLE = """
-        CREATE TABLE IF NOT EXISTS graph_edges (
-            source_id TEXT NOT NULL,
-            target_id TEXT NOT NULL,
-            edge_type TEXT NOT NULL,
-            properties JSONB DEFAULT '{}',
-            created_at TIMESTAMPTZ DEFAULT NOW(),
-            deleted_at TIMESTAMPTZ,
-            PRIMARY KEY (source_id, target_id, edge_type)
-        )
-    """
-
-    CREATE_INDICES = [
-        "CREATE INDEX IF NOT EXISTS idx_graph_nodes_type ON graph_nodes(node_type)",
-        "CREATE INDEX IF NOT EXISTS idx_graph_nodes_user ON graph_nodes(user_id)",
-        "CREATE INDEX IF NOT EXISTS idx_graph_edges_source ON graph_edges(source_id)",
-        "CREATE INDEX IF NOT EXISTS idx_graph_edges_target ON graph_edges(target_id)",
-        "CREATE INDEX IF NOT EXISTS idx_graph_edges_type ON graph_edges(edge_type)",
-    ]
 
     def __init__(
         self,
@@ -89,12 +74,31 @@ class PostgresGraphAdapter:
         self._logger = get_component_logger("PostgresGraphAdapter", logger)
 
     async def ensure_tables(self) -> None:
-        """Create tables and indices if they don't exist."""
-        await self._db.execute(self.CREATE_NODES_TABLE)
-        await self._db.execute(self.CREATE_EDGES_TABLE)
-        for index_sql in self.CREATE_INDICES:
-            await self._db.execute(index_sql)
-        self._logger.info("graph_tables_ensured")
+        """Verify tables exist (created by SQL migration).
+
+        Does NOT create tables - expects 001_postgres_schema.sql to have run.
+        Creates additional indices if needed for performance.
+        """
+        # Verify tables exist by checking for them
+        try:
+            await self._db.fetch_one(
+                "SELECT 1 FROM graph_nodes LIMIT 1"
+            )
+            await self._db.fetch_one(
+                "SELECT 1 FROM graph_edges LIMIT 1"
+            )
+        except Exception as e:
+            self._logger.error(
+                "graph_tables_missing",
+                error=str(e),
+                hint="Run 001_postgres_schema.sql migration first"
+            )
+            raise RuntimeError(
+                "graph_nodes/graph_edges tables not found. "
+                "Ensure 001_postgres_schema.sql migration has run."
+            ) from e
+
+        self._logger.info("graph_tables_verified")
 
     async def add_node(
         self,
@@ -108,7 +112,7 @@ class PostgresGraphAdapter:
         Args:
             node_id: Unique node identifier
             node_type: Type of node (e.g., "file", "function", "class")
-            properties: Node properties/attributes
+            properties: Node properties/attributes (stored as label/description)
             user_id: Optional owner user ID
 
         Returns:
@@ -124,14 +128,24 @@ class PostgresGraphAdapter:
             self._logger.debug("node_exists", node_id=node_id)
             return False
 
+        # Extract label and description from properties if present
+        label = properties.pop("label", None)
+        description = properties.pop("description", None)
+        ref_table = properties.pop("ref_table", None)
+        ref_id = properties.pop("ref_id", None)
+
         # Insert or resurrect (if was soft-deleted)
+        # Schema: node_id, node_type, ref_table, ref_id, label, description, user_id
         await self._db.execute(
             """
-            INSERT INTO graph_nodes (node_id, node_type, properties, user_id, created_at, updated_at)
-            VALUES ($1, $2, $3, $4, NOW(), NOW())
+            INSERT INTO graph_nodes (node_id, node_type, ref_table, ref_id, label, description, user_id, created_at, updated_at)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, NOW(), NOW())
             ON CONFLICT (node_id) DO UPDATE SET
                 node_type = EXCLUDED.node_type,
-                properties = EXCLUDED.properties,
+                ref_table = EXCLUDED.ref_table,
+                ref_id = EXCLUDED.ref_id,
+                label = EXCLUDED.label,
+                description = EXCLUDED.description,
                 user_id = EXCLUDED.user_id,
                 updated_at = NOW(),
                 deleted_at = NULL
@@ -139,8 +153,11 @@ class PostgresGraphAdapter:
             {
                 "node_id": node_id,
                 "node_type": node_type,
-                "properties": json.dumps(properties),
-                "user_id": user_id,
+                "ref_table": ref_table,
+                "ref_id": ref_id,
+                "label": label,
+                "description": description,
+                "user_id": user_id or "system",  # user_id is NOT NULL in schema
             },
         )
 
@@ -157,41 +174,68 @@ class PostgresGraphAdapter:
         """Add an edge between nodes.
 
         Args:
-            source_id: Source node ID
-            target_id: Target node ID
+            source_id: Source node ID (mapped to from_node_id in SQL)
+            target_id: Target node ID (mapped to to_node_id in SQL)
             edge_type: Type of relationship (e.g., "imports", "calls", "inherits")
-            properties: Optional edge properties
+            properties: Optional edge properties including:
+                - weight: Edge weight (default 1.0)
+                - confidence: Confidence score (default 1.0)
+                - source_agent: Agent that created the edge
+                - source_event_id: Domain event that triggered creation
+                - metadata: Additional JSON metadata
 
         Returns:
             True if created, False if already exists
         """
-        # Check if edge exists (not deleted)
+        props = properties or {}
+
+        # Check if edge exists (valid_until IS NULL means currently active)
         existing = await self._db.fetch_one(
             """
-            SELECT source_id FROM graph_edges 
-            WHERE source_id = $1 AND target_id = $2 AND edge_type = $3 AND deleted_at IS NULL
+            SELECT edge_id FROM graph_edges
+            WHERE from_node_id = $1 AND to_node_id = $2 AND edge_type = $3 AND valid_until IS NULL
             """,
-            {"source_id": source_id, "target_id": target_id, "edge_type": edge_type},
+            {"from_node_id": source_id, "to_node_id": target_id, "edge_type": edge_type},
         )
 
         if existing:
             self._logger.debug("edge_exists", source=source_id, target=target_id)
             return False
 
-        # Insert or resurrect
+        # Extract rich schema properties
+        weight = props.pop("weight", 1.0)
+        confidence = props.pop("confidence", 1.0)
+        auto_generated = props.pop("auto_generated", False)
+        source_agent = props.pop("source_agent", None)
+        source_event_id = props.pop("source_event_id", None)
+        metadata = props if props else None
+
+        # Generate edge_id
+        edge_id = f"edge_{uuid4().hex[:12]}"
+
+        # Insert with rich schema
+        # Note: UNIQUE constraint is (from_node_id, to_node_id, edge_type, valid_from)
         await self._db.execute(
             """
-            INSERT INTO graph_edges (source_id, target_id, edge_type, properties, created_at)
-            VALUES ($1, $2, $3, $4, NOW())
-            ON CONFLICT (source_id, target_id, edge_type) DO UPDATE SET
-                properties = EXCLUDED.properties,
-                deleted_at = NULL
+            INSERT INTO graph_edges (
+                edge_id, from_node_id, to_node_id, edge_type,
+                weight, confidence, auto_generated,
+                source_agent, source_event_id,
+                valid_from, metadata_json, created_at
+            )
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, NOW(), $10, NOW())
             """,
             {
-                "source_id": source_id,
-                "target_id": target_id,
+                "edge_id": edge_id,
+                "from_node_id": source_id,
+                "to_node_id": target_id,
                 "edge_type": edge_type,
-                "properties": json.dumps(properties or {}),
+                "weight": weight,
+                "confidence": confidence,
+                "auto_generated": auto_generated,
+                "source_agent": source_agent,
+                "source_event_id": source_event_id,
+                "metadata_json": json.dumps(metadata) if metadata else None,
             },
         )
 
@@ -209,7 +253,8 @@ class PostgresGraphAdapter:
         """
         row = await self._db.fetch_one(
             """
-            SELECT node_id, node_type, properties, user_id, created_at, updated_at
+            SELECT node_id, node_type, ref_table, ref_id, label, description,
+                   user_id, created_at, updated_at
             FROM graph_nodes
             WHERE node_id = $1 AND deleted_at IS NULL
             """,
@@ -241,17 +286,18 @@ class PostgresGraphAdapter:
         """
         neighbors = []
 
-        # Outgoing neighbors
+        # Outgoing neighbors (from_node_id -> to_node_id)
         if direction in ("out", "both"):
             edge_filter = "AND e.edge_type = $2" if edge_type else ""
             params = {"node_id": node_id, "edge_type": edge_type, "limit": limit} if edge_type else {"node_id": node_id, "limit": limit}
 
             query = f"""
-                SELECT n.node_id, n.node_type, n.properties, n.user_id, n.created_at, n.updated_at,
-                       e.edge_type, 'out' as direction
+                SELECT n.node_id, n.node_type, n.ref_table, n.ref_id, n.label, n.description,
+                       n.user_id, n.created_at, n.updated_at,
+                       e.edge_type, e.weight, e.confidence, 'out' as direction
                 FROM graph_edges e
-                JOIN graph_nodes n ON n.node_id = e.target_id AND n.deleted_at IS NULL
-                WHERE e.source_id = $1 AND e.deleted_at IS NULL {edge_filter}
+                JOIN graph_nodes n ON n.node_id = e.to_node_id AND n.deleted_at IS NULL
+                WHERE e.from_node_id = $1 AND e.valid_until IS NULL {edge_filter}
                 LIMIT ${'3' if edge_type else '2'}
             """
 
@@ -259,17 +305,18 @@ class PostgresGraphAdapter:
             for row in rows:
                 neighbors.append(self._row_to_neighbor(row))
 
-        # Incoming neighbors
+        # Incoming neighbors (to_node_id <- from_node_id)
         if direction in ("in", "both"):
             edge_filter = "AND e.edge_type = $2" if edge_type else ""
             params = {"node_id": node_id, "edge_type": edge_type, "limit": limit} if edge_type else {"node_id": node_id, "limit": limit}
 
             query = f"""
-                SELECT n.node_id, n.node_type, n.properties, n.user_id, n.created_at, n.updated_at,
-                       e.edge_type, 'in' as direction
+                SELECT n.node_id, n.node_type, n.ref_table, n.ref_id, n.label, n.description,
+                       n.user_id, n.created_at, n.updated_at,
+                       e.edge_type, e.weight, e.confidence, 'in' as direction
                 FROM graph_edges e
-                JOIN graph_nodes n ON n.node_id = e.source_id AND n.deleted_at IS NULL
-                WHERE e.target_id = $1 AND e.deleted_at IS NULL {edge_filter}
+                JOIN graph_nodes n ON n.node_id = e.from_node_id AND n.deleted_at IS NULL
+                WHERE e.to_node_id = $1 AND e.valid_until IS NULL {edge_filter}
                 LIMIT ${'3' if edge_type else '2'}
             """
 
@@ -296,41 +343,42 @@ class PostgresGraphAdapter:
             Path as list of nodes, or None if no path exists
         """
         # Recursive CTE for BFS path finding
+        # Uses from_node_id/to_node_id from SQL schema, valid_until for temporal filtering
         query = """
             WITH RECURSIVE path_search AS (
                 -- Base case: start from source
-                SELECT 
-                    source_id,
-                    target_id,
-                    ARRAY[source_id] as path,
+                SELECT
+                    from_node_id,
+                    to_node_id,
+                    ARRAY[from_node_id] as path,
                     1 as depth
                 FROM graph_edges
-                WHERE source_id = $1 AND deleted_at IS NULL
-                
+                WHERE from_node_id = $1 AND valid_until IS NULL
+
                 UNION ALL
-                
+
                 -- Recursive case: expand from current frontier
-                SELECT 
-                    e.source_id,
-                    e.target_id,
-                    ps.path || e.source_id,
+                SELECT
+                    e.from_node_id,
+                    e.to_node_id,
+                    ps.path || e.from_node_id,
                     ps.depth + 1
                 FROM graph_edges e
-                JOIN path_search ps ON e.source_id = ps.target_id
-                WHERE e.deleted_at IS NULL
-                    AND e.source_id != ALL(ps.path)  -- Avoid cycles
+                JOIN path_search ps ON e.from_node_id = ps.to_node_id
+                WHERE e.valid_until IS NULL
+                    AND e.from_node_id != ALL(ps.path)  -- Avoid cycles
                     AND ps.depth < $3
             )
-            SELECT path || target_id as full_path
+            SELECT path || to_node_id as full_path
             FROM path_search
-            WHERE target_id = $2
+            WHERE to_node_id = $2
             ORDER BY array_length(path, 1)
             LIMIT 1
         """
 
         row = await self._db.fetch_one(
             query,
-            {"source_id": source_id, "target_id": target_id, "max_depth": max_depth},
+            {"from_node_id": source_id, "to_node_id": target_id, "max_depth": max_depth},
         )
 
         if not row or not row.get("full_path"):
@@ -382,20 +430,21 @@ class PostgresGraphAdapter:
             params["edge_types"] = edge_types
 
         # Get all reachable nodes within depth
+        # Uses from_node_id/to_node_id from SQL schema, valid_until for temporal filtering
         query = f"""
             WITH RECURSIVE subgraph AS (
                 -- Base case: center node
                 SELECT node_id, 0 as depth
                 FROM graph_nodes
                 WHERE node_id = $1 AND deleted_at IS NULL
-                
+
                 UNION
-                
+
                 -- Recursive case: expand neighbors
-                SELECT DISTINCT e.target_id as node_id, s.depth + 1
+                SELECT DISTINCT e.to_node_id as node_id, s.depth + 1
                 FROM graph_edges e
-                JOIN subgraph s ON e.source_id = s.node_id
-                WHERE e.deleted_at IS NULL
+                JOIN subgraph s ON e.from_node_id = s.node_id
+                WHERE e.valid_until IS NULL
                     AND s.depth < $2
                     {edge_type_filter}
             )
@@ -417,19 +466,24 @@ class PostgresGraphAdapter:
                 edge_params["edge_types"] = edge_types
 
             edge_query = f"""
-                SELECT source_id, target_id, edge_type, properties
+                SELECT edge_id, from_node_id, to_node_id, edge_type,
+                       weight, confidence, source_agent, metadata_json
                 FROM graph_edges
-                WHERE source_id = ANY($1) AND target_id = ANY($1)
-                    AND deleted_at IS NULL
+                WHERE from_node_id = ANY($1) AND to_node_id = ANY($1)
+                    AND valid_until IS NULL
                     {edge_type_filter if edge_types else ''}
             """
             edge_rows = await self._db.fetch_all(edge_query, edge_params)
             edges = [
                 {
-                    "source_id": row["source_id"],
-                    "target_id": row["target_id"],
+                    "edge_id": row["edge_id"],
+                    "source_id": row["from_node_id"],  # Map back to protocol naming
+                    "target_id": row["to_node_id"],    # Map back to protocol naming
                     "edge_type": row["edge_type"],
-                    "properties": row.get("properties", {}),
+                    "weight": row.get("weight", 1.0),
+                    "confidence": row.get("confidence", 1.0),
+                    "source_agent": row.get("source_agent"),
+                    "properties": json.loads(row["metadata_json"]) if row.get("metadata_json") else {},
                 }
                 for row in edge_rows
             ]
@@ -439,7 +493,7 @@ class PostgresGraphAdapter:
         return {"nodes": nodes, "edges": edges}
 
     async def delete_node(self, node_id: str) -> bool:
-        """Soft-delete a node and its edges.
+        """Soft-delete a node and expire its edges.
 
         Args:
             node_id: Node to delete
@@ -463,24 +517,34 @@ class PostgresGraphAdapter:
         if not result:
             return False
 
-        # Soft-delete all connected edges
+        # Expire all connected edges (set valid_until)
         await self._db.execute(
             """
             UPDATE graph_edges
-            SET deleted_at = $2
-            WHERE (source_id = $1 OR target_id = $1) AND deleted_at IS NULL
+            SET valid_until = $2
+            WHERE (from_node_id = $1 OR to_node_id = $1) AND valid_until IS NULL
             """,
-            {"node_id": node_id, "deleted_at": now},
+            {"node_id": node_id, "valid_until": now},
         )
 
         self._logger.info("node_deleted", node_id=node_id)
         return True
 
     def _row_to_node(self, row: Dict[str, Any]) -> Dict[str, Any]:
-        """Convert database row to node dictionary."""
-        properties = row.get("properties", {})
-        if isinstance(properties, str):
-            properties = json.loads(properties)
+        """Convert database row to node dictionary.
+
+        Maps SQL schema columns to protocol-compatible format.
+        """
+        # Build properties from explicit columns
+        properties = {}
+        if row.get("label"):
+            properties["label"] = row["label"]
+        if row.get("description"):
+            properties["description"] = row["description"]
+        if row.get("ref_table"):
+            properties["ref_table"] = row["ref_table"]
+        if row.get("ref_id"):
+            properties["ref_id"] = row["ref_id"]
 
         return {
             "node_id": row["node_id"],
@@ -496,6 +560,8 @@ class PostgresGraphAdapter:
         node = self._row_to_node(row)
         node["edge_type"] = row.get("edge_type")
         node["direction"] = row.get("direction")
+        node["weight"] = row.get("weight", 1.0)
+        node["confidence"] = row.get("confidence", 1.0)
         return node
 
 

@@ -119,10 +119,13 @@ def envelope_with_intent(envelope_with_perception) -> Envelope:
     """Envelope with intent output populated.
 
     State: perception -> intent -> planner (current)
+
+    Note: Uses tool_suite (new architecture) instead of intent field.
     """
     env = envelope_with_perception
     env.set_output("intent", {
-        "intent": "find_definition",
+        "tool_suite": "symbol_lookup",  # New architecture
+        "search_targets": ["main"],  # Required by new architecture
         "goals": ["Find the definition of main function"],
         "confidence": 0.9,
         "clarification_needed": False,
@@ -236,10 +239,14 @@ def envelope_with_critic(envelope_with_synthesizer) -> Envelope:
 
 @pytest.fixture
 def envelope_with_clarification(envelope_with_perception) -> Envelope:
-    """Envelope in clarification-required state."""
+    """Envelope in clarification-required state.
+
+    Note: Uses tool_suite (new architecture) instead of intent field.
+    """
     env = envelope_with_perception
     env.set_output("intent", {
-        "intent": "unknown",
+        "tool_suite": "text_search",  # Default when unclear
+        "search_targets": [],  # Empty because clarification needed
         "goals": [],
         "confidence": 0.3,
         "clarification_needed": True,

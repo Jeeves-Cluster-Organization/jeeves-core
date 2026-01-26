@@ -42,6 +42,8 @@ class GraphEdge:
     target_id: str
     edge_type: str
     properties: Dict[str, Any] = field(default_factory=dict)
+    weight: float = 1.0
+    confidence: float = 1.0
     created_at: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
 
 
@@ -125,11 +127,18 @@ class InMemoryGraphStorage:
             )
             return False
 
+        # Extract weight/confidence from properties if present
+        props = dict(properties) if properties else {}
+        weight = props.pop("weight", 1.0)
+        confidence = props.pop("confidence", 1.0)
+
         edge = GraphEdge(
             source_id=source_id,
             target_id=target_id,
             edge_type=edge_type,
-            properties=properties or {},
+            properties=props,
+            weight=weight,
+            confidence=confidence,
         )
         self._edges[key] = edge
 
@@ -183,10 +192,13 @@ class InMemoryGraphStorage:
                     continue
                 node = await self.get_node(target_id)
                 if node:
+                    edge = self._edges.get((node_id, target_id, etype))
                     neighbors.append({
                         **node,
                         "edge_type": etype,
                         "direction": "out",
+                        "weight": edge.weight if edge else 1.0,
+                        "confidence": edge.confidence if edge else 1.0,
                     })
 
         # Incoming neighbors
@@ -196,10 +208,13 @@ class InMemoryGraphStorage:
                     continue
                 node = await self.get_node(source_id)
                 if node:
+                    edge = self._edges.get((source_id, node_id, etype))
                     neighbors.append({
                         **node,
                         "edge_type": etype,
                         "direction": "in",
+                        "weight": edge.weight if edge else 1.0,
+                        "confidence": edge.confidence if edge else 1.0,
                     })
 
         return neighbors[:limit]
@@ -283,13 +298,16 @@ class InMemoryGraphStorage:
                 continue
 
             # Expand neighbors
-            for neighbor_id, edge_type in self._outgoing.get(current_id, set()):
-                if edge_types and edge_type not in edge_types:
+            for neighbor_id, etype in self._outgoing.get(current_id, set()):
+                if edge_types and etype not in edge_types:
                     continue
+                edge = self._edges.get((current_id, neighbor_id, etype))
                 edges.append({
                     "source_id": current_id,
                     "target_id": neighbor_id,
-                    "edge_type": edge_type,
+                    "edge_type": etype,
+                    "weight": edge.weight if edge else 1.0,
+                    "confidence": edge.confidence if edge else 1.0,
                 })
                 if neighbor_id not in visited:
                     queue.append((neighbor_id, current_depth + 1))

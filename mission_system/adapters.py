@@ -370,7 +370,7 @@ def create_llm_provider_factory(settings: Optional[SettingsProtocol] = None) -> 
     """
     Create LLM provider factory.
 
-    Wrapper for avionics.llm.factory.create_llm_provider_factory.
+    Wrapper for avionics.wiring.create_llm_provider_factory.
     Apps should use this instead of importing from avionics directly.
 
     Args:
@@ -383,7 +383,7 @@ def create_llm_provider_factory(settings: Optional[SettingsProtocol] = None) -> 
         Apps access infrastructure via adapters, not direct avionics imports.
         Layer boundary: Capability → Mission System (adapters) → Avionics
     """
-    from avionics.llm.factory import create_llm_provider_factory as _create_factory
+    from avionics.wiring import create_llm_provider_factory as _create_factory
     return _create_factory(settings)
 
 

@@ -230,8 +230,11 @@ class Agent:
         if "intent" in envelope.outputs:
             intent_output = envelope.outputs["intent"]
             if isinstance(intent_output, dict):
-                # Extract intent classification (string)
-                context["intent"] = intent_output.get("intent", "")
+                # Extract tool_suite classification (new architecture)
+                # Fallback to "intent" field for backwards compatibility
+                tool_suite = intent_output.get("tool_suite") or intent_output.get("intent", "")
+                context["tool_suite"] = tool_suite
+                context["intent"] = tool_suite  # Backwards compatibility alias
                 # Extract goals (list or string representation)
                 goals = intent_output.get("goals", [])
                 context["goals"] = str(goals) if isinstance(goals, list) else goals
@@ -475,7 +478,11 @@ class Agent:
         if "intent" in envelope.outputs:
             intent_output = envelope.outputs["intent"]
             if isinstance(intent_output, dict):
-                context["intent"] = intent_output.get("intent", "")
+                # Extract tool_suite classification (new architecture)
+                # Fallback to "intent" field for backwards compatibility
+                tool_suite = intent_output.get("tool_suite") or intent_output.get("intent", "")
+                context["tool_suite"] = tool_suite
+                context["intent"] = tool_suite  # Backwards compatibility alias
                 goals = intent_output.get("goals", [])
                 context["goals"] = str(goals) if isinstance(goals, list) else goals
                 search_targets = intent_output.get("search_targets", [])
