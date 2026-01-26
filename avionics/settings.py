@@ -60,7 +60,7 @@ class Settings(BaseSettings):
     llamaserver_api_type: str = "native"  # "native" or "openai"
 
     # Default model (used when capability doesn't specify)
-    default_model: str = "qwen2.5-3b-instruct-q4_k_m"
+    default_model: str = "qwen2.5-7b-instruct-q4_k_m"
 
     # Default temperature (used when capability doesn't specify)
     default_temperature: Optional[float] = 0.3

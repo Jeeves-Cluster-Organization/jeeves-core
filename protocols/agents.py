@@ -330,6 +330,191 @@ class Agent:
 
         return self.config.default_next or "end"
 
+    async def stream(self, envelope: Envelope) -> AsyncIterator[Tuple[str, Any]]:
+        """Streaming execution (token/event emission).
+
+        Behavior depends on config:
+        - token_stream=OFF: No token events
+        - token_stream=DEBUG: Emit debug tokens (debug=True)
+        - token_stream=AUTHORITATIVE: Emit authoritative tokens (debug=False)
+
+        Yields:
+            Tuple[str, Any]: (event_type, event_data) pairs
+        """
+        from protocols.envelope import PipelineEvent
+        from protocols.config import TokenStreamMode
+
+        self.logger.info(f"{self.name}_stream_started", envelope_id=envelope.envelope_id)
+
+        # Pre-process hook
+        if self.pre_process:
+            envelope = self.pre_process(envelope, self)
+
+        # Determine if tokens should be authoritative
+        is_authoritative = self.config.token_stream == TokenStreamMode.AUTHORITATIVE
+
+        # Stream tokens if enabled
+        if self.config.token_stream != TokenStreamMode.OFF and self.config.has_llm and self.llm:
+            accumulated = ""
+            async for token in self._call_llm_stream(envelope):
+                accumulated += token
+                # Emit token event
+                event = PipelineEvent(
+                    type="token",
+                    stage=self.name,
+                    data={"token": token},
+                    debug=not is_authoritative  # Debug if not authoritative
+                )
+                yield ("token", event)
+
+            # Finalize after streaming completes
+            if is_authoritative:
+                await self.finalize_stream(envelope, accumulated)
+            else:
+                # For debug mode, still call regular _call_llm for canonical output
+                output = await self._call_llm(envelope)
+                envelope.outputs[self.config.output_key] = output
+        else:
+            # No streaming - use regular process
+            await self.process(envelope)
+
+        envelope.agent_hop_count += 1
+        next_stage = self._determine_next_stage(envelope.outputs.get(self.config.output_key, {}))
+        envelope.current_stage = next_stage
+
+        self.logger.info(f"{self.name}_stream_completed", envelope_id=envelope.envelope_id)
+
+    async def _call_llm_stream(self, envelope: Envelope) -> AsyncIterator[str]:
+        """Stream authoritative tokens (for TEXT mode with AUTHORITATIVE tokens)."""
+        from protocols.config import AgentOutputMode
+
+        if self.config.output_mode != AgentOutputMode.TEXT:
+            raise ValueError("_call_llm_stream() requires output_mode=TEXT")
+
+        if not self.prompt_registry:
+            raise ValueError(f"Agent {self.name} requires prompt_registry")
+
+        # Use streaming prompt key if provided, otherwise append "_streaming"
+        prompt_key = self.config.streaming_prompt_key
+        if not prompt_key:
+            base_key = self.config.prompt_key or f"{envelope.metadata.get('pipeline', 'default')}.{self.name}"
+            prompt_key = f"{base_key}_streaming"
+
+        # Build context (same as _call_llm)
+        context = self._build_prompt_context(envelope)
+        prompt = self.prompt_registry.get(prompt_key, context=context)
+
+        # Build options
+        options = {}
+        if self.config.temperature is not None:
+            options["temperature"] = self.config.temperature
+        if self.config.max_tokens is not None:
+            options["num_predict"] = self.config.max_tokens
+
+        # Merge GenerationParams (K8s-style spec)
+        if self.config.generation:
+            options.update(self.config.generation.to_dict())
+
+        # Stream tokens directly from LLM
+        async for chunk in self.llm.generate_stream(model="", prompt=prompt, options=options):
+            if chunk.text:
+                yield chunk.text
+
+        envelope.llm_call_count += 1
+
+    def _build_prompt_context(self, envelope: Envelope) -> Dict[str, Any]:
+        """Build context for prompt template interpolation."""
+        import os
+        repo_path = os.environ.get("REPO_PATH", "/workspace")
+        context = {
+            "raw_input": envelope.raw_input,
+            "user_input": envelope.raw_input,
+            "user_id": envelope.user_id,
+            "session_id": envelope.session_id,
+            "system_identity": "You are a code analysis assistant.",
+            "role_description": f"As the {self.name} agent, you process information and pass results to the next stage.",
+            "normalized_input": envelope.raw_input,
+            "context_summary": "",
+            "detected_languages": "[]",
+            "capabilities_summary": "Code search, file reading, symbol lookup, dependency analysis",
+            "user_query": envelope.raw_input,
+            "repo_path": repo_path,
+            "session_state": f"Session: {envelope.session_id}",
+            # Safe defaults for common placeholders
+            "intent": "",
+            "goals": "[]",
+            "scope_path": "",
+            "exploration_summary": "",
+            "available_tools": "",
+            "bounds_description": "",
+            "max_files": 50,
+            "max_tokens": 100000,
+            "files_explored": 0,
+            "tokens_used": 0,
+            "remaining_files": 50,
+            "remaining_tokens": 100000,
+            "retry_feedback": "",
+            "execution_results": "",
+            "relevant_snippets": "",
+            "verdict": "",
+            "suggested_response": "",
+            "pipeline_overview": "7-agent code analysis pipeline",
+            "files_examined": "[]",
+        }
+
+        # Include all agent outputs
+        context.update(envelope.outputs)
+
+        # Extract commonly needed fields from nested outputs
+        if "perception" in envelope.outputs:
+            perception = envelope.outputs["perception"]
+            if isinstance(perception, dict):
+                context["normalized_input"] = perception.get("normalized_query", context["normalized_input"])
+                context["scope_path"] = perception.get("scope", "")
+
+        if "intent" in envelope.outputs:
+            intent_output = envelope.outputs["intent"]
+            if isinstance(intent_output, dict):
+                context["intent"] = intent_output.get("intent", "")
+                goals = intent_output.get("goals", [])
+                context["goals"] = str(goals) if isinstance(goals, list) else goals
+                search_targets = intent_output.get("search_targets", [])
+                if search_targets:
+                    context["search_targets"] = ", ".join(f'"{t}"' for t in search_targets)
+                else:
+                    context["search_targets"] = "none extracted - use keywords from query"
+
+        # Include metadata last
+        context.update(envelope.metadata)
+
+        return context
+
+    async def finalize_stream(self, envelope: Envelope, accumulated_text: str):
+        """Write canonical output after streaming completes."""
+        envelope.outputs[self.config.output_key] = {
+            "response": accumulated_text,
+            "citations": self._extract_citations(accumulated_text),
+        }
+
+    def _extract_citations(self, text: str) -> List[str]:
+        """Extract inline citations from streaming response.
+
+        Inline citations are v0 best-effort and display-only.
+        Not for governance/verification.
+        """
+        import re
+        # Match [Source Name] pattern
+        pattern = r'\[([^\]]+)\]'
+        matches = re.findall(pattern, text)
+        # Deduplicate while preserving order
+        seen = set()
+        citations = []
+        for match in matches:
+            if match not in seen:
+                seen.add(match)
+                citations.append(match)
+        return citations
+
 
 # =============================================================================
 # RUNTIME

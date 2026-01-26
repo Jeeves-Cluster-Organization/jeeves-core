@@ -4,7 +4,7 @@ Pure data types for configuration. No global state.
 Configuration is injected via AppContext (see avionics/context.py).
 """
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, asdict
 from enum import Enum
 from typing import Any, Callable, Dict, List, Optional, Set
 
@@ -23,6 +23,19 @@ class JoinStrategy(str, Enum):
     ANY = "any"  # Proceed when ANY prerequisite completes
 
 
+class AgentOutputMode(str, Enum):
+    """What is the canonical output?"""
+    STRUCTURED = "structured"  # Parsed JSON/tool-call objects
+    TEXT = "text"              # Concatenated text from tokens
+
+
+class TokenStreamMode(str, Enum):
+    """Should agent emit tokens during execution?"""
+    OFF = "off"              # No token emission
+    DEBUG = "debug"          # Emit debug tokens (non-authoritative)
+    AUTHORITATIVE = "authoritative"  # Emit authoritative tokens
+
+
 @dataclass
 class RoutingRule:
     """Routing rule for conditional transitions."""
@@ -37,6 +50,36 @@ class EdgeLimit:
     from_stage: str
     to_stage: str
     max_count: int
+
+
+@dataclass
+class GenerationParams:
+    """
+    Generation control parameters (K8s-style spec).
+
+    Separates execution policy from content (prompts).
+    Capabilities define these based on their prompt format.
+    """
+    stop: Optional[List[str]] = None         # Stop sequences
+    repeat_penalty: Optional[float] = None   # >= 1.0, penalize repetition
+    top_p: Optional[float] = None            # (0, 1], nucleus sampling
+    top_k: Optional[int] = None              # >= 0, top-k sampling
+    seed: Optional[int] = None               # For reproducibility
+
+    def __post_init__(self):
+        """Validate generation parameters."""
+        if self.top_p is not None and not (0 < self.top_p <= 1):
+            raise ValueError(f"top_p must be in (0, 1], got {self.top_p}")
+        if self.top_k is not None and self.top_k < 0:
+            raise ValueError(f"top_k must be >= 0, got {self.top_k}")
+        if self.repeat_penalty is not None and self.repeat_penalty < 1.0:
+            raise ValueError(f"repeat_penalty must be >= 1.0, got {self.repeat_penalty}")
+        if self.stop and any(s == "" for s in self.stop):
+            raise ValueError("Stop sequences cannot contain empty strings")
+
+    def to_dict(self) -> Dict[str, Any]:
+        """Convert to dict, excluding None values."""
+        return {k: v for k, v in asdict(self).items() if v is not None}
 
 
 @dataclass
@@ -64,10 +107,16 @@ class AgentConfig:
     prompt_key: Optional[str] = None
     temperature: Optional[float] = None
     max_tokens: Optional[int] = None
+    generation: Optional[GenerationParams] = None  # K8s-style generation spec
 
     # Output
     output_key: str = ""
     required_output_fields: List[str] = field(default_factory=list)
+
+    # Streaming configuration
+    output_mode: AgentOutputMode = AgentOutputMode.STRUCTURED
+    token_stream: TokenStreamMode = TokenStreamMode.OFF
+    streaming_prompt_key: Optional[str] = None
 
     # Routing
     routing_rules: List[RoutingRule] = field(default_factory=list)

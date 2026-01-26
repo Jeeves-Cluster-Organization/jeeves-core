@@ -25,6 +25,22 @@ class ProcessingRecord:
 
 
 @dataclass
+class PipelineEvent:
+    """Minimal stable event for streaming.
+
+    Fields:
+    - type: Event type (token, stage, error, done)
+    - stage: Agent name or "__end__"
+    - data: Event-specific payload
+    - debug: Whether this is a debug-only event (not authoritative)
+    """
+    type: str
+    stage: str
+    data: Dict[str, Any]
+    debug: bool = False
+
+
+@dataclass
 class Envelope:
     """Envelope with dynamic output slots.
 
