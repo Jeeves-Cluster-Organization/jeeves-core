@@ -34,7 +34,7 @@ from avionics.llm.providers import (
     AzureAIFoundryProvider,
     MockProvider,
 )
-from avionics.llm.providers import LlamaCppProvider, LlamaServerProvider
+from avionics.llm.providers import LlamaCppProvider, LlamaServerProvider, LiteLLMProvider
 from protocols import InferenceEndpointsProtocol, LoggerProtocol
 from avionics.logging import get_current_logger
 from avionics.capability_registry import get_capability_registry
@@ -120,13 +120,30 @@ def create_llm_provider(
             api_type=api_type
         )
 
+    elif provider_type == "litellm":
+        # LiteLLM unified provider - supports 100+ backends
+        model = getattr(settings, "litellm_model", None)
+        if not model:
+            model = os.getenv("LITELLM_MODEL", "gpt-4-turbo")
+
+        api_base = getattr(settings, "litellm_api_base", None)
+        api_key = getattr(settings, "litellm_api_key", None)
+
+        return LiteLLMProvider(
+            model=model,
+            api_base=api_base,
+            api_key=api_key,
+            timeout=settings.llm_timeout,
+            max_retries=getattr(settings, "llm_max_retries", 3),
+        )
+
     elif provider_type == "mock":
         return MockProvider()
 
     else:
         raise ValueError(
             f"Unknown provider type: {provider_type}. "
-            f"Supported: 'llamaserver', 'openai', 'anthropic', 'azure', 'llamacpp', 'mock'"
+            f"Supported: 'llamaserver', 'litellm', 'openai', 'anthropic', 'azure', 'llamacpp', 'mock'"
         )
 
 

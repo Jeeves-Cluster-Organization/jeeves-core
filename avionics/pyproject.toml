@@ -24,7 +24,7 @@ classifiers = [
 dependencies = [
     "protocols>=1.0.0",
     "shared>=1.0.0",
-    "jeeves-airframe @ git+https://github.com/Jeeves-Cluster-Organization/jeeves-airframe.git@main",
+    "litellm>=1.0.0",
     "fastapi>=0.109.0",
     "uvicorn[standard]>=0.27.0",
     "httpx>=0.26.0",

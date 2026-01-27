@@ -8,7 +8,8 @@ Structure:
 - anthropic.py: AnthropicProvider
 - azure.py: AzureAIFoundryProvider
 - mock.py: MockProvider
-- llamaserver_provider.py: LlamaServerProvider (llama.cpp)
+- llamaserver_provider.py: LlamaServerProvider (llama.cpp via LiteLLM)
+- litellm_provider.py: LiteLLMProvider (unified 100+ providers)
 
 All classes are re-exported here for backwards compatibility.
 """
@@ -20,6 +21,7 @@ from .azure import AzureAIFoundryProvider
 from .mock import MockProvider
 from .llamaserver_provider import LlamaServerProvider
 from .llamacpp_provider import LlamaCppProvider
+from .litellm_provider import LiteLLMProvider
 
 
 __all__ = [
@@ -33,4 +35,5 @@ __all__ = [
     "MockProvider",
     "LlamaServerProvider",
     "LlamaCppProvider",
+    "LiteLLMProvider",
 ]

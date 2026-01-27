@@ -1,18 +1,17 @@
-"""Unit tests for refactored LlamaServerProvider (delegates to Airframe)."""
+"""Unit tests for LlamaServerProvider (uses LiteLLM)."""
 
 import pytest
-from unittest.mock import Mock, AsyncMock, patch
-from airframe.types import InferenceStreamEvent, StreamEventType, AirframeError, ErrorCategory
+from unittest.mock import Mock, AsyncMock, patch, MagicMock
 from avionics.llm.providers.llamaserver_provider import LlamaServerProvider
 from avionics.llm.providers.base import TokenChunk
 
 
-class TestRefactoredLlamaServerProvider:
-    """Test LlamaServerProvider that delegates to Airframe adapter."""
+class TestLlamaServerProvider:
+    """Test LlamaServerProvider that uses LiteLLM."""
 
     @pytest.mark.asyncio
     async def test_provider_initialization(self):
-        """Test provider initializes with correct Airframe components."""
+        """Test provider initializes with correct configuration."""
         with patch('avionics.llm.providers.llamaserver_provider.get_current_logger'):
             provider = LlamaServerProvider(
                 base_url="http://localhost:8080",
@@ -21,45 +20,39 @@ class TestRefactoredLlamaServerProvider:
                 api_type="native"
             )
 
-            # Verify Airframe adapter created
-            assert provider._adapter is not None
-            assert provider._adapter.timeout == 60.0
-            assert provider._adapter.max_retries == 5
-
-            # Verify endpoint spec
-            assert provider._endpoint.name == "llamaserver"
-            assert provider._endpoint.base_url == "http://localhost:8080"
-            assert provider._endpoint.api_type == "native"
-
-            # Verify Avionics features
+            assert provider._base_url == "http://localhost:8080"
+            assert provider._timeout == 60.0
+            assert provider._max_retries == 5
+            assert provider._api_type == "native"
             assert provider._cost_calculator is not None
 
     @pytest.mark.asyncio
-    async def test_generate_delegates_to_airframe(self):
-        """Test generate() delegates to Airframe adapter."""
+    async def test_generate_calls_litellm(self):
+        """Test generate() calls LiteLLM acompletion."""
         with patch('avionics.llm.providers.llamaserver_provider.get_current_logger'):
-            provider = LlamaServerProvider(base_url="http://localhost:8080")
+            with patch('avionics.llm.providers.llamaserver_provider.acompletion') as mock_acompletion:
+                # Mock LiteLLM response
+                mock_response = MagicMock()
+                mock_response.choices = [MagicMock()]
+                mock_response.choices[0].message.content = "Generated text"
+                mock_response.usage = MagicMock()
+                mock_response.usage.prompt_tokens = 10
+                mock_response.usage.completion_tokens = 20
+                mock_acompletion.return_value = mock_response
 
-            # Mock Airframe adapter
-            async def mock_stream_infer(endpoint, request):
-                # Simulate Airframe response
-                yield InferenceStreamEvent(
-                    type=StreamEventType.MESSAGE,
-                    content="Generated text from Airframe",
-                    usage={"prompt_tokens": 10, "completion_tokens": 20},
+                provider = LlamaServerProvider(base_url="http://localhost:8080")
+                result = await provider.generate(
+                    model="test-model",
+                    prompt="Test prompt",
+                    options={"temperature": 0.7, "num_predict": 100}
                 )
-                yield InferenceStreamEvent(type=StreamEventType.DONE)
 
-            provider._adapter.stream_infer = mock_stream_infer
-
-            # Call generate
-            result = await provider.generate(
-                model="test-model",
-                prompt="Test prompt",
-                options={"temperature": 0.7, "num_predict": 100}
-            )
-
-            assert result == "Generated text from Airframe"
+                assert result == "Generated text"
+                mock_acompletion.assert_called_once()
+                call_kwargs = mock_acompletion.call_args[1]
+                assert call_kwargs["model"] == "openai/local-model"
+                assert call_kwargs["api_base"] == "http://localhost:8080/v1"
+                assert call_kwargs["stream"] is False
 
     @pytest.mark.asyncio
     async def test_generate_tracks_cost(self):
@@ -68,148 +61,117 @@ class TestRefactoredLlamaServerProvider:
             mock_logger = Mock()
             mock_logger_fn.return_value = mock_logger
 
-            provider = LlamaServerProvider(base_url="http://localhost:8080")
+            with patch('avionics.llm.providers.llamaserver_provider.acompletion') as mock_acompletion:
+                mock_response = MagicMock()
+                mock_response.choices = [MagicMock()]
+                mock_response.choices[0].message.content = "Response"
+                mock_response.usage = MagicMock()
+                mock_response.usage.prompt_tokens = 100
+                mock_response.usage.completion_tokens = 50
+                mock_acompletion.return_value = mock_response
 
-            # Mock Airframe adapter with token usage
-            async def mock_stream_infer(endpoint, request):
-                yield InferenceStreamEvent(
-                    type=StreamEventType.MESSAGE,
-                    content="Response",
-                    usage={"prompt_tokens": 100, "completion_tokens": 50},
-                )
-                yield InferenceStreamEvent(type=StreamEventType.DONE)
-
-            provider._adapter.stream_infer = mock_stream_infer
-
-            result = await provider.generate("model", "prompt")
-
-            # Verify cost calculation logged
-            mock_logger.info.assert_called()
-            log_call = [call for call in mock_logger.info.call_args_list
-                       if call[0][0] == "llm_generation_complete"]
-            assert len(log_call) == 1
-            assert "cost_usd" in log_call[0][1]
-
-    @pytest.mark.asyncio
-    async def test_generate_handles_airframe_error(self):
-        """Test generate() handles errors from Airframe adapter."""
-        with patch('avionics.llm.providers.llamaserver_provider.get_current_logger'):
-            provider = LlamaServerProvider(base_url="http://localhost:8080")
-
-            # Mock Airframe adapter returning error
-            async def mock_stream_infer(endpoint, request):
-                yield InferenceStreamEvent(
-                    type=StreamEventType.ERROR,
-                    error=AirframeError(ErrorCategory.TIMEOUT, "Request timed out"),
-                )
-
-            provider._adapter.stream_infer = mock_stream_infer
-
-            # Should raise exception
-            with pytest.raises(Exception, match="LLM Error"):
+                provider = LlamaServerProvider(base_url="http://localhost:8080")
                 await provider.generate("model", "prompt")
 
-    @pytest.mark.asyncio
-    async def test_generate_stream_delegates_to_airframe(self):
-        """Test generate_stream() delegates to Airframe and converts events."""
-        with patch('avionics.llm.providers.llamaserver_provider.get_current_logger'):
-            provider = LlamaServerProvider(base_url="http://localhost:8080")
-
-            # Mock Airframe streaming response
-            async def mock_stream_infer(endpoint, request):
-                yield InferenceStreamEvent(type=StreamEventType.TOKEN, content="Hello")
-                yield InferenceStreamEvent(type=StreamEventType.TOKEN, content=" world")
-                yield InferenceStreamEvent(type=StreamEventType.DONE)
-
-            provider._adapter.stream_infer = mock_stream_infer
-
-            # Collect streamed chunks
-            chunks = []
-            async for chunk in provider.generate_stream("model", "prompt"):
-                chunks.append(chunk)
-
-            # Verify conversion to TokenChunk
-            assert len(chunks) == 3
-            assert isinstance(chunks[0], TokenChunk)
-            assert chunks[0].text == "Hello"
-            assert chunks[0].is_final is False
-            assert chunks[1].text == " world"
-            assert chunks[2].text == ""
-            assert chunks[2].is_final is True
+                # Verify cost calculation logged
+                log_calls = [call for call in mock_logger.info.call_args_list
+                            if call[0][0] == "llm_generation_complete"]
+                assert len(log_calls) == 1
+                assert "cost_usd" in log_calls[0][1]
 
     @pytest.mark.asyncio
-    async def test_generate_stream_handles_error(self):
-        """Test generate_stream() handles Airframe errors."""
+    async def test_generate_handles_error(self):
+        """Test generate() handles LiteLLM errors."""
         with patch('avionics.llm.providers.llamaserver_provider.get_current_logger'):
-            provider = LlamaServerProvider(base_url="http://localhost:8080")
+            with patch('avionics.llm.providers.llamaserver_provider.acompletion') as mock_acompletion:
+                mock_acompletion.side_effect = Exception("Connection timeout")
 
-            # Mock Airframe error during streaming
-            async def mock_stream_infer(endpoint, request):
-                yield InferenceStreamEvent(type=StreamEventType.TOKEN, content="Start")
-                yield InferenceStreamEvent(
-                    type=StreamEventType.ERROR,
-                    error=AirframeError(ErrorCategory.CONNECTION, "Connection lost"),
-                )
+                provider = LlamaServerProvider(base_url="http://localhost:8080")
 
-            provider._adapter.stream_infer = mock_stream_infer
+                with pytest.raises(Exception, match="LLM Error"):
+                    await provider.generate("model", "prompt")
 
-            # Should raise exception after first token
-            chunks = []
-            with pytest.raises(Exception, match="LLM Stream Error"):
+    @pytest.mark.asyncio
+    async def test_generate_stream_calls_litellm(self):
+        """Test generate_stream() calls LiteLLM with streaming."""
+        with patch('avionics.llm.providers.llamaserver_provider.get_current_logger'):
+            with patch('avionics.llm.providers.llamaserver_provider.acompletion') as mock_acompletion:
+                # Mock streaming response
+                async def mock_stream():
+                    chunk1 = MagicMock()
+                    chunk1.choices = [MagicMock()]
+                    chunk1.choices[0].delta = MagicMock()
+                    chunk1.choices[0].delta.content = "Hello"
+                    chunk1.choices[0].finish_reason = None
+                    yield chunk1
+
+                    chunk2 = MagicMock()
+                    chunk2.choices = [MagicMock()]
+                    chunk2.choices[0].delta = MagicMock()
+                    chunk2.choices[0].delta.content = " world"
+                    chunk2.choices[0].finish_reason = None
+                    yield chunk2
+
+                    chunk3 = MagicMock()
+                    chunk3.choices = [MagicMock()]
+                    chunk3.choices[0].delta = MagicMock()
+                    chunk3.choices[0].delta.content = None
+                    chunk3.choices[0].finish_reason = "stop"
+                    yield chunk3
+
+                mock_acompletion.return_value = mock_stream()
+
+                provider = LlamaServerProvider(base_url="http://localhost:8080")
+
+                chunks = []
                 async for chunk in provider.generate_stream("model", "prompt"):
                     chunks.append(chunk)
 
-            # Should have received first token before error
-            assert len(chunks) == 1
-            assert chunks[0].text == "Start"
+                assert len(chunks) == 3
+                assert isinstance(chunks[0], TokenChunk)
+                assert chunks[0].text == "Hello"
+                assert chunks[0].is_final is False
+                assert chunks[1].text == " world"
+                assert chunks[2].is_final is True
+
+    @pytest.mark.asyncio
+    async def test_generate_stream_handles_error(self):
+        """Test generate_stream() handles LiteLLM errors."""
+        with patch('avionics.llm.providers.llamaserver_provider.get_current_logger'):
+            with patch('avionics.llm.providers.llamaserver_provider.acompletion') as mock_acompletion:
+                mock_acompletion.side_effect = Exception("Stream error")
+
+                provider = LlamaServerProvider(base_url="http://localhost:8080")
+
+                with pytest.raises(Exception, match="LLM Stream Error"):
+                    async for _ in provider.generate_stream("model", "prompt"):
+                        pass
 
     @pytest.mark.asyncio
     async def test_health_check_success(self):
-        """Test health_check() delegates to Airframe."""
+        """Test health_check() returns True on success."""
         with patch('avionics.llm.providers.llamaserver_provider.get_current_logger'):
-            provider = LlamaServerProvider(base_url="http://localhost:8080")
+            with patch('avionics.llm.providers.llamaserver_provider.acompletion') as mock_acompletion:
+                mock_response = MagicMock()
+                mock_response.choices = [MagicMock()]
+                mock_acompletion.return_value = mock_response
 
-            # Mock healthy response from Airframe
-            async def mock_stream_infer(endpoint, request):
-                yield InferenceStreamEvent(type=StreamEventType.MESSAGE, content="Hi")
+                provider = LlamaServerProvider(base_url="http://localhost:8080")
+                is_healthy = await provider.health_check()
 
-            provider._adapter.stream_infer = mock_stream_infer
-
-            is_healthy = await provider.health_check()
-            assert is_healthy is True
+                assert is_healthy is True
 
     @pytest.mark.asyncio
     async def test_health_check_failure(self):
-        """Test health_check() detects Airframe errors."""
+        """Test health_check() returns False on error."""
         with patch('avionics.llm.providers.llamaserver_provider.get_current_logger'):
-            provider = LlamaServerProvider(base_url="http://localhost:8080")
+            with patch('avionics.llm.providers.llamaserver_provider.acompletion') as mock_acompletion:
+                mock_acompletion.side_effect = Exception("Connection refused")
 
-            # Mock error from Airframe
-            async def mock_stream_infer(endpoint, request):
-                yield InferenceStreamEvent(
-                    type=StreamEventType.ERROR,
-                    error=AirframeError(ErrorCategory.CONNECTION, "Connection refused"),
-                )
+                provider = LlamaServerProvider(base_url="http://localhost:8080")
+                is_healthy = await provider.health_check()
 
-            provider._adapter.stream_infer = mock_stream_infer
-
-            is_healthy = await provider.health_check()
-            assert is_healthy is False
-
-    @pytest.mark.asyncio
-    async def test_health_check_exception(self):
-        """Test health_check() handles exceptions gracefully."""
-        with patch('avionics.llm.providers.llamaserver_provider.get_current_logger'):
-            provider = LlamaServerProvider(base_url="http://localhost:8080")
-
-            # Mock exception during health check
-            async def mock_stream_infer(endpoint, request):
-                raise Exception("Network error")
-
-            provider._adapter.stream_infer = mock_stream_infer
-
-            is_healthy = await provider.health_check()
-            assert is_healthy is False
+                assert is_healthy is False
 
     def test_supports_streaming(self):
         """Test provider reports streaming support."""
@@ -232,58 +194,14 @@ class TestRefactoredLlamaServerProvider:
             assert stats["timeout"] == 90.0
             assert stats["max_retries"] == 4
             assert stats["api_type"] == "openai"
-            assert "Airframe" in stats["backend"]
+            assert "LiteLLM" in stats["backend"]
 
-    @pytest.mark.asyncio
-    async def test_request_conversion_to_airframe_format(self):
-        """Test Avionics request correctly converts to Airframe InferenceRequest."""
+    def test_repr(self):
+        """Test string representation."""
         with patch('avionics.llm.providers.llamaserver_provider.get_current_logger'):
-            provider = LlamaServerProvider(base_url="http://localhost:8080")
-
-            captured_request = None
-
-            async def mock_stream_infer(endpoint, request):
-                nonlocal captured_request
-                captured_request = request
-                yield InferenceStreamEvent(type=StreamEventType.MESSAGE, content="Test")
-                yield InferenceStreamEvent(type=StreamEventType.DONE)
-
-            provider._adapter.stream_infer = mock_stream_infer
-
-            # Call with Avionics API
-            await provider.generate(
-                model="test-model",
-                prompt="Test prompt",
-                options={"temperature": 0.8, "num_predict": 200}
+            provider = LlamaServerProvider(
+                base_url="http://localhost:8080",
+                api_type="native"
             )
-
-            # Verify Airframe request format
-            assert captured_request is not None
-            assert len(captured_request.messages) == 1
-            assert captured_request.messages[0].role == "user"
-            assert captured_request.messages[0].content == "Test prompt"
-            assert captured_request.model == "test-model"
-            assert captured_request.temperature == 0.8
-            assert captured_request.max_tokens == 200
-            assert captured_request.stream is False
-
-    @pytest.mark.asyncio
-    async def test_streaming_request_sets_stream_true(self):
-        """Test generate_stream() sets stream=True in Airframe request."""
-        with patch('avionics.llm.providers.llamaserver_provider.get_current_logger'):
-            provider = LlamaServerProvider(base_url="http://localhost:8080")
-
-            captured_request = None
-
-            async def mock_stream_infer(endpoint, request):
-                nonlocal captured_request
-                captured_request = request
-                yield InferenceStreamEvent(type=StreamEventType.DONE)
-
-            provider._adapter.stream_infer = mock_stream_infer
-
-            async for _ in provider.generate_stream("model", "prompt"):
-                pass
-
-            # Verify streaming enabled
-            assert captured_request.stream is True
+            assert "http://localhost:8080" in repr(provider)
+            assert "native" in repr(provider)
