@@ -1,39 +1,32 @@
-"""LLM provider abstraction layer for modular model execution.
+"""LLM provider abstraction layer.
 
-This module provides a unified interface for different LLM backends:
-- LlamaServerProvider: Local execution via llama.cpp server (default)
-- OpenAIProvider: OpenAI API (GPT-4, GPT-3.5, etc.)
-- AnthropicProvider: Anthropic API (Claude models)
-- MockProvider: Deterministic responses for testing
+Supports multiple backends via adapters:
+- openai_http: Direct OpenAI-compatible HTTP (default, zero deps)
+- litellm: LiteLLM for 100+ providers (optional, pip install avionics[litellm])
+- mock: Testing provider
 
-Usage:
-    from avionics.llm.factory import create_llm_provider
-    from avionics.settings import settings
-
-    provider = create_llm_provider(settings.llm_provider, settings)
-    response = await provider.generate(
-        model="qwen2.5-7b",
-        prompt="Hello, world!",
-        options={"temperature": 0.7}
-    )
+Configuration:
+    JEEVES_LLM_ADAPTER=openai_http|litellm|mock
+    JEEVES_LLM_BASE_URL=http://localhost:8080/v1
+    JEEVES_LLM_MODEL=llama
+    JEEVES_LLM_API_KEY=... (optional)
 """
 
-from avionics.llm.providers import (
-    LLMProvider,
-    OpenAIProvider,
-    AnthropicProvider,
-    AzureAIFoundryProvider,
-    MockProvider,
-    LlamaServerProvider,
+from avionics.llm.providers.base import LLMProvider, TokenChunk
+from avionics.llm.providers.mock import MockProvider
+from avionics.llm.factory import (
+    create_llm_provider,
+    create_llm_provider_factory,
+    get_available_adapters,
 )
-from avionics.llm.factory import create_llm_provider
 
 __all__ = [
+    # Core abstractions (stable)
     "LLMProvider",
-    "LlamaServerProvider",
-    "OpenAIProvider",
-    "AnthropicProvider",
-    "AzureAIFoundryProvider",
+    "TokenChunk",
     "MockProvider",
+    # Factory (stable)
     "create_llm_provider",
+    "create_llm_provider_factory",
+    "get_available_adapters",
 ]

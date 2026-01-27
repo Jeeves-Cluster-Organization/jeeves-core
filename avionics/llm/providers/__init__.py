@@ -1,39 +1,18 @@
 """LLM Providers Module.
 
-Split from provider.py per Module Bloat Audit (2025-12-09).
+Available adapters (loaded lazily via factory):
+- MockProvider: Testing (always available)
+- OpenAIHTTPProvider: Direct HTTP (always available)
+- LiteLLMProvider: LiteLLM (optional, pip install avionics[litellm])
 
-Structure:
-- base.py: LLMProvider abstract base class
-- openai.py: OpenAIProvider
-- anthropic.py: AnthropicProvider
-- azure.py: AzureAIFoundryProvider
-- mock.py: MockProvider
-- llamaserver_provider.py: LlamaServerProvider (llama.cpp via LiteLLM)
-- litellm_provider.py: LiteLLMProvider (unified 100+ providers)
-
-All classes are re-exported here for backwards compatibility.
+Use create_llm_provider() from avionics.llm.factory to get providers.
 """
 
 from .base import LLMProvider, TokenChunk
-from .openai import OpenAIProvider, OPENAI_AVAILABLE
-from .anthropic import AnthropicProvider, ANTHROPIC_AVAILABLE
-from .azure import AzureAIFoundryProvider
 from .mock import MockProvider
-from .llamaserver_provider import LlamaServerProvider
-from .llamacpp_provider import LlamaCppProvider
-from .litellm_provider import LiteLLMProvider
-
 
 __all__ = [
     "LLMProvider",
     "TokenChunk",
-    "OpenAIProvider",
-    "OPENAI_AVAILABLE",
-    "AnthropicProvider",
-    "ANTHROPIC_AVAILABLE",
-    "AzureAIFoundryProvider",
     "MockProvider",
-    "LlamaServerProvider",
-    "LlamaCppProvider",
-    "LiteLLMProvider",
 ]

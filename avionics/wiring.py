@@ -42,7 +42,7 @@ from protocols import (
 from avionics.logging import create_logger
 from avionics.settings import Settings, get_settings
 from avionics.database.client import DatabaseClientProtocol
-from avionics.llm.factory import create_agent_provider
+from avionics.llm.factory import create_llm_provider
 
 # Import tool catalog for typed tool IDs (Decision 1:A)
 from avionics.tools.catalog import ToolId
@@ -529,7 +529,7 @@ def create_llm_provider_factory(
 
     def factory(agent_role: str) -> LLMProviderProtocol:
         """Create an LLM provider for the given agent role."""
-        return create_agent_provider(settings, agent_role)
+        return create_llm_provider(settings, agent_name=agent_role)
 
     return factory
 

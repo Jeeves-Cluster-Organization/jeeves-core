@@ -87,6 +87,29 @@ class Settings(BaseSettings):
     llamacpp_n_threads: Optional[int] = None
 
     # =========================================================================
+    # NEUTRAL LLM CONFIGURATION (preferred over legacy vars)
+    # =========================================================================
+    # These are the canonical environment variables for LLM configuration.
+    # Legacy vars (LITELLM_*, LLAMASERVER_*) are still supported for
+    # backwards compatibility but new deployments should use JEEVES_LLM_*.
+    jeeves_llm_adapter: Optional[str] = Field(
+        default=None,
+        description="LLM adapter: openai_http, litellm, mock"
+    )
+    jeeves_llm_base_url: Optional[str] = Field(
+        default=None,
+        description="LLM API base URL (e.g., http://localhost:8080/v1)"
+    )
+    jeeves_llm_model: Optional[str] = Field(
+        default=None,
+        description="LLM model identifier"
+    )
+    jeeves_llm_api_key: Optional[str] = Field(
+        default=None,
+        description="LLM API key"
+    )
+
+    # =========================================================================
     # TIMEOUTS AND RETRIES
     # =========================================================================
     # LLM timeout increased to 300s (5 min) for large max_tokens generations

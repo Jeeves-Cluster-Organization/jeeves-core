@@ -198,12 +198,14 @@ class LLMProviderProtocol(Protocol):
         options: Optional[Dict[str, Any]] = None,
     ) -> str: ...
 
-    async def generate_streaming(
+    async def generate_stream(
         self,
         model: str,
         prompt: str,
         options: Optional[Dict[str, Any]] = None,
-    ) -> Any: ...  # AsyncIterator[str]
+    ) -> Any: ...  # AsyncIterator[TokenChunk]
+
+    async def health_check(self) -> bool: ...
 
 
 # =============================================================================
