@@ -1,15 +1,9 @@
-"""Jeeves Protocols Package - Core type contracts for all layers.
+"""Jeeves Protocols Package - Type contracts for all layers.
 
-This package provides the canonical type definitions, protocols, and data classes
-that form the contract between layers in the Jeeves architecture.
-
-Constitutional Reference:
-    - All layers import from protocols for type definitions
-    - protocols sits at L0 (no dependencies on other Jeeves packages)
-    - Protocols define interfaces; implementations are in other packages
+This package provides protocol definitions and data classes.
+Core enums are in jeeves_core.types (Go kernel source of truth).
 
 Package Structure:
-    - enums.py: Core enums (RiskLevel, ToolAccess, OperationStatus, etc.)
     - config.py: Configuration types (AgentConfig, PipelineConfig, etc.)
     - envelope.py: Envelope and ProcessingRecord
     - agents.py: Agent, PipelineRunner, factories
@@ -19,32 +13,10 @@ Package Structure:
     - events.py: Event schema (Event, EventCategory, EventSeverity)
     - utils.py: JSON utilities (JSONRepairKit, normalize_string_list)
 
-Usage by Capability Layers:
-    from protocols import (
-        AgentConfig, PipelineConfig, Envelope, PipelineRunner,
-        RiskLevel, ToolAccess, ToolCategory, OperationStatus,
-        CapabilityResourceRegistry, get_capability_resource_registry,
-        LoggerProtocol, InferenceEndpoint, AgentLLMConfig
-    )
+Usage:
+    from jeeves_core.types import RiskLevel, ToolAccess, TerminalReason
+    from protocols import AgentConfig, Envelope, LoggerProtocol
 """
-
-# =============================================================================
-# CORE ENUMS AND TYPES (from Go kernel via jeeves_core)
-# =============================================================================
-from jeeves_core.types import (
-    # Risk and access levels
-    RiskLevel,
-    ToolAccess,
-    ToolCategory,
-    OperationStatus,
-    HealthStatus,
-    # Control flow enums
-    TerminalReason,
-    LoopVerdict,
-    RiskApproval,
-    # Operation result
-    OperationResult,
-)
 
 # =============================================================================
 # CONFIGURATION TYPES
@@ -273,17 +245,6 @@ from protocols.interrupts import (
 # PUBLIC API
 # =============================================================================
 __all__ = [
-    # ─── Core Enums ───
-    "RiskLevel",
-    "ToolAccess",
-    "ToolCategory",
-    "OperationStatus",
-    "HealthStatus",
-    "TerminalReason",
-    "LoopVerdict",
-    "RiskApproval",
-    "OperationResult",
-
     # ─── Configuration ───
     "AgentConfig",
     "PipelineConfig",

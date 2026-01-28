@@ -11,7 +11,7 @@ class TestRiskLevel:
 
     def test_risk_level_values(self):
         """Test RiskLevel enum values exist."""
-        from protocols import RiskLevel
+        from jeeves_core.types import RiskLevel
 
         # Semantic levels
         assert RiskLevel.READ_ONLY is not None
@@ -25,7 +25,7 @@ class TestRiskLevel:
 
     def test_risk_level_comparison(self):
         """Test RiskLevel enum comparison."""
-        from protocols import RiskLevel
+        from jeeves_core.types import RiskLevel
 
         # Enums should be comparable
         assert RiskLevel.READ_ONLY != RiskLevel.HIGH
@@ -33,7 +33,7 @@ class TestRiskLevel:
 
     def test_requires_confirmation(self):
         """Test requires_confirmation class method."""
-        from protocols import RiskLevel
+        from jeeves_core.types import RiskLevel
 
         assert RiskLevel.requires_confirmation(RiskLevel.DESTRUCTIVE) is True
         assert RiskLevel.requires_confirmation(RiskLevel.HIGH) is True
@@ -46,7 +46,7 @@ class TestToolCategory:
 
     def test_tool_category_values(self):
         """Test ToolCategory enum values exist."""
-        from protocols import ToolCategory
+        from jeeves_core.types import ToolCategory
 
         # Operation types
         assert ToolCategory.READ is not None
@@ -65,7 +65,7 @@ class TestHealthStatus:
 
     def test_health_status_values(self):
         """Test HealthStatus enum values exist."""
-        from protocols import HealthStatus
+        from jeeves_core.types import HealthStatus
 
         assert HealthStatus.HEALTHY is not None
         assert HealthStatus.DEGRADED is not None
@@ -77,7 +77,7 @@ class TestTerminalReason:
 
     def test_terminal_reason_values(self):
         """Test TerminalReason enum values exist."""
-        from protocols import TerminalReason
+        from jeeves_core.types import TerminalReason
 
         assert TerminalReason.COMPLETED is not None
         assert TerminalReason.MAX_ITERATIONS_EXCEEDED is not None
@@ -93,7 +93,7 @@ class TestLoopVerdict:
 
     def test_loop_verdict_values(self):
         """Test LoopVerdict enum values exist."""
-        from protocols import LoopVerdict
+        from jeeves_core.types import LoopVerdict
 
         assert LoopVerdict.PROCEED is not None
         assert LoopVerdict.LOOP_BACK is not None
@@ -106,7 +106,7 @@ class TestRiskApproval:
 
     def test_risk_approval_values(self):
         """Test RiskApproval enum values exist."""
-        from protocols import RiskApproval
+        from jeeves_core.types import RiskApproval
 
         assert RiskApproval.APPROVED is not None
         assert RiskApproval.DENIED is not None
@@ -118,7 +118,7 @@ class TestToolAccess:
 
     def test_tool_access_values(self):
         """Test ToolAccess enum values exist."""
-        from protocols import ToolAccess
+        from jeeves_core.types import ToolAccess
 
         assert ToolAccess.NONE is not None
         assert ToolAccess.READ is not None
@@ -131,7 +131,7 @@ class TestOperationStatus:
 
     def test_operation_status_values(self):
         """Test OperationStatus enum values exist."""
-        from protocols import OperationStatus
+        from jeeves_core.types import OperationStatus
 
         assert OperationStatus.SUCCESS is not None
         assert OperationStatus.ERROR is not None
@@ -145,7 +145,7 @@ class TestOperationResult:
 
     def test_operation_result_success(self):
         """Test creating success result."""
-        from protocols import OperationResult
+        from jeeves_core.types import OperationResult
 
         result = OperationResult.success({"key": "value"})
 
@@ -155,7 +155,7 @@ class TestOperationResult:
 
     def test_operation_result_error(self):
         """Test creating error result."""
-        from protocols import OperationResult
+        from jeeves_core.types import OperationResult
 
         result = OperationResult.error("Something went wrong", "validation")
 
@@ -166,7 +166,7 @@ class TestOperationResult:
 
     def test_operation_result_not_found(self):
         """Test creating not found result."""
-        from protocols import OperationResult
+        from jeeves_core.types import OperationResult
 
         result = OperationResult.not_found("File not found")
 
@@ -176,7 +176,7 @@ class TestOperationResult:
 
     def test_operation_result_to_dict(self):
         """Test converting result to dictionary."""
-        from protocols import OperationResult
+        from jeeves_core.types import OperationResult
 
         result = OperationResult.success({"items": [1, 2, 3]})
         data = result.to_dict()

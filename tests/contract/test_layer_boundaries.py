@@ -182,12 +182,12 @@ class TestLayerBoundariesStatic:
         """Test that control_tower only imports from L0."""
         project_root = Path(__file__).parent.parent.parent
         control_tower_dir = project_root / "control_tower"
-        
+
         if not control_tower_dir.exists():
             pytest.skip("control_tower not found")
-        
+
         violations = []
-        allowed = {"protocols", "shared", "control_tower"}
+        allowed = {"protocols", "shared", "control_tower", "jeeves_core"}
         
         for py_file in control_tower_dir.rglob("*.py"):
             imports = get_imports_from_file(py_file)
@@ -268,13 +268,9 @@ class TestCrossLayerContracts:
         # Should be the exact same class
         assert ProtocolEnvelope is EnvelopeModule
 
-    def test_terminal_reason_enum_consistent(self):
-        """Test that TerminalReason enum is consistent."""
-        from protocols import TerminalReason as ProtocolReason
-        from jeeves_core.types import TerminalReason as CoreReason
-
-        # Should be the exact same enum (protocols re-exports from jeeves_core)
-        assert ProtocolReason is CoreReason
+    def test_terminal_reason_enum_exists(self):
+        """Test that TerminalReason enum exists in jeeves_core.types."""
+        from jeeves_core.types import TerminalReason
 
         # Should have expected values (match jeeves_core/types/enums.py TerminalReason)
         expected_values = {
@@ -286,7 +282,7 @@ class TestCrossLayerContracts:
             "policy_violation",
             "completed",
         }
-        actual_values = {e.value for e in ProtocolReason}
+        actual_values = {e.value for e in TerminalReason}
         assert expected_values.issubset(actual_values)
 
     def test_logger_protocol_consistent(self):
