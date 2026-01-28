@@ -32,8 +32,8 @@ from control_tower.types import (
 )
 from control_tower.services.interrupt_service import InterruptService
 
-# Re-export from protocols for convenience
-from protocols import InterruptKind, InterruptResponse
+# Re-export from jeeves_core.types for convenience
+from jeeves_core.types import InterruptKind, InterruptResponse
 
 __all__ = [
     "ControlTower",

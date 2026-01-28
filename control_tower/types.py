@@ -13,7 +13,8 @@ from datetime import datetime
 from enum import Enum
 from typing import Any, Dict, List, Optional
 
-from protocols import RateLimitConfig, InterruptKind, RequestContext
+from jeeves_core.types import RateLimitConfig, InterruptKind
+from protocols import RequestContext
 from shared.serialization import utc_now
 
 

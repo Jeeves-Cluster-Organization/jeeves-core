@@ -8,7 +8,7 @@ import pytest
 import time
 from unittest.mock import MagicMock, patch
 from control_tower.resources.rate_limiter import RateLimiter, SlidingWindow
-from protocols import RateLimitConfig
+from jeeves_core.types import RateLimitConfig
 
 
 # =============================================================================

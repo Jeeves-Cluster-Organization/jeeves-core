@@ -12,9 +12,8 @@ Layering rules:
 from datetime import datetime
 from typing import Any, Dict, List, Optional, Protocol, runtime_checkable
 
-from protocols import Envelope, RequestContext
-
-from protocols import InterruptKind
+from jeeves_core.types import Envelope, InterruptKind
+from protocols import RequestContext
 from control_tower.types import (
     DispatchTarget,
     KernelEvent,

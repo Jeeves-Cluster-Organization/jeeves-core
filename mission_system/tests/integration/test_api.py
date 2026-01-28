@@ -151,7 +151,7 @@ async def test_root_endpoint(test_app):
 async def test_submit_request_success(test_app):
     """Test successful request submission."""
     from protocols import RequestContext
-    from protocols.envelope import Envelope
+    from jeeves_core.types import Envelope
     from jeeves_core.types import TerminalReason
 
     # Create mock envelope result (uses input envelope's request_id for consistency)
@@ -195,8 +195,8 @@ async def test_submit_request_success(test_app):
 async def test_submit_request_clarification(test_app):
     """Test request submission requiring clarification."""
     from protocols import RequestContext
-    from protocols.envelope import Envelope
-    from protocols.interrupts import FlowInterrupt, InterruptKind
+    from jeeves_core.types import Envelope
+    from jeeves_core.types import FlowInterrupt, InterruptKind
 
     # Create mock envelope with clarification interrupt
     def create_mock_envelope(envelope, **kwargs):

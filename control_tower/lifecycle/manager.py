@@ -13,7 +13,8 @@ import threading
 from datetime import datetime
 from typing import Dict, List, Optional
 
-from protocols import Envelope, LoggerProtocol
+from jeeves_core.types import Envelope
+from protocols import LoggerProtocol
 from shared.serialization import utc_now
 
 from control_tower.protocols import LifecycleManagerProtocol

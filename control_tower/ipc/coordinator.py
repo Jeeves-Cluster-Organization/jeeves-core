@@ -19,7 +19,8 @@ import threading
 from datetime import datetime
 from typing import Any, Callable, Dict, List, Optional, TYPE_CHECKING, Union
 
-from protocols import Envelope, LoggerProtocol, RequestContext
+from jeeves_core.types import Envelope
+from protocols import LoggerProtocol, RequestContext
 
 from control_tower.protocols import CommBusCoordinatorProtocol
 from control_tower.types import DispatchTarget, ServiceDescriptor

@@ -222,7 +222,7 @@ class TestResourceTrackingPIDContext:
 
     def test_llm_gateway_resource_callback_uses_pid_context(self, mock_logger):
         """Test that LLMGateway callback uses request PID context."""
-        from avionics.llm.gateway import LLMGateway, LLMResponse
+        from jeeves_infra.llm.gateway import LLMGateway, LLMResponse
         from control_tower.resources.tracker import ResourceTracker
         from control_tower.types import ResourceQuota
         from mission_system.bootstrap import (
@@ -297,7 +297,7 @@ class TestResourceTrackingPIDContext:
 
     def test_callback_returns_none_without_pid_context(self, mock_logger):
         """Test that callback allows requests when no PID is set."""
-        from avionics.llm.gateway import LLMGateway, LLMResponse
+        from jeeves_infra.llm.gateway import LLMGateway, LLMResponse
         from mission_system.bootstrap import (
             get_request_pid,
             clear_request_pid,
@@ -355,7 +355,7 @@ class TestLLMGatewayCostTracking:
 
     def test_gateway_tracks_cost_per_request(self, mock_logger):
         """Test that gateway tracks cost for each request."""
-        from avionics.llm.gateway import LLMGateway, LLMResponse
+        from jeeves_infra.llm.gateway import LLMGateway, LLMResponse
 
         mock_settings = MagicMock()
         mock_settings.llm_provider = "openai"
@@ -392,7 +392,7 @@ class TestLLMGatewayCostTracking:
 
     def test_gateway_tracks_by_provider(self, mock_logger):
         """Test that gateway tracks stats per provider."""
-        from avionics.llm.gateway import LLMGateway, LLMResponse
+        from jeeves_infra.llm.gateway import LLMGateway, LLMResponse
 
         mock_settings = MagicMock()
         gateway = LLMGateway(
@@ -448,7 +448,7 @@ class TestProviderStreaming:
     @pytest.mark.asyncio
     async def test_gateway_streaming_callback(self, mock_logger):
         """Test that streaming callback is invoked for each chunk."""
-        from avionics.llm.gateway import LLMGateway, StreamingChunk
+        from jeeves_infra.llm.gateway import LLMGateway, StreamingChunk
 
         mock_settings = MagicMock()
         mock_settings.llm_provider = "llamaserver"
@@ -479,7 +479,7 @@ class TestProviderStreaming:
 
     def test_streaming_chunk_to_dict(self):
         """Test StreamingChunk serialization."""
-        from avionics.llm.gateway import StreamingChunk
+        from jeeves_infra.llm.gateway import StreamingChunk
 
         chunk = StreamingChunk(
             text="Hello",
@@ -829,7 +829,8 @@ class TestWorkerCoordinatorIntegration:
     ):
         """Test that submit_envelope creates PCB in Control Tower."""
         from mission_system.services.worker_coordinator import WorkerCoordinator
-        from protocols import Envelope, RequestContext
+        from jeeves_core.types import Envelope
+from protocols import RequestContext
 
         coordinator = WorkerCoordinator(
             distributed_bus=mock_distributed_bus,
@@ -870,7 +871,8 @@ class TestWorkerCoordinatorIntegration:
     ):
         """Test that submit_envelope allocates resources."""
         from mission_system.services.worker_coordinator import WorkerCoordinator
-        from protocols import Envelope, RequestContext
+        from jeeves_core.types import Envelope
+from protocols import RequestContext
         from control_tower.types import ResourceQuota
 
         coordinator = WorkerCoordinator(

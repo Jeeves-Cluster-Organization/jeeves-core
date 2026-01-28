@@ -14,7 +14,8 @@ from control_tower.types import (
     SchedulingPriority,
     ServiceDescriptor,
 )
-from protocols import Envelope, TerminalReason, RequestContext
+from jeeves_core.types import Envelope, TerminalReason
+from protocols import RequestContext
 
 
 # =============================================================================
@@ -300,7 +301,7 @@ class TestKernelCancelRequest:
         kernel.resources.allocate(pid, default_quota)
         
         # Submit a process to lifecycle
-        from protocols import Envelope
+        from jeeves_core.types import Envelope
         from datetime import datetime, timezone
 
         request_context = RequestContext(

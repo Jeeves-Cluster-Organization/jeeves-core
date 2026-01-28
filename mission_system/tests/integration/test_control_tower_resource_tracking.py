@@ -21,7 +21,7 @@ from dataclasses import dataclass
 
 from control_tower.resources.tracker import ResourceTracker
 from control_tower.types import ResourceQuota, ResourceUsage
-from protocols import Envelope
+from jeeves_core.types import Envelope
 
 
 pytestmark = [
@@ -65,7 +65,7 @@ class TestLLMGatewayResourceCallback:
 
     def test_callback_invoked_on_completion(self, resource_tracker):
         """Test that resource callback is invoked after LLM completion."""
-        from avionics.llm.gateway import LLMGateway, LLMResponse
+        from jeeves_infra.llm.gateway import LLMGateway, LLMResponse
         from datetime import datetime, timezone
 
         # Track callback invocations
@@ -125,7 +125,7 @@ class TestLLMGatewayResourceCallback:
 
     def test_callback_returns_quota_exceeded(self, resource_tracker):
         """Test that callback returns quota exceeded reason."""
-        from avionics.llm.gateway import LLMGateway, LLMResponse
+        from jeeves_infra.llm.gateway import LLMGateway, LLMResponse
         from datetime import datetime, timezone
 
         # Allocate very low quota
@@ -170,7 +170,7 @@ class TestLLMGatewayResourceCallback:
 
     def test_set_resource_callback_dynamic(self, resource_tracker):
         """Test dynamic callback configuration."""
-        from avionics.llm.gateway import LLMGateway
+        from jeeves_infra.llm.gateway import LLMGateway
 
         mock_settings = MagicMock()
         gateway = LLMGateway(settings=mock_settings, logger=MagicMock())

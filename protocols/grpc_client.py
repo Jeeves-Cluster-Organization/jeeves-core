@@ -21,9 +21,8 @@ except ImportError as e:
         "grpcio is REQUIRED. Install with: pip install grpcio grpcio-tools"
     ) from e
 
-from protocols.envelope import Envelope
+from jeeves_core.types import Envelope, TerminalReason
 from protocols import RequestContext
-from jeeves_core.types import TerminalReason
 
 if TYPE_CHECKING:
     from protocols import grpc_stub as stub_types

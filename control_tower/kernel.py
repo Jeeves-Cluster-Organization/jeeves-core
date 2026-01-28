@@ -14,7 +14,8 @@ Layering: ONLY imports from protocols (syscall interface).
 from datetime import datetime
 from typing import Any, Dict, Optional
 
-from protocols import Envelope, LoggerProtocol, TerminalReason
+from jeeves_core.types import Envelope, TerminalReason
+from protocols import LoggerProtocol
 from shared.serialization import utc_now
 
 from control_tower.events import EventAggregator

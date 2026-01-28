@@ -61,7 +61,7 @@ def sample_request_context():
 @pytest.fixture
 def sample_envelope(sample_request_context):
     """Create a sample Envelope for testing."""
-    from protocols import Envelope
+    from jeeves_core.types import Envelope
 
     return Envelope(
         request_context=sample_request_context,
@@ -118,7 +118,7 @@ def sample_envelope_dict():
 @pytest.fixture
 def sample_processing_record():
     """Create a sample ProcessingRecord for testing."""
-    from protocols import ProcessingRecord
+    from jeeves_core.types import ProcessingRecord
 
     return ProcessingRecord(
         agent="perception",
@@ -178,7 +178,8 @@ def sample_entity_ref():
 @pytest.fixture
 def sample_agent_config():
     """Create a sample AgentConfig for testing."""
-    from protocols import AgentConfig, ToolAccess
+    from protocols import AgentConfig
+    from jeeves_core.types import ToolAccess
 
     return AgentConfig(
         name="perception",

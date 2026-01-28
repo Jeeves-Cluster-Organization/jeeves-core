@@ -1,19 +1,22 @@
-"""Envelope types - mirrors Go coreengine/envelope."""
+"""Envelope types - mirrors Go coreengine/envelope.
+
+Source of truth: coreengine/envelope/envelope.go
+"""
 
 from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Any, Dict, List, Optional, TYPE_CHECKING
 
-from jeeves_core.types import TerminalReason
-from protocols.protocols import RequestContext
+from jeeves_core.types.enums import TerminalReason
+from jeeves_core.types.interrupts import FlowInterrupt
 
-if TYPE_CHECKING:
-    from protocols.interrupts import FlowInterrupt
+# RequestContext still in protocols until protocols.py is migrated
+from protocols.protocols import RequestContext
 
 
 @dataclass
 class ProcessingRecord:
-    """Record of agent processing step."""
+    """Record of agent processing step - mirrors Go ProcessingRecord."""
     agent: str
     stage_order: int
     started_at: datetime
@@ -42,9 +45,8 @@ class PipelineEvent:
 
 @dataclass
 class Envelope:
-    """Envelope with dynamic output slots.
+    """Envelope with dynamic output slots - mirrors Go Envelope.
 
-    This is a Python mirror of Go's Envelope.
     Primary state container for pipeline execution.
     """
     # Identification
@@ -80,7 +82,7 @@ class Envelope:
 
     # Unified Interrupt Handling (matches Go Envelope)
     interrupt_pending: bool = False
-    interrupt: Optional["FlowInterrupt"] = None
+    interrupt: Optional[FlowInterrupt] = None
 
     # Parallel execution state (matches Go Envelope)
     active_stages: Dict[str, bool] = field(default_factory=dict)
@@ -172,7 +174,6 @@ class Envelope:
                 return TerminalReason(value)
         elif key == "interrupt" and value is not None:
             if isinstance(value, dict):
-                from protocols.interrupts import FlowInterrupt
                 return FlowInterrupt.from_db_row(value)
         return value
 
@@ -200,21 +201,13 @@ class Envelope:
         return env
 
     def initialize_goals(self, goals: List[str]) -> None:
-        """Initialize goals for multi-stage execution.
-
-        Args:
-            goals: List of goal strings extracted from intent
-        """
+        """Initialize goals for multi-stage execution."""
         self.all_goals = list(goals)
         self.remaining_goals = list(goals)
         self.goal_completion_status = {goal: "pending" for goal in goals}
 
     def mark_goal_complete(self, goal: str) -> None:
-        """Mark a goal as complete.
-
-        Args:
-            goal: The goal to mark complete
-        """
+        """Mark a goal as complete."""
         if goal in self.goal_completion_status:
             self.goal_completion_status[goal] = "complete"
         if goal in self.remaining_goals:
@@ -225,11 +218,7 @@ class Envelope:
         self.current_stage_number += 1
 
     def get_stage_context(self) -> Dict[str, Any]:
-        """Get context for the current stage.
-
-        Returns:
-            Dictionary with stage context
-        """
+        """Get context for the current stage."""
         return {
             "current_stage_number": self.current_stage_number,
             "max_stages": self.max_stages,
@@ -240,14 +229,7 @@ class Envelope:
         }
 
     def is_stuck(self, min_progress_stages: int = 2) -> bool:
-        """Check if pipeline is stuck (no progress after N stages).
-
-        Args:
-            min_progress_stages: Minimum stages before checking for stuck state
-
-        Returns:
-            True if stuck (no goals completed after min_progress_stages)
-        """
+        """Check if pipeline is stuck (no progress after N stages)."""
         if self.current_stage_number < min_progress_stages:
             return False
         completed_count = sum(
@@ -296,15 +278,7 @@ class Envelope:
         }
 
     def to_state_dict(self) -> Dict[str, Any]:
-        """Convert to dictionary with ALL fields for complete state serialization.
-
-        Similar to to_dict() but includes ALL fields for checkpoint adapters
-        and distributed task coordination. Datetime fields are serialized
-        with .isoformat() and processing_history items are fully serialized.
-
-        Returns:
-            Dictionary with complete envelope state.
-        """
+        """Convert to dictionary with ALL fields for complete state serialization."""
         # Serialize processing history records
         serialized_history = []
         for record in self.processing_history:
@@ -372,3 +346,10 @@ class Envelope:
             # Metadata
             "metadata": self.metadata,
         }
+
+
+__all__ = [
+    "Envelope",
+    "ProcessingRecord",
+    "PipelineEvent",
+]

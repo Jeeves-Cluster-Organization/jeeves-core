@@ -16,7 +16,8 @@ Architecture:
 
 from typing import Any, Callable, Dict, Optional
 
-from protocols import LoggerProtocol, InterruptKind
+from jeeves_core.types import InterruptKind
+from protocols import LoggerProtocol
 
 from control_tower.types import KernelEvent
 

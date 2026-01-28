@@ -5,8 +5,8 @@ from control_tower.services.interrupt_service import (
     InterruptConfig,
 )
 
-# Re-export types from protocols for API consistency
-from protocols import (
+# Re-export types from jeeves_core.types for API consistency
+from jeeves_core.types import (
     InterruptKind,
     InterruptStatus,
     InterruptResponse,

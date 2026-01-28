@@ -22,9 +22,8 @@ from protocols.grpc_client import (
     _terminal_reason_to_proto,
     _proto_to_terminal_reason,
 )
-from protocols.envelope import Envelope
+from jeeves_core.types import Envelope, TerminalReason
 from protocols import RequestContext
-from jeeves_core.types import TerminalReason
 
 
 # =============================================================================

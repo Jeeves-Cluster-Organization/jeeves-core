@@ -34,11 +34,8 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Any, Dict, List, Optional, Tuple
 
-from protocols import (
-    LoggerProtocol,
-    RateLimitConfig,
-    RateLimitResult,
-)
+from jeeves_core.types import RateLimitConfig, RateLimitResult
+from protocols import LoggerProtocol
 
 
 @dataclass

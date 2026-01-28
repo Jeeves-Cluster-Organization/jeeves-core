@@ -1,7 +1,7 @@
-"""Interrupt types and protocols for flow control.
+"""Interrupt types - mirrors Go coreengine/envelope.
 
 These types define the contract for interrupt handling across layers.
-Implementations live in control_tower.
+Source of truth: coreengine/envelope/envelope.go
 """
 
 from dataclasses import dataclass, field
@@ -11,7 +11,7 @@ from typing import Any, Dict, List, Optional, Protocol, runtime_checkable
 
 
 class InterruptKind(str, Enum):
-    """Type of flow interrupt."""
+    """Type of flow interrupt - mirrors Go InterruptKind."""
     CLARIFICATION = "clarification"
     CONFIRMATION = "confirmation"
     AGENT_REVIEW = "agent_review"
@@ -31,7 +31,7 @@ class InterruptStatus(str, Enum):
 
 @dataclass
 class InterruptResponse:
-    """Response to an interrupt.
+    """Response to an interrupt - mirrors Go InterruptResponse.
 
     Attributes:
         text: For clarification responses
@@ -71,7 +71,7 @@ class InterruptResponse:
 
 @dataclass
 class FlowInterrupt:
-    """Unified flow interrupt.
+    """Unified flow interrupt - mirrors Go FlowInterrupt.
 
     Attributes:
         id: Unique interrupt identifier
@@ -192,11 +192,7 @@ class FlowInterrupt:
 
 @runtime_checkable
 class InterruptServiceProtocol(Protocol):
-    """Protocol for interrupt handling service.
-
-    This protocol defines the contract for managing flow interrupts.
-    Implementations handle persistence, expiration, and webhook notifications.
-    """
+    """Protocol for interrupt handling service."""
 
     async def create_interrupt(
         self,
@@ -243,31 +239,16 @@ class InterruptServiceProtocol(Protocol):
 
 @dataclass
 class RateLimitConfig:
-    """Configuration for rate limiting.
-
-    Defines rate limits per user/endpoint combination.
-    Uses sliding window algorithm for accurate limiting.
-    """
+    """Configuration for rate limiting."""
     requests_per_minute: int = 60
     requests_per_hour: int = 1000
     requests_per_day: int = 10000
-    burst_size: int = 10  # Max requests in a burst
+    burst_size: int = 10
 
 
 @dataclass
 class RateLimitResult:
-    """Result of a rate limit check.
-
-    Attributes:
-        allowed: Whether the request is allowed
-        exceeded: Whether a limit was exceeded
-        reason: Human-readable reason if exceeded
-        limit_type: Which limit was exceeded (minute, hour, day)
-        current_count: Current request count in the window
-        limit: The limit that was checked
-        retry_after_seconds: Seconds until the request would be allowed
-        remaining: Remaining requests in the current window
-    """
+    """Result of a rate limit check."""
     allowed: bool
     exceeded: bool = False
     reason: Optional[str] = None

@@ -260,7 +260,7 @@ class TestWorkerCoordinatorE2E:
         """Test submitting an envelope through coordinator."""
         from avionics.distributed.redis_bus import RedisDistributedBus
         from mission_system.services.worker_coordinator import WorkerCoordinator
-        from protocols import Envelope
+        from jeeves_core.types import Envelope
 
         class RedisClientWrapper:
             def __init__(self, client):
@@ -316,7 +316,7 @@ class TestWorkerCoordinatorE2E:
         from mission_system.services.worker_coordinator import WorkerCoordinator
         from control_tower.kernel import ControlTower
         from control_tower.types import ResourceQuota
-        from protocols import Envelope
+        from jeeves_core.types import Envelope
 
         class RedisClientWrapper:
             def __init__(self, client):
@@ -391,7 +391,7 @@ class TestDistributedPipelineE2E:
             WorkerCoordinator,
             WorkerConfig,
         )
-        from protocols import Envelope
+        from jeeves_core.types import Envelope
 
         class RedisClientWrapper:
             def __init__(self, client):
@@ -456,7 +456,8 @@ class TestDistributedPipelineE2E:
         """Test multi-stage pipeline with different queues per stage."""
         from avionics.distributed.redis_bus import RedisDistributedBus
         from mission_system.services.worker_coordinator import WorkerCoordinator
-        from protocols import Envelope, DistributedTask
+        from jeeves_core.types import Envelope
+            from protocols import DistributedTask
 
         class RedisClientWrapper:
             def __init__(self, client):

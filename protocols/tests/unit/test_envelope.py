@@ -12,7 +12,7 @@ class TestEnvelope:
 
     def test_create_envelope_with_defaults(self):
         """Test creating envelope with default values."""
-        from protocols import Envelope
+        from jeeves_core.types import Envelope
 
         # request_context is a required field with no default
         with pytest.raises(TypeError):
@@ -28,7 +28,7 @@ class TestEnvelope:
 
     def test_envelope_from_dict(self, sample_envelope_dict):
         """Test creating envelope from dictionary."""
-        from protocols import Envelope
+        from jeeves_core.types import Envelope
 
         env = Envelope.from_dict(sample_envelope_dict)
 
@@ -39,7 +39,7 @@ class TestEnvelope:
 
     def test_envelope_from_dict_with_empty_dict(self):
         """Test creating envelope from empty dictionary."""
-        from protocols import Envelope
+        from jeeves_core.types import Envelope
 
         with pytest.raises(ValueError):
             Envelope.from_dict({})
@@ -76,7 +76,7 @@ class TestProcessingRecord:
 
     def test_create_processing_record_defaults(self):
         """Test creating processing record with defaults."""
-        from protocols import ProcessingRecord
+        from jeeves_core.types import ProcessingRecord
 
         now = datetime.now(timezone.utc)
         record = ProcessingRecord(
@@ -101,7 +101,7 @@ class TestProcessingRecord:
 
     def test_processing_record_with_error(self):
         """Test processing record with error."""
-        from protocols import ProcessingRecord
+        from jeeves_core.types import ProcessingRecord
 
         now = datetime.now(timezone.utc)
         record = ProcessingRecord(
@@ -122,7 +122,7 @@ class TestEnvelopeControlFlow:
 
     def test_clarification_interrupt(self, sample_envelope):
         """Test clarification via unified interrupt system."""
-        from protocols import FlowInterrupt, InterruptKind, InterruptStatus
+        from jeeves_core.types import FlowInterrupt, InterruptKind, InterruptStatus
 
         interrupt = FlowInterrupt(
             id="int-123",
@@ -142,7 +142,7 @@ class TestEnvelopeControlFlow:
 
     def test_clarification_resolved(self, sample_envelope):
         """Test clarification response via unified interrupt system."""
-        from protocols import (
+        from jeeves_core.types import (
             FlowInterrupt, InterruptKind, InterruptStatus, InterruptResponse
         )
 
@@ -164,7 +164,7 @@ class TestEnvelopeControlFlow:
 
     def test_confirmation_interrupt(self, sample_envelope):
         """Test confirmation via unified interrupt system."""
-        from protocols import FlowInterrupt, InterruptKind
+        from jeeves_core.types import FlowInterrupt, InterruptKind
 
         interrupt = FlowInterrupt(
             id="confirm-123",
@@ -184,7 +184,7 @@ class TestEnvelopeControlFlow:
 
     def test_confirmation_resolved(self, sample_envelope):
         """Test confirmation response via unified interrupt system."""
-        from protocols import (
+        from jeeves_core.types import (
             FlowInterrupt, InterruptKind, InterruptStatus, InterruptResponse
         )
 
@@ -205,7 +205,7 @@ class TestEnvelopeControlFlow:
 
     def test_termination_state(self, sample_envelope):
         """Test termination state."""
-        from protocols import TerminalReason
+        from jeeves_core.types import TerminalReason
 
         sample_envelope.terminated = True
         sample_envelope.terminal_reason = TerminalReason.COMPLETED

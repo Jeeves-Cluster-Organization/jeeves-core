@@ -5,12 +5,15 @@ Architecture:
     Python (this file)   - Agent execution, LLM calls, tool execution
     Bridge (client.py)   - JSON-over-stdio communication
 """
+from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Any, Callable, Dict, List, Optional, Protocol, AsyncIterator, Tuple
+from typing import Any, Callable, Dict, List, Optional, Protocol, AsyncIterator, Tuple, TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from jeeves_core.types import Envelope
 
 from protocols.config import AgentConfig, PipelineConfig
-from protocols.envelope import Envelope
 
 
 # =============================================================================
@@ -59,9 +62,9 @@ class EventContext(Protocol):
 # =============================================================================
 
 LLMProviderFactory = Callable[[str], LLMProvider]
-PreProcessHook = Callable[[Envelope, Optional["Agent"]], Envelope]
-PostProcessHook = Callable[[Envelope, Dict[str, Any], Optional["Agent"]], Envelope]
-MockHandler = Callable[[Envelope], Dict[str, Any]]
+PreProcessHook = Callable[["Envelope", Optional["Agent"]], "Envelope"]
+PostProcessHook = Callable[["Envelope", Dict[str, Any], Optional["Agent"]], "Envelope"]
+MockHandler = Callable[["Envelope"], Dict[str, Any]]
 
 
 # =============================================================================
@@ -344,7 +347,7 @@ class Agent:
         Yields:
             Tuple[str, Any]: (event_type, event_data) pairs
         """
-        from protocols.envelope import PipelineEvent
+        from jeeves_core.types import PipelineEvent
         from protocols.config import TokenStreamMode
 
         self.logger.info(f"{self.name}_stream_started", envelope_id=envelope.envelope_id)
@@ -683,7 +686,7 @@ class PipelineRunner:
         Resume stages are determined by PipelineConfig, not hardcoded.
         This allows different capabilities to define their own resume behavior.
         """
-        from protocols.interrupts import InterruptKind
+        from jeeves_core.types import InterruptKind
 
         # Handle unified interrupt mechanism
         if envelope.interrupt and envelope.interrupt.kind == InterruptKind.CLARIFICATION:
@@ -757,11 +760,12 @@ def create_envelope(
     raw_input: str,
     request_context: "RequestContext",
     metadata: Optional[Dict[str, Any]] = None,
-) -> Envelope:
+) -> "Envelope":
     """Factory to create Envelope."""
     import uuid
     from protocols.utils import utc_now
     from protocols import RequestContext
+    from jeeves_core.types import Envelope  # Runtime import to avoid circular dependency
 
     if not isinstance(request_context, RequestContext):
         raise TypeError("request_context must be a RequestContext instance")

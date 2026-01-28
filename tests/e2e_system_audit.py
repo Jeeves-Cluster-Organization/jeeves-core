@@ -437,7 +437,7 @@ class SystemAudit:
             from unittest.mock import MagicMock
             from control_tower.lifecycle.manager import LifecycleManager
             from control_tower.types import ProcessState, ResourceQuota
-            from protocols import Envelope
+            from jeeves_core.types import Envelope
 
             logger = MagicMock()
             logger.bind.return_value = logger
@@ -494,7 +494,8 @@ class SystemAudit:
     def _test_envelope_creation(self) -> TestResult:
         """Test Envelope creation and serialization."""
         try:
-            from protocols import Envelope, create_envelope
+            from jeeves_core.types import Envelope
+            from protocols import create_envelope
 
             # Create via factory
             request_context = RequestContext(
@@ -615,7 +616,7 @@ class SystemAudit:
         """Test Envelope ↔ ProcessState mapping."""
         try:
             from control_tower.types import ProcessState
-            from protocols import Envelope
+            from jeeves_core.types import Envelope
 
             # Map of ProcessState to envelope conditions
             mappings = {
@@ -713,7 +714,7 @@ class SystemAudit:
     def _test_interrupt_envelope_mapping(self) -> TestResult:
         """Test InterruptKind ↔ Envelope flags mapping."""
         try:
-            from protocols import Envelope
+            from jeeves_core.types import Envelope
 
             request_context = RequestContext(
                 request_id="req",
@@ -762,7 +763,7 @@ class SystemAudit:
     def _test_outputs_flow(self) -> TestResult:
         """Test outputs dictionary flows through pipeline."""
         try:
-            from protocols import Envelope
+            from jeeves_core.types import Envelope
 
             request_context = RequestContext(
                 request_id="req",
@@ -852,7 +853,7 @@ class SystemAudit:
                 DatabaseClientProtocol,
                 create_database_client,
             )
-            from avionics.database.postgres_client import PostgreSQLClient
+            from jeeves_infra.postgres.client import PostgreSQLClient
 
             # Verify protocol methods exist
             assert hasattr(DatabaseClientProtocol, 'connect')
@@ -875,7 +876,7 @@ class SystemAudit:
     def _test_llm_gateway_import(self) -> TestResult:
         """Test LLM Gateway can be imported and instantiated."""
         try:
-            from avionics.llm.gateway import LLMGateway, LLMResponse
+            from jeeves_infra.llm.gateway import LLMGateway, LLMResponse
             from unittest.mock import MagicMock
 
             # Create with mock settings
@@ -1003,7 +1004,7 @@ class SystemAudit:
             from fastapi import FastAPI, APIRouter
 
             # Test core API components (without capability dependencies)
-            from mission_system.api.health import HealthChecker
+            from jeeves_infra.gateway.health import HealthChecker
 
             # Test API can create FastAPI app
             app = FastAPI(title="Test App")
@@ -1207,7 +1208,7 @@ class SystemAudit:
         try:
             from control_tower.events.aggregator import EventAggregator
             from control_tower.types import KernelEvent
-            from protocols import InterruptKind
+            from jeeves_core.types import InterruptKind
             from unittest.mock import MagicMock
             from datetime import datetime
 
@@ -1264,7 +1265,7 @@ class SystemAudit:
         """Test kernel event types."""
         try:
             from control_tower.types import KernelEvent, ProcessState
-            from protocols import InterruptKind
+            from jeeves_core.types import InterruptKind
 
             # Test factory methods
             request_context = RequestContext(
@@ -1392,7 +1393,7 @@ class SystemAudit:
     def _test_invalid_envelope_handling(self) -> TestResult:
         """Test invalid envelope data is handled."""
         try:
-            from protocols import Envelope
+            from jeeves_core.types import Envelope
 
             # Envelope requires request_context
             try:
@@ -1437,7 +1438,8 @@ class SystemAudit:
     def _test_terminal_reason_propagation(self) -> TestResult:
         """Test terminal reason propagates through envelope."""
         try:
-            from protocols import Envelope, TerminalReason
+            from jeeves_core.types import Envelope
+            from jeeves_core.types import TerminalReason
 
             request_context = RequestContext(
                 request_id="req",

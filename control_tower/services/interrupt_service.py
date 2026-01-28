@@ -35,13 +35,13 @@ from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, List, Optional, Protocol, runtime_checkable
 
-from protocols import (
-    LoggerProtocol,
+from jeeves_core.types import (
     InterruptKind,
     InterruptStatus,
     InterruptResponse,
     FlowInterrupt,
 )
+from protocols import LoggerProtocol
 
 
 @dataclass

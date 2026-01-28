@@ -1,11 +1,13 @@
 """Jeeves Protocols Package - Type contracts for all layers.
 
 This package provides protocol definitions and data classes.
-Core enums are in jeeves_core.types (Go kernel source of truth).
+Core types are in jeeves_core.types (Go kernel source of truth):
+    - Enums: RiskLevel, ToolAccess, TerminalReason, etc.
+    - Envelope: Envelope, ProcessingRecord, PipelineEvent
+    - Interrupts: InterruptKind, InterruptStatus, FlowInterrupt, etc.
 
 Package Structure:
     - config.py: Configuration types (AgentConfig, PipelineConfig, etc.)
-    - envelope.py: Envelope and ProcessingRecord
     - agents.py: Agent, PipelineRunner, factories
     - protocols.py: Protocol definitions (LoggerProtocol, etc.)
     - capability.py: CapabilityResourceRegistry for dynamic registration
@@ -15,7 +17,9 @@ Package Structure:
 
 Usage:
     from jeeves_core.types import RiskLevel, ToolAccess, TerminalReason
-    from protocols import AgentConfig, Envelope, LoggerProtocol
+    from jeeves_core.types import Envelope, ProcessingRecord
+    from jeeves_core.types import InterruptKind, FlowInterrupt
+    from protocols import AgentConfig, LoggerProtocol
 """
 
 # =============================================================================
@@ -33,12 +37,9 @@ from protocols.config import (
 )
 
 # =============================================================================
-# ENVELOPE TYPES
+# ENVELOPE TYPES - Now in jeeves_core.types
 # =============================================================================
-from protocols.envelope import (
-    Envelope,
-    ProcessingRecord,
-)
+# from jeeves_core.types import Envelope, ProcessingRecord, PipelineEvent
 
 # =============================================================================
 # AGENT RUNTIME
@@ -226,20 +227,12 @@ from protocols.validation import (
 )
 
 # =============================================================================
-# INTERRUPTS AND RATE LIMITING
+# INTERRUPTS AND RATE LIMITING - Now in jeeves_core.types
 # =============================================================================
-from protocols.interrupts import (
-    # Interrupt types
-    InterruptKind,
-    InterruptStatus,
-    InterruptResponse,
-    FlowInterrupt,
-    InterruptServiceProtocol,
-    # Rate limit types
-    RateLimitConfig,
-    RateLimitResult,
-    RateLimiterProtocol,
-)
+# from jeeves_core.types import (
+#     InterruptKind, InterruptStatus, InterruptResponse, FlowInterrupt,
+#     InterruptServiceProtocol, RateLimitConfig, RateLimitResult, RateLimiterProtocol
+# )
 
 # =============================================================================
 # PUBLIC API
@@ -255,9 +248,7 @@ __all__ = [
     "ExecutionConfig",
     "OrchestrationFlags",
 
-    # ─── Envelope ───
-    "Envelope",
-    "ProcessingRecord",
+    # ─── Envelope (now in jeeves_core.types) ───
 
     # ─── Agent Runtime ───
     "Agent",
@@ -370,15 +361,7 @@ __all__ = [
     "utc_now_iso",
     "parse_datetime",
 
-    # ─── Interrupts & Rate Limiting ───
-    "InterruptKind",
-    "InterruptStatus",
-    "InterruptResponse",
-    "FlowInterrupt",
-    "InterruptServiceProtocol",
-    "RateLimitConfig",
-    "RateLimitResult",
-    "RateLimiterProtocol",
+    # ─── Interrupts & Rate Limiting (now in jeeves_core.types) ───
 
     # ─── Validation Types ───
     "MetaValidationIssue",

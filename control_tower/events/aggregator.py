@@ -13,7 +13,8 @@ from collections import deque
 from datetime import datetime
 from typing import Any, Callable, Deque, Dict, List, Optional, Tuple
 
-from protocols import LoggerProtocol, InterruptKind, RequestContext
+from jeeves_core.types import InterruptKind
+from protocols import LoggerProtocol, RequestContext
 from shared.serialization import utc_now
 
 from control_tower.protocols import EventAggregatorProtocol
