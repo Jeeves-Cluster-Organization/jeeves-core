@@ -1,6 +1,6 @@
 """Core type definitions - backed by Go kernel.
 
-Source of truth: coreengine/envelope/
+Source of truth: coreengine/envelope/, coreengine/config/
 """
 
 from jeeves_core.types.enums import (
@@ -32,6 +32,22 @@ from jeeves_core.types.envelope import (
     ProcessingRecord,
 )
 
+from jeeves_core.types.config import (
+    AgentCapability,
+    AgentConfig,
+    AgentOutputMode,
+    ContextBounds,
+    EdgeLimit,
+    ExecutionConfig,
+    GenerationParams,
+    JoinStrategy,
+    OrchestrationFlags,
+    PipelineConfig,
+    RoutingRule,
+    RunMode,
+    TokenStreamMode,
+)
+
 __all__ = [
     # Enums
     "RiskLevel",
@@ -56,4 +72,18 @@ __all__ = [
     "Envelope",
     "ProcessingRecord",
     "PipelineEvent",
+    # Config types
+    "RunMode",
+    "JoinStrategy",
+    "AgentOutputMode",
+    "TokenStreamMode",
+    "AgentCapability",
+    "RoutingRule",
+    "EdgeLimit",
+    "GenerationParams",
+    "AgentConfig",
+    "PipelineConfig",
+    "ContextBounds",
+    "ExecutionConfig",
+    "OrchestrationFlags",
 ]

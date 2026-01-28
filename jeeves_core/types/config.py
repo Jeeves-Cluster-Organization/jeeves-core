@@ -1,24 +1,26 @@
 """Configuration types - mirrors Go coreengine/config.
 
+Source of truth: coreengine/config/pipeline.go, coreengine/config/execution_config.go
+
 Pure data types for configuration. No global state.
-Configuration is injected via AppContext (see avionics/context.py).
+Configuration is injected via AppContext.
 """
 
 from dataclasses import dataclass, field, asdict
 from enum import Enum
 from typing import Any, Callable, Dict, List, Optional, Set
 
-from jeeves_core.types import ToolAccess
+from jeeves_core.types.enums import ToolAccess
 
 
 class RunMode(str, Enum):
-    """How the pipeline runs stages."""
+    """How the pipeline runs stages - mirrors Go RunMode."""
     SEQUENTIAL = "sequential"  # One stage at a time
     PARALLEL = "parallel"      # Independent stages run concurrently
 
 
 class JoinStrategy(str, Enum):
-    """How to handle multiple prerequisites in parallel execution."""
+    """How to handle multiple prerequisites - mirrors Go JoinStrategy."""
     ALL = "all"  # Wait for ALL prerequisites (default)
     ANY = "any"  # Proceed when ANY prerequisite completes
 
@@ -36,9 +38,17 @@ class TokenStreamMode(str, Enum):
     AUTHORITATIVE = "authoritative"  # Emit authoritative tokens
 
 
+class AgentCapability(str, Enum):
+    """Agent capability flags - mirrors Go AgentCapability."""
+    LLM = "llm"           # Agent uses LLM for reasoning
+    TOOLS = "tools"       # Agent executes tools
+    POLICIES = "policies" # Agent applies policy rules
+    SERVICE = "service"   # Agent calls internal services
+
+
 @dataclass
 class RoutingRule:
-    """Routing rule for conditional transitions."""
+    """Routing rule for conditional transitions - mirrors Go RoutingRule."""
     condition: str
     value: Any
     target: str
@@ -46,7 +56,7 @@ class RoutingRule:
 
 @dataclass
 class EdgeLimit:
-    """Per-edge transition limit for cyclic routing control."""
+    """Per-edge transition limit - mirrors Go EdgeLimit."""
     from_stage: str
     to_stage: str
     max_count: int
@@ -54,11 +64,9 @@ class EdgeLimit:
 
 @dataclass
 class GenerationParams:
-    """
-    Generation control parameters (K8s-style spec).
+    """Generation control parameters (K8s-style spec).
 
     Separates execution policy from content (prompts).
-    Capabilities define these based on their prompt format.
     """
     stop: Optional[List[str]] = None         # Stop sequences
     repeat_penalty: Optional[float] = None   # >= 1.0, penalize repetition
@@ -84,7 +92,7 @@ class GenerationParams:
 
 @dataclass
 class AgentConfig:
-    """Declarative agent configuration - mirrors Go coreengine/config.AgentConfig."""
+    """Declarative agent configuration - mirrors Go AgentConfig."""
     name: str
     stage_order: int = 0
 
@@ -107,7 +115,7 @@ class AgentConfig:
     prompt_key: Optional[str] = None
     temperature: Optional[float] = None
     max_tokens: Optional[int] = None
-    generation: Optional[GenerationParams] = None  # K8s-style generation spec
+    generation: Optional[GenerationParams] = None
 
     # Output
     output_key: str = ""
@@ -135,7 +143,7 @@ class AgentConfig:
 
 @dataclass
 class PipelineConfig:
-    """Pipeline configuration - mirrors Go coreengine/config.PipelineConfig."""
+    """Pipeline configuration - mirrors Go PipelineConfig."""
     name: str
     agents: List[AgentConfig] = field(default_factory=list)
 
@@ -196,7 +204,7 @@ class ContextBounds:
 
 @dataclass
 class ExecutionConfig:
-    """Core runtime configuration."""
+    """Core runtime configuration - mirrors Go ExecutionConfig."""
     # Bounds
     max_iterations: int = 3
     max_llm_calls: int = 10

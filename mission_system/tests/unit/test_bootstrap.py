@@ -88,7 +88,7 @@ class TestAppContextCreation:
     def test_respects_injected_dependencies(self):
         """Test that injected dependencies are used."""
         from mission_system.bootstrap import create_app_context
-        from protocols.config import ExecutionConfig
+        from jeeves_core.types import ExecutionConfig
 
         # max_iterations is on ExecutionConfig directly, not ContextBounds
         custom_config = ExecutionConfig(
@@ -134,7 +134,7 @@ class TestExecutionConfigToResourceQuota:
     def test_converts_correctly(self):
         """Test conversion from ExecutionConfig to ResourceQuota."""
         from mission_system.bootstrap import core_config_to_resource_quota
-        from protocols.config import ExecutionConfig
+        from jeeves_core.types import ExecutionConfig
 
         # max_iterations etc are on ExecutionConfig directly
         config = ExecutionConfig(

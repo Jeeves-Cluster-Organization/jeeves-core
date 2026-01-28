@@ -11,7 +11,7 @@ class TestAgentConfig:
 
     def test_agent_config_defaults(self):
         """Test AgentConfig with default values."""
-        from protocols import AgentConfig
+        from jeeves_core.types import AgentConfig
 
         config = AgentConfig(name="test_agent")
 
@@ -22,7 +22,8 @@ class TestAgentConfig:
 
     def test_agent_config_with_values(self):
         """Test AgentConfig with specific values."""
-        from protocols import AgentConfig, ToolAccess
+        from jeeves_core.types import AgentConfig
+        from jeeves_core.types import ToolAccess
 
         config = AgentConfig(
             name="perception",
@@ -46,7 +47,7 @@ class TestContextBounds:
 
     def test_context_bounds_defaults(self):
         """Test ContextBounds with default values."""
-        from protocols import ContextBounds
+        from jeeves_core.types import ContextBounds
 
         bounds = ContextBounds()
 
@@ -57,7 +58,7 @@ class TestContextBounds:
 
     def test_context_bounds_with_values(self):
         """Test ContextBounds with specific values."""
-        from protocols import ContextBounds
+        from jeeves_core.types import ContextBounds
 
         bounds = ContextBounds(
             max_input_tokens=8192,
@@ -74,7 +75,7 @@ class TestPipelineConfig:
 
     def test_pipeline_config_creation(self):
         """Test creating PipelineConfig."""
-        from protocols import PipelineConfig, AgentConfig
+        from jeeves_core.types import PipelineConfig, AgentConfig
 
         config = PipelineConfig(
             name="seven_agent_pipeline",
@@ -90,7 +91,7 @@ class TestPipelineConfig:
 
     def test_pipeline_get_stage_order(self):
         """Test getting stage order from pipeline."""
-        from protocols import PipelineConfig, AgentConfig
+        from jeeves_core.types import PipelineConfig, AgentConfig
 
         config = PipelineConfig(
             name="test",
@@ -110,7 +111,7 @@ class TestExecutionConfig:
 
     def test_core_config_creation(self):
         """Test creating ExecutionConfig."""
-        from protocols import ExecutionConfig
+        from jeeves_core.types import ExecutionConfig
 
         config = ExecutionConfig(
             max_iterations=5,
@@ -126,7 +127,7 @@ class TestRoutingRule:
 
     def test_routing_rule_creation(self):
         """Test creating RoutingRule."""
-        from protocols import RoutingRule
+        from jeeves_core.types import RoutingRule
 
         rule = RoutingRule(
             condition="status",
@@ -144,7 +145,7 @@ class TestJoinStrategy:
 
     def test_join_strategy_values(self):
         """Test JoinStrategy enum values."""
-        from protocols import JoinStrategy
+        from jeeves_core.types import JoinStrategy
 
         assert JoinStrategy.ALL.value == "all"
         assert JoinStrategy.ANY.value == "any"
@@ -155,7 +156,7 @@ class TestEdgeLimit:
 
     def test_edge_limit_creation(self):
         """Test creating EdgeLimit."""
-        from protocols import EdgeLimit
+        from jeeves_core.types import EdgeLimit
 
         limit = EdgeLimit(
             from_stage="critic",
@@ -173,7 +174,7 @@ class TestAgentConfigParallelExecution:
 
     def test_agent_config_dependencies(self):
         """Test AgentConfig with dependency fields."""
-        from protocols import AgentConfig, JoinStrategy
+        from jeeves_core.types import AgentConfig, JoinStrategy
 
         config = AgentConfig(
             name="executor",
@@ -189,7 +190,7 @@ class TestAgentConfigParallelExecution:
 
     def test_agent_config_join_any(self):
         """Test AgentConfig with JoinStrategy.ANY."""
-        from protocols import AgentConfig, JoinStrategy
+        from jeeves_core.types import AgentConfig, JoinStrategy
 
         config = AgentConfig(
             name="fallback",
@@ -205,7 +206,7 @@ class TestPipelineConfigEdgeLimits:
 
     def test_pipeline_with_edge_limits(self):
         """Test PipelineConfig with edge limits for cyclic routing."""
-        from protocols import PipelineConfig, AgentConfig, EdgeLimit
+        from jeeves_core.types import PipelineConfig, AgentConfig, EdgeLimit
 
         config = PipelineConfig(
             name="cyclic_pipeline",
@@ -225,7 +226,7 @@ class TestPipelineConfigEdgeLimits:
 
     def test_pipeline_get_ready_stages(self):
         """Test getting stages ready for execution."""
-        from protocols import PipelineConfig, AgentConfig, JoinStrategy
+        from jeeves_core.types import PipelineConfig, AgentConfig, JoinStrategy
 
         config = PipelineConfig(
             name="parallel_pipeline",
@@ -250,7 +251,7 @@ class TestPipelineConfigEdgeLimits:
 
     def test_pipeline_get_ready_stages_join_any(self):
         """Test ready stages with JoinStrategy.ANY."""
-        from protocols import PipelineConfig, AgentConfig, JoinStrategy
+        from jeeves_core.types import PipelineConfig, AgentConfig, JoinStrategy
 
         config = PipelineConfig(
             name="any_join_pipeline",
@@ -272,7 +273,7 @@ class TestPipelineConfigEdgeLimits:
 
     def test_pipeline_agent_review_resume_stage(self):
         """Test agent_review_resume_stage field."""
-        from protocols import PipelineConfig
+        from jeeves_core.types import PipelineConfig
 
         config = PipelineConfig(
             name="review_pipeline",

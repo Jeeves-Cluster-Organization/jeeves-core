@@ -11,9 +11,7 @@ from dataclasses import dataclass, field
 from typing import Any, Callable, Dict, List, Optional, Protocol, AsyncIterator, Tuple, TYPE_CHECKING
 
 if TYPE_CHECKING:
-    from jeeves_core.types import Envelope
-
-from protocols.config import AgentConfig, PipelineConfig
+    from jeeves_core.types import Envelope, AgentConfig, PipelineConfig
 
 
 # =============================================================================
@@ -348,7 +346,7 @@ class Agent:
             Tuple[str, Any]: (event_type, event_data) pairs
         """
         from jeeves_core.types import PipelineEvent
-        from protocols.config import TokenStreamMode
+        from jeeves_core.types import TokenStreamMode
 
         self.logger.info(f"{self.name}_stream_started", envelope_id=envelope.envelope_id)
 
@@ -392,7 +390,7 @@ class Agent:
 
     async def _call_llm_stream(self, envelope: Envelope) -> AsyncIterator[str]:
         """Stream authoritative tokens (for TEXT mode with AUTHORITATIVE tokens)."""
-        from protocols.config import AgentOutputMode
+        from jeeves_core.types import AgentOutputMode
 
         if self.config.output_mode != AgentOutputMode.TEXT:
             raise ValueError("_call_llm_stream() requires output_mode=TEXT")

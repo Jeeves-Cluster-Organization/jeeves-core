@@ -32,7 +32,7 @@ from protocols import (
     LoggerProtocol,
     SettingsProtocol,
 )
-from protocols.config import ExecutionConfig, ContextBounds, OrchestrationFlags
+from jeeves_core.types import ExecutionConfig, ContextBounds, OrchestrationFlags
 
 if TYPE_CHECKING:
     from avionics.settings import Settings

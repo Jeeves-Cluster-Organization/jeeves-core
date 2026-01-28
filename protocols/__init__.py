@@ -5,9 +5,9 @@ Core types are in jeeves_core.types (Go kernel source of truth):
     - Enums: RiskLevel, ToolAccess, TerminalReason, etc.
     - Envelope: Envelope, ProcessingRecord, PipelineEvent
     - Interrupts: InterruptKind, InterruptStatus, FlowInterrupt, etc.
+    - Config: AgentConfig, PipelineConfig, ExecutionConfig, etc.
 
 Package Structure:
-    - config.py: Configuration types (AgentConfig, PipelineConfig, etc.)
     - agents.py: Agent, PipelineRunner, factories
     - protocols.py: Protocol definitions (LoggerProtocol, etc.)
     - capability.py: CapabilityResourceRegistry for dynamic registration
@@ -19,22 +19,17 @@ Usage:
     from jeeves_core.types import RiskLevel, ToolAccess, TerminalReason
     from jeeves_core.types import Envelope, ProcessingRecord
     from jeeves_core.types import InterruptKind, FlowInterrupt
-    from protocols import AgentConfig, LoggerProtocol
+    from jeeves_core.types import AgentConfig, PipelineConfig, ExecutionConfig
+    from protocols import LoggerProtocol
 """
 
 # =============================================================================
-# CONFIGURATION TYPES
+# CONFIGURATION TYPES - Now in jeeves_core.types
 # =============================================================================
-from protocols.config import (
-    AgentConfig,
-    PipelineConfig,
-    RoutingRule,
-    EdgeLimit,
-    JoinStrategy,
-    ContextBounds,
-    ExecutionConfig,
-    OrchestrationFlags,
-)
+# from jeeves_core.types import (
+#     AgentConfig, PipelineConfig, RoutingRule, EdgeLimit, JoinStrategy,
+#     ContextBounds, ExecutionConfig, OrchestrationFlags, RunMode, etc.
+# )
 
 # =============================================================================
 # ENVELOPE TYPES - Now in jeeves_core.types
@@ -238,15 +233,9 @@ from protocols.validation import (
 # PUBLIC API
 # =============================================================================
 __all__ = [
-    # ─── Configuration ───
-    "AgentConfig",
-    "PipelineConfig",
-    "RoutingRule",
-    "EdgeLimit",
-    "JoinStrategy",
-    "ContextBounds",
-    "ExecutionConfig",
-    "OrchestrationFlags",
+    # ─── Configuration (now in jeeves_core.types) ───
+    # AgentConfig, PipelineConfig, RoutingRule, EdgeLimit, JoinStrategy,
+    # ContextBounds, ExecutionConfig, OrchestrationFlags, RunMode, etc.
 
     # ─── Envelope (now in jeeves_core.types) ───
 

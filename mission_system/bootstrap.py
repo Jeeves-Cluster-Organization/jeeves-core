@@ -30,7 +30,7 @@ from avionics.context import AppContext, SystemClock
 from avionics.logging import configure_logging
 from avionics.settings import Settings, get_settings
 from avionics.feature_flags import FeatureFlags, get_feature_flags
-from protocols.config import ExecutionConfig, ContextBounds, OrchestrationFlags
+from jeeves_core.types import ExecutionConfig, ContextBounds, OrchestrationFlags
 from protocols import get_capability_resource_registry
 
 from control_tower import ControlTower, ResourceQuota
@@ -309,18 +309,24 @@ def create_avionics_dependencies(
     Returns:
         Dict with created dependencies (for use by capability layer)
     """
-    from avionics.llm.factory import LLMFactory
+    # LLM components moved to jeeves-infra
+    try:
+        from jeeves_infra.llm.factory import LLMFactory
+    except ImportError:
+        raise ImportError(
+            "LLM factory requires jeeves-infra package. "
+            "Install with: pip install jeeves-infra[llm]"
+        )
 
-    # Create LLM factory with node profiles for distributed routing
-    llm_factory = LLMFactory(
-        settings=app_context.settings,
-        node_profiles=node_profiles,
-    )
+    # Create LLM factory
+    # Note: node_profiles are stored in deps for capability layer use but not
+    # passed to LLMFactory directly (distributed routing handled at capability layer)
+    llm_factory = LLMFactory(settings=app_context.settings)
 
     # Initialize LLM Gateway if feature flag is enabled
     llm_gateway = None
     if app_context.feature_flags.use_llm_gateway:
-        from avionics.llm.gateway import LLMGateway
+        from jeeves_infra.llm.gateway import LLMGateway
         from avionics.logging import create_logger
 
         gateway_logger = create_logger("llm_gateway")
@@ -507,7 +513,7 @@ def create_distributed_infrastructure(
         checkpoint_adapter = None
         if app_context.feature_flags.enable_checkpoints:
             if postgres_client is not None:
-                from avionics.checkpoint import PostgresCheckpointAdapter
+                from jeeves_infra.postgres.checkpoint import PostgresCheckpointAdapter
 
                 checkpoint_logger = create_logger("checkpoint_adapter")
                 checkpoint_adapter = PostgresCheckpointAdapter(
@@ -592,8 +598,8 @@ async def create_memory_manager(
 
     try:
         from memory_module.manager import MemoryManager
-        from memory_module.adapters.sql_adapter import SQLAdapter
-        from memory_module.services.xref_manager import CrossRefManager
+        from jeeves_infra.memory.sql_adapter import SQLAdapter
+        from jeeves_infra.memory.services.xref_manager import CrossRefManager
         from avionics.logging import create_logger
 
         memory_logger = create_logger("memory_manager")
