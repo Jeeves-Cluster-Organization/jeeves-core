@@ -494,7 +494,7 @@ func TestGRPCIntegration_InterruptRoundtrip(t *testing.T) {
 	created.InterruptPending = true
 	created.Interrupt = &pb.FlowInterrupt{
 		Kind:        pb.InterruptKind_CLARIFICATION,
-		InterruptId: "int_123",
+		Id: "int_123",
 		Question:    "What file?",
 		CreatedAtMs: time.Now().UnixMilli(),
 	}
@@ -508,7 +508,7 @@ func TestGRPCIntegration_InterruptRoundtrip(t *testing.T) {
 	assert.True(t, updated.InterruptPending)
 	assert.NotNil(t, updated.Interrupt)
 	assert.Equal(t, pb.InterruptKind_CLARIFICATION, updated.Interrupt.Kind)
-	assert.Equal(t, "int_123", updated.Interrupt.InterruptId)
+	assert.Equal(t, "int_123", updated.Interrupt.Id)
 	assert.Equal(t, "What file?", updated.Interrupt.Question)
 }
 

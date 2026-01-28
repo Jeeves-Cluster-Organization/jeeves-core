@@ -53,12 +53,12 @@ def print_info(text: str):
     print(f"  {text}")
 
 
-async def test_litellm_provider(model: str, api_base: str = None, api_key: str = None) -> bool:
-    """Test LLM connection via LiteLLM."""
+async def check_litellm_provider(model: str, api_base: str = None, api_key: str = None) -> bool:
+    """Check LLM connection via LiteLLM (diagnostic script, not pytest test)."""
     print_header(f"Testing LLM Connection: {model}")
 
     try:
-        from avionics.llm.providers import LiteLLMProvider
+        from jeeves_infra.llm.providers import LiteLLMProvider
     except ImportError as e:
         print_error(f"Failed to import LiteLLMProvider: {e}")
         print_info("Install with: pip install litellm")
@@ -150,7 +150,7 @@ def main():
     print_info(f"Model: {args.model}")
     print_info(f"API Base: {args.api_base or os.getenv('LITELLM_API_BASE', '(not set)')}")
 
-    success = asyncio.run(test_litellm_provider(
+    success = asyncio.run(check_litellm_provider(
         model=args.model,
         api_base=args.api_base,
         api_key=args.api_key,

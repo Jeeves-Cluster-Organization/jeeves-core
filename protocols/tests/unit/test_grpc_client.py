@@ -23,7 +23,7 @@ from protocols.grpc_client import (
     _proto_to_terminal_reason,
 )
 from jeeves_core.types import Envelope, TerminalReason
-from protocols import RequestContext
+from jeeves_core import RequestContext
 
 
 # =============================================================================

@@ -2,7 +2,7 @@
 
 **Layer:** L2 - Events  
 **Scope:** Append-only event log  
-**Location:** `memory_module/repositories/event_repository.py`, `memory_module/services/event_emitter.py`
+**Location:** `jeeves_infra/memory/repositories/event_repository.py`, `jeeves_infra/memory/services/event_emitter.py`
 
 ---
 
@@ -361,8 +361,8 @@ def clear_all(self) -> None:
 ### Basic Event Emission
 
 ```python
-from memory_module.services.event_emitter import EventEmitter
-from memory_module.repositories.event_repository import EventRepository
+from jeeves_infra.memory.services.event_emitter import EventEmitter
+from jeeves_infra.memory.repositories.event_repository import EventRepository
 
 # Initialize
 event_repo = EventRepository(db_client)

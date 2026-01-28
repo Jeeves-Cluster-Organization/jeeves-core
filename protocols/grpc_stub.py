@@ -1,6 +1,6 @@
 """gRPC stub re-exports for protocols.
 
-This module re-exports the generated protobuf classes from coreengine.proto
+This module re-exports the generated protobuf classes from jeeves_infra.protocols
 to provide a clean import path for the protocols package.
 
 Usage:
@@ -9,8 +9,8 @@ Usage:
     request = grpc_stub.CreateEnvelopeRequest(...)
 """
 
-# Re-export from coreengine proto
-from coreengine.proto.engine_pb2 import (
+# Re-export from jeeves-infra protocols (proto-generated)
+from jeeves_infra.protocols.engine_pb2 import (
     # Envelope messages
     CreateEnvelopeRequest,
     UpdateEnvelopeRequest,
@@ -32,7 +32,7 @@ from coreengine.proto.engine_pb2 import (
     ExecutionEventType,
 )
 
-from coreengine.proto.engine_pb2_grpc import (
+from jeeves_infra.protocols.engine_pb2_grpc import (
     EngineServiceStub,
     EngineServiceServicer,
     add_EngineServiceServicer_to_server,

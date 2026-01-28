@@ -315,7 +315,7 @@ class LLMGateway:
 ### Basic Generation
 
 ```python
-from avionics.llm import create_llm_provider
+from jeeves_infra.llm import create_llm_provider
 from avionics.settings import get_settings
 
 settings = get_settings()
@@ -344,7 +344,7 @@ async for chunk in provider.generate_stream(
 ### Check Available Adapters
 
 ```python
-from avionics.llm import get_available_adapters
+from jeeves_infra.llm import get_available_adapters
 
 adapters = get_available_adapters()
 print(f"Available: {adapters}")

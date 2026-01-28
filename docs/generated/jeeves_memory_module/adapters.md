@@ -202,7 +202,7 @@ async def delete_item(
 ### Usage Example
 
 ```python
-from memory_module.adapters import SQLAdapter
+from jeeves_infra.memory import SQLAdapter
 
 adapter = SQLAdapter(db_client)
 

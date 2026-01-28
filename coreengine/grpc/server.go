@@ -438,7 +438,7 @@ func protoToEnvelope(p *pb.Envelope) *envelope.Envelope {
 func flowInterruptToProto(i *envelope.FlowInterrupt) *pb.FlowInterrupt {
 	proto := &pb.FlowInterrupt{
 		Kind:        interruptKindToProto(i.Kind),
-		InterruptId: i.ID,
+		Id: i.ID,
 		Question:    i.Question,
 		Message:     i.Message,
 		CreatedAtMs: i.CreatedAt.UnixMilli(),
@@ -476,7 +476,7 @@ func flowInterruptToProto(i *envelope.FlowInterrupt) *pb.FlowInterrupt {
 func protoToFlowInterrupt(p *pb.FlowInterrupt) *envelope.FlowInterrupt {
 	i := &envelope.FlowInterrupt{
 		Kind:      protoToInterruptKind(p.Kind),
-		ID:        p.InterruptId,
+		ID:        p.Id,
 		Question:  p.Question,
 		Message:   p.Message,
 		CreatedAt: time.UnixMilli(p.CreatedAtMs),

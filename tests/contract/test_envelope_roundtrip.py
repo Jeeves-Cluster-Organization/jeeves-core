@@ -13,7 +13,7 @@ from datetime import datetime, timezone
 import pytest
 
 from jeeves_core.types import Envelope, TerminalReason
-from protocols import RequestContext
+from jeeves_core import RequestContext
 
 
 # =============================================================================

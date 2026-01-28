@@ -118,7 +118,7 @@ class TestInMemoryGraphStorage:
 
     def test_import(self):
         """Test that graph storage can be imported."""
-        from memory_module.repositories import InMemoryGraphStorage, GraphNode, GraphEdge
+        from jeeves_infra.memory.repositories import InMemoryGraphStorage, GraphNode, GraphEdge
         assert InMemoryGraphStorage is not None
         assert GraphNode is not None
         assert GraphEdge is not None
@@ -126,7 +126,7 @@ class TestInMemoryGraphStorage:
     @pytest.mark.asyncio
     async def test_add_node(self):
         """Test adding a node to the graph."""
-        from memory_module.repositories import InMemoryGraphStorage
+        from jeeves_infra.memory.repositories import InMemoryGraphStorage
 
         graph = InMemoryGraphStorage()
         result = await graph.add_node(
@@ -147,7 +147,7 @@ class TestInMemoryGraphStorage:
     @pytest.mark.asyncio
     async def test_add_edge(self):
         """Test adding an edge between nodes."""
-        from memory_module.repositories import InMemoryGraphStorage
+        from jeeves_infra.memory.repositories import InMemoryGraphStorage
 
         graph = InMemoryGraphStorage()
 
@@ -166,7 +166,7 @@ class TestInMemoryGraphStorage:
     @pytest.mark.asyncio
     async def test_get_node(self):
         """Test getting a node by ID."""
-        from memory_module.repositories import InMemoryGraphStorage
+        from jeeves_infra.memory.repositories import InMemoryGraphStorage
 
         graph = InMemoryGraphStorage()
         await graph.add_node("test:node", "test", {"key": "value"})
@@ -184,7 +184,7 @@ class TestInMemoryGraphStorage:
     @pytest.mark.asyncio
     async def test_get_neighbors(self):
         """Test getting neighbors of a node."""
-        from memory_module.repositories import InMemoryGraphStorage
+        from jeeves_infra.memory.repositories import InMemoryGraphStorage
 
         graph = InMemoryGraphStorage()
 
@@ -208,7 +208,7 @@ class TestInMemoryGraphStorage:
     @pytest.mark.asyncio
     async def test_find_path(self):
         """Test finding a path between nodes."""
-        from memory_module.repositories import InMemoryGraphStorage
+        from jeeves_infra.memory.repositories import InMemoryGraphStorage
 
         graph = InMemoryGraphStorage()
 
@@ -307,12 +307,12 @@ class TestPostgresGraphAdapterStructure:
 
     def test_import(self):
         """Test that adapter can be imported."""
-        from avionics.database import PostgresGraphAdapter
+        from jeeves_infra.postgres import PostgresGraphAdapter
         assert PostgresGraphAdapter is not None
 
     def test_protocol_compliance(self):
         """Test that adapter implements GraphStorageProtocol."""
-        from avionics.database import PostgresGraphAdapter
+        from jeeves_infra.postgres import PostgresGraphAdapter
         from protocols import GraphStorageProtocol
 
         # The adapter should implement the protocol

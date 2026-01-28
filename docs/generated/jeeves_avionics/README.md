@@ -112,7 +112,7 @@ from avionics.logging import create_logger, configure_logging
 from avionics.database import create_database_client
 
 # LLM
-from avionics.llm import create_llm_provider, LLMGateway
+from jeeves_infra.llm import create_llm_provider, LLMGateway
 
 # Tools
 from avionics.tools import ToolCatalog, ToolId
@@ -127,7 +127,7 @@ Within avionics, prefer direct imports:
 
 ```python
 # Within avionics/gateway/routers/chat.py
-from avionics.gateway.grpc_client import get_grpc_client
+from jeeves_infra.gateway.grpc_client import get_grpc_client
 from avionics.logging import get_current_logger
 ```
 

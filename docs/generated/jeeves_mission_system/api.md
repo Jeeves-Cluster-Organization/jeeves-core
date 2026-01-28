@@ -67,7 +67,7 @@ def create_mission_runtime(
 
 **Usage:**
 ```python
-from mission_system.api import create_mission_runtime
+from jeeves_infra.gateway import create_mission_runtime
 
 runtime = create_mission_runtime(
     tool_registry=my_tool_registry,

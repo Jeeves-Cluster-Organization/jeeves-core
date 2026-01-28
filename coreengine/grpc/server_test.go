@@ -636,7 +636,7 @@ func TestFlowInterruptToProto(t *testing.T) {
 	proto := flowInterruptToProto(interrupt)
 
 	assert.Equal(t, pb.InterruptKind_CLARIFICATION, proto.Kind)
-	assert.Equal(t, "int_123", proto.InterruptId)
+	assert.Equal(t, "int_123", proto.Id)
 	assert.Equal(t, "What file?", proto.Question)
 	assert.NotEmpty(t, proto.Data)
 }
@@ -668,7 +668,7 @@ func TestProtoToFlowInterrupt(t *testing.T) {
 	// Test proto to flow interrupt conversion.
 	proto := &pb.FlowInterrupt{
 		Kind:        pb.InterruptKind_CONFIRMATION,
-		InterruptId: "conf_456",
+		Id: "conf_456",
 		Question:    "",
 		Message:     "Delete this file?",
 		CreatedAtMs: time.Now().UnixMilli(),

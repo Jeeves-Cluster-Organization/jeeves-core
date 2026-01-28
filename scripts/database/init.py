@@ -23,7 +23,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent))
 
 try:
-    from avionics.database.postgres_client import PostgreSQLClient
+    from jeeves_infra.postgres.client import PostgreSQLClient
     from avionics.settings import settings
 except ImportError as e:
     print(f"❌ Error: Failed to import required modules: {e}")

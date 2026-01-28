@@ -195,8 +195,8 @@ async def close(self) -> None:
 
 ```python
 from memory_module.manager import MemoryManager
-from memory_module.adapters import SQLAdapter
-from memory_module.services import CrossRefManager
+from jeeves_infra.memory import SQLAdapter
+from jeeves_infra.memory.services import CrossRefManager
 
 # Initialize components
 sql_adapter = SQLAdapter(db_client)

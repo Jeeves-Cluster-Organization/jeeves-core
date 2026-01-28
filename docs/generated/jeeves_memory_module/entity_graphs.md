@@ -2,7 +2,7 @@
 
 **Layer:** L5 - Graph  
 **Scope:** Entity relationships  
-**Location:** `memory_module/repositories/graph_stub.py`
+**Location:** `jeeves_infra/memory/repositories/graph_stub.py`
 
 ---
 
@@ -231,7 +231,7 @@ async def _load_graph(self) -> None:
 ### Basic Graph Operations
 
 ```python
-from memory_module.repositories.graph_stub import InMemoryGraphStorage
+from jeeves_infra.memory.repositories.graph_stub import InMemoryGraphStorage
 
 graph = InMemoryGraphStorage()
 
@@ -288,11 +288,11 @@ subgraph = await graph.query_subgraph(
 from protocols import GraphStorageProtocol
 
 # Development: use in-memory stub
-from memory_module.repositories import InMemoryGraphStorage
+from jeeves_infra.memory.repositories import InMemoryGraphStorage
 graph: GraphStorageProtocol = InMemoryGraphStorage()
 
 # Production: use PostgreSQL adapter
-from avionics.database import PostgresGraphAdapter
+from jeeves_infra.postgres import PostgresGraphAdapter
 graph: GraphStorageProtocol = PostgresGraphAdapter(db_client)
 await graph.ensure_tables()
 ```

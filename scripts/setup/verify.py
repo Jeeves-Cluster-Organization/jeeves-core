@@ -50,7 +50,7 @@ async def test_imports():
         print_test("Import database.factory", True, "Factory functions available")
 
         # Test PostgreSQL client
-        from avionics.database.postgres_client import PostgreSQLClient
+        from jeeves_infra.postgres.client import PostgreSQLClient
         print_test("Import database.postgres_client", True, "PostgreSQLClient available")
 
         # Test memory tools
@@ -73,7 +73,7 @@ async def test_imports():
 async def test_postgres_connection():
     """Test PostgreSQL connection."""
     try:
-        from avionics.database.postgres_client import PostgreSQLClient
+        from jeeves_infra.postgres.client import PostgreSQLClient
         from avionics.settings import settings
 
         if settings.database_backend != "postgres":

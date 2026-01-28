@@ -2,7 +2,7 @@
 
 **Layer:** L6 - Skills  
 **Scope:** Learned patterns  
-**Location:** `memory_module/repositories/skill_stub.py`
+**Location:** `jeeves_infra/memory/repositories/skill_stub.py`
 
 ---
 
@@ -285,7 +285,7 @@ Common skill types in Jeeves:
 ### Storing Skills
 
 ```python
-from memory_module.repositories.skill_stub import InMemorySkillStorage
+from jeeves_infra.memory.repositories.skill_stub import InMemorySkillStorage
 
 skills = InMemorySkillStorage()
 

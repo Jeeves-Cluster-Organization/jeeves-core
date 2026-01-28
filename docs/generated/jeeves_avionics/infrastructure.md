@@ -459,7 +459,7 @@ class RateLimitMiddleware:
 ### Checkpointing
 
 ```python
-from avionics.checkpoint.postgres_adapter import PostgresCheckpointAdapter
+from jeeves_infra.postgres.checkpoint import PostgresCheckpointAdapter
 
 adapter = PostgresCheckpointAdapter(postgres_client, logger)
 await adapter.initialize_schema()

@@ -48,7 +48,7 @@ def pytest_configure(config):
 @pytest.fixture
 def sample_request_context():
     """Create a sample RequestContext for testing."""
-    from protocols import RequestContext
+    from jeeves_core import RequestContext
 
     return RequestContext(
         request_id="req-456",
@@ -178,8 +178,7 @@ def sample_entity_ref():
 @pytest.fixture
 def sample_agent_config():
     """Create a sample AgentConfig for testing."""
-    from protocols import AgentConfig
-    from jeeves_core.types import ToolAccess
+    from jeeves_core.types import AgentConfig, ToolAccess
 
     return AgentConfig(
         name="perception",
@@ -197,7 +196,7 @@ def sample_agent_config():
 @pytest.fixture
 def sample_context_bounds():
     """Create a sample ContextBounds for testing."""
-    from protocols import ContextBounds
+    from jeeves_core.types import ContextBounds
 
     return ContextBounds(
         max_input_tokens=4096,

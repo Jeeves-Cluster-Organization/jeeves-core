@@ -22,7 +22,7 @@ except ImportError as e:
     ) from e
 
 from jeeves_core.types import Envelope, TerminalReason
-from protocols import RequestContext
+from jeeves_core import RequestContext
 
 if TYPE_CHECKING:
     from protocols import grpc_stub as stub_types
@@ -192,7 +192,7 @@ class GrpcGoClient:
 
         try:
             from protocols import grpc_stub
-            from coreengine.proto import engine_pb2
+            from jeeves_infra.protocols import engine_pb2
             self._stub = grpc_stub.EngineServiceStub(self._channel)
             self._pb2 = engine_pb2
         except ImportError as e:

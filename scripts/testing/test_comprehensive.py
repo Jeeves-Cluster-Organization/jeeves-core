@@ -45,7 +45,7 @@ async def test_single_node_deployment():
     try:
         from avionics.settings import settings
         from config.node_profiles import get_deployment_mode, get_active_profile_names, get_node_for_agent
-        from avionics.llm.factory import LLMFactory
+        from jeeves_infra.llm.factory import LLMFactory
 
         # Test 1: Deployment mode detection
         mode = get_deployment_mode()
@@ -164,7 +164,7 @@ async def test_hybrid_mode():
 
     try:
         from avionics.settings import settings
-        from avionics.llm.factory import create_agent_provider_with_node_awareness
+        from jeeves_infra.llm.factory import create_agent_provider_with_node_awareness
 
         # Test planner uses override
         planner_provider = create_agent_provider_with_node_awareness(settings, "planner")
@@ -201,7 +201,7 @@ async def test_mock_mode():
 
     try:
         from avionics.settings import settings
-        from avionics.llm.factory import LLMFactory
+        from jeeves_infra.llm.factory import LLMFactory
 
         factory = LLMFactory(settings)
         provider = factory.get_provider_for_agent("planner")

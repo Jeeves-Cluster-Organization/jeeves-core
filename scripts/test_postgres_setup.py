@@ -14,11 +14,11 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from avionics.settings import Settings
-from avionics.database.postgres_client import PostgreSQLClient
-from memory_module.services.embedding_service import EmbeddingService
+from jeeves_infra.postgres.client import PostgreSQLClient
+from jeeves_infra.memory.services.embedding_service import EmbeddingService
 # Direct import for low-level testing only - production code should use
 # create_vector_adapter() from mission_system.adapters
-from memory_module.repositories.pgvector_repository import PgVectorRepository
+from jeeves_infra.memory.repositories.pgvector_repository import PgVectorRepository
 
 from avionics.logging import get_current_logger
 

@@ -26,7 +26,7 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
 from shared.serialization import utc_now
-from protocols import RequestContext
+from jeeves_core import RequestContext
 
 # Add paths
 PROJECT_ROOT = Path(__file__).parent.parent
@@ -495,7 +495,7 @@ class SystemAudit:
         """Test Envelope creation and serialization."""
         try:
             from jeeves_core.types import Envelope
-            from protocols import create_envelope
+            from jeeves_infra.runtime import create_envelope
 
             # Create via factory
             request_context = RequestContext(
@@ -669,7 +669,7 @@ class SystemAudit:
         """Test ResourceQuota ↔ ExecutionConfig mapping."""
         try:
             from control_tower.types import ResourceQuota
-            from protocols import ExecutionConfig, ContextBounds
+            from jeeves_core.types import ExecutionConfig, ContextBounds
 
             # Create ExecutionConfig
             core_config = ExecutionConfig(

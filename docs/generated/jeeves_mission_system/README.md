@@ -96,7 +96,7 @@ Perception → Intent → Planner → Traverser → Synthesizer → Critic ─�
 ### From `api/__init__.py`
 
 ```python
-from mission_system.api import (
+from jeeves_infra.gateway import (
     MissionRuntime,
     create_mission_runtime,
     ConfigRegistry,

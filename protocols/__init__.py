@@ -7,20 +7,27 @@ Core types are in jeeves_core.types (Go kernel source of truth):
     - Interrupts: InterruptKind, InterruptStatus, FlowInterrupt, etc.
     - Config: AgentConfig, PipelineConfig, ExecutionConfig, etc.
 
+Agent Runtime is in jeeves_infra.runtime:
+    - Agent, PipelineRunner, factories
+    - LLMProvider, ToolExecutor, Logger, etc.
+
 Package Structure:
-    - agents.py: Agent, PipelineRunner, factories
     - protocols.py: Protocol definitions (LoggerProtocol, etc.)
     - capability.py: CapabilityResourceRegistry for dynamic registration
     - memory.py: WorkingMemory, Finding, and memory operations
     - events.py: Event schema (Event, EventCategory, EventSeverity)
-    - utils.py: JSON utilities (JSONRepairKit, normalize_string_list)
+
+Utilities are in jeeves_infra.utils:
+    - JSONRepairKit, normalize_string_list, utc_now, etc.
 
 Usage:
     from jeeves_core.types import RiskLevel, ToolAccess, TerminalReason
     from jeeves_core.types import Envelope, ProcessingRecord
     from jeeves_core.types import InterruptKind, FlowInterrupt
     from jeeves_core.types import AgentConfig, PipelineConfig, ExecutionConfig
-    from protocols import LoggerProtocol
+    from jeeves_infra.runtime import Agent, PipelineRunner, create_envelope
+    from jeeves_infra.utils import JSONRepairKit, utc_now
+    from jeeves_core import LoggerProtocol
 """
 
 # =============================================================================
@@ -37,96 +44,38 @@ Usage:
 # from jeeves_core.types import Envelope, ProcessingRecord, PipelineEvent
 
 # =============================================================================
-# AGENT RUNTIME
+# AGENT RUNTIME - Now in jeeves_infra.runtime
 # =============================================================================
-from protocols.agents import (
-    # Agents
-    Agent,
-    AgentFeatures,
-    # Runtime
-    PipelineRunner,
-    # Factories
-    create_pipeline_runner,
-    create_envelope,
-    # Protocols defined in agents.py
-    LLMProvider,
-    ToolExecutor,
-    Logger,
-    Persistence,
-    PromptRegistry,
-    EventContext,
-    # Type aliases
-    LLMProviderFactory,
-    PreProcessHook,
-    PostProcessHook,
-    MockHandler,
-    # Checkpoint
-    OptionalCheckpoint,
-)
+# from jeeves_infra.runtime import (
+#     Agent, AgentFeatures, PipelineRunner, create_pipeline_runner, create_envelope,
+#     LLMProvider, ToolExecutor, Logger, Persistence, PromptRegistry, EventContext,
+#     LLMProviderFactory, PreProcessHook, PostProcessHook, MockHandler, OptionalCheckpoint,
+# )
 
 # =============================================================================
-# PROTOCOL DEFINITIONS
+# UTILITIES - Now in jeeves_infra.utils
 # =============================================================================
-from protocols.protocols import (
-    # Request context
-    RequestContext,
-    # Core protocols
-    LoggerProtocol,
-    PersistenceProtocol,
-    DatabaseClientProtocol,
-    VectorStorageProtocol,
-    LLMProviderProtocol,
-    ToolProtocol,
-    ToolDefinitionProtocol,
-    ToolRegistryProtocol,
-    ToolExecutorProtocol,
-    # App context protocols
-    SettingsProtocol,
-    FeatureFlagsProtocol,
-    ClockProtocol,
-    AppContextProtocol,
-    # Memory protocols
-    MemoryServiceProtocol,
-    SemanticSearchProtocol,
-    SessionStateProtocol,
-    SearchResult,
-    # Event protocols
-    EventBusProtocol,
-    # Intent parsing and claim verification
-    IntentParsingProtocol,
-    ClaimVerificationProtocol,
-    # Checkpoint protocol
-    CheckpointProtocol,
-    CheckpointRecord,
-    # Distributed protocols
-    DistributedBusProtocol,
-    DistributedTask,
-    QueueStats,
-    # Config registry
-    ConfigRegistryProtocol,
-    IdGeneratorProtocol,
-    # Inference endpoints
-    InferenceEndpoint,
-    InferenceEndpointsProtocol,
-    # Capability LLM configuration
-    AgentLLMConfig,
-    DomainLLMRegistryProtocol,
-    # Feature flags provider
-    FeatureFlagsProviderProtocol,
-    # Agent tool access
-    AgentToolAccessProtocol,
-    # Language config
-    LanguageConfigProtocol,
-    # Memory layer protocols (L5-L6)
-    GraphStorageProtocol,
-    SkillStorageProtocol,
-    # Infrastructure protocols (for jeeves-infra injection)
-    WebSocketManagerProtocol,
-    EmbeddingServiceProtocol,
-    EventBridgeProtocol,
-    ChunkServiceProtocol,
-    SessionStateServiceProtocol,
-)
+# from jeeves_infra.utils import (
+#     JSONRepairKit, normalize_string_list, truncate_string,
+#     utc_now, utc_now_iso, parse_datetime,
+# )
+
+# =============================================================================
+# PROTOCOL DEFINITIONS - Now in jeeves_core.protocols
+# =============================================================================
+# from jeeves_core.protocols import (
+#     RequestContext, LoggerProtocol, PersistenceProtocol, DatabaseClientProtocol,
+#     VectorStorageProtocol, LLMProviderProtocol, ToolProtocol, ToolDefinitionProtocol,
+#     ToolRegistryProtocol, ToolExecutorProtocol, SettingsProtocol, FeatureFlagsProtocol,
+#     ClockProtocol, AppContextProtocol, MemoryServiceProtocol, SemanticSearchProtocol,
+#     SessionStateProtocol, SearchResult, EventBusProtocol, IntentParsingProtocol,
+#     ClaimVerificationProtocol, CheckpointProtocol, CheckpointRecord, DistributedBusProtocol,
+#     DistributedTask, QueueStats, ConfigRegistryProtocol, IdGeneratorProtocol,
+#     InferenceEndpoint, InferenceEndpointsProtocol, AgentLLMConfig, DomainLLMRegistryProtocol,
+#     FeatureFlagsProviderProtocol, AgentToolAccessProtocol, LanguageConfigProtocol,
+#     GraphStorageProtocol, SkillStorageProtocol, WebSocketManagerProtocol,
+#     EmbeddingServiceProtocol, EventBridgeProtocol, ChunkServiceProtocol, SessionStateServiceProtocol,
+# )
 
 # =============================================================================
 # CAPABILITY SERVICER PROTOCOL
@@ -188,30 +137,20 @@ from protocols.memory import (
 )
 
 # =============================================================================
-# UNIFIED EVENTS
+# UNIFIED EVENTS - Now in jeeves_core.events
 # =============================================================================
-from protocols.events import (
-    # Event schema
-    Event,
-    EventCategory,
-    EventSeverity,
-    StandardEventTypes,
-    # Protocol
-    EventEmitterProtocol,
-)
+# from jeeves_core.events import (
+#     Event, EventCategory, EventSeverity, StandardEventTypes,
+#     EventEmitterProtocol,
+# )
 
 # =============================================================================
-# UTILITIES
+# UTILITIES - Now in jeeves_infra.utils
 # =============================================================================
-from protocols.utils import (
-    JSONRepairKit,
-    normalize_string_list,
-    truncate_string,
-    # Datetime utilities (L0-safe, no shared dependency)
-    utc_now,
-    utc_now_iso,
-    parse_datetime,
-)
+# from jeeves_infra.utils import (
+#     JSONRepairKit, normalize_string_list, truncate_string,
+#     utc_now, utc_now_iso, parse_datetime,
+# )
 
 # =============================================================================
 # VALIDATION TYPES
@@ -239,63 +178,16 @@ __all__ = [
 
     # ─── Envelope (now in jeeves_core.types) ───
 
-    # ─── Agent Runtime ───
-    "Agent",
-    "AgentFeatures",
-    "PipelineRunner",
-    "create_pipeline_runner",
-    "create_envelope",
-    "LLMProvider",
-    "ToolExecutor",
-    "Logger",
-    "Persistence",
-    "PromptRegistry",
-    "EventContext",
-    "LLMProviderFactory",
-    "PreProcessHook",
-    "PostProcessHook",
-    "MockHandler",
-    "OptionalCheckpoint",
+    # ─── Agent Runtime (now in jeeves_infra.runtime) ───
+    # Agent, AgentFeatures, PipelineRunner, create_pipeline_runner, create_envelope,
+    # LLMProvider, ToolExecutor, Logger, Persistence, PromptRegistry, EventContext,
+    # LLMProviderFactory, PreProcessHook, PostProcessHook, MockHandler, OptionalCheckpoint
 
-    # ─── Protocols ───
-    "RequestContext",
-    "LoggerProtocol",
-    "PersistenceProtocol",
-    "DatabaseClientProtocol",
-    "VectorStorageProtocol",
-    "LLMProviderProtocol",
-    "ToolProtocol",
-    "ToolDefinitionProtocol",
-    "ToolRegistryProtocol",
-    "ToolExecutorProtocol",
-    "SettingsProtocol",
-    "FeatureFlagsProtocol",
-    "ClockProtocol",
-    "AppContextProtocol",
-    "MemoryServiceProtocol",
-    "SemanticSearchProtocol",
-    "SessionStateProtocol",
-    "SearchResult",
-    "EventBusProtocol",
-    "IntentParsingProtocol",
-    "ClaimVerificationProtocol",
-    "CheckpointProtocol",
-    "CheckpointRecord",
-    "DistributedBusProtocol",
-    "DistributedTask",
-    "QueueStats",
-    "ConfigRegistryProtocol",
-    "IdGeneratorProtocol",
-    "InferenceEndpoint",
-    "InferenceEndpointsProtocol",
-    "AgentLLMConfig",
-    "DomainLLMRegistryProtocol",
-    "FeatureFlagsProviderProtocol",
-    "AgentToolAccessProtocol",
-    "LanguageConfigProtocol",
-    # Memory layer protocols (L5-L6)
-    "GraphStorageProtocol",
-    "SkillStorageProtocol",
+    # ─── Protocols (now in jeeves_core.protocols) ───
+    # RequestContext, LoggerProtocol, PersistenceProtocol, DatabaseClientProtocol,
+    # VectorStorageProtocol, LLMProviderProtocol, ToolProtocol, ToolDefinitionProtocol,
+    # ToolRegistryProtocol, ToolExecutorProtocol, SettingsProtocol, FeatureFlagsProtocol,
+    # etc. - all moved to jeeves_core.protocols
 
     # ─── Capability Servicer Protocol ───
     "CapabilityServicerProtocol",
@@ -335,20 +227,12 @@ __all__ = [
     "serialize_working_memory",
     "deserialize_working_memory",
 
-    # ─── Unified Events ───
-    "Event",
-    "EventCategory",
-    "EventSeverity",
-    "StandardEventTypes",
-    "EventEmitterProtocol",
+    # ─── Unified Events (now in jeeves_core.events) ───
+    # Event, EventCategory, EventSeverity, StandardEventTypes, EventEmitterProtocol
 
-    # ─── Utilities ───
-    "JSONRepairKit",
-    "normalize_string_list",
-    "truncate_string",
-    "utc_now",
-    "utc_now_iso",
-    "parse_datetime",
+    # ─── Utilities (now in jeeves_infra.utils) ───
+    # JSONRepairKit, normalize_string_list, truncate_string,
+    # utc_now, utc_now_iso, parse_datetime
 
     # ─── Interrupts & Rate Limiting (now in jeeves_core.types) ───
 
@@ -356,10 +240,7 @@ __all__ = [
     "MetaValidationIssue",
     "VerificationReport",
 
-    # ─── Infrastructure Protocols (jeeves-infra injection) ───
-    "WebSocketManagerProtocol",
-    "EmbeddingServiceProtocol",
-    "EventBridgeProtocol",
-    "ChunkServiceProtocol",
-    "SessionStateServiceProtocol",
+    # ─── Infrastructure Protocols (now in jeeves_core.protocols) ───
+    # WebSocketManagerProtocol, EmbeddingServiceProtocol, EventBridgeProtocol,
+    # ChunkServiceProtocol, SessionStateServiceProtocol
 ]

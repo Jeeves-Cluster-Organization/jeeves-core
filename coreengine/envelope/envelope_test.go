@@ -639,7 +639,7 @@ func TestLoopVerdictValues(t *testing.T) {
 
 func TestTerminalReasonValues(t *testing.T) {
 	// Test TerminalReason enum values.
-	assert.Equal(t, TerminalReason("completed_successfully"), TerminalReasonCompletedSuccessfully)
+	assert.Equal(t, TerminalReason("completed"), TerminalReasonCompleted)
 	assert.Equal(t, TerminalReason("max_iterations_exceeded"), TerminalReasonMaxIterationsExceeded)
 	assert.Equal(t, TerminalReason("max_llm_calls_exceeded"), TerminalReasonMaxLLMCallsExceeded)
 }

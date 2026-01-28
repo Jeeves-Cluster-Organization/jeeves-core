@@ -232,11 +232,19 @@ services:
       LLM_PROVIDER: ${LLM_PROVIDER:-llamaserver}
       LLAMASERVER_HOST: http://llama-server:8080
       DEFAULT_MODEL: ${DEFAULT_MODEL:-qwen2.5-3b-instruct}
+      # Gateway (for integration tests)
+      GATEWAY_HOST: http://gateway:8000
+      API_HOST: gateway
       # Test settings
       LOG_LEVEL: DEBUG
       PYTHONPATH: /app
+      CI: "true"
     depends_on:
       postgres:
+        condition: service_healthy
+      llama-server:
+        condition: service_healthy
+      gateway:
         condition: service_healthy
     networks:
       - jeeves-network

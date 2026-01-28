@@ -374,7 +374,7 @@ await client.disconnect()
 ### Redis Client
 
 ```python
-from avionics.database.redis_client import get_redis_client
+from jeeves_infra.redis.client import get_redis_client
 
 redis = get_redis_client("redis://localhost:6379")
 await redis.connect()

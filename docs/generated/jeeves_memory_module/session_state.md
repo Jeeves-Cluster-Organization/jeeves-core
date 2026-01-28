@@ -2,7 +2,7 @@
 
 **Layer:** L4 - Working Memory  
 **Scope:** Per-session state  
-**Location:** `memory_module/repositories/session_state_repository.py`, `memory_module/services/session_state_service.py`, `memory_module/services/session_state_adapter.py`
+**Location:** `jeeves_infra/memory/repositories/session_state_repository.py`, `jeeves_infra/memory/services/session_state_service.py`, `jeeves_infra/memory/services/session_state_adapter.py`
 
 ---
 
@@ -411,7 +411,7 @@ The adapter converts between Core's `FocusType` enum and Avionics focus type str
 ### Basic Session Management
 
 ```python
-from memory_module.services.session_state_service import SessionStateService
+from jeeves_infra.memory.services.session_state_service import SessionStateService
 
 service = SessionStateService(db)
 
@@ -441,7 +441,7 @@ await service.record_entity_reference(
 ### Using the Protocol Adapter
 
 ```python
-from memory_module.services.session_state_adapter import SessionStateAdapter
+from jeeves_infra.memory.services.session_state_adapter import SessionStateAdapter
 
 adapter = SessionStateAdapter(db)
 

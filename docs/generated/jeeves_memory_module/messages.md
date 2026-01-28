@@ -326,7 +326,7 @@ register_memory_handlers(
 ### Publishing Events
 
 ```python
-from memory_module.services.event_emitter import EventEmitter
+from jeeves_infra.memory.services.event_emitter import EventEmitter
 
 # Events are published automatically by EventEmitter
 await emitter.emit_memory_stored(

@@ -95,8 +95,8 @@ async def main():
     try:
         from avionics.settings import get_settings
         from avionics.database.factory import create_database_client
-        from memory_module.services.embedding_service import EmbeddingService
-        from memory_module.services.code_indexer import CodeIndexer
+        from jeeves_infra.memory.services.embedding_service import EmbeddingService
+        from jeeves_infra.memory.services.code_indexer import CodeIndexer
 
         settings = get_settings()
 

@@ -286,11 +286,12 @@ class TestCrossLayerContracts:
         assert expected_values.issubset(actual_values)
 
     def test_logger_protocol_consistent(self):
-        """Test that LoggerProtocol is consistent across layers."""
-        from protocols import LoggerProtocol as ProtocolLogger
-        from protocols.protocols import LoggerProtocol as ModuleLogger
-        
-        assert ProtocolLogger is ModuleLogger
+        """Test that LoggerProtocol is available from jeeves_core."""
+        from jeeves_core import LoggerProtocol
+        from jeeves_core.protocols import LoggerProtocol as ModuleLogger
+
+        # LoggerProtocol should be imported from jeeves_core.protocols
+        assert LoggerProtocol is ModuleLogger
 
 
 # =============================================================================

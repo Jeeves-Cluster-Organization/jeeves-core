@@ -19,7 +19,7 @@
 # ------------------------------------------------------------------------------
 # Stage 1: Go Builder (envelope CLI)
 # ------------------------------------------------------------------------------
-FROM golang:1.21-alpine AS go-builder
+FROM golang:1.24-alpine AS go-builder
 
 WORKDIR /build
 
@@ -109,7 +109,9 @@ RUN pip install \
     tiktoken>=0.5.0 \
     # ML/AI support
     numpy>=1.26.0 \
-    scipy>=1.12.0
+    scipy>=1.12.0 \
+    # Redis for distributed infrastructure
+    redis>=5.0.0
 
 # ------------------------------------------------------------------------------
 # Stage 4: Gateway Target
@@ -126,6 +128,13 @@ COPY control_tower/ ./control_tower/
 
 # Copy Python packages (Memory)
 COPY memory_module/ ./memory_module/
+
+# Copy proto package and generate gRPC stubs
+COPY proto/ ./proto/
+RUN python -m grpc_tools.protoc -I. \
+    --python_out=. \
+    --grpc_python_out=. \
+    proto/jeeves.proto
 
 # Set ownership
 RUN chown -R jeeves:jeeves /app
@@ -164,6 +173,13 @@ COPY memory_module/ ./memory_module/
 
 # Copy Python packages (L2 Application)
 COPY mission_system/ ./mission_system/
+
+# Copy proto package and generate gRPC stubs
+COPY proto/ ./proto/
+RUN python -m grpc_tools.protoc -I. \
+    --python_out=. \
+    --grpc_python_out=. \
+    proto/jeeves.proto
 
 # Copy configuration files
 COPY .env ./
@@ -214,8 +230,25 @@ COPY mission_system/ ./mission_system/
 
 # Copy test configuration
 COPY tests/ ./tests/
+COPY conftest.py ./
 COPY .env ./
 COPY pytest*.ini ./
+
+# Copy coreengine package structure and proto files
+# protocols/grpc_stub.py imports from coreengine.proto, so stubs must stay in-place
+COPY coreengine/__init__.py ./coreengine/__init__.py
+COPY coreengine/proto/__init__.py ./coreengine/proto/__init__.py
+COPY coreengine/proto/engine.proto ./coreengine/proto/engine.proto
+
+# Copy top-level proto package (jeeves.proto for gRPC services)
+COPY proto/ ./proto/
+
+# Generate gRPC stubs for both proto packages
+RUN python -m grpc_tools.protoc -I. \
+    --python_out=. \
+    --grpc_python_out=. \
+    coreengine/proto/engine.proto \
+    proto/jeeves.proto
 
 # Set ownership
 RUN chown -R jeeves:jeeves /app

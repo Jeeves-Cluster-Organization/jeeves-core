@@ -10,8 +10,8 @@ from typing import Any, Dict, List, Optional, TYPE_CHECKING
 from jeeves_core.types.enums import TerminalReason
 from jeeves_core.types.interrupts import FlowInterrupt
 
-# RequestContext still in protocols until protocols.py is migrated
-from protocols.protocols import RequestContext
+# RequestContext is now in jeeves_core.protocols
+from jeeves_core.protocols import RequestContext
 
 
 @dataclass

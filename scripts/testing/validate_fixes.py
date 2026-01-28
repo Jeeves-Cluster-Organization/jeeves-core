@@ -62,7 +62,7 @@ async def main():
     # Check 3: LLM Factory works
     try:
         from avionics.settings import settings
-        from avionics.llm.factory import LLMFactory
+        from jeeves_infra.llm.factory import LLMFactory
 
         factory = LLMFactory(settings)
         provider = factory.get_provider_for_agent("planner")
@@ -128,7 +128,7 @@ async def main():
 
     # Check 7: Backward compatibility
     try:
-        from avionics.llm.factory import create_agent_provider_with_node_awareness, create_agent_provider
+        from jeeves_infra.llm.factory import create_agent_provider_with_node_awareness, create_agent_provider
 
         # Both functions should exist
         if check("Backward compatibility (old and new functions exist)", True):
@@ -143,7 +143,7 @@ async def main():
     try:
         os.environ['MOCK_LLM_ENABLED'] = 'true'
         from avionics.settings import settings
-        from avionics.llm.factory import create_agent_provider_with_node_awareness
+        from jeeves_infra.llm.factory import create_agent_provider_with_node_awareness
 
         provider = create_agent_provider_with_node_awareness(settings, "planner")
         is_mock = "Mock" in type(provider).__name__
