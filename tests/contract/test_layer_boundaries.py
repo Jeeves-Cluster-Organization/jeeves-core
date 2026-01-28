@@ -31,10 +31,11 @@ LAYER_HIERARCHY = {
         "level": 4,
         "allowed": [
             "avionics",
-            "memory_module", 
+            "memory_module",
             "control_tower",
             "protocols",
             "shared",
+            "jeeves_core",
         ],
     },
     # Layer 3: Infrastructure (can import from L2, L1, L0)
@@ -45,6 +46,7 @@ LAYER_HIERARCHY = {
             "control_tower",
             "protocols",
             "shared",
+            "jeeves_core",
         ],
     },
     # Layer 2: Memory (can import from L1, L0)
@@ -54,6 +56,7 @@ LAYER_HIERARCHY = {
             "control_tower",
             "protocols",
             "shared",
+            "jeeves_core",
         ],
     },
     # Layer 1: Kernel (can import from L0 only)
@@ -62,21 +65,26 @@ LAYER_HIERARCHY = {
         "allowed": [
             "protocols",
             "shared",
+            "jeeves_core",
         ],
     },
-    # Layer 0: Foundation (no internal deps)
+    # Layer 0: Foundation (jeeves_core is source of truth)
     "protocols": {
         "level": 0,
-        "allowed": ["shared"],
+        "allowed": ["shared", "jeeves_core"],
     },
     "shared": {
+        "level": 0,
+        "allowed": [],
+    },
+    "jeeves_core": {
         "level": 0,
         "allowed": [],
     },
 }
 
 # Packages that are known internal to jeeves-core
-JEEVES_PACKAGES = set(LAYER_HIERARCHY.keys())
+JEEVES_PACKAGES = set(LAYER_HIERARCHY.keys())  # includes jeeves_core
 
 
 # =============================================================================
@@ -149,24 +157,25 @@ class TestLayerBoundariesStatic:
     """Static analysis tests for layer boundaries."""
 
     def test_protocols_has_no_internal_deps(self):
-        """Test that protocols doesn't import from other jeeves packages."""
+        """Test that protocols doesn't import from disallowed jeeves packages."""
         project_root = Path(__file__).parent.parent.parent
         protocols_dir = project_root / "protocols"
-        
+
         if not protocols_dir.exists():
             pytest.skip("protocols not found")
-        
+
         violations = []
+        # protocols can import from: shared, jeeves_core (L0 foundation)
+        allowed = {"protocols", "shared", "jeeves_core"}
         for py_file in protocols_dir.rglob("*.py"):
             imports = get_imports_from_file(py_file)
             for import_path, line in imports:
                 pkg = get_package_name(import_path)
-                # protocols can only import from shared
-                if pkg in JEEVES_PACKAGES and pkg != "protocols" and pkg != "shared":
+                if pkg in JEEVES_PACKAGES and pkg not in allowed:
                     violations.append(
                         f"{py_file.relative_to(project_root)}:{line} imports {import_path}"
                     )
-        
+
         assert len(violations) == 0, f"Layer violations found:\n" + "\n".join(violations)
 
     def test_control_tower_respects_layer(self):
@@ -262,22 +271,22 @@ class TestCrossLayerContracts:
     def test_terminal_reason_enum_consistent(self):
         """Test that TerminalReason enum is consistent."""
         from protocols import TerminalReason as ProtocolReason
-        from protocols.enums import TerminalReason as CoreReason
-        
-        # Should be the exact same enum
+        from jeeves_core.types import TerminalReason as CoreReason
+
+        # Should be the exact same enum (protocols re-exports from jeeves_core)
         assert ProtocolReason is CoreReason
-        
-        # Should have expected values
+
+        # Should have expected values (match jeeves_core/types/enums.py TerminalReason)
         expected_values = {
             "max_iterations_exceeded",
             "max_llm_calls_exceeded",
             "max_agent_hops_exceeded",
             "user_cancelled",
             "tool_failed_fatally",
-            "llm_failed_fatally",
+            "policy_violation",
             "completed",
         }
-        actual_values = {e.value for e in TerminalReason}
+        actual_values = {e.value for e in ProtocolReason}
         assert expected_values.issubset(actual_values)
 
     def test_logger_protocol_consistent(self):

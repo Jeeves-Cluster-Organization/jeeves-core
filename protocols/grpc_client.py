@@ -23,7 +23,7 @@ except ImportError as e:
 
 from protocols.envelope import Envelope
 from protocols import RequestContext
-from protocols.enums import TerminalReason
+from jeeves_core.types import TerminalReason
 
 if TYPE_CHECKING:
     from protocols import grpc_stub as stub_types
@@ -151,10 +151,11 @@ class GrpcGoClient:
         """Initialize gRPC client.
 
         Args:
-            address: gRPC server address (default: localhost:50051)
+            address: gRPC server address (default: GRPC_SERVER_ADDRESS env or localhost:50051)
             timeout: Default timeout for RPC calls in seconds
         """
-        self._address = address or self.DEFAULT_ADDRESS
+        import os
+        self._address = address or os.environ.get("GRPC_SERVER_ADDRESS", self.DEFAULT_ADDRESS)
         self._timeout = timeout
         self._channel: Optional[grpc.Channel] = None
         self._stub: Any = None

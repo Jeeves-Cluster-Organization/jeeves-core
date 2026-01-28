@@ -119,6 +119,7 @@ enum TerminalReason {
     TOOL_FAILED_FATALLY = 5;
     LLM_FAILED_FATALLY = 6;
     COMPLETED = 7;
+    POLICY_VIOLATION = 8;
 }
 
 message FlowInterrupt {
@@ -204,4 +205,88 @@ message AgentResult {
     int32 duration_ms = 4;
     int32 llm_calls = 5;
     Envelope envelope = 6;              // Updated envelope
+}
+
+// =============================================================================
+// Core Enums (from protocols/enums.py)
+// =============================================================================
+
+enum RiskLevel {
+    RISK_LEVEL_UNSPECIFIED = 0;
+    // Semantic levels
+    RISK_READ_ONLY = 1;
+    RISK_WRITE = 2;
+    RISK_DESTRUCTIVE = 3;
+    // Severity levels
+    RISK_LOW = 4;
+    RISK_MEDIUM = 5;
+    RISK_HIGH = 6;
+    RISK_CRITICAL = 7;
+}
+
+enum ToolCategory {
+    TOOL_CATEGORY_UNSPECIFIED = 0;
+    // Operation types
+    TOOL_READ = 1;
+    TOOL_WRITE = 2;
+    TOOL_EXECUTE = 3;
+    TOOL_NETWORK = 4;
+    TOOL_SYSTEM = 5;
+    // Tool organization
+    TOOL_UNIFIED = 6;
+    TOOL_COMPOSITE = 7;
+    TOOL_RESILIENT = 8;
+    TOOL_STANDALONE = 9;
+    TOOL_INTERNAL = 10;
+}
+
+enum HealthStatus {
+    HEALTH_STATUS_UNSPECIFIED = 0;
+    HEALTH_HEALTHY = 1;
+    HEALTH_DEGRADED = 2;
+    HEALTH_UNHEALTHY = 3;
+    HEALTH_UNKNOWN = 4;
+}
+
+enum LoopVerdict {
+    LOOP_VERDICT_UNSPECIFIED = 0;
+    LOOP_PROCEED = 1;
+    LOOP_BACK = 2;
+    LOOP_ADVANCE = 3;
+    LOOP_ESCALATE = 4;
+}
+
+enum RiskApproval {
+    RISK_APPROVAL_UNSPECIFIED = 0;
+    RISK_APPROVED = 1;
+    RISK_DENIED = 2;
+    RISK_PENDING = 3;
+}
+
+enum ToolAccess {
+    TOOL_ACCESS_UNSPECIFIED = 0;
+    TOOL_ACCESS_NONE = 1;
+    TOOL_ACCESS_READ = 2;
+    TOOL_ACCESS_WRITE = 3;
+    TOOL_ACCESS_ALL = 4;
+}
+
+enum OperationStatus {
+    OPERATION_STATUS_UNSPECIFIED = 0;
+    OPERATION_SUCCESS = 1;
+    OPERATION_ERROR = 2;
+    OPERATION_NOT_FOUND = 3;
+    OPERATION_TIMEOUT = 4;
+    OPERATION_VALIDATION_ERROR = 5;
+    OPERATION_PARTIAL = 6;
+    OPERATION_INVALID_PARAMETERS = 7;
+}
+
+// Unified result type for operations
+message OperationResult {
+    OperationStatus status = 1;
+    bytes data = 2;                     // JSON-encoded result data
+    string error = 3;
+    string error_type = 4;
+    repeated string suggestions = 5;
 }

@@ -29,9 +29,9 @@ Usage by Capability Layers:
 """
 
 # =============================================================================
-# CORE ENUMS AND TYPES
+# CORE ENUMS AND TYPES (from Go kernel via jeeves_core)
 # =============================================================================
-from protocols.enums import (
+from jeeves_core.types import (
     # Risk and access levels
     RiskLevel,
     ToolAccess,
@@ -152,6 +152,12 @@ from protocols.protocols import (
     # Memory layer protocols (L5-L6)
     GraphStorageProtocol,
     SkillStorageProtocol,
+    # Infrastructure protocols (for jeeves-infra injection)
+    WebSocketManagerProtocol,
+    EmbeddingServiceProtocol,
+    EventBridgeProtocol,
+    ChunkServiceProtocol,
+    SessionStateServiceProtocol,
 )
 
 # =============================================================================
@@ -237,6 +243,14 @@ from protocols.utils import (
     utc_now,
     utc_now_iso,
     parse_datetime,
+)
+
+# =============================================================================
+# VALIDATION TYPES
+# =============================================================================
+from protocols.validation import (
+    MetaValidationIssue,
+    VerificationReport,
 )
 
 # =============================================================================
@@ -404,4 +418,15 @@ __all__ = [
     "RateLimitConfig",
     "RateLimitResult",
     "RateLimiterProtocol",
+
+    # ─── Validation Types ───
+    "MetaValidationIssue",
+    "VerificationReport",
+
+    # ─── Infrastructure Protocols (jeeves-infra injection) ───
+    "WebSocketManagerProtocol",
+    "EmbeddingServiceProtocol",
+    "EventBridgeProtocol",
+    "ChunkServiceProtocol",
+    "SessionStateServiceProtocol",
 ]

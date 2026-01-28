@@ -8,7 +8,7 @@ from dataclasses import dataclass, field, asdict
 from enum import Enum
 from typing import Any, Callable, Dict, List, Optional, Set
 
-from protocols.enums import ToolAccess
+from jeeves_core.types import ToolAccess
 
 
 class RunMode(str, Enum):

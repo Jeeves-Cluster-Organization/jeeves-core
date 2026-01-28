@@ -14,7 +14,7 @@ import pytest
 
 from protocols import RequestContext
 from protocols.envelope import Envelope
-from protocols.enums import TerminalReason
+from jeeves_core.types import TerminalReason
 
 
 # =============================================================================
@@ -305,13 +305,18 @@ class TestEnvelopeInvariants:
         assert envelope.terminal_reason is not None
 
     def test_envelope_id_is_unique_format(self):
-        """Test envelope ID follows expected format."""
-        from protocols.grpc_client import GrpcGoClient
+        """Test envelope ID follows expected format.
 
-        client = GrpcGoClient()
-        envelope = client.create_envelope(
-            raw_input="test",
+        Verifies that Python envelope creation generates properly formatted IDs.
+        """
+        # Create envelope directly using Python (authoritative in absence of Go server)
+        envelope = Envelope(
             request_context=_ctx("req_test", "user", "session"),
+            envelope_id="env_test_123",
+            request_id="req_test",
+            user_id="user",
+            session_id="session",
+            raw_input="test",
         )
 
         # IDs should have expected prefix

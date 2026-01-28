@@ -4,7 +4,7 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Any, Dict, List, Optional, TYPE_CHECKING
 
-from protocols.enums import TerminalReason
+from jeeves_core.types import TerminalReason
 from protocols.protocols import RequestContext
 
 if TYPE_CHECKING:
@@ -269,8 +269,11 @@ class Envelope:
             "current_stage": self.current_stage,
             "stage_order": self.stage_order,
             "iteration": self.iteration,
+            "max_iterations": self.max_iterations,
             "llm_call_count": self.llm_call_count,
+            "max_llm_calls": self.max_llm_calls,
             "agent_hop_count": self.agent_hop_count,
+            "max_agent_hops": self.max_agent_hops,
             "terminal_reason": self.terminal_reason.value if self.terminal_reason else None,
             "terminated": self.terminated,
             "termination_reason": self.termination_reason,

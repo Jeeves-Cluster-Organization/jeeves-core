@@ -24,7 +24,7 @@ from protocols.grpc_client import (
 )
 from protocols.envelope import Envelope
 from protocols import RequestContext
-from protocols.enums import TerminalReason
+from jeeves_core.types import TerminalReason
 
 
 # =============================================================================

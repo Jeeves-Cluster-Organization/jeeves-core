@@ -23,7 +23,7 @@ import pytest
 from fastapi.testclient import TestClient
 from httpx import AsyncClient, ASGITransport
 
-from mission_system.api.server import app, app_state, lifespan
+from jeeves_infra.gateway.server import app, app_state, lifespan
 from mission_system.config.constants import PLATFORM_NAME, PLATFORM_VERSION
 
 
@@ -81,9 +81,15 @@ async def test_app(pg_test_db):
         async with lifespan(app):
             # Now create AsyncClient for making requests
             async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
-                # Verify initialization completed
-                assert app_state.orchestrator is not None
+                # Verify core initialization completed (orchestrator is optional without capability)
                 assert app_state.health_checker is not None
+
+                # If no orchestrator registered (no capability), provide a mock for tests
+                if app_state.orchestrator is None:
+                    mock_orchestrator = AsyncMock()
+                    mock_orchestrator.process_query = AsyncMock()
+                    app_state.orchestrator = mock_orchestrator
+
                 yield client
     finally:
         # Cleanup - restore original environment values
@@ -144,16 +150,28 @@ async def test_root_endpoint(test_app):
 @pytest.mark.asyncio
 async def test_submit_request_success(test_app):
     """Test successful request submission."""
-    # Mock orchestrator result using MockOrchestratorResult (layer extraction compliant)
-    mock_result = MockOrchestratorResult(
-        status="complete",
-        response="Test response",
-        request_id="test-123",
-        thread_id="thread-123",
-    )
+    from protocols import RequestContext
+    from protocols.envelope import Envelope
+    from jeeves_core.types import TerminalReason
 
-    # Patch orchestrator process_query method
-    with patch.object(app_state.orchestrator, "process_query", return_value=mock_result):
+    # Create mock envelope result (uses input envelope's request_id for consistency)
+    def create_mock_envelope(envelope, **kwargs):
+        """Create a mock completed envelope."""
+        result = Envelope(
+            request_context=envelope.request_context,
+            envelope_id=envelope.envelope_id,
+            request_id=envelope.request_id,  # Use the input envelope's request_id
+            user_id=envelope.user_id,
+            session_id=envelope.session_id,
+            raw_input=envelope.raw_input,
+            terminal_reason=TerminalReason.COMPLETED,
+            terminated=True,
+            outputs={"integration": {"final_response": "Test response"}},
+        )
+        return result
+
+    # Patch control_tower.submit_request to return mock result
+    with patch.object(app_state.control_tower, "submit_request", side_effect=create_mock_envelope):
         response = await test_app.post(
             "/api/v1/requests",
             json={
@@ -166,7 +184,8 @@ async def test_submit_request_success(test_app):
     assert response.status_code == 200
     data = response.json()
 
-    assert data["request_id"] == "test-123"
+    # request_id is generated dynamically, just check it's not empty
+    assert data["request_id"] is not None
     assert data["status"] == "completed"
     assert data["response_text"] == "Test response"
     assert data["clarification_needed"] is False
@@ -175,15 +194,34 @@ async def test_submit_request_success(test_app):
 @pytest.mark.asyncio
 async def test_submit_request_clarification(test_app):
     """Test request submission requiring clarification."""
-    # Mock orchestrator result using MockOrchestratorResult (layer extraction compliant)
-    mock_result = MockOrchestratorResult(
-        status="clarification_needed",
-        clarification_question="Could you provide more details?",
-        request_id="test-456",
-        thread_id="thread-456",
-    )
+    from protocols import RequestContext
+    from protocols.envelope import Envelope
+    from protocols.interrupts import FlowInterrupt, InterruptKind
 
-    with patch.object(app_state.orchestrator, "process_query", return_value=mock_result):
+    # Create mock envelope with clarification interrupt
+    def create_mock_envelope(envelope, **kwargs):
+        """Create a mock envelope requiring clarification."""
+        interrupt = FlowInterrupt(
+            id="interrupt-1",
+            kind=InterruptKind.CLARIFICATION,
+            request_id=envelope.request_id,  # Use input envelope's request_id
+            user_id=envelope.user_id,
+            session_id=envelope.session_id,
+            question="Could you provide more details?",
+        )
+        result = Envelope(
+            request_context=envelope.request_context,
+            envelope_id=envelope.envelope_id,
+            request_id=envelope.request_id,  # Use input envelope's request_id
+            user_id=envelope.user_id,
+            session_id=envelope.session_id,
+            raw_input=envelope.raw_input,
+            interrupt_pending=True,
+            interrupt=interrupt,
+        )
+        return result
+
+    with patch.object(app_state.control_tower, "submit_request", side_effect=create_mock_envelope):
         response = await test_app.post(
             "/api/v1/requests",
             json={
@@ -195,8 +233,9 @@ async def test_submit_request_clarification(test_app):
     assert response.status_code == 200
     data = response.json()
 
-    assert data["request_id"] == "test-456"
-    assert data["status"] == "failed"  # clarification_needed maps to "failed"
+    # request_id is generated dynamically, just check it's not empty
+    assert data["request_id"] is not None
+    assert data["status"] == "clarification_needed"
     assert data["clarification_needed"] is True
     assert data["clarification_question"] == "Could you provide more details?"
     assert data["response_text"] is None
@@ -218,9 +257,9 @@ async def test_submit_request_validation_error(test_app):
 
 @pytest.mark.asyncio
 async def test_submit_request_orchestrator_error(test_app):
-    """Test request submission when orchestrator fails."""
+    """Test request submission when control tower fails."""
     with patch.object(
-        app_state.orchestrator, "process_query", side_effect=Exception("Test error")
+        app_state.control_tower, "submit_request", side_effect=Exception("Test error")
     ):
         response = await test_app.post(
             "/api/v1/requests",

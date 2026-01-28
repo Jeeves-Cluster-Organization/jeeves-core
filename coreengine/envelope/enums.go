@@ -1,71 +1,110 @@
-// Package envelope provides envelope enums and the Envelope implementation.
+// Package envelope provides core enums - source of truth for jeeves-kernel.
 //
-// Centralized Architecture (v4.0):
-//   - Stage tracking is now string-based (via Envelope.CurrentStage)
-//   - EnvelopeStage enum removed - stages are defined in PipelineConfig
-//   - Kept: TerminalReason, LoopVerdict, RiskApproval
-//
-// NOTE: Domain-specific concepts like "Critic" or "Intent" belong in
-// the capability layer, not here.
+// All Python enums are thin wrappers around these Go definitions.
+// Proto definitions in engine.proto are used for gRPC transport only.
 package envelope
 
-// TerminalReason represents why processing terminated - exactly one per request.
+// TerminalReason represents why processing terminated.
 type TerminalReason string
 
 const (
-	// TerminalReasonCompletedSuccessfully indicates successful completion.
-	TerminalReasonCompletedSuccessfully TerminalReason = "completed_successfully"
-	// TerminalReasonCompleted is an alias for CompletedSuccessfully.
-	TerminalReasonCompleted TerminalReason = "completed"
-	// TerminalReasonClarificationRequired indicates user clarification is needed.
-	TerminalReasonClarificationRequired TerminalReason = "clarification_required"
-	// TerminalReasonConfirmationRequired indicates user confirmation is needed.
-	TerminalReasonConfirmationRequired TerminalReason = "confirmation_required"
-	// TerminalReasonDeniedByPolicy indicates policy denial.
-	TerminalReasonDeniedByPolicy TerminalReason = "denied_by_policy"
-	// TerminalReasonToolFailedRecoverably indicates a recoverable tool failure.
-	TerminalReasonToolFailedRecoverably TerminalReason = "tool_failed_recoverably"
-	// TerminalReasonToolFailedFatally indicates a fatal tool failure.
-	TerminalReasonToolFailedFatally TerminalReason = "tool_failed_fatally"
-	// TerminalReasonLLMFailedFatally indicates a fatal LLM failure.
-	TerminalReasonLLMFailedFatally TerminalReason = "llm_failed_fatally"
-	// TerminalReasonMaxIterationsExceeded indicates max iterations reached.
+	TerminalReasonCompleted             TerminalReason = "completed"
 	TerminalReasonMaxIterationsExceeded TerminalReason = "max_iterations_exceeded"
-	// TerminalReasonMaxLLMCallsExceeded indicates max LLM calls reached.
-	TerminalReasonMaxLLMCallsExceeded TerminalReason = "max_llm_calls_exceeded"
-	// TerminalReasonMaxAgentHopsExceeded indicates max agent hops reached.
-	TerminalReasonMaxAgentHopsExceeded TerminalReason = "max_agent_hops_exceeded"
-	// TerminalReasonMaxLoopExceeded indicates max loop iterations reached.
-	TerminalReasonMaxLoopExceeded TerminalReason = "max_loop_exceeded"
-	// TerminalReasonUserCancelled indicates the user cancelled the request.
-	TerminalReasonUserCancelled TerminalReason = "user_cancelled"
+	TerminalReasonMaxLLMCallsExceeded   TerminalReason = "max_llm_calls_exceeded"
+	TerminalReasonMaxAgentHopsExceeded  TerminalReason = "max_agent_hops_exceeded"
+	TerminalReasonMaxLoopExceeded       TerminalReason = "max_loop_exceeded"
+	TerminalReasonUserCancelled         TerminalReason = "user_cancelled"
+	TerminalReasonToolFailedFatally     TerminalReason = "tool_failed_fatally"
+	TerminalReasonLLMFailedFatally      TerminalReason = "llm_failed_fatally"
+	TerminalReasonPolicyViolation       TerminalReason = "policy_violation"
 )
 
-// RiskApproval represents policy arbiter decisions.
-type RiskApproval string
+// RiskLevel represents risk for tool execution.
+type RiskLevel string
 
 const (
-	// RiskApprovalApproved indicates the request is approved.
-	RiskApprovalApproved RiskApproval = "approved"
-	// RiskApprovalDenied indicates the request is denied.
-	RiskApprovalDenied RiskApproval = "denied"
-	// RiskApprovalRequiresConfirmation indicates user confirmation is needed.
-	RiskApprovalRequiresConfirmation RiskApproval = "requires_confirmation"
+	// Semantic levels
+	RiskLevelReadOnly    RiskLevel = "read_only"
+	RiskLevelWrite       RiskLevel = "write"
+	RiskLevelDestructive RiskLevel = "destructive"
+	// Severity levels
+	RiskLevelLow      RiskLevel = "low"
+	RiskLevelMedium   RiskLevel = "medium"
+	RiskLevelHigh     RiskLevel = "high"
+	RiskLevelCritical RiskLevel = "critical"
+)
+
+// RequiresConfirmation checks if a risk level requires user confirmation.
+func (r RiskLevel) RequiresConfirmation() bool {
+	return r == RiskLevelDestructive || r == RiskLevelHigh || r == RiskLevelCritical
+}
+
+// ToolCategory represents tool categorization.
+type ToolCategory string
+
+const (
+	// Operation types
+	ToolCategoryRead    ToolCategory = "read"
+	ToolCategoryWrite   ToolCategory = "write"
+	ToolCategoryExecute ToolCategory = "execute"
+	ToolCategoryNetwork ToolCategory = "network"
+	ToolCategorySystem  ToolCategory = "system"
+	// Tool organization
+	ToolCategoryUnified    ToolCategory = "unified"
+	ToolCategoryComposite  ToolCategory = "composite"
+	ToolCategoryResilient  ToolCategory = "resilient"
+	ToolCategoryStandalone ToolCategory = "standalone"
+	ToolCategoryInternal   ToolCategory = "internal"
+)
+
+// HealthStatus represents health check status.
+type HealthStatus string
+
+const (
+	HealthStatusHealthy   HealthStatus = "healthy"
+	HealthStatusDegraded  HealthStatus = "degraded"
+	HealthStatusUnhealthy HealthStatus = "unhealthy"
+	HealthStatusUnknown   HealthStatus = "unknown"
 )
 
 // LoopVerdict represents agent loop control verdicts.
-// This is a GENERIC routing decision - capability layer defines the semantics.
-//
-// PROCEED: Continue to next stage - current stage goals satisfied
-// LOOP_BACK: Return to an earlier stage with feedback
-// ADVANCE: Skip ahead to a later stage (multi-stage execution)
 type LoopVerdict string
 
 const (
-	// LoopVerdictProceed indicates continuing to the next stage.
-	LoopVerdictProceed LoopVerdict = "proceed"
-	// LoopVerdictLoopBack indicates returning to an earlier stage.
+	LoopVerdictProceed  LoopVerdict = "proceed"
 	LoopVerdictLoopBack LoopVerdict = "loop_back"
-	// LoopVerdictAdvance indicates advancing to a later stage.
-	LoopVerdictAdvance LoopVerdict = "advance"
+	LoopVerdictAdvance  LoopVerdict = "advance"
+	LoopVerdictEscalate LoopVerdict = "escalate"
+)
+
+// RiskApproval represents risk approval status.
+type RiskApproval string
+
+const (
+	RiskApprovalApproved RiskApproval = "approved"
+	RiskApprovalDenied   RiskApproval = "denied"
+	RiskApprovalPending  RiskApproval = "pending"
+)
+
+// ToolAccess represents tool access levels for agents.
+type ToolAccess string
+
+const (
+	ToolAccessNone  ToolAccess = "none"
+	ToolAccessRead  ToolAccess = "read"
+	ToolAccessWrite ToolAccess = "write"
+	ToolAccessAll   ToolAccess = "all"
+)
+
+// OperationStatus represents status of an operation result.
+type OperationStatus string
+
+const (
+	OperationStatusSuccess           OperationStatus = "success"
+	OperationStatusError             OperationStatus = "error"
+	OperationStatusNotFound          OperationStatus = "not_found"
+	OperationStatusTimeout           OperationStatus = "timeout"
+	OperationStatusValidationError   OperationStatus = "validation_error"
+	OperationStatusPartial           OperationStatus = "partial"
+	OperationStatusInvalidParameters OperationStatus = "invalid_parameters"
 )

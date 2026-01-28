@@ -1,22 +1,15 @@
-"""Core enums and constants - mirrors Go definitions."""
+"""Core enums - Python interface to Go kernel definitions.
 
+Source of truth: coreengine/envelope/enums.go
+"""
+
+from dataclasses import dataclass, field
 from enum import Enum
+from typing import Any, Dict, List, Optional
 
 
 class RiskLevel(str, Enum):
-    """Risk level for tool execution.
-
-    Semantic levels (used by tool definitions):
-    - READ_ONLY: Safe read operations, no side effects
-    - WRITE: Operations that modify state
-    - DESTRUCTIVE: Operations that delete data or are irreversible
-
-    Severity levels (used by risk assessment):
-    - LOW: Minimal risk
-    - MEDIUM: Moderate risk, may need review
-    - HIGH: Significant risk, requires confirmation
-    - CRITICAL: Highest risk, requires explicit approval
-    """
+    """Risk level for tool execution."""
     # Semantic levels
     READ_ONLY = "read_only"
     WRITE = "write"
@@ -34,22 +27,7 @@ class RiskLevel(str, Enum):
 
 
 class ToolCategory(str, Enum):
-    """Tool categorization.
-
-    Operation types:
-    - READ: Read-only operations
-    - WRITE: Modification operations
-    - EXECUTE: Code/command execution
-    - NETWORK: Network operations
-    - SYSTEM: System-level operations
-
-    Tool organization (for code analysis capability):
-    - UNIFIED: Single entry point tools (e.g., analyze)
-    - COMPOSITE: Multi-step orchestration tools
-    - RESILIENT: Tools with retry/fallback strategies
-    - STANDALONE: Independent utility tools
-    - INTERNAL: Internal tools not exposed to agents
-    """
+    """Tool categorization."""
     # Operation types
     READ = "read"
     WRITE = "write"
@@ -69,7 +47,7 @@ class HealthStatus(str, Enum):
     HEALTHY = "healthy"
     DEGRADED = "degraded"
     UNHEALTHY = "unhealthy"
-    UNKNOWN = "unknown"  # Insufficient data to determine health
+    UNKNOWN = "unknown"
 
 
 class TerminalReason(str, Enum):
@@ -78,17 +56,19 @@ class TerminalReason(str, Enum):
     MAX_ITERATIONS_EXCEEDED = "max_iterations_exceeded"
     MAX_LLM_CALLS_EXCEEDED = "max_llm_calls_exceeded"
     MAX_AGENT_HOPS_EXCEEDED = "max_agent_hops_exceeded"
+    MAX_LOOP_EXCEEDED = "max_loop_exceeded"
     USER_CANCELLED = "user_cancelled"
     TOOL_FAILED_FATALLY = "tool_failed_fatally"
+    LLM_FAILED_FATALLY = "llm_failed_fatally"
     POLICY_VIOLATION = "policy_violation"
 
 
 class LoopVerdict(str, Enum):
-    """Agent loop control verdicts - generic routing decisions."""
-    PROCEED = "proceed"      # Continue to next stage
-    LOOP_BACK = "loop_back"  # Return to an earlier stage
-    ADVANCE = "advance"      # Skip ahead to a later stage
-    ESCALATE = "escalate"    # Escalate to human
+    """Agent loop control verdicts."""
+    PROCEED = "proceed"
+    LOOP_BACK = "loop_back"
+    ADVANCE = "advance"
+    ESCALATE = "escalate"
 
 
 class RiskApproval(str, Enum):
@@ -107,56 +87,19 @@ class ToolAccess(str, Enum):
 
 
 class OperationStatus(str, Enum):
-    """Status of an operation result.
-
-    Core statuses:
-    - SUCCESS: Operation completed successfully
-    - ERROR: Operation failed with error
-    - NOT_FOUND: Resource/target not found (valid outcome, not an error)
-    - TIMEOUT: Operation timed out
-    - VALIDATION_ERROR: Input validation failed
-
-    Extended statuses (for tool operations):
-    - PARTIAL: Some results found, but incomplete
-    - INVALID_PARAMETERS: Semantic misuse (e.g., file path as symbol)
-    """
+    """Status of an operation result."""
     SUCCESS = "success"
     ERROR = "error"
     NOT_FOUND = "not_found"
     TIMEOUT = "timeout"
     VALIDATION_ERROR = "validation_error"
-    # Extended statuses for tool operations
     PARTIAL = "partial"
     INVALID_PARAMETERS = "invalid_parameters"
 
 
-from dataclasses import dataclass, field
-from typing import Any, Dict, List, Optional
-
-
 @dataclass
 class OperationResult:
-    """Unified result type for operations across the codebase.
-
-    Standardizes error responses and success results to eliminate
-    inconsistent patterns like:
-    - {"status": "error", "error": str}
-    - {"status": "error", "error_type": str}
-    - Raw exception raising
-
-    Usage:
-        # Success
-        result = OperationResult.success({"items": [...]})
-
-        # Error
-        result = OperationResult.error("File not found", "not_found")
-
-        # Check result
-        if result.is_success:
-            process(result.data)
-        else:
-            handle_error(result.error)
-    """
+    """Unified result type for operations."""
     status: OperationStatus
     data: Optional[Dict[str, Any]] = None
     error: Optional[str] = None
