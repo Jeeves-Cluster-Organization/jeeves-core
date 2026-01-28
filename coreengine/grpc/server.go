@@ -17,6 +17,7 @@ import (
 	"github.com/jeeves-cluster-organization/codeanalysis/coreengine/agents"
 	"github.com/jeeves-cluster-organization/codeanalysis/coreengine/config"
 	"github.com/jeeves-cluster-organization/codeanalysis/coreengine/envelope"
+	"github.com/jeeves-cluster-organization/codeanalysis/coreengine/kernel"
 	pb "github.com/jeeves-cluster-organization/codeanalysis/coreengine/proto"
 	"github.com/jeeves-cluster-organization/codeanalysis/coreengine/runtime"
 )
@@ -34,9 +35,10 @@ type Logger interface {
 type EngineServer struct {
 	pb.UnimplementedEngineServiceServer
 
-	logger    Logger
-	runner    *runtime.PipelineRunner
-	runtimeMu sync.RWMutex // Protects runtime field
+	logger       Logger
+	runner       *runtime.PipelineRunner
+	kernelServer *KernelServer // Optional: enables KernelService registration
+	runtimeMu    sync.RWMutex  // Protects runtime field
 }
 
 // NewEngineServer creates a new gRPC server.
@@ -52,6 +54,18 @@ func (s *EngineServer) SetRunner(r *runtime.PipelineRunner) {
 	s.runtimeMu.Lock()
 	defer s.runtimeMu.Unlock()
 	s.runner = r
+}
+
+// SetKernelServer sets the KernelServer for KernelService registration.
+// When set, Start/StartBackground/NewGracefulServer will register both services.
+func (s *EngineServer) SetKernelServer(ks *KernelServer) {
+	s.kernelServer = ks
+}
+
+// SetKernel creates and sets a KernelServer from the given Kernel instance.
+// Convenience method that combines NewKernelServer + SetKernelServer.
+func (s *EngineServer) SetKernel(k *kernel.Kernel) {
+	s.kernelServer = NewKernelServer(s.logger, k)
 }
 
 // getRunner returns the current pipeline runner.
@@ -611,6 +625,12 @@ func Start(address string, server *EngineServer) error {
 	grpcServer := grpc.NewServer()
 	pb.RegisterEngineServiceServer(grpcServer, server)
 
+	// Register KernelService if kernel server is configured
+	if server.kernelServer != nil {
+		pb.RegisterKernelServiceServer(grpcServer, server.kernelServer)
+		server.logger.Info("kernel_service_registered")
+	}
+
 	server.logger.Info("grpc_server_started", "address", address)
 	return grpcServer.Serve(lis)
 }
@@ -624,6 +644,12 @@ func StartBackground(address string, server *EngineServer) (*grpc.Server, error)
 
 	grpcServer := grpc.NewServer()
 	pb.RegisterEngineServiceServer(grpcServer, server)
+
+	// Register KernelService if kernel server is configured
+	if server.kernelServer != nil {
+		pb.RegisterKernelServiceServer(grpcServer, server.kernelServer)
+		server.logger.Info("kernel_service_registered")
+	}
 
 	go func() {
 		if err := grpcServer.Serve(lis); err != nil {
@@ -659,6 +685,12 @@ func NewGracefulServer(coreServer *EngineServer, address string, opts ...grpc.Se
 
 	grpcServer := grpc.NewServer(opts...)
 	pb.RegisterEngineServiceServer(grpcServer, coreServer)
+
+	// Register KernelService if kernel server is configured
+	if coreServer.kernelServer != nil {
+		pb.RegisterKernelServiceServer(grpcServer, coreServer.kernelServer)
+		coreServer.logger.Info("kernel_service_registered")
+	}
 
 	return &GracefulServer{
 		grpcServer: grpcServer,
