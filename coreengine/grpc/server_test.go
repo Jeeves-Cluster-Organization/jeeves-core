@@ -23,34 +23,11 @@ import (
 // TEST HELPERS
 // =============================================================================
 
-// MockLogger implements Logger for testing.
-type MockLogger struct {
-	debugCalls []string
-	infoCalls  []string
-	warnCalls  []string
-	errorCalls []string
-}
-
-func (m *MockLogger) Debug(msg string, keysAndValues ...any) {
-	m.debugCalls = append(m.debugCalls, msg)
-}
-
-func (m *MockLogger) Info(msg string, keysAndValues ...any) {
-	m.infoCalls = append(m.infoCalls, msg)
-}
-
-func (m *MockLogger) Warn(msg string, keysAndValues ...any) {
-	m.warnCalls = append(m.warnCalls, msg)
-}
-
-func (m *MockLogger) Error(msg string, keysAndValues ...any) {
-	m.errorCalls = append(m.errorCalls, msg)
-}
+// MockLogger and createTestServer are now in testutil.go
 
 func createTestServer() (*EngineServer, *MockLogger) {
-	logger := &MockLogger{}
-	server := NewEngineServer(logger)
-	return server, logger
+	// Use the testutil helper but keep local name for compatibility
+	return CreateTestEngineServer()
 }
 
 // =============================================================================

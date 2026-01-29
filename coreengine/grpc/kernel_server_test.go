@@ -15,10 +15,8 @@ import (
 // =============================================================================
 
 func createKernelTestServer() (*KernelServer, *MockLogger, *kernel.Kernel) {
-	logger := &MockLogger{}
-	k := kernel.NewKernel(logger, nil)
-	server := NewKernelServer(logger, k)
-	return server, logger, k
+	// Use testutil helper but keep local name for compatibility
+	return CreateTestKernelServer()
 }
 
 // =============================================================================

@@ -20,10 +20,8 @@ import (
 
 // createCommBusTestServer creates a test server with a real InMemoryCommBus
 func createCommBusTestServer() (*CommBusServer, *MockLogger, commbus.CommBus) {
-	logger := &MockLogger{}
-	bus := commbus.NewInMemoryCommBus(30 * time.Second)
-	server := NewCommBusServer(logger, bus)
-	return server, logger, bus
+	// Use testutil helper but keep local name for compatibility
+	return CreateTestCommBusServer()
 }
 
 // mockStreamServer implements pb.CommBusService_SubscribeServer for testing

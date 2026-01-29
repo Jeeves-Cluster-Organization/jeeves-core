@@ -16,39 +16,7 @@ import (
 // TEST HELPERS
 // =============================================================================
 
-// TestLogger captures log calls for verification.
-type TestLogger struct {
-	debugCalls []map[string]any
-	infoCalls  []map[string]any
-	warnCalls  []map[string]any
-	errorCalls []map[string]any
-}
-
-func (l *TestLogger) Debug(msg string, keysAndValues ...any) {
-	l.debugCalls = append(l.debugCalls, toMap(msg, keysAndValues))
-}
-
-func (l *TestLogger) Info(msg string, keysAndValues ...any) {
-	l.infoCalls = append(l.infoCalls, toMap(msg, keysAndValues))
-}
-
-func (l *TestLogger) Warn(msg string, keysAndValues ...any) {
-	l.warnCalls = append(l.warnCalls, toMap(msg, keysAndValues))
-}
-
-func (l *TestLogger) Error(msg string, keysAndValues ...any) {
-	l.errorCalls = append(l.errorCalls, toMap(msg, keysAndValues))
-}
-
-func toMap(msg string, keysAndValues []any) map[string]any {
-	m := map[string]any{"msg": msg}
-	for i := 0; i < len(keysAndValues)-1; i += 2 {
-		if key, ok := keysAndValues[i].(string); ok {
-			m[key] = keysAndValues[i+1]
-		}
-	}
-	return m
-}
+// TestLogger and helpers are now in testutil.go
 
 // =============================================================================
 // LOGGING INTERCEPTOR TESTS
@@ -69,10 +37,10 @@ func TestLoggingInterceptor_Success(t *testing.T) {
 	assert.Equal(t, "response", resp)
 
 	// Should have logged start and completion
-	assert.Len(t, logger.debugCalls, 2)
-	assert.Equal(t, "grpc_request_started", logger.debugCalls[0]["msg"])
-	assert.Equal(t, "grpc_request_completed", logger.debugCalls[1]["msg"])
-	assert.Equal(t, "/test.Service/TestMethod", logger.debugCalls[1]["method"])
+	assert.Len(t, logger.DebugCalls, 2)
+	assert.Equal(t, "grpc_request_started", logger.DebugCalls[0].Fields["msg"])
+	assert.Equal(t, "grpc_request_completed", logger.DebugCalls[1].Fields["msg"])
+	assert.Equal(t, "/test.Service/TestMethod", logger.DebugCalls[1].Fields["method"])
 }
 
 func TestLoggingInterceptor_Error(t *testing.T) {
@@ -90,11 +58,11 @@ func TestLoggingInterceptor_Error(t *testing.T) {
 	assert.Nil(t, resp)
 
 	// Should have logged start and error
-	assert.Len(t, logger.debugCalls, 1)
-	assert.Equal(t, "grpc_request_started", logger.debugCalls[0]["msg"])
-	assert.Len(t, logger.errorCalls, 1)
-	assert.Equal(t, "grpc_request_failed", logger.errorCalls[0]["msg"])
-	assert.Equal(t, "NotFound", logger.errorCalls[0]["code"])
+	assert.Len(t, logger.DebugCalls, 1)
+	assert.Equal(t, "grpc_request_started", logger.DebugCalls[0].Fields["msg"])
+	assert.Len(t, logger.ErrorCalls, 1)
+	assert.Equal(t, "grpc_request_failed", logger.ErrorCalls[0].Fields["msg"])
+	assert.Equal(t, "NotFound", logger.ErrorCalls[0].Fields["code"])
 }
 
 // =============================================================================
@@ -114,7 +82,7 @@ func TestRecoveryInterceptor_NoPanic(t *testing.T) {
 
 	require.NoError(t, err)
 	assert.Equal(t, "safe response", resp)
-	assert.Empty(t, logger.errorCalls)
+	assert.Empty(t, logger.ErrorCalls)
 }
 
 func TestRecoveryInterceptor_Panic(t *testing.T) {
@@ -138,9 +106,9 @@ func TestRecoveryInterceptor_Panic(t *testing.T) {
 	assert.Contains(t, st.Message(), "test panic")
 
 	// Should have logged the panic
-	require.Len(t, logger.errorCalls, 1)
-	assert.Equal(t, "grpc_panic_recovered", logger.errorCalls[0]["msg"])
-	assert.Contains(t, logger.errorCalls[0]["panic"], "test panic")
+	require.Len(t, logger.ErrorCalls, 1)
+	assert.Equal(t, "grpc_panic_recovered", logger.ErrorCalls[0].Fields["msg"])
+	assert.Contains(t, logger.ErrorCalls[0].Fields["panic"], "test panic")
 }
 
 func TestRecoveryInterceptor_CustomHandler(t *testing.T) {
@@ -295,7 +263,7 @@ func TestStreamLoggingInterceptor_Success(t *testing.T) {
 	err := interceptor(nil, stream, info, handler)
 
 	require.NoError(t, err)
-	assert.GreaterOrEqual(t, len(logger.debugCalls), 1)
+	assert.GreaterOrEqual(t, len(logger.DebugCalls), 1)
 }
 
 func TestStreamLoggingInterceptor_Error(t *testing.T) {
