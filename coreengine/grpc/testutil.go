@@ -215,3 +215,18 @@ func (m *MockServerStream) Context() context.Context {
 	}
 	return context.Background()
 }
+
+// =============================================================================
+// TEST CONTEXT HELPERS (Agentic Security Testing)
+// =============================================================================
+
+// ContextWithUserMetadata creates a context with user/session/request metadata.
+// Used for testing RPC methods that require request context validation.
+func ContextWithUserMetadata(userID, sessionID, requestID string) context.Context {
+	md := metadata.Pairs(
+		"user_id", userID,
+		"session_id", sessionID,
+		"request_id", requestID,
+	)
+	return metadata.NewIncomingContext(context.Background(), md)
+}

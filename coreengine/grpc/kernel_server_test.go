@@ -112,11 +112,13 @@ func TestKernelServer_CreateProcess_WithNilQuota(t *testing.T) {
 
 func TestKernelServer_GetProcess_Success(t *testing.T) {
 	server, _, k := createKernelTestServer()
-	ctx := context.Background()
 
 	// Create a process first
 	_, err := k.Submit("test-pid", "req-1", "user-1", "session-1", kernel.PriorityNormal, nil)
 	require.NoError(t, err)
+
+	// Use context with metadata matching the process owner
+	ctx := ContextWithUserMetadata("user-1", "session-1", "req-2")
 
 	req := &pb.GetProcessRequest{
 		Pid: "test-pid",
@@ -146,7 +148,7 @@ func TestKernelServer_GetProcess_EmptyPid(t *testing.T) {
 
 func TestKernelServer_GetProcess_NotFound(t *testing.T) {
 	server, _, _ := createKernelTestServer()
-	ctx := context.Background()
+	ctx := ContextWithUserMetadata("user-1", "session-1", "req-1")
 
 	req := &pb.GetProcessRequest{
 		Pid: "non-existent-pid",
@@ -165,11 +167,13 @@ func TestKernelServer_GetProcess_NotFound(t *testing.T) {
 
 func TestKernelServer_ScheduleProcess_Success(t *testing.T) {
 	server, _, k := createKernelTestServer()
-	ctx := context.Background()
 
 	// Create process in NEW state
 	_, err := k.Submit("test-pid", "req-1", "user-1", "session-1", kernel.PriorityNormal, nil)
 	require.NoError(t, err)
+
+	// Use context with metadata matching the process owner
+	ctx := ContextWithUserMetadata("user-1", "session-1", "req-2")
 
 	req := &pb.ScheduleProcessRequest{
 		Pid: "test-pid",
@@ -239,13 +243,15 @@ func TestKernelServer_GetNextRunnable_EmptyQueue(t *testing.T) {
 
 func TestKernelServer_TransitionState_Success(t *testing.T) {
 	server, _, k := createKernelTestServer()
-	ctx := context.Background()
 
 	// Create and schedule process
 	_, err := k.Submit("test-pid", "req-1", "user-1", "session-1", kernel.PriorityNormal, nil)
 	require.NoError(t, err)
 	err = k.Schedule("test-pid")
 	require.NoError(t, err)
+
+	// Use context with metadata matching the process owner
+	ctx := ContextWithUserMetadata("user-1", "session-1", "req-2")
 
 	req := &pb.TransitionStateRequest{
 		Pid:      "test-pid",
@@ -282,11 +288,13 @@ func TestKernelServer_TransitionState_EmptyPid(t *testing.T) {
 
 func TestKernelServer_TerminateProcess_Success(t *testing.T) {
 	server, _, k := createKernelTestServer()
-	ctx := context.Background()
 
 	// Create process
 	_, err := k.Submit("test-pid", "req-1", "user-1", "session-1", kernel.PriorityNormal, nil)
 	require.NoError(t, err)
+
+	// Use context with metadata matching the process owner
+	ctx := ContextWithUserMetadata("user-1", "session-1", "req-2")
 
 	req := &pb.TerminateProcessRequest{
 		Pid:    "test-pid",

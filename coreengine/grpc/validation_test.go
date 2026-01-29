@@ -2,12 +2,16 @@
 package grpc
 
 import (
+	"context"
 	"errors"
 	"testing"
 
+	"github.com/jeeves-cluster-organization/codeanalysis/coreengine/kernel"
+	pb "github.com/jeeves-cluster-organization/codeanalysis/coreengine/proto"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/metadata"
 	"google.golang.org/grpc/status"
 )
 
@@ -182,6 +186,228 @@ func TestErrorCodes_Consistency(t *testing.T) {
 }
 
 // =============================================================================
+// REQUEST CONTEXT VALIDATION TESTS (Agentic Security)
+// =============================================================================
+
+func TestExtractRequestContext_FromCreateProcessRequest(t *testing.T) {
+	req := &pb.CreateProcessRequest{
+		Pid:       "test-pid",
+		UserId:    "agent-1",
+		SessionId: "sess-1",
+		RequestId: "req-1",
+	}
+
+	ctx := context.Background()
+	reqCtx, err := ExtractRequestContext(ctx, req)
+
+	require.NoError(t, err)
+	assert.Equal(t, "agent-1", reqCtx.UserID)
+	assert.Equal(t, "sess-1", reqCtx.SessionID)
+	assert.Equal(t, "req-1", reqCtx.RequestID)
+}
+
+func TestExtractRequestContext_FromMetadata(t *testing.T) {
+	// Simulate gRPC metadata for GetProcess or other operations
+	md := metadata.Pairs(
+		"user_id", "agent-2",
+		"session_id", "sess-2",
+		"request_id", "req-2",
+	)
+	ctx := metadata.NewIncomingContext(context.Background(), md)
+
+	req := &pb.GetProcessRequest{Pid: "test-pid"}
+	reqCtx, err := ExtractRequestContext(ctx, req)
+
+	require.NoError(t, err)
+	assert.Equal(t, "agent-2", reqCtx.UserID)
+	assert.Equal(t, "sess-2", reqCtx.SessionID)
+	assert.Equal(t, "req-2", reqCtx.RequestID)
+}
+
+func TestExtractRequestContext_MissingUserID(t *testing.T) {
+	md := metadata.Pairs(
+		"session_id", "sess-1",
+		"request_id", "req-1",
+		// missing user_id
+	)
+	ctx := metadata.NewIncomingContext(context.Background(), md)
+
+	req := &pb.GetProcessRequest{Pid: "test-pid"}
+	reqCtx, err := ExtractRequestContext(ctx, req)
+
+	require.Error(t, err)
+	assert.Nil(t, reqCtx)
+	st, ok := status.FromError(err)
+	require.True(t, ok)
+	assert.Equal(t, codes.Unauthenticated, st.Code())
+	assert.Contains(t, st.Message(), "user_id")
+}
+
+func TestExtractRequestContext_MissingSessionID(t *testing.T) {
+	md := metadata.Pairs(
+		"user_id", "agent-1",
+		"request_id", "req-1",
+		// missing session_id
+	)
+	ctx := metadata.NewIncomingContext(context.Background(), md)
+
+	req := &pb.GetProcessRequest{Pid: "test-pid"}
+	reqCtx, err := ExtractRequestContext(ctx, req)
+
+	require.Error(t, err)
+	assert.Nil(t, reqCtx)
+	st, ok := status.FromError(err)
+	require.True(t, ok)
+	assert.Equal(t, codes.Unauthenticated, st.Code())
+	assert.Contains(t, st.Message(), "session_id")
+}
+
+func TestExtractRequestContext_NoMetadata(t *testing.T) {
+	// No metadata attached to context
+	ctx := context.Background()
+	req := &pb.GetProcessRequest{Pid: "test-pid"}
+
+	reqCtx, err := ExtractRequestContext(ctx, req)
+
+	require.Error(t, err)
+	assert.Nil(t, reqCtx)
+	st, ok := status.FromError(err)
+	require.True(t, ok)
+	assert.Equal(t, codes.Unauthenticated, st.Code())
+}
+
+// =============================================================================
+// QUOTA PRE-FLIGHT VALIDATION TESTS (Cost Control)
+// =============================================================================
+
+func TestValidateQuotaAvailable_Success(t *testing.T) {
+	logger := &MockLogger{}
+	k := kernel.NewKernel(logger, nil)
+
+	// Create process with quota
+	quota := &kernel.ResourceQuota{
+		MaxLLMCalls:  10,
+		MaxToolCalls: 20,
+	}
+	k.Submit("test-pid", "req-1", "user-1", "sess-1", kernel.PriorityNormal, quota)
+
+	// Should succeed - no usage yet
+	err := ValidateQuotaAvailable(k, "test-pid")
+	assert.NoError(t, err)
+}
+
+func TestValidateQuotaAvailable_LLMCallsExceeded(t *testing.T) {
+	logger := &MockLogger{}
+	k := kernel.NewKernel(logger, nil)
+
+	// Create process with tight quota
+	quota := &kernel.ResourceQuota{
+		MaxLLMCalls: 1,
+	}
+	k.Submit("test-pid", "req-1", "user-1", "sess-1", kernel.PriorityNormal, quota)
+
+	// Record usage that exceeds quota
+	k.Resources().RecordUsage("test-pid", 2, 0, 0, 0, 0)
+
+	err := ValidateQuotaAvailable(k, "test-pid")
+
+	require.Error(t, err)
+	st, ok := status.FromError(err)
+	require.True(t, ok)
+	assert.Equal(t, codes.ResourceExhausted, st.Code())
+	assert.Contains(t, st.Message(), "quota")
+	assert.Contains(t, st.Message(), "llm") // lowercase to match actual error message
+}
+
+func TestValidateQuotaAvailable_ToolCallsExceeded(t *testing.T) {
+	logger := &MockLogger{}
+	k := kernel.NewKernel(logger, nil)
+
+	quota := &kernel.ResourceQuota{
+		MaxToolCalls: 5,
+	}
+	k.Submit("test-pid", "req-1", "user-1", "sess-1", kernel.PriorityNormal, quota)
+
+	// Record tool call usage that exceeds quota
+	k.Resources().RecordUsage("test-pid", 0, 10, 0, 0, 0) // 10 tool calls > 5 max
+
+	err := ValidateQuotaAvailable(k, "test-pid")
+
+	require.Error(t, err)
+	st, ok := status.FromError(err)
+	require.True(t, ok)
+	assert.Equal(t, codes.ResourceExhausted, st.Code())
+	assert.Contains(t, st.Message(), "quota")
+}
+
+func TestValidateQuotaAvailable_ProcessNotFound(t *testing.T) {
+	logger := &MockLogger{}
+	k := kernel.NewKernel(logger, nil)
+
+	// Process doesn't exist
+	err := ValidateQuotaAvailable(k, "nonexistent-pid")
+
+	// Should return empty string (no quota exceeded)
+	// Quota check returns "" for non-existent processes
+	assert.NoError(t, err)
+}
+
+// =============================================================================
+// PROCESS OWNERSHIP VALIDATION TESTS (Multi-Tenant Isolation)
+// =============================================================================
+
+func TestValidateProcessOwnership_Success(t *testing.T) {
+	pcb := &kernel.ProcessControlBlock{
+		PID:    "test-pid",
+		UserID: "agent-1",
+	}
+
+	err := ValidateProcessOwnership(pcb, "agent-1")
+	assert.NoError(t, err)
+}
+
+func TestValidateProcessOwnership_WrongUser(t *testing.T) {
+	pcb := &kernel.ProcessControlBlock{
+		PID:    "test-pid",
+		UserID: "agent-1",
+	}
+
+	err := ValidateProcessOwnership(pcb, "agent-2")
+
+	require.Error(t, err)
+	st, ok := status.FromError(err)
+	require.True(t, ok)
+	assert.Equal(t, codes.PermissionDenied, st.Code())
+	assert.Contains(t, st.Message(), "agent-1")
+	assert.Contains(t, st.Message(), "agent-2")
+	assert.Contains(t, st.Message(), "denied")
+}
+
+func TestValidateProcessOwnership_NilPCB(t *testing.T) {
+	err := ValidateProcessOwnership(nil, "agent-1")
+
+	require.Error(t, err)
+	st, ok := status.FromError(err)
+	require.True(t, ok)
+	assert.Equal(t, codes.NotFound, st.Code())
+}
+
+func TestValidateProcessOwnership_EmptyUserID(t *testing.T) {
+	pcb := &kernel.ProcessControlBlock{
+		PID:    "test-pid",
+		UserID: "agent-1",
+	}
+
+	// Empty user ID should fail ownership check
+	err := ValidateProcessOwnership(pcb, "")
+
+	require.Error(t, err)
+	st, ok := status.FromError(err)
+	require.True(t, ok)
+	assert.Equal(t, codes.PermissionDenied, st.Code())
+}
+
+// =============================================================================
 // INTEGRATION TESTS
 // =============================================================================
 
@@ -215,4 +441,34 @@ func TestValidation_MultipleFields(t *testing.T) {
 	}
 
 	t.Fatal("Should have failed validation")
+}
+
+func TestValidation_AgenticWorkflow(t *testing.T) {
+	// Integration test: full agentic validation workflow
+	logger := &MockLogger{}
+	k := kernel.NewKernel(logger, nil)
+
+	// 1. Agent creates process
+	quota := &kernel.ResourceQuota{MaxLLMCalls: 5}
+	k.Submit("proc-1", "req-1", "agent-a", "sess-a", kernel.PriorityNormal, quota)
+
+	// 2. Check quota is available
+	err := ValidateQuotaAvailable(k, "proc-1")
+	assert.NoError(t, err)
+
+	// 3. Verify agent-a can access their process
+	pcb := k.GetProcess("proc-1")
+	err = ValidateProcessOwnership(pcb, "agent-a")
+	assert.NoError(t, err)
+
+	// 4. Verify agent-b CANNOT access agent-a's process
+	err = ValidateProcessOwnership(pcb, "agent-b")
+	require.Error(t, err)
+	assert.Equal(t, codes.PermissionDenied, status.Code(err))
+
+	// 5. Record usage and verify quota check
+	k.Resources().RecordUsage("proc-1", 6, 0, 0, 0, 0) // Exceed quota
+	err = ValidateQuotaAvailable(k, "proc-1")
+	require.Error(t, err)
+	assert.Equal(t, codes.ResourceExhausted, status.Code(err))
 }
