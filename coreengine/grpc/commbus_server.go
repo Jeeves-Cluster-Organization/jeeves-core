@@ -34,6 +34,12 @@ func (m *GenericMessage) Category() string {
 	return m.category
 }
 
+// MessageType implements commbus.TypedMessage interface.
+// This allows the commbus router to dynamically determine the message type.
+func (m *GenericMessage) MessageType() string {
+	return m.messageType
+}
+
 // GenericQuery wraps a query message for gRPC.
 type GenericQuery struct {
 	GenericMessage
