@@ -1,283 +1,247 @@
-# README - Jeeves Core Runtime
+# Jeeves Core
 
-**Status:** ✅ PRODUCTION READY + OBSERVABILITY
-**Coverage:** 84.2% (Core Packages)
-**Tests:** 400+ passing, 0 failing
-**Metrics:** Prometheus instrumentation (Go + Python)
-**Last Updated:** 2026-01-23
+A micro-kernel for AI agent orchestration written in Go.
 
----
+[![Go](https://img.shields.io/badge/Go-1.21+-00ADD8?logo=go&logoColor=white)](https://go.dev)
+[![License](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](LICENSE)
+[![Tests](https://img.shields.io/badge/Tests-400%2B%20passing-brightgreen)](.)
+
+## Overview
+
+Jeeves Core is a **micro-kernel** that provides the foundational runtime for AI agent systems. It handles:
+
+- **Pipeline Orchestration** - Multi-stage agent pipelines with routing rules
+- **Envelope State Management** - Immutable state transitions with bounds checking
+- **Resource Quotas** - Defense-in-depth limits on iterations, LLM calls, and agent hops
+- **gRPC Services** - High-performance communication with Python infrastructure layer
+- **Circuit Breakers** - Fault tolerance for external service calls
+
+## Architecture
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│  Capabilities (User Space)                                       │
+│  mini-swe-agent, chat-agent, etc.                               │
+└─────────────────────────────────────────────────────────────────┘
+                              │
+                              ↓
+┌─────────────────────────────────────────────────────────────────┐
+│  jeeves-infra (Infrastructure Layer)                            │
+│  LLM providers, database clients, HTTP gateway                  │
+└─────────────────────────────────────────────────────────────────┘
+                              │ gRPC
+                              ↓
+┌─────────────────────────────────────────────────────────────────┐
+│  jeeves-core (Micro-Kernel)  ← THIS PACKAGE                     │
+│                                                                  │
+│  ┌──────────────┐  ┌──────────────┐  ┌──────────────┐          │
+│  │   Runtime    │  │   Envelope   │  │   CommBus    │          │
+│  │  (Pipeline)  │  │   (State)    │  │  (Messaging) │          │
+│  └──────────────┘  └──────────────┘  └──────────────┘          │
+│                                                                  │
+│  ┌──────────────┐  ┌──────────────┐  ┌──────────────┐          │
+│  │    Config    │  │    Tools     │  │    gRPC      │          │
+│  │  (Pipeline)  │  │  (Registry)  │  │  (Services)  │          │
+│  └──────────────┘  └──────────────┘  └──────────────┘          │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+## Installation
+
+```bash
+go get github.com/Jeeves-Cluster-Organization/jeeves-core
+```
+
+Or clone and build:
+
+```bash
+git clone https://github.com/Jeeves-Cluster-Organization/jeeves-core.git
+cd jeeves-core
+go build ./...
+```
 
 ## Quick Start
+
+### Running the Kernel
+
+```bash
+# Start the gRPC server
+go run ./cmd -addr :50051
+
+# With metrics enabled
+go run ./cmd -addr :50051 -metrics-addr :9091
+```
+
+### Using as a Library
+
+```go
+package main
+
+import (
+    "github.com/Jeeves-Cluster-Organization/jeeves-core/coreengine/config"
+    "github.com/Jeeves-Cluster-Organization/jeeves-core/coreengine/runtime"
+    "github.com/Jeeves-Cluster-Organization/jeeves-core/coreengine/envelope"
+)
+
+func main() {
+    // Create pipeline configuration
+    cfg := &config.PipelineConfig{
+        Name:          "my_pipeline",
+        MaxIterations: 10,
+        MaxLLMCalls:   5,
+        MaxAgentHops:  20,
+        Agents: []config.AgentConfig{
+            {
+                Name:        "analyzer",
+                OutputKey:   "analysis",
+                HasLLM:      true,
+                HasTools:    true,
+                DefaultNext: "executor",
+            },
+            {
+                Name:        "executor",
+                OutputKey:   "result",
+                HasLLM:      true,
+                HasTools:    true,
+                DefaultNext: "end",
+            },
+        },
+    }
+
+    // Create runtime
+    rt := runtime.NewRuntime(cfg)
+
+    // Create envelope with task
+    env := envelope.NewEnvelope("task-123", "Fix the bug in auth.py")
+
+    // Execute pipeline (integrate with jeeves-infra for LLM calls)
+    // ...
+}
+```
+
+## Core Concepts
+
+### Envelope
+
+The `Envelope` is the immutable state container that flows through the pipeline:
+
+```go
+type Envelope struct {
+    EnvelopeID    string
+    Task          string
+    CurrentStage  string
+    Outputs       map[string]interface{}
+    IterationCount int
+    LLMCallCount   int
+    AgentHopCount  int
+}
+```
+
+### Pipeline Configuration
+
+Pipelines are configured declaratively with agents, routing rules, and bounds:
+
+```go
+type PipelineConfig struct {
+    Name          string
+    MaxIterations int
+    MaxLLMCalls   int
+    MaxAgentHops  int
+    Agents        []AgentConfig
+}
+
+type AgentConfig struct {
+    Name         string
+    OutputKey    string
+    HasLLM       bool
+    HasTools     bool
+    DefaultNext  string
+    RoutingRules []RoutingRule
+}
+```
+
+### Circuit Breakers
+
+Built-in fault tolerance for external service calls:
+
+```go
+cb := commbus.NewCircuitBreaker(commbus.CircuitBreakerConfig{
+    Threshold:   5,
+    ResetPeriod: 30 * time.Second,
+})
+```
+
+## Testing
 
 ```bash
 # Run all tests
 go test ./...
 
-# Check coverage
+# With coverage
 go test ./... -cover
 
-# Test specific package
+# Verbose output
+go test ./... -v
+
+# Specific package
 go test ./coreengine/runtime -v
 ```
 
----
+## Package Structure
 
-## Observability & Metrics 📊
+| Package | Description |
+|---------|-------------|
+| `coreengine/runtime` | Pipeline execution engine |
+| `coreengine/envelope` | State container and transitions |
+| `coreengine/config` | Pipeline configuration types |
+| `coreengine/commbus` | Message bus with circuit breakers |
+| `coreengine/tools` | Tool registry and definitions |
+| `coreengine/grpc` | gRPC service implementations |
+| `coreengine/testutil` | Test helpers and fixtures |
 
-**NEW:** Comprehensive Prometheus metrics instrumentation across the entire stack.
+## Metrics
 
-### Quick Start with Metrics
-
-```bash
-# Start services with Prometheus
-cd docker
-docker-compose up -d postgres llama-server prometheus gateway orchestrator
-
-# Access Prometheus UI
-open http://localhost:9090
-
-# View metrics endpoints
-curl http://localhost:8000/metrics  # Python gateway
-curl http://localhost:9091/metrics  # Go orchestrator (port mapping)
-```
-
-### Available Metrics
-
-- **Pipeline Metrics**: Execution counts, duration, success/error rates
-- **Agent Metrics**: Per-agent execution stats, latency distribution
-- **LLM Metrics**: API calls, token usage, provider health
-- **HTTP Metrics**: Request rates, endpoint latencies, error rates
-- **gRPC Metrics**: Service call stats, method durations
-
-### Example Queries
+Prometheus metrics are exposed when running with `-metrics-addr`:
 
 ```promql
 # Pipeline execution rate
 rate(jeeves_pipeline_executions_total[5m])
 
-# P95 agent latency
+# Agent latency (P95)
 histogram_quantile(0.95, rate(jeeves_agent_duration_seconds_bucket[5m]))
-
-# LLM token usage
-rate(jeeves_llm_tokens_total[1m])
 ```
 
-**See METRICS_README.md for complete documentation.**
+## Related Projects
 
----
+- [jeeves-infra](https://github.com/Jeeves-Cluster-Organization/jeeves-infra) - Python infrastructure layer
+- [mini-swe-agent](https://github.com/Jeeves-Cluster-Organization/mini-swe-agent) - Software engineering capability
 
-## Documentation Structure
+## Contributing
 
-### Current Documents
+We welcome contributions! Please see [CONTRIBUTING.md](CONTRIBUTING.md) for guidelines.
 
-1. **HANDOFF.md** - Complete system handoff documentation
-   - Architecture overview (Go + Python hybrid)
-   - Protocol definitions
-   - Integration patterns
-   - Building new capabilities
+1. Fork the repository
+2. Create a feature branch (`git checkout -b feature/amazing-feature`)
+3. Commit your changes (`git commit -m 'Add amazing feature'`)
+4. Push to the branch (`git push origin feature/amazing-feature`)
+5. Open a Pull Request
 
-2. **METRICS_README.md** - **NEW** Observability implementation guide
-   - Prometheus metrics reference
-   - PromQL query examples
-   - Getting started guide
-   - Troubleshooting
+## License
 
-3. **OBSERVABILITY_IMPLEMENTATION_ANALYSIS.md** - **NEW** Implementation analysis
-   - Architecture review
-   - Code instrumentation points
-   - Best practices and patterns
-   - 3-day implementation plan
+Apache License 2.0 - see [LICENSE](LICENSE) for details.
 
-4. **OBSERVABILITY_IMPROVEMENTS.md** - Observability roadmap
-   - Phase 1: Metrics (✅ COMPLETE)
-   - Phase 2: Distributed tracing (planned)
-   - Phase 3: Alerting & SLOs (planned)
-   - Phase 4: Dashboards (planned)
-
-5. **ASSESSMENT_SUMMARY.md** - Production readiness assessment
-   - Test fixes summary
-   - Observability improvements
-   - Critical issues resolved
-
-6. **COMMBUS_IMPLEMENTATION_RESULTS.md** - CommBus test coverage report
-   - Coverage improvement details (39.2% → 79.4%)
-   - 48 new tests added
-   - 2 production bugs fixed
-   - Architectural decisions (middleware ownership)
-
-7. **COVERAGE_ANALYSIS_COMPLETE.md** - Full system coverage analysis
-   - All packages analyzed
-   - 84.2% weighted average coverage
-   - Production readiness assessment
-
-8. **TEST_FIXTURE_AUDIT.md** - Test infrastructure analysis
-   - Test duplication analysis
-   - Helper function recommendations
-   - Refactoring strategies
-
-9. **TEST_COVERAGE_REPORT.md** - Detailed test results
-   - Per-package coverage breakdowns
-   - Test categories and patterns
-   - Future improvements
-
-10. **CONTRACT.md** - System contracts and protocols
-
-### Constitutional Documents
-
-- `CONSTITUTION.md` - Core kernel principles (in jeeves-core root)
-- See `jeeves-infra/CONSTITUTION.md` for infrastructure layer
-- See `jeeves-infra/mission_system/CONSTITUTION.md` for orchestration layer
-
----
-
-## What's Been Achieved
-
-### Observability Implementation ✅ **NEW**
-- **Prometheus metrics** across entire stack (Go + Python)
-- **Pipeline metrics**: Execution counts, duration, status tracking
-- **Agent metrics**: Per-agent performance, latency histograms
-- **LLM metrics**: API calls, token usage, provider health
-- **HTTP/gRPC metrics**: Request rates, endpoint latencies
-- **Infrastructure**: Prometheus server, scraping config, retention
-- **Documentation**: Complete metrics reference, query examples
-- **Zero overhead**: Non-invasive instrumentation, fail-safe design
-
-### CommBus Hardening ✅
-- Raised coverage from 39.2% to 79.4%
-- Added 48 comprehensive tests
-- Fixed 2 production bugs:
-  - Circuit breaker threshold=0 bug
-  - Middleware After error propagation bug
-- Achieved 100% critical path coverage
-- Zero race conditions detected
-
-### Go/Python Architecture Clarity ✅
-- Clear ownership boundaries documented
-- Go: Pipeline orchestration, bounds, circuit breakers
-- Python: Metrics, retry logic, tool resilience
-- TelemetryMiddleware → Python (avionics/observability)
-- RetryMiddleware → Python (LLM provider level)
-
----
-
-## Test Infrastructure Best Practices
-
-### New Helper Functions
-
-```go
-// Empty pipeline config
-cfg := testutil.NewEmptyPipelineConfig("test")
-
-// Parallel execution
-cfg := testutil.NewParallelPipelineConfig("test", "stage1", "stage2")
-
-// Custom bounds
-cfg := testutil.NewBoundedPipelineConfig("test", 3, 10, 20, "stageA")
-
-// Dependency chain
-cfg := testutil.NewDependencyChainConfig("test", "first", "second")
 ```
+Copyright 2024 Jeeves Cluster Organization
 
-### Key Principle: Test Your Test Helpers!
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at
 
-We created 15 tests for our 4 helper functions, ensuring:
-- Helpers work correctly
-- No silent breakage
-- Test infrastructure has same quality as production code
+    http://www.apache.org/licenses/LICENSE-2.0
 
----
-
-## Coverage by Package
-
-| Package | Coverage | Status |
-|---------|----------|--------|
-| tools | 100.0% | ✅ Perfect |
-| config | 95.5% | ✅ Excellent |
-| runtime | 90.9% | ✅ Excellent |
-| agents | 86.7% | ✅ Good |
-| envelope | 85.4% | ✅ Good |
-| commbus | 79.4% | ✅ Good |
-| grpc | 72.8% | ✅ Acceptable |
-| testutil | 43.3% | ✅ Expected |
-
-**Weighted Average:** 84.2% (excluding generated code)
-
----
-
-## Future Work
-
-### High Priority
-1. **Commbus Audit** - Investigate 60% uncovered code
-2. **Safe Refactoring** - Use new helpers incrementally
-
-### Medium Priority
-3. **Agent Builder Helpers** - Reduce inline construction
-4. **Routing Helpers** - Common routing patterns
-
-### Low Priority
-5. **Test Architecture Guide** - Document helper usage
-6. **Mutation Testing** - Verify test quality
-
----
-
-## Files Modified
-
-### Production Code
-- `coreengine/runtime/runtime.go` (+60 lines)
-- `coreengine/testutil/testutil.go` (+100 lines)
-- `coreengine/envelope/envelope.go` (minor fixes)
-
-### Test Code
-- `coreengine/testutil/helpers_test.go` (+206 lines, NEW)
-- Multiple integration test fixes
-
-### Generated Code
-- `coreengine/proto/jeeves_core.pb.go`
-- `coreengine/proto/jeeves_core_grpc.pb.go`
-
----
-
-## Success Criteria - All Met ✅
-
-- ✅ All 403 tests passing
-- ✅ 91% core coverage (exceeded 90% goal)
-- ✅ Zero test failures
-- ✅ All features implemented
-- ✅ Architectural purity maintained
-- ✅ Test infrastructure solid
-- ✅ Best practices established
-- ✅ **Prometheus metrics instrumented (NEW)**
-- ✅ **Observability endpoints exposed (NEW)**
-- ✅ **Production monitoring ready (NEW)**
-
----
-
-## For More Details
-
-See **HANDOFF.md** for:
-- Complete architecture overview
-- Protocol definitions
-- Integration patterns
-- Building new capabilities
-
-See **COMMBUS_IMPLEMENTATION_RESULTS.md** for:
-- Detailed CommBus coverage improvements
-- Test implementation details
-- Bug fixes and architectural decisions
-
-See **COVERAGE_ANALYSIS_COMPLETE.md** for:
-- Complete coverage analysis
-- Risk assessment
-- Production readiness evaluation
-
-See **TEST_FIXTURE_AUDIT.md** for:
-- Test duplication analysis
-- Refactoring recommendations
-- Helper usage patterns
-
----
-
-**Ready for Production ✅**  
-**All Critical Paths Tested ✅**  
-**Architecture: Go (Core) + Python (App) ✅**
+Unless required by applicable law or agreed to in writing, software
+distributed under the License is distributed on an "AS IS" BASIS,
+WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+See the License for the specific language governing permissions and
+limitations under the License.
+```
