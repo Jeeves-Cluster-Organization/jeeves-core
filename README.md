@@ -125,10 +125,9 @@ rate(jeeves_llm_tokens_total[1m])
 
 ### Constitutional Documents
 
-- `avionics/CONSTITUTION.md` - Infrastructure layer principles
-- `control_tower/CONSTITUTION.md` - Kernel layer principles
-- `memory_module/CONSTITUTION.md` - Memory layer principles
-- `mission_system/CONSTITUTION.md` - Orchestration layer principles
+- `CONSTITUTION.md` - Core kernel principles (in jeeves-core root)
+- See `jeeves-infra/CONSTITUTION.md` for infrastructure layer
+- See `jeeves-infra/mission_system/CONSTITUTION.md` for orchestration layer
 
 ---
 
