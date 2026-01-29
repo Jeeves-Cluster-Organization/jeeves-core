@@ -34,6 +34,12 @@ func (m *GenericMessage) Category() string {
 	return m.category
 }
 
+// MessageType implements commbus.TypedMessage interface.
+// This allows the commbus router to dynamically determine the message type.
+func (m *GenericMessage) MessageType() string {
+	return m.messageType
+}
+
 // GenericQuery wraps a query message for gRPC.
 type GenericQuery struct {
 	GenericMessage
@@ -73,8 +79,8 @@ func (s *CommBusServer) Publish(
 	ctx context.Context,
 	req *pb.CommBusPublishRequest,
 ) (*pb.CommBusPublishResponse, error) {
-	if req.EventType == "" {
-		return nil, status.Error(codes.InvalidArgument, "event_type is required")
+	if err := validateRequired(req.EventType, "event_type"); err != nil {
+		return nil, err
 	}
 
 	event := &GenericMessage{
@@ -116,8 +122,8 @@ func (s *CommBusServer) Send(
 	ctx context.Context,
 	req *pb.CommBusSendRequest,
 ) (*pb.CommBusSendResponse, error) {
-	if req.CommandType == "" {
-		return nil, status.Error(codes.InvalidArgument, "command_type is required")
+	if err := validateRequired(req.CommandType, "command_type"); err != nil {
+		return nil, err
 	}
 
 	command := &GenericMessage{
@@ -156,8 +162,8 @@ func (s *CommBusServer) Query(
 	ctx context.Context,
 	req *pb.CommBusQueryRequest,
 ) (*pb.CommBusQueryResponse, error) {
-	if req.QueryType == "" {
-		return nil, status.Error(codes.InvalidArgument, "query_type is required")
+	if err := validateRequired(req.QueryType, "query_type"); err != nil {
+		return nil, err
 	}
 
 	query := &GenericQuery{

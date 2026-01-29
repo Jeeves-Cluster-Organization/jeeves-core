@@ -98,8 +98,9 @@ func TestResourceTracker_RecordUsage(t *testing.T) {
 
 func TestResourceTracker_CheckQuota(t *testing.T) {
 	quota := &ResourceQuota{
-		MaxLLMCalls:  2,
-		MaxToolCalls: 5,
+		MaxLLMCalls:    2,
+		MaxToolCalls:   5,
+		TimeoutSeconds: 3600, // 1 hour - prevent timeout in unit tests
 	}
 	tracker := NewResourceTracker(quota, nil)
 	tracker.Allocate("pid-1", quota)
@@ -580,7 +581,8 @@ func TestKernel_Submit(t *testing.T) {
 func TestKernel_RecordLLMCall(t *testing.T) {
 	kernel := NewKernel(nil, nil)
 	kernel.Submit("pid-1", "req-1", "user-1", "sess-1", PriorityNormal, &ResourceQuota{
-		MaxLLMCalls: 2,
+		MaxLLMCalls:    2,
+		TimeoutSeconds: 3600, // 1 hour - prevent timeout in unit tests
 	})
 
 	// First call - within quota
@@ -2801,7 +2803,8 @@ func TestKernel_GetProcess(t *testing.T) {
 func TestKernel_RecordToolCall(t *testing.T) {
 	kernel := NewKernel(nil, nil)
 	kernel.Submit("pid-1", "req-1", "user-1", "sess-1", PriorityNormal, &ResourceQuota{
-		MaxToolCalls: 2,
+		MaxToolCalls:   2,
+		TimeoutSeconds: 3600, // 1 hour - prevent timeout in unit tests
 	})
 
 	// First call
@@ -2826,7 +2829,8 @@ func TestKernel_RecordToolCall(t *testing.T) {
 func TestKernel_RecordAgentHop(t *testing.T) {
 	kernel := NewKernel(nil, nil)
 	kernel.Submit("pid-1", "req-1", "user-1", "sess-1", PriorityNormal, &ResourceQuota{
-		MaxAgentHops: 1,
+		MaxAgentHops:   1,
+		TimeoutSeconds: 3600, // 1 hour - prevent timeout in unit tests
 	})
 
 	exceeded := kernel.RecordAgentHop("pid-1")

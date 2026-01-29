@@ -38,18 +38,30 @@ func (s *KernelServer) CreateProcess(
 	ctx context.Context,
 	req *pb.CreateProcessRequest,
 ) (*pb.ProcessControlBlock, error) {
-	if req.Pid == "" {
-		return nil, status.Error(codes.InvalidArgument, "pid is required")
+	// Syscall validation boundary
+	if err := validateRequired(req.Pid, "pid"); err != nil {
+		return nil, err
+	}
+
+	// Validate request context (user identity)
+	reqCtx, err := ExtractRequestContext(ctx, req)
+	if err != nil {
+		s.logger.Warn("invalid_request_context",
+			"pid", req.Pid,
+			"error", err.Error(),
+		)
+		return nil, err
 	}
 
 	quota := protoToResourceQuota(req.Quota)
 	priority := protoToSchedulingPriority(req.Priority)
 
+	// Enter kernel code
 	pcb, err := s.kernel.Submit(
 		req.Pid,
-		req.RequestId,
-		req.UserId,
-		req.SessionId,
+		reqCtx.RequestID,
+		reqCtx.UserID,
+		reqCtx.SessionID,
 		priority,
 		quota,
 	)
@@ -58,12 +70,13 @@ func (s *KernelServer) CreateProcess(
 			"pid", req.Pid,
 			"error", err.Error(),
 		)
-		return nil, status.Errorf(codes.Internal, "failed to create process: %v", err)
+		return nil, Internal("create process", err)
 	}
 
 	s.logger.Debug("process_created",
 		"pid", req.Pid,
-		"request_id", req.RequestId,
+		"user_id", reqCtx.UserID,
+		"request_id", reqCtx.RequestID,
 	)
 
 	return pcbToProto(pcb), nil
@@ -74,13 +87,29 @@ func (s *KernelServer) GetProcess(
 	ctx context.Context,
 	req *pb.GetProcessRequest,
 ) (*pb.ProcessControlBlock, error) {
-	if req.Pid == "" {
-		return nil, status.Error(codes.InvalidArgument, "pid is required")
+	if err := validateRequired(req.Pid, "pid"); err != nil {
+		return nil, err
+	}
+
+	// Extract request context for ownership validation
+	reqCtx, err := ExtractRequestContext(ctx, req)
+	if err != nil {
+		return nil, err
 	}
 
 	pcb := s.kernel.GetProcess(req.Pid)
 	if pcb == nil {
-		return nil, status.Errorf(codes.NotFound, "process not found: %s", req.Pid)
+		return nil, NotFound("process", req.Pid)
+	}
+
+	// Validate ownership - agent A cannot access agent B's processes
+	if err := ValidateProcessOwnership(pcb, reqCtx.UserID); err != nil {
+		s.logger.Warn("ownership_violation",
+			"pid", req.Pid,
+			"requesting_user", reqCtx.UserID,
+			"owner_user", pcb.UserID,
+		)
+		return nil, err
 	}
 
 	return pcbToProto(pcb), nil
@@ -91,8 +120,40 @@ func (s *KernelServer) ScheduleProcess(
 	ctx context.Context,
 	req *pb.ScheduleProcessRequest,
 ) (*pb.ProcessControlBlock, error) {
-	if req.Pid == "" {
-		return nil, status.Error(codes.InvalidArgument, "pid is required")
+	if err := validateRequired(req.Pid, "pid"); err != nil {
+		return nil, err
+	}
+
+	// Extract request context for ownership validation
+	reqCtx, err := ExtractRequestContext(ctx, req)
+	if err != nil {
+		return nil, err
+	}
+
+	// Get process for ownership check
+	pcb := s.kernel.GetProcess(req.Pid)
+	if pcb == nil {
+		return nil, NotFound("process", req.Pid)
+	}
+
+	// Validate ownership
+	if err := ValidateProcessOwnership(pcb, reqCtx.UserID); err != nil {
+		s.logger.Warn("ownership_violation",
+			"operation", "schedule",
+			"pid", req.Pid,
+			"requesting_user", reqCtx.UserID,
+			"owner_user", pcb.UserID,
+		)
+		return nil, err
+	}
+
+	// Pre-flight quota check - prevent scheduling if quota exhausted
+	if err := ValidateQuotaAvailable(s.kernel, req.Pid); err != nil {
+		s.logger.Warn("quota_preflight_failed",
+			"pid", req.Pid,
+			"error", err.Error(),
+		)
+		return nil, err
 	}
 
 	if err := s.kernel.Schedule(req.Pid); err != nil {
@@ -100,12 +161,12 @@ func (s *KernelServer) ScheduleProcess(
 			"pid", req.Pid,
 			"error", err.Error(),
 		)
-		return nil, status.Errorf(codes.Internal, "failed to schedule: %v", err)
+		return nil, Internal("schedule process", err)
 	}
 
-	pcb := s.kernel.GetProcess(req.Pid)
+	pcb = s.kernel.GetProcess(req.Pid)
 	if pcb == nil {
-		return nil, status.Errorf(codes.NotFound, "process not found after schedule: %s", req.Pid)
+		return nil, NotFound("process", req.Pid)
 	}
 
 	s.logger.Debug("process_scheduled", "pid", req.Pid)
@@ -133,8 +194,31 @@ func (s *KernelServer) TransitionState(
 	ctx context.Context,
 	req *pb.TransitionStateRequest,
 ) (*pb.ProcessControlBlock, error) {
-	if req.Pid == "" {
-		return nil, status.Error(codes.InvalidArgument, "pid is required")
+	if err := validateRequired(req.Pid, "pid"); err != nil {
+		return nil, err
+	}
+
+	// Extract request context for ownership validation
+	reqCtx, err := ExtractRequestContext(ctx, req)
+	if err != nil {
+		return nil, err
+	}
+
+	// Get process for ownership check
+	pcb := s.kernel.GetProcess(req.Pid)
+	if pcb == nil {
+		return nil, NotFound("process", req.Pid)
+	}
+
+	// Validate ownership
+	if err := ValidateProcessOwnership(pcb, reqCtx.UserID); err != nil {
+		s.logger.Warn("ownership_violation",
+			"operation", "transition_state",
+			"pid", req.Pid,
+			"requesting_user", reqCtx.UserID,
+			"owner_user", pcb.UserID,
+		)
+		return nil, err
 	}
 
 	newState := protoToProcessState(req.NewState)
@@ -144,12 +228,12 @@ func (s *KernelServer) TransitionState(
 			"new_state", newState,
 			"error", err.Error(),
 		)
-		return nil, status.Errorf(codes.Internal, "failed to transition: %v", err)
+		return nil, Internal("transition state", err)
 	}
 
-	pcb := s.kernel.GetProcess(req.Pid)
+	pcb = s.kernel.GetProcess(req.Pid)
 	if pcb == nil {
-		return nil, status.Errorf(codes.NotFound, "process not found after transition: %s", req.Pid)
+		return nil, NotFound("process", req.Pid)
 	}
 
 	s.logger.Debug("state_transitioned",
@@ -165,8 +249,31 @@ func (s *KernelServer) TerminateProcess(
 	ctx context.Context,
 	req *pb.TerminateProcessRequest,
 ) (*pb.ProcessControlBlock, error) {
-	if req.Pid == "" {
-		return nil, status.Error(codes.InvalidArgument, "pid is required")
+	if err := validateRequired(req.Pid, "pid"); err != nil {
+		return nil, err
+	}
+
+	// Extract request context for ownership validation
+	reqCtx, err := ExtractRequestContext(ctx, req)
+	if err != nil {
+		return nil, err
+	}
+
+	// Get process for ownership check
+	pcb := s.kernel.GetProcess(req.Pid)
+	if pcb == nil {
+		return nil, NotFound("process", req.Pid)
+	}
+
+	// Validate ownership
+	if err := ValidateProcessOwnership(pcb, reqCtx.UserID); err != nil {
+		s.logger.Warn("ownership_violation",
+			"operation", "terminate",
+			"pid", req.Pid,
+			"requesting_user", reqCtx.UserID,
+			"owner_user", pcb.UserID,
+		)
+		return nil, err
 	}
 
 	if err := s.kernel.Terminate(req.Pid, req.Reason, req.Force); err != nil {
@@ -174,12 +281,12 @@ func (s *KernelServer) TerminateProcess(
 			"pid", req.Pid,
 			"error", err.Error(),
 		)
-		return nil, status.Errorf(codes.Internal, "failed to terminate: %v", err)
+		return nil, Internal("terminate process", err)
 	}
 
-	pcb := s.kernel.GetProcess(req.Pid)
+	pcb = s.kernel.GetProcess(req.Pid)
 	if pcb == nil {
-		return nil, status.Errorf(codes.NotFound, "process not found after terminate: %s", req.Pid)
+		return nil, NotFound("process", req.Pid)
 	}
 
 	s.logger.Debug("process_terminated",
@@ -199,8 +306,8 @@ func (s *KernelServer) CheckQuota(
 	ctx context.Context,
 	req *pb.CheckQuotaRequest,
 ) (*pb.QuotaResult, error) {
-	if req.Pid == "" {
-		return nil, status.Error(codes.InvalidArgument, "pid is required")
+	if err := validateRequired(req.Pid, "pid"); err != nil {
+		return nil, err
 	}
 
 	exceeded := s.kernel.CheckQuota(req.Pid)
@@ -227,8 +334,8 @@ func (s *KernelServer) RecordUsage(
 	ctx context.Context,
 	req *pb.RecordUsageRequest,
 ) (*pb.ResourceUsage, error) {
-	if req.Pid == "" {
-		return nil, status.Error(codes.InvalidArgument, "pid is required")
+	if err := validateRequired(req.Pid, "pid"); err != nil {
+		return nil, err
 	}
 
 	usage := s.kernel.Resources().RecordUsage(

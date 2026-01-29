@@ -394,8 +394,21 @@ func (m *ClarificationRequested) Category() string { return string(MessageCatego
 // HELPER FUNCTIONS
 // =============================================================================
 
+// TypedMessage is an optional interface for messages that can provide their own type name.
+// This is useful for dynamically-typed messages like those from gRPC.
+type TypedMessage interface {
+	Message
+	MessageType() string
+}
+
 // GetMessageType returns the type name of a message for routing.
 func GetMessageType(msg Message) string {
+	// First check if the message can provide its own type
+	if typed, ok := msg.(TypedMessage); ok {
+		return typed.MessageType()
+	}
+
+	// Otherwise use the static type switch
 	switch msg.(type) {
 	case *AgentStarted:
 		return "AgentStarted"

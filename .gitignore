@@ -44,6 +44,7 @@ htmlcov/
 # Go coverage files
 cover
 coverage
+coverage.html
 envelope_cover
 *.out
 *.test

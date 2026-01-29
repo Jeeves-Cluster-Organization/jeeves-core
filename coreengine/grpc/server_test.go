@@ -11,7 +11,9 @@ import (
 	"testing"
 	"time"
 
+	"github.com/jeeves-cluster-organization/codeanalysis/commbus"
 	"github.com/jeeves-cluster-organization/codeanalysis/coreengine/envelope"
+	"github.com/jeeves-cluster-organization/codeanalysis/coreengine/kernel"
 	pb "github.com/jeeves-cluster-organization/codeanalysis/coreengine/proto"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -21,34 +23,11 @@ import (
 // TEST HELPERS
 // =============================================================================
 
-// MockLogger implements Logger for testing.
-type MockLogger struct {
-	debugCalls []string
-	infoCalls  []string
-	warnCalls  []string
-	errorCalls []string
-}
-
-func (m *MockLogger) Debug(msg string, keysAndValues ...any) {
-	m.debugCalls = append(m.debugCalls, msg)
-}
-
-func (m *MockLogger) Info(msg string, keysAndValues ...any) {
-	m.infoCalls = append(m.infoCalls, msg)
-}
-
-func (m *MockLogger) Warn(msg string, keysAndValues ...any) {
-	m.warnCalls = append(m.warnCalls, msg)
-}
-
-func (m *MockLogger) Error(msg string, keysAndValues ...any) {
-	m.errorCalls = append(m.errorCalls, msg)
-}
+// MockLogger and createTestServer are now in testutil.go
 
 func createTestServer() (*EngineServer, *MockLogger) {
-	logger := &MockLogger{}
-	server := NewEngineServer(logger)
-	return server, logger
+	// Use the testutil helper but keep local name for compatibility
+	return CreateTestEngineServer()
 }
 
 // =============================================================================
@@ -833,4 +812,43 @@ func TestGracefulServerShutdownWithTimeout(t *testing.T) {
 
 	// Shutdown with timeout - should complete quickly since no active connections
 	graceful.ShutdownWithTimeout(1 * time.Second)
+}
+
+// =============================================================================
+// SERVER SETTER TESTS
+// =============================================================================
+
+func TestSetKernelServer(t *testing.T) {
+	logger := &MockLogger{}
+	server := NewEngineServer(logger)
+	
+	kernelServer := &KernelServer{
+		logger: logger,
+		kernel: nil,
+	}
+	
+	server.SetKernelServer(kernelServer)
+	// Server should now have kernel server set (no public getter, but should not panic)
+}
+
+func TestSetKernel(t *testing.T) {
+	logger := &MockLogger{}
+	server := NewEngineServer(logger)
+	
+	// Import kernel package is already available from existing tests
+	k := kernel.NewKernel(logger, nil)
+	
+	server.SetKernel(k)
+	// Server should now have kernel set (no public getter, but should not panic)
+}
+
+func TestSetCommBusServer(t *testing.T) {
+	logger := &MockLogger{}
+	server := NewEngineServer(logger)
+	
+	bus := commbus.NewInMemoryCommBus(30 * time.Second)
+	commBusServer := NewCommBusServer(logger, bus)
+	
+	server.SetCommBusServer(commBusServer)
+	// Server should now have commbus server set (no public getter, but should not panic)
 }
