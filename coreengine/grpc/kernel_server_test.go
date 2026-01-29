@@ -614,3 +614,225 @@ func TestProcessStateConversion(t *testing.T) {
 		})
 	}
 }
+
+// =============================================================================
+// SECURITY TESTS (Agentic Validation)
+// =============================================================================
+
+func TestKernelServer_GetProcess_OwnershipViolation(t *testing.T) {
+	server, logger, k := createKernelTestServer()
+
+	// Agent A creates a process
+	_, err := k.Submit("proc-1", "req-1", "agent-a", "sess-a", kernel.PriorityNormal, nil)
+	require.NoError(t, err)
+
+	// Agent B tries to access agent A's process
+	ctx := ContextWithUserMetadata("agent-b", "sess-b", "req-2")
+
+	req := &pb.GetProcessRequest{
+		Pid: "proc-1",
+	}
+
+	resp, err := server.GetProcess(ctx, req)
+
+	require.Error(t, err)
+	assert.Nil(t, resp)
+	assert.Contains(t, err.Error(), "denied")
+	assert.Contains(t, err.Error(), "agent-a") // Owner
+	assert.Contains(t, err.Error(), "agent-b") // Requester
+	assert.Contains(t, logger.warnCalls, "ownership_violation")
+}
+
+func TestKernelServer_GetProcess_MissingAuthentication(t *testing.T) {
+	server, _, k := createKernelTestServer()
+
+	// Create a process
+	_, err := k.Submit("proc-1", "req-1", "agent-a", "sess-a", kernel.PriorityNormal, nil)
+	require.NoError(t, err)
+
+	// Try to access without metadata (no authentication)
+	ctx := context.Background()
+
+	req := &pb.GetProcessRequest{
+		Pid: "proc-1",
+	}
+
+	resp, err := server.GetProcess(ctx, req)
+
+	require.Error(t, err)
+	assert.Nil(t, resp)
+	assert.Contains(t, err.Error(), "missing request metadata")
+}
+
+func TestKernelServer_ScheduleProcess_OwnershipViolation(t *testing.T) {
+	server, logger, k := createKernelTestServer()
+
+	// Agent A creates a process
+	_, err := k.Submit("proc-1", "req-1", "agent-a", "sess-a", kernel.PriorityNormal, nil)
+	require.NoError(t, err)
+
+	// Agent B tries to schedule agent A's process
+	ctx := ContextWithUserMetadata("agent-b", "sess-b", "req-2")
+
+	req := &pb.ScheduleProcessRequest{
+		Pid: "proc-1",
+	}
+
+	resp, err := server.ScheduleProcess(ctx, req)
+
+	require.Error(t, err)
+	assert.Nil(t, resp)
+	assert.Contains(t, err.Error(), "denied")
+	assert.Contains(t, logger.warnCalls, "ownership_violation")
+}
+
+func TestKernelServer_ScheduleProcess_QuotaExhausted(t *testing.T) {
+	server, logger, k := createKernelTestServer()
+
+	// Create process with tight quota
+	quota := &kernel.ResourceQuota{
+		MaxLLMCalls: 1,
+	}
+	_, err := k.Submit("proc-1", "req-1", "agent-a", "sess-a", kernel.PriorityNormal, quota)
+	require.NoError(t, err)
+
+	// Exhaust quota
+	k.Resources().RecordUsage("proc-1", 2, 0, 0, 0, 0)
+
+	// Try to schedule process with exhausted quota
+	ctx := ContextWithUserMetadata("agent-a", "sess-a", "req-2")
+
+	req := &pb.ScheduleProcessRequest{
+		Pid: "proc-1",
+	}
+
+	resp, err := server.ScheduleProcess(ctx, req)
+
+	require.Error(t, err)
+	assert.Nil(t, resp)
+	assert.Contains(t, err.Error(), "quota")
+	assert.Contains(t, logger.warnCalls, "quota_preflight_failed")
+}
+
+func TestKernelServer_TransitionState_OwnershipViolation(t *testing.T) {
+	server, logger, k := createKernelTestServer()
+
+	// Agent A creates and schedules a process
+	_, err := k.Submit("proc-1", "req-1", "agent-a", "sess-a", kernel.PriorityNormal, nil)
+	require.NoError(t, err)
+	err = k.Schedule("proc-1")
+	require.NoError(t, err)
+
+	// Agent B tries to transition agent A's process
+	ctx := ContextWithUserMetadata("agent-b", "sess-b", "req-2")
+
+	req := &pb.TransitionStateRequest{
+		Pid:      "proc-1",
+		NewState: pb.ProcessState_PROCESS_STATE_RUNNING,
+	}
+
+	resp, err := server.TransitionState(ctx, req)
+
+	require.Error(t, err)
+	assert.Nil(t, resp)
+	assert.Contains(t, err.Error(), "denied")
+	assert.Contains(t, logger.warnCalls, "ownership_violation")
+}
+
+func TestKernelServer_TerminateProcess_OwnershipViolation(t *testing.T) {
+	server, logger, k := createKernelTestServer()
+
+	// Agent A creates a process
+	_, err := k.Submit("proc-1", "req-1", "agent-a", "sess-a", kernel.PriorityNormal, nil)
+	require.NoError(t, err)
+
+	// Agent B tries to terminate agent A's process
+	ctx := ContextWithUserMetadata("agent-b", "sess-b", "req-2")
+
+	req := &pb.TerminateProcessRequest{
+		Pid:    "proc-1",
+		Reason: "unauthorized termination attempt",
+	}
+
+	resp, err := server.TerminateProcess(ctx, req)
+
+	require.Error(t, err)
+	assert.Nil(t, resp)
+	assert.Contains(t, err.Error(), "denied")
+	assert.Contains(t, logger.warnCalls, "ownership_violation")
+}
+
+func TestKernelServer_CreateProcess_InvalidContext(t *testing.T) {
+	server, logger, _ := createKernelTestServer()
+
+	// Empty user_id in request
+	ctx := context.Background()
+
+	req := &pb.CreateProcessRequest{
+		Pid:       "proc-1",
+		RequestId: "req-1",
+		UserId:    "", // Empty!
+		SessionId: "sess-1",
+		Priority:  pb.SchedulingPriority_SCHEDULING_PRIORITY_NORMAL,
+	}
+
+	resp, err := server.CreateProcess(ctx, req)
+
+	require.Error(t, err)
+	assert.Nil(t, resp)
+	assert.Contains(t, err.Error(), "user_id")
+	assert.Contains(t, logger.warnCalls, "invalid_request_context")
+}
+
+func TestKernelServer_ScheduleProcess_ProcessNotFound(t *testing.T) {
+	server, _, _ := createKernelTestServer()
+
+	// Try to schedule non-existent process
+	ctx := ContextWithUserMetadata("agent-a", "sess-a", "req-1")
+
+	req := &pb.ScheduleProcessRequest{
+		Pid: "non-existent",
+	}
+
+	resp, err := server.ScheduleProcess(ctx, req)
+
+	require.Error(t, err)
+	assert.Nil(t, resp)
+	assert.Contains(t, err.Error(), "process not found")
+}
+
+func TestKernelServer_TransitionState_ProcessNotFound(t *testing.T) {
+	server, _, _ := createKernelTestServer()
+
+	// Try to transition non-existent process
+	ctx := ContextWithUserMetadata("agent-a", "sess-a", "req-1")
+
+	req := &pb.TransitionStateRequest{
+		Pid:      "non-existent",
+		NewState: pb.ProcessState_PROCESS_STATE_RUNNING,
+	}
+
+	resp, err := server.TransitionState(ctx, req)
+
+	require.Error(t, err)
+	assert.Nil(t, resp)
+	assert.Contains(t, err.Error(), "process not found")
+}
+
+func TestKernelServer_TerminateProcess_ProcessNotFound(t *testing.T) {
+	server, _, _ := createKernelTestServer()
+
+	// Try to terminate non-existent process
+	ctx := ContextWithUserMetadata("agent-a", "sess-a", "req-1")
+
+	req := &pb.TerminateProcessRequest{
+		Pid:    "non-existent",
+		Reason: "test",
+	}
+
+	resp, err := server.TerminateProcess(ctx, req)
+
+	require.Error(t, err)
+	assert.Nil(t, resp)
+	assert.Contains(t, err.Error(), "process not found")
+}
