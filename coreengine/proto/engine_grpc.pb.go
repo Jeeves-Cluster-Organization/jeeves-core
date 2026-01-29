@@ -836,3 +836,239 @@ var EngineService_ServiceDesc = grpc.ServiceDesc{
 	},
 	Metadata: "coreengine/proto/engine.proto",
 }
+
+const (
+	CommBusService_Publish_FullMethodName   = "/jeeves.engine.v1.CommBusService/Publish"
+	CommBusService_Send_FullMethodName      = "/jeeves.engine.v1.CommBusService/Send"
+	CommBusService_Query_FullMethodName     = "/jeeves.engine.v1.CommBusService/Query"
+	CommBusService_Subscribe_FullMethodName = "/jeeves.engine.v1.CommBusService/Subscribe"
+)
+
+// CommBusServiceClient is the client API for CommBusService service.
+//
+// For semantics around ctx use and closing/ending streaming RPCs, please refer to https://pkg.go.dev/google.golang.org/grpc/?tab=doc#ClientConn.NewStream.
+//
+// =============================================================================
+// CommBusService - Message bus operations (Agentic OS IPC)
+// =============================================================================
+type CommBusServiceClient interface {
+	// Publish event to all subscribers (fire-and-forget, fan-out)
+	Publish(ctx context.Context, in *CommBusPublishRequest, opts ...grpc.CallOption) (*CommBusPublishResponse, error)
+	// Send command to single handler (fire-and-forget)
+	Send(ctx context.Context, in *CommBusSendRequest, opts ...grpc.CallOption) (*CommBusSendResponse, error)
+	// Query with response (request-response, synchronous)
+	Query(ctx context.Context, in *CommBusQueryRequest, opts ...grpc.CallOption) (*CommBusQueryResponse, error)
+	// Subscribe to events (server streaming)
+	Subscribe(ctx context.Context, in *CommBusSubscribeRequest, opts ...grpc.CallOption) (grpc.ServerStreamingClient[CommBusEvent], error)
+}
+
+type commBusServiceClient struct {
+	cc grpc.ClientConnInterface
+}
+
+func NewCommBusServiceClient(cc grpc.ClientConnInterface) CommBusServiceClient {
+	return &commBusServiceClient{cc}
+}
+
+func (c *commBusServiceClient) Publish(ctx context.Context, in *CommBusPublishRequest, opts ...grpc.CallOption) (*CommBusPublishResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(CommBusPublishResponse)
+	err := c.cc.Invoke(ctx, CommBusService_Publish_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *commBusServiceClient) Send(ctx context.Context, in *CommBusSendRequest, opts ...grpc.CallOption) (*CommBusSendResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(CommBusSendResponse)
+	err := c.cc.Invoke(ctx, CommBusService_Send_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *commBusServiceClient) Query(ctx context.Context, in *CommBusQueryRequest, opts ...grpc.CallOption) (*CommBusQueryResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(CommBusQueryResponse)
+	err := c.cc.Invoke(ctx, CommBusService_Query_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *commBusServiceClient) Subscribe(ctx context.Context, in *CommBusSubscribeRequest, opts ...grpc.CallOption) (grpc.ServerStreamingClient[CommBusEvent], error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	stream, err := c.cc.NewStream(ctx, &CommBusService_ServiceDesc.Streams[0], CommBusService_Subscribe_FullMethodName, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	x := &grpc.GenericClientStream[CommBusSubscribeRequest, CommBusEvent]{ClientStream: stream}
+	if err := x.ClientStream.SendMsg(in); err != nil {
+		return nil, err
+	}
+	if err := x.ClientStream.CloseSend(); err != nil {
+		return nil, err
+	}
+	return x, nil
+}
+
+// This type alias is provided for backwards compatibility with existing code that references the prior non-generic stream type by name.
+type CommBusService_SubscribeClient = grpc.ServerStreamingClient[CommBusEvent]
+
+// CommBusServiceServer is the server API for CommBusService service.
+// All implementations must embed UnimplementedCommBusServiceServer
+// for forward compatibility.
+//
+// =============================================================================
+// CommBusService - Message bus operations (Agentic OS IPC)
+// =============================================================================
+type CommBusServiceServer interface {
+	// Publish event to all subscribers (fire-and-forget, fan-out)
+	Publish(context.Context, *CommBusPublishRequest) (*CommBusPublishResponse, error)
+	// Send command to single handler (fire-and-forget)
+	Send(context.Context, *CommBusSendRequest) (*CommBusSendResponse, error)
+	// Query with response (request-response, synchronous)
+	Query(context.Context, *CommBusQueryRequest) (*CommBusQueryResponse, error)
+	// Subscribe to events (server streaming)
+	Subscribe(*CommBusSubscribeRequest, grpc.ServerStreamingServer[CommBusEvent]) error
+	mustEmbedUnimplementedCommBusServiceServer()
+}
+
+// UnimplementedCommBusServiceServer must be embedded to have
+// forward compatible implementations.
+//
+// NOTE: this should be embedded by value instead of pointer to avoid a nil
+// pointer dereference when methods are called.
+type UnimplementedCommBusServiceServer struct{}
+
+func (UnimplementedCommBusServiceServer) Publish(context.Context, *CommBusPublishRequest) (*CommBusPublishResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method Publish not implemented")
+}
+func (UnimplementedCommBusServiceServer) Send(context.Context, *CommBusSendRequest) (*CommBusSendResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method Send not implemented")
+}
+func (UnimplementedCommBusServiceServer) Query(context.Context, *CommBusQueryRequest) (*CommBusQueryResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method Query not implemented")
+}
+func (UnimplementedCommBusServiceServer) Subscribe(*CommBusSubscribeRequest, grpc.ServerStreamingServer[CommBusEvent]) error {
+	return status.Error(codes.Unimplemented, "method Subscribe not implemented")
+}
+func (UnimplementedCommBusServiceServer) mustEmbedUnimplementedCommBusServiceServer() {}
+func (UnimplementedCommBusServiceServer) testEmbeddedByValue()                        {}
+
+// UnsafeCommBusServiceServer may be embedded to opt out of forward compatibility for this service.
+// Use of this interface is not recommended, as added methods to CommBusServiceServer will
+// result in compilation errors.
+type UnsafeCommBusServiceServer interface {
+	mustEmbedUnimplementedCommBusServiceServer()
+}
+
+func RegisterCommBusServiceServer(s grpc.ServiceRegistrar, srv CommBusServiceServer) {
+	// If the following call panics, it indicates UnimplementedCommBusServiceServer was
+	// embedded by pointer and is nil.  This will cause panics if an
+	// unimplemented method is ever invoked, so we test this at initialization
+	// time to prevent it from happening at runtime later due to I/O.
+	if t, ok := srv.(interface{ testEmbeddedByValue() }); ok {
+		t.testEmbeddedByValue()
+	}
+	s.RegisterService(&CommBusService_ServiceDesc, srv)
+}
+
+func _CommBusService_Publish_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(CommBusPublishRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(CommBusServiceServer).Publish(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: CommBusService_Publish_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(CommBusServiceServer).Publish(ctx, req.(*CommBusPublishRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _CommBusService_Send_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(CommBusSendRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(CommBusServiceServer).Send(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: CommBusService_Send_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(CommBusServiceServer).Send(ctx, req.(*CommBusSendRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _CommBusService_Query_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(CommBusQueryRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(CommBusServiceServer).Query(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: CommBusService_Query_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(CommBusServiceServer).Query(ctx, req.(*CommBusQueryRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _CommBusService_Subscribe_Handler(srv interface{}, stream grpc.ServerStream) error {
+	m := new(CommBusSubscribeRequest)
+	if err := stream.RecvMsg(m); err != nil {
+		return err
+	}
+	return srv.(CommBusServiceServer).Subscribe(m, &grpc.GenericServerStream[CommBusSubscribeRequest, CommBusEvent]{ServerStream: stream})
+}
+
+// This type alias is provided for backwards compatibility with existing code that references the prior non-generic stream type by name.
+type CommBusService_SubscribeServer = grpc.ServerStreamingServer[CommBusEvent]
+
+// CommBusService_ServiceDesc is the grpc.ServiceDesc for CommBusService service.
+// It's only intended for direct use with grpc.RegisterService,
+// and not to be introspected or modified (even as a copy)
+var CommBusService_ServiceDesc = grpc.ServiceDesc{
+	ServiceName: "jeeves.engine.v1.CommBusService",
+	HandlerType: (*CommBusServiceServer)(nil),
+	Methods: []grpc.MethodDesc{
+		{
+			MethodName: "Publish",
+			Handler:    _CommBusService_Publish_Handler,
+		},
+		{
+			MethodName: "Send",
+			Handler:    _CommBusService_Send_Handler,
+		},
+		{
+			MethodName: "Query",
+			Handler:    _CommBusService_Query_Handler,
+		},
+	},
+	Streams: []grpc.StreamDesc{
+		{
+			StreamName:    "Subscribe",
+			Handler:       _CommBusService_Subscribe_Handler,
+			ServerStreams: true,
+		},
+	},
+	Metadata: "coreengine/proto/engine.proto",
+}

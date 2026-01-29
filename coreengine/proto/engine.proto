@@ -721,3 +721,62 @@ message ProcessCountsResponse {
     int32 total = 2;
     int32 queue_depth = 3;
 }
+
+// =============================================================================
+// CommBusService - Message bus operations (Agentic OS IPC)
+// =============================================================================
+service CommBusService {
+    // Publish event to all subscribers (fire-and-forget, fan-out)
+    rpc Publish(CommBusPublishRequest) returns (CommBusPublishResponse);
+
+    // Send command to single handler (fire-and-forget)
+    rpc Send(CommBusSendRequest) returns (CommBusSendResponse);
+
+    // Query with response (request-response, synchronous)
+    rpc Query(CommBusQueryRequest) returns (CommBusQueryResponse);
+
+    // Subscribe to events (server streaming)
+    rpc Subscribe(CommBusSubscribeRequest) returns (stream CommBusEvent);
+}
+
+message CommBusPublishRequest {
+    string event_type = 1;
+    bytes payload = 2;  // JSON-encoded event data
+}
+
+message CommBusPublishResponse {
+    bool success = 1;
+    string error = 2;
+}
+
+message CommBusSendRequest {
+    string command_type = 1;
+    bytes payload = 2;  // JSON-encoded command data
+}
+
+message CommBusSendResponse {
+    bool success = 1;
+    string error = 2;
+}
+
+message CommBusQueryRequest {
+    string query_type = 1;
+    bytes payload = 2;      // JSON-encoded query data
+    int32 timeout_ms = 3;   // Query timeout in milliseconds
+}
+
+message CommBusQueryResponse {
+    bool success = 1;
+    bytes result = 2;       // JSON-encoded result
+    string error = 3;
+}
+
+message CommBusSubscribeRequest {
+    repeated string event_types = 1;
+}
+
+message CommBusEvent {
+    string event_type = 1;
+    bytes payload = 2;      // JSON-encoded event data
+    int64 timestamp_ms = 3;
+}

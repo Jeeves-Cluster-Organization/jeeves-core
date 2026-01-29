@@ -4755,6 +4755,438 @@ func (x *ProcessCountsResponse) GetQueueDepth() int32 {
 	return 0
 }
 
+type CommBusPublishRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	EventType     string                 `protobuf:"bytes,1,opt,name=event_type,json=eventType,proto3" json:"event_type,omitempty"`
+	Payload       []byte                 `protobuf:"bytes,2,opt,name=payload,proto3" json:"payload,omitempty"` // JSON-encoded event data
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *CommBusPublishRequest) Reset() {
+	*x = CommBusPublishRequest{}
+	mi := &file_coreengine_proto_engine_proto_msgTypes[43]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *CommBusPublishRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*CommBusPublishRequest) ProtoMessage() {}
+
+func (x *CommBusPublishRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_coreengine_proto_engine_proto_msgTypes[43]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use CommBusPublishRequest.ProtoReflect.Descriptor instead.
+func (*CommBusPublishRequest) Descriptor() ([]byte, []int) {
+	return file_coreengine_proto_engine_proto_rawDescGZIP(), []int{43}
+}
+
+func (x *CommBusPublishRequest) GetEventType() string {
+	if x != nil {
+		return x.EventType
+	}
+	return ""
+}
+
+func (x *CommBusPublishRequest) GetPayload() []byte {
+	if x != nil {
+		return x.Payload
+	}
+	return nil
+}
+
+type CommBusPublishResponse struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Success       bool                   `protobuf:"varint,1,opt,name=success,proto3" json:"success,omitempty"`
+	Error         string                 `protobuf:"bytes,2,opt,name=error,proto3" json:"error,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *CommBusPublishResponse) Reset() {
+	*x = CommBusPublishResponse{}
+	mi := &file_coreengine_proto_engine_proto_msgTypes[44]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *CommBusPublishResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*CommBusPublishResponse) ProtoMessage() {}
+
+func (x *CommBusPublishResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_coreengine_proto_engine_proto_msgTypes[44]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use CommBusPublishResponse.ProtoReflect.Descriptor instead.
+func (*CommBusPublishResponse) Descriptor() ([]byte, []int) {
+	return file_coreengine_proto_engine_proto_rawDescGZIP(), []int{44}
+}
+
+func (x *CommBusPublishResponse) GetSuccess() bool {
+	if x != nil {
+		return x.Success
+	}
+	return false
+}
+
+func (x *CommBusPublishResponse) GetError() string {
+	if x != nil {
+		return x.Error
+	}
+	return ""
+}
+
+type CommBusSendRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	CommandType   string                 `protobuf:"bytes,1,opt,name=command_type,json=commandType,proto3" json:"command_type,omitempty"`
+	Payload       []byte                 `protobuf:"bytes,2,opt,name=payload,proto3" json:"payload,omitempty"` // JSON-encoded command data
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *CommBusSendRequest) Reset() {
+	*x = CommBusSendRequest{}
+	mi := &file_coreengine_proto_engine_proto_msgTypes[45]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *CommBusSendRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*CommBusSendRequest) ProtoMessage() {}
+
+func (x *CommBusSendRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_coreengine_proto_engine_proto_msgTypes[45]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use CommBusSendRequest.ProtoReflect.Descriptor instead.
+func (*CommBusSendRequest) Descriptor() ([]byte, []int) {
+	return file_coreengine_proto_engine_proto_rawDescGZIP(), []int{45}
+}
+
+func (x *CommBusSendRequest) GetCommandType() string {
+	if x != nil {
+		return x.CommandType
+	}
+	return ""
+}
+
+func (x *CommBusSendRequest) GetPayload() []byte {
+	if x != nil {
+		return x.Payload
+	}
+	return nil
+}
+
+type CommBusSendResponse struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Success       bool                   `protobuf:"varint,1,opt,name=success,proto3" json:"success,omitempty"`
+	Error         string                 `protobuf:"bytes,2,opt,name=error,proto3" json:"error,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *CommBusSendResponse) Reset() {
+	*x = CommBusSendResponse{}
+	mi := &file_coreengine_proto_engine_proto_msgTypes[46]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *CommBusSendResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*CommBusSendResponse) ProtoMessage() {}
+
+func (x *CommBusSendResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_coreengine_proto_engine_proto_msgTypes[46]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use CommBusSendResponse.ProtoReflect.Descriptor instead.
+func (*CommBusSendResponse) Descriptor() ([]byte, []int) {
+	return file_coreengine_proto_engine_proto_rawDescGZIP(), []int{46}
+}
+
+func (x *CommBusSendResponse) GetSuccess() bool {
+	if x != nil {
+		return x.Success
+	}
+	return false
+}
+
+func (x *CommBusSendResponse) GetError() string {
+	if x != nil {
+		return x.Error
+	}
+	return ""
+}
+
+type CommBusQueryRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	QueryType     string                 `protobuf:"bytes,1,opt,name=query_type,json=queryType,proto3" json:"query_type,omitempty"`
+	Payload       []byte                 `protobuf:"bytes,2,opt,name=payload,proto3" json:"payload,omitempty"`                       // JSON-encoded query data
+	TimeoutMs     int32                  `protobuf:"varint,3,opt,name=timeout_ms,json=timeoutMs,proto3" json:"timeout_ms,omitempty"` // Query timeout in milliseconds
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *CommBusQueryRequest) Reset() {
+	*x = CommBusQueryRequest{}
+	mi := &file_coreengine_proto_engine_proto_msgTypes[47]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *CommBusQueryRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*CommBusQueryRequest) ProtoMessage() {}
+
+func (x *CommBusQueryRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_coreengine_proto_engine_proto_msgTypes[47]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use CommBusQueryRequest.ProtoReflect.Descriptor instead.
+func (*CommBusQueryRequest) Descriptor() ([]byte, []int) {
+	return file_coreengine_proto_engine_proto_rawDescGZIP(), []int{47}
+}
+
+func (x *CommBusQueryRequest) GetQueryType() string {
+	if x != nil {
+		return x.QueryType
+	}
+	return ""
+}
+
+func (x *CommBusQueryRequest) GetPayload() []byte {
+	if x != nil {
+		return x.Payload
+	}
+	return nil
+}
+
+func (x *CommBusQueryRequest) GetTimeoutMs() int32 {
+	if x != nil {
+		return x.TimeoutMs
+	}
+	return 0
+}
+
+type CommBusQueryResponse struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Success       bool                   `protobuf:"varint,1,opt,name=success,proto3" json:"success,omitempty"`
+	Result        []byte                 `protobuf:"bytes,2,opt,name=result,proto3" json:"result,omitempty"` // JSON-encoded result
+	Error         string                 `protobuf:"bytes,3,opt,name=error,proto3" json:"error,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *CommBusQueryResponse) Reset() {
+	*x = CommBusQueryResponse{}
+	mi := &file_coreengine_proto_engine_proto_msgTypes[48]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *CommBusQueryResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*CommBusQueryResponse) ProtoMessage() {}
+
+func (x *CommBusQueryResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_coreengine_proto_engine_proto_msgTypes[48]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use CommBusQueryResponse.ProtoReflect.Descriptor instead.
+func (*CommBusQueryResponse) Descriptor() ([]byte, []int) {
+	return file_coreengine_proto_engine_proto_rawDescGZIP(), []int{48}
+}
+
+func (x *CommBusQueryResponse) GetSuccess() bool {
+	if x != nil {
+		return x.Success
+	}
+	return false
+}
+
+func (x *CommBusQueryResponse) GetResult() []byte {
+	if x != nil {
+		return x.Result
+	}
+	return nil
+}
+
+func (x *CommBusQueryResponse) GetError() string {
+	if x != nil {
+		return x.Error
+	}
+	return ""
+}
+
+type CommBusSubscribeRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	EventTypes    []string               `protobuf:"bytes,1,rep,name=event_types,json=eventTypes,proto3" json:"event_types,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *CommBusSubscribeRequest) Reset() {
+	*x = CommBusSubscribeRequest{}
+	mi := &file_coreengine_proto_engine_proto_msgTypes[49]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *CommBusSubscribeRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*CommBusSubscribeRequest) ProtoMessage() {}
+
+func (x *CommBusSubscribeRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_coreengine_proto_engine_proto_msgTypes[49]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use CommBusSubscribeRequest.ProtoReflect.Descriptor instead.
+func (*CommBusSubscribeRequest) Descriptor() ([]byte, []int) {
+	return file_coreengine_proto_engine_proto_rawDescGZIP(), []int{49}
+}
+
+func (x *CommBusSubscribeRequest) GetEventTypes() []string {
+	if x != nil {
+		return x.EventTypes
+	}
+	return nil
+}
+
+type CommBusEvent struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	EventType     string                 `protobuf:"bytes,1,opt,name=event_type,json=eventType,proto3" json:"event_type,omitempty"`
+	Payload       []byte                 `protobuf:"bytes,2,opt,name=payload,proto3" json:"payload,omitempty"` // JSON-encoded event data
+	TimestampMs   int64                  `protobuf:"varint,3,opt,name=timestamp_ms,json=timestampMs,proto3" json:"timestamp_ms,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *CommBusEvent) Reset() {
+	*x = CommBusEvent{}
+	mi := &file_coreengine_proto_engine_proto_msgTypes[50]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *CommBusEvent) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*CommBusEvent) ProtoMessage() {}
+
+func (x *CommBusEvent) ProtoReflect() protoreflect.Message {
+	mi := &file_coreengine_proto_engine_proto_msgTypes[50]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use CommBusEvent.ProtoReflect.Descriptor instead.
+func (*CommBusEvent) Descriptor() ([]byte, []int) {
+	return file_coreengine_proto_engine_proto_rawDescGZIP(), []int{50}
+}
+
+func (x *CommBusEvent) GetEventType() string {
+	if x != nil {
+		return x.EventType
+	}
+	return ""
+}
+
+func (x *CommBusEvent) GetPayload() []byte {
+	if x != nil {
+		return x.Payload
+	}
+	return nil
+}
+
+func (x *CommBusEvent) GetTimestampMs() int64 {
+	if x != nil {
+		return x.TimestampMs
+	}
+	return 0
+}
+
 var File_coreengine_proto_engine_proto protoreflect.FileDescriptor
 
 const file_coreengine_proto_engine_proto_rawDesc = "" +
@@ -5162,7 +5594,38 @@ const file_coreengine_proto_engine_proto_rawDesc = "" +
 	"queueDepth\x1a@\n" +
 	"\x12CountsByStateEntry\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
-	"\x05value\x18\x02 \x01(\x05R\x05value:\x028\x01*\xf1\x01\n" +
+	"\x05value\x18\x02 \x01(\x05R\x05value:\x028\x01\"P\n" +
+	"\x15CommBusPublishRequest\x12\x1d\n" +
+	"\n" +
+	"event_type\x18\x01 \x01(\tR\teventType\x12\x18\n" +
+	"\apayload\x18\x02 \x01(\fR\apayload\"H\n" +
+	"\x16CommBusPublishResponse\x12\x18\n" +
+	"\asuccess\x18\x01 \x01(\bR\asuccess\x12\x14\n" +
+	"\x05error\x18\x02 \x01(\tR\x05error\"Q\n" +
+	"\x12CommBusSendRequest\x12!\n" +
+	"\fcommand_type\x18\x01 \x01(\tR\vcommandType\x12\x18\n" +
+	"\apayload\x18\x02 \x01(\fR\apayload\"E\n" +
+	"\x13CommBusSendResponse\x12\x18\n" +
+	"\asuccess\x18\x01 \x01(\bR\asuccess\x12\x14\n" +
+	"\x05error\x18\x02 \x01(\tR\x05error\"m\n" +
+	"\x13CommBusQueryRequest\x12\x1d\n" +
+	"\n" +
+	"query_type\x18\x01 \x01(\tR\tqueryType\x12\x18\n" +
+	"\apayload\x18\x02 \x01(\fR\apayload\x12\x1d\n" +
+	"\n" +
+	"timeout_ms\x18\x03 \x01(\x05R\ttimeoutMs\"^\n" +
+	"\x14CommBusQueryResponse\x12\x18\n" +
+	"\asuccess\x18\x01 \x01(\bR\asuccess\x12\x16\n" +
+	"\x06result\x18\x02 \x01(\fR\x06result\x12\x14\n" +
+	"\x05error\x18\x03 \x01(\tR\x05error\":\n" +
+	"\x17CommBusSubscribeRequest\x12\x1f\n" +
+	"\vevent_types\x18\x01 \x03(\tR\n" +
+	"eventTypes\"j\n" +
+	"\fCommBusEvent\x12\x1d\n" +
+	"\n" +
+	"event_type\x18\x01 \x01(\tR\teventType\x12\x18\n" +
+	"\apayload\x18\x02 \x01(\fR\apayload\x12!\n" +
+	"\ftimestamp_ms\x18\x03 \x01(\x03R\vtimestampMs*\xf1\x01\n" +
 	"\x0eTerminalReason\x12\x1f\n" +
 	"\x1bTERMINAL_REASON_UNSPECIFIED\x10\x00\x12\x1b\n" +
 	"\x17MAX_ITERATIONS_EXCEEDED\x10\x01\x12\x1a\n" +
@@ -5314,7 +5777,12 @@ const file_coreengine_proto_engine_proto_rawDesc = "" +
 	"\vCheckBounds\x12\x1a.jeeves.engine.v1.Envelope\x1a\x1e.jeeves.engine.v1.BoundsResult\x12W\n" +
 	"\x0fExecutePipeline\x12 .jeeves.engine.v1.ExecuteRequest\x1a .jeeves.engine.v1.ExecutionEvent0\x01\x12T\n" +
 	"\fExecuteAgent\x12%.jeeves.engine.v1.ExecuteAgentRequest\x1a\x1d.jeeves.engine.v1.AgentResult\x12K\n" +
-	"\rCloneEnvelope\x12\x1e.jeeves.engine.v1.CloneRequest\x1a\x1a.jeeves.engine.v1.EnvelopeBFZDgithub.com/jeeves-cluster-organization/codeanalysis/coreengine/protob\x06proto3"
+	"\rCloneEnvelope\x12\x1e.jeeves.engine.v1.CloneRequest\x1a\x1a.jeeves.engine.v1.Envelope2\xf5\x02\n" +
+	"\x0eCommBusService\x12\\\n" +
+	"\aPublish\x12'.jeeves.engine.v1.CommBusPublishRequest\x1a(.jeeves.engine.v1.CommBusPublishResponse\x12S\n" +
+	"\x04Send\x12$.jeeves.engine.v1.CommBusSendRequest\x1a%.jeeves.engine.v1.CommBusSendResponse\x12V\n" +
+	"\x05Query\x12%.jeeves.engine.v1.CommBusQueryRequest\x1a&.jeeves.engine.v1.CommBusQueryResponse\x12X\n" +
+	"\tSubscribe\x12).jeeves.engine.v1.CommBusSubscribeRequest\x1a\x1e.jeeves.engine.v1.CommBusEvent0\x01BFZDgithub.com/jeeves-cluster-organization/codeanalysis/coreengine/protob\x06proto3"
 
 var (
 	file_coreengine_proto_engine_proto_rawDescOnce sync.Once
@@ -5329,7 +5797,7 @@ func file_coreengine_proto_engine_proto_rawDescGZIP() []byte {
 }
 
 var file_coreengine_proto_engine_proto_enumTypes = make([]protoimpl.EnumInfo, 18)
-var file_coreengine_proto_engine_proto_msgTypes = make([]protoimpl.MessageInfo, 52)
+var file_coreengine_proto_engine_proto_msgTypes = make([]protoimpl.MessageInfo, 60)
 var file_coreengine_proto_engine_proto_goTypes = []any{
 	(TerminalReason)(0),             // 0: jeeves.engine.v1.TerminalReason
 	(InterruptKind)(0),              // 1: jeeves.engine.v1.InterruptKind
@@ -5392,28 +5860,36 @@ var file_coreengine_proto_engine_proto_goTypes = []any{
 	(*ListProcessesResponse)(nil),   // 58: jeeves.engine.v1.ListProcessesResponse
 	(*GetProcessCountsRequest)(nil), // 59: jeeves.engine.v1.GetProcessCountsRequest
 	(*ProcessCountsResponse)(nil),   // 60: jeeves.engine.v1.ProcessCountsResponse
-	nil,                             // 61: jeeves.engine.v1.CreateEnvelopeRequest.MetadataEntry
-	nil,                             // 62: jeeves.engine.v1.Envelope.OutputsEntry
-	nil,                             // 63: jeeves.engine.v1.Envelope.ActiveStagesEntry
-	nil,                             // 64: jeeves.engine.v1.Envelope.CompletedStageSetEntry
-	nil,                             // 65: jeeves.engine.v1.Envelope.FailedStagesEntry
-	nil,                             // 66: jeeves.engine.v1.Envelope.GoalCompletionStatusEntry
-	nil,                             // 67: jeeves.engine.v1.Envelope.MetadataStrEntry
-	nil,                             // 68: jeeves.engine.v1.RequestContext.TagsEntry
-	nil,                             // 69: jeeves.engine.v1.ProcessCountsResponse.CountsByStateEntry
+	(*CommBusPublishRequest)(nil),   // 61: jeeves.engine.v1.CommBusPublishRequest
+	(*CommBusPublishResponse)(nil),  // 62: jeeves.engine.v1.CommBusPublishResponse
+	(*CommBusSendRequest)(nil),      // 63: jeeves.engine.v1.CommBusSendRequest
+	(*CommBusSendResponse)(nil),     // 64: jeeves.engine.v1.CommBusSendResponse
+	(*CommBusQueryRequest)(nil),     // 65: jeeves.engine.v1.CommBusQueryRequest
+	(*CommBusQueryResponse)(nil),    // 66: jeeves.engine.v1.CommBusQueryResponse
+	(*CommBusSubscribeRequest)(nil), // 67: jeeves.engine.v1.CommBusSubscribeRequest
+	(*CommBusEvent)(nil),            // 68: jeeves.engine.v1.CommBusEvent
+	nil,                             // 69: jeeves.engine.v1.CreateEnvelopeRequest.MetadataEntry
+	nil,                             // 70: jeeves.engine.v1.Envelope.OutputsEntry
+	nil,                             // 71: jeeves.engine.v1.Envelope.ActiveStagesEntry
+	nil,                             // 72: jeeves.engine.v1.Envelope.CompletedStageSetEntry
+	nil,                             // 73: jeeves.engine.v1.Envelope.FailedStagesEntry
+	nil,                             // 74: jeeves.engine.v1.Envelope.GoalCompletionStatusEntry
+	nil,                             // 75: jeeves.engine.v1.Envelope.MetadataStrEntry
+	nil,                             // 76: jeeves.engine.v1.RequestContext.TagsEntry
+	nil,                             // 77: jeeves.engine.v1.ProcessCountsResponse.CountsByStateEntry
 }
 var file_coreengine_proto_engine_proto_depIdxs = []int32{
-	61, // 0: jeeves.engine.v1.CreateEnvelopeRequest.metadata:type_name -> jeeves.engine.v1.CreateEnvelopeRequest.MetadataEntry
+	69, // 0: jeeves.engine.v1.CreateEnvelopeRequest.metadata:type_name -> jeeves.engine.v1.CreateEnvelopeRequest.MetadataEntry
 	21, // 1: jeeves.engine.v1.UpdateEnvelopeRequest.envelope:type_name -> jeeves.engine.v1.Envelope
 	21, // 2: jeeves.engine.v1.CloneRequest.envelope:type_name -> jeeves.engine.v1.Envelope
 	0,  // 3: jeeves.engine.v1.Envelope.terminal_reason:type_name -> jeeves.engine.v1.TerminalReason
 	22, // 4: jeeves.engine.v1.Envelope.interrupt:type_name -> jeeves.engine.v1.FlowInterrupt
-	62, // 5: jeeves.engine.v1.Envelope.outputs:type_name -> jeeves.engine.v1.Envelope.OutputsEntry
-	63, // 6: jeeves.engine.v1.Envelope.active_stages:type_name -> jeeves.engine.v1.Envelope.ActiveStagesEntry
-	64, // 7: jeeves.engine.v1.Envelope.completed_stage_set:type_name -> jeeves.engine.v1.Envelope.CompletedStageSetEntry
-	65, // 8: jeeves.engine.v1.Envelope.failed_stages:type_name -> jeeves.engine.v1.Envelope.FailedStagesEntry
-	66, // 9: jeeves.engine.v1.Envelope.goal_completion_status:type_name -> jeeves.engine.v1.Envelope.GoalCompletionStatusEntry
-	67, // 10: jeeves.engine.v1.Envelope.metadata_str:type_name -> jeeves.engine.v1.Envelope.MetadataStrEntry
+	70, // 5: jeeves.engine.v1.Envelope.outputs:type_name -> jeeves.engine.v1.Envelope.OutputsEntry
+	71, // 6: jeeves.engine.v1.Envelope.active_stages:type_name -> jeeves.engine.v1.Envelope.ActiveStagesEntry
+	72, // 7: jeeves.engine.v1.Envelope.completed_stage_set:type_name -> jeeves.engine.v1.Envelope.CompletedStageSetEntry
+	73, // 8: jeeves.engine.v1.Envelope.failed_stages:type_name -> jeeves.engine.v1.Envelope.FailedStagesEntry
+	74, // 9: jeeves.engine.v1.Envelope.goal_completion_status:type_name -> jeeves.engine.v1.Envelope.GoalCompletionStatusEntry
+	75, // 10: jeeves.engine.v1.Envelope.metadata_str:type_name -> jeeves.engine.v1.Envelope.MetadataStrEntry
 	1,  // 11: jeeves.engine.v1.FlowInterrupt.kind:type_name -> jeeves.engine.v1.InterruptKind
 	23, // 12: jeeves.engine.v1.FlowInterrupt.response:type_name -> jeeves.engine.v1.InterruptResponse
 	10, // 13: jeeves.engine.v1.FlowInterrupt.status:type_name -> jeeves.engine.v1.InterruptStatus
@@ -5434,7 +5910,7 @@ var file_coreengine_proto_engine_proto_depIdxs = []int32{
 	11, // 28: jeeves.engine.v1.PipelineConfig.default_run_mode:type_name -> jeeves.engine.v1.RunMode
 	33, // 29: jeeves.engine.v1.PipelineConfig.edge_limits:type_name -> jeeves.engine.v1.EdgeLimit
 	37, // 30: jeeves.engine.v1.ExecutionConfig.context_bounds:type_name -> jeeves.engine.v1.ContextBounds
-	68, // 31: jeeves.engine.v1.RequestContext.tags:type_name -> jeeves.engine.v1.RequestContext.TagsEntry
+	76, // 31: jeeves.engine.v1.RequestContext.tags:type_name -> jeeves.engine.v1.RequestContext.TagsEntry
 	16, // 32: jeeves.engine.v1.ProcessControlBlock.state:type_name -> jeeves.engine.v1.ProcessState
 	17, // 33: jeeves.engine.v1.ProcessControlBlock.priority:type_name -> jeeves.engine.v1.SchedulingPriority
 	44, // 34: jeeves.engine.v1.ProcessControlBlock.quota:type_name -> jeeves.engine.v1.ResourceQuota
@@ -5447,7 +5923,7 @@ var file_coreengine_proto_engine_proto_depIdxs = []int32{
 	44, // 41: jeeves.engine.v1.QuotaResult.quota:type_name -> jeeves.engine.v1.ResourceQuota
 	16, // 42: jeeves.engine.v1.ListProcessesRequest.state:type_name -> jeeves.engine.v1.ProcessState
 	46, // 43: jeeves.engine.v1.ListProcessesResponse.processes:type_name -> jeeves.engine.v1.ProcessControlBlock
-	69, // 44: jeeves.engine.v1.ProcessCountsResponse.counts_by_state:type_name -> jeeves.engine.v1.ProcessCountsResponse.CountsByStateEntry
+	77, // 44: jeeves.engine.v1.ProcessCountsResponse.counts_by_state:type_name -> jeeves.engine.v1.ProcessCountsResponse.CountsByStateEntry
 	47, // 45: jeeves.engine.v1.KernelService.CreateProcess:input_type -> jeeves.engine.v1.CreateProcessRequest
 	48, // 46: jeeves.engine.v1.KernelService.GetProcess:input_type -> jeeves.engine.v1.GetProcessRequest
 	49, // 47: jeeves.engine.v1.KernelService.ScheduleProcess:input_type -> jeeves.engine.v1.ScheduleProcessRequest
@@ -5465,25 +5941,33 @@ var file_coreengine_proto_engine_proto_depIdxs = []int32{
 	25, // 59: jeeves.engine.v1.EngineService.ExecutePipeline:input_type -> jeeves.engine.v1.ExecuteRequest
 	26, // 60: jeeves.engine.v1.EngineService.ExecuteAgent:input_type -> jeeves.engine.v1.ExecuteAgentRequest
 	20, // 61: jeeves.engine.v1.EngineService.CloneEnvelope:input_type -> jeeves.engine.v1.CloneRequest
-	46, // 62: jeeves.engine.v1.KernelService.CreateProcess:output_type -> jeeves.engine.v1.ProcessControlBlock
-	46, // 63: jeeves.engine.v1.KernelService.GetProcess:output_type -> jeeves.engine.v1.ProcessControlBlock
-	46, // 64: jeeves.engine.v1.KernelService.ScheduleProcess:output_type -> jeeves.engine.v1.ProcessControlBlock
-	46, // 65: jeeves.engine.v1.KernelService.GetNextRunnable:output_type -> jeeves.engine.v1.ProcessControlBlock
-	46, // 66: jeeves.engine.v1.KernelService.TransitionState:output_type -> jeeves.engine.v1.ProcessControlBlock
-	46, // 67: jeeves.engine.v1.KernelService.TerminateProcess:output_type -> jeeves.engine.v1.ProcessControlBlock
-	54, // 68: jeeves.engine.v1.KernelService.CheckQuota:output_type -> jeeves.engine.v1.QuotaResult
-	45, // 69: jeeves.engine.v1.KernelService.RecordUsage:output_type -> jeeves.engine.v1.ResourceUsage
-	31, // 70: jeeves.engine.v1.KernelService.CheckRateLimit:output_type -> jeeves.engine.v1.RateLimitResult
-	58, // 71: jeeves.engine.v1.KernelService.ListProcesses:output_type -> jeeves.engine.v1.ListProcessesResponse
-	60, // 72: jeeves.engine.v1.KernelService.GetProcessCounts:output_type -> jeeves.engine.v1.ProcessCountsResponse
-	21, // 73: jeeves.engine.v1.EngineService.CreateEnvelope:output_type -> jeeves.engine.v1.Envelope
-	21, // 74: jeeves.engine.v1.EngineService.UpdateEnvelope:output_type -> jeeves.engine.v1.Envelope
-	24, // 75: jeeves.engine.v1.EngineService.CheckBounds:output_type -> jeeves.engine.v1.BoundsResult
-	27, // 76: jeeves.engine.v1.EngineService.ExecutePipeline:output_type -> jeeves.engine.v1.ExecutionEvent
-	28, // 77: jeeves.engine.v1.EngineService.ExecuteAgent:output_type -> jeeves.engine.v1.AgentResult
-	21, // 78: jeeves.engine.v1.EngineService.CloneEnvelope:output_type -> jeeves.engine.v1.Envelope
-	62, // [62:79] is the sub-list for method output_type
-	45, // [45:62] is the sub-list for method input_type
+	61, // 62: jeeves.engine.v1.CommBusService.Publish:input_type -> jeeves.engine.v1.CommBusPublishRequest
+	63, // 63: jeeves.engine.v1.CommBusService.Send:input_type -> jeeves.engine.v1.CommBusSendRequest
+	65, // 64: jeeves.engine.v1.CommBusService.Query:input_type -> jeeves.engine.v1.CommBusQueryRequest
+	67, // 65: jeeves.engine.v1.CommBusService.Subscribe:input_type -> jeeves.engine.v1.CommBusSubscribeRequest
+	46, // 66: jeeves.engine.v1.KernelService.CreateProcess:output_type -> jeeves.engine.v1.ProcessControlBlock
+	46, // 67: jeeves.engine.v1.KernelService.GetProcess:output_type -> jeeves.engine.v1.ProcessControlBlock
+	46, // 68: jeeves.engine.v1.KernelService.ScheduleProcess:output_type -> jeeves.engine.v1.ProcessControlBlock
+	46, // 69: jeeves.engine.v1.KernelService.GetNextRunnable:output_type -> jeeves.engine.v1.ProcessControlBlock
+	46, // 70: jeeves.engine.v1.KernelService.TransitionState:output_type -> jeeves.engine.v1.ProcessControlBlock
+	46, // 71: jeeves.engine.v1.KernelService.TerminateProcess:output_type -> jeeves.engine.v1.ProcessControlBlock
+	54, // 72: jeeves.engine.v1.KernelService.CheckQuota:output_type -> jeeves.engine.v1.QuotaResult
+	45, // 73: jeeves.engine.v1.KernelService.RecordUsage:output_type -> jeeves.engine.v1.ResourceUsage
+	31, // 74: jeeves.engine.v1.KernelService.CheckRateLimit:output_type -> jeeves.engine.v1.RateLimitResult
+	58, // 75: jeeves.engine.v1.KernelService.ListProcesses:output_type -> jeeves.engine.v1.ListProcessesResponse
+	60, // 76: jeeves.engine.v1.KernelService.GetProcessCounts:output_type -> jeeves.engine.v1.ProcessCountsResponse
+	21, // 77: jeeves.engine.v1.EngineService.CreateEnvelope:output_type -> jeeves.engine.v1.Envelope
+	21, // 78: jeeves.engine.v1.EngineService.UpdateEnvelope:output_type -> jeeves.engine.v1.Envelope
+	24, // 79: jeeves.engine.v1.EngineService.CheckBounds:output_type -> jeeves.engine.v1.BoundsResult
+	27, // 80: jeeves.engine.v1.EngineService.ExecutePipeline:output_type -> jeeves.engine.v1.ExecutionEvent
+	28, // 81: jeeves.engine.v1.EngineService.ExecuteAgent:output_type -> jeeves.engine.v1.AgentResult
+	21, // 82: jeeves.engine.v1.EngineService.CloneEnvelope:output_type -> jeeves.engine.v1.Envelope
+	62, // 83: jeeves.engine.v1.CommBusService.Publish:output_type -> jeeves.engine.v1.CommBusPublishResponse
+	64, // 84: jeeves.engine.v1.CommBusService.Send:output_type -> jeeves.engine.v1.CommBusSendResponse
+	66, // 85: jeeves.engine.v1.CommBusService.Query:output_type -> jeeves.engine.v1.CommBusQueryResponse
+	68, // 86: jeeves.engine.v1.CommBusService.Subscribe:output_type -> jeeves.engine.v1.CommBusEvent
+	66, // [66:87] is the sub-list for method output_type
+	45, // [45:66] is the sub-list for method input_type
 	45, // [45:45] is the sub-list for extension type_name
 	45, // [45:45] is the sub-list for extension extendee
 	0,  // [0:45] is the sub-list for field type_name
@@ -5503,9 +5987,9 @@ func file_coreengine_proto_engine_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_coreengine_proto_engine_proto_rawDesc), len(file_coreengine_proto_engine_proto_rawDesc)),
 			NumEnums:      18,
-			NumMessages:   52,
+			NumMessages:   60,
 			NumExtensions: 0,
-			NumServices:   2,
+			NumServices:   3,
 		},
 		GoTypes:           file_coreengine_proto_engine_proto_goTypes,
 		DependencyIndexes: file_coreengine_proto_engine_proto_depIdxs,
