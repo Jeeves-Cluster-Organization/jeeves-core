@@ -22,9 +22,16 @@ impl Default for Kernel {
     }
 }
 
-// Subsystem modules (checkpoint 3)
-pub mod lifecycle;
-pub mod resources;
-pub mod orchestrator;
+// Core types
+pub mod types;
+
+// Subsystem modules
 pub mod interrupts;
+pub mod lifecycle;
+pub mod orchestrator;
 pub mod rate_limiter;
+pub mod resources;
+
+// Re-export key types
+pub use lifecycle::LifecycleManager;
+pub use types::{ProcessControlBlock, ProcessState, ResourceQuota, ResourceUsage, SchedulingPriority};
