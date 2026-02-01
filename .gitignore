@@ -63,3 +63,7 @@ envelope_cover
 # OS
 .DS_Store
 Thumbs.db
+nul
+
+# Go module cache artifacts
+github.com/
