@@ -118,6 +118,10 @@ type ResourceQuota struct {
 	MaxAgentHops  int `json:"max_agent_hops"`
 	MaxIterations int `json:"max_iterations"`
 
+	// Inference limits (for embeddings, NLI, classification)
+	MaxInferenceRequests   int `json:"max_inference_requests"`
+	MaxInferenceInputChars int `json:"max_inference_input_chars"`
+
 	// Time limits
 	TimeoutSeconds     int `json:"timeout_seconds"`
 	SoftTimeoutSeconds int `json:"soft_timeout_seconds"` // Warn before hard timeout
@@ -131,15 +135,17 @@ type ResourceQuota struct {
 // DefaultQuota returns sensible default resource limits.
 func DefaultQuota() *ResourceQuota {
 	return &ResourceQuota{
-		MaxInputTokens:     4096,
-		MaxOutputTokens:    2048,
-		MaxContextTokens:   16384,
-		MaxLLMCalls:        10,
-		MaxToolCalls:       50,
-		MaxAgentHops:       21,
-		MaxIterations:      3,
-		TimeoutSeconds:     300,
-		SoftTimeoutSeconds: 240,
+		MaxInputTokens:         4096,
+		MaxOutputTokens:        2048,
+		MaxContextTokens:       16384,
+		MaxLLMCalls:            10,
+		MaxToolCalls:           50,
+		MaxAgentHops:           21,
+		MaxIterations:          3,
+		MaxInferenceRequests:   100,   // Generous for RAG workloads
+		MaxInferenceInputChars: 100000, // ~100k chars total
+		TimeoutSeconds:         300,
+		SoftTimeoutSeconds:     240,
 	}
 }
 
@@ -149,6 +155,12 @@ func (q *ResourceQuota) IsWithinBounds(llmCalls, toolCalls, agentHops, iteration
 		toolCalls <= q.MaxToolCalls &&
 		agentHops <= q.MaxAgentHops &&
 		iterations <= q.MaxIterations
+}
+
+// IsInferenceWithinBounds checks if inference usage is within quota.
+func (q *ResourceQuota) IsInferenceWithinBounds(requests, inputChars int) bool {
+	return requests <= q.MaxInferenceRequests &&
+		inputChars <= q.MaxInferenceInputChars
 }
 
 // =============================================================================
@@ -164,6 +176,10 @@ type ResourceUsage struct {
 	TokensIn       int     `json:"tokens_in"`
 	TokensOut      int     `json:"tokens_out"`
 	ElapsedSeconds float64 `json:"elapsed_seconds"`
+
+	// Inference tracking (embeddings, NLI, classification)
+	InferenceRequests   int `json:"inference_requests"`
+	InferenceInputChars int `json:"inference_input_chars"`
 }
 
 // ExceedsQuota checks if usage exceeds quota. Returns the reason or empty string.
@@ -180,6 +196,12 @@ func (u *ResourceUsage) ExceedsQuota(q *ResourceQuota) string {
 	if u.Iterations > q.MaxIterations {
 		return "max_iterations_exceeded"
 	}
+	if u.InferenceRequests > q.MaxInferenceRequests {
+		return "max_inference_requests_exceeded"
+	}
+	if u.InferenceInputChars > q.MaxInferenceInputChars {
+		return "max_inference_input_chars_exceeded"
+	}
 	if u.ElapsedSeconds > float64(q.TimeoutSeconds) {
 		return "timeout_exceeded"
 	}
@@ -189,13 +211,15 @@ func (u *ResourceUsage) ExceedsQuota(q *ResourceQuota) string {
 // Clone returns a copy of the usage.
 func (u *ResourceUsage) Clone() *ResourceUsage {
 	return &ResourceUsage{
-		LLMCalls:       u.LLMCalls,
-		ToolCalls:      u.ToolCalls,
-		AgentHops:      u.AgentHops,
-		Iterations:     u.Iterations,
-		TokensIn:       u.TokensIn,
-		TokensOut:      u.TokensOut,
-		ElapsedSeconds: u.ElapsedSeconds,
+		LLMCalls:            u.LLMCalls,
+		ToolCalls:           u.ToolCalls,
+		AgentHops:           u.AgentHops,
+		Iterations:          u.Iterations,
+		TokensIn:            u.TokensIn,
+		TokensOut:           u.TokensOut,
+		ElapsedSeconds:      u.ElapsedSeconds,
+		InferenceRequests:   u.InferenceRequests,
+		InferenceInputChars: u.InferenceInputChars,
 	}
 }
 
@@ -329,6 +353,12 @@ func (pcb *ProcessControlBlock) RecordToolCall() {
 // RecordAgentHop records an agent hop.
 func (pcb *ProcessControlBlock) RecordAgentHop() {
 	pcb.Usage.AgentHops++
+}
+
+// RecordInferenceCall records an inference call (embeddings, NLI, etc).
+func (pcb *ProcessControlBlock) RecordInferenceCall(inputChars int) {
+	pcb.Usage.InferenceRequests++
+	pcb.Usage.InferenceInputChars += inputChars
 }
 
 // CheckQuota checks if usage exceeds quota.

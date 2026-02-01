@@ -255,6 +255,35 @@ func (rt *ResourceTracker) RecordAgentHop(pid string) *ResourceUsage {
 	return rt.RecordUsage(pid, 0, 0, 1, 0, 0)
 }
 
+// RecordInferenceCall records an inference call (embeddings, NLI, classification).
+func (rt *ResourceTracker) RecordInferenceCall(pid string, inputChars int) *ResourceUsage {
+	rt.mu.Lock()
+	defer rt.mu.Unlock()
+
+	pr, exists := rt.resources[pid]
+	if !exists {
+		// Auto-create with default quota if not tracked
+		pr = newProcessResources(pid, rt.defaultQuota)
+		rt.resources[pid] = pr
+		rt.totalProcesses++
+		rt.activeProcesses++
+	}
+
+	pr.Usage.InferenceRequests++
+	pr.Usage.InferenceInputChars += inputChars
+	pr.LastUpdatedAt = time.Now().UTC()
+
+	if rt.logger != nil {
+		rt.logger.Debug("inference_call_recorded",
+			"pid", pid,
+			"inference_requests", pr.Usage.InferenceRequests,
+			"inference_input_chars", pr.Usage.InferenceInputChars,
+		)
+	}
+
+	return pr.Usage.Clone()
+}
+
 // CheckQuota checks if process is within quota.
 // Returns empty string if within quota, or reason string if exceeded.
 func (rt *ResourceTracker) CheckQuota(pid string) string {
@@ -267,6 +296,30 @@ func (rt *ResourceTracker) CheckQuota(pid string) string {
 	}
 
 	return pr.Usage.ExceedsQuota(pr.Quota)
+}
+
+// CheckInferenceQuota checks if a proposed inference operation would exceed quota.
+// Returns empty string if within quota, or reason string if would exceed.
+func (rt *ResourceTracker) CheckInferenceQuota(pid string, requests, inputChars int) string {
+	rt.mu.RLock()
+	defer rt.mu.RUnlock()
+
+	pr, exists := rt.resources[pid]
+	if !exists {
+		return "" // No tracking = no limits (will use defaults on first record)
+	}
+
+	// Check request limit
+	if pr.Usage.InferenceRequests+requests > pr.Quota.MaxInferenceRequests {
+		return "max_inference_requests_exceeded"
+	}
+
+	// Check input chars limit
+	if pr.Usage.InferenceInputChars+inputChars > pr.Quota.MaxInferenceInputChars {
+		return "max_inference_input_chars_exceeded"
+	}
+
+	return ""
 }
 
 // GetUsage returns current usage for a process.

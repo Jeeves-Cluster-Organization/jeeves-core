@@ -157,6 +157,54 @@ func TestResourceTracker_GetRemainingBudget(t *testing.T) {
 	}
 }
 
+func TestResourceTracker_InferenceTracking(t *testing.T) {
+	quota := &ResourceQuota{
+		MaxInferenceRequests:   5,
+		MaxInferenceInputChars: 1000,
+		TimeoutSeconds:         3600,
+	}
+	tracker := NewResourceTracker(quota, nil)
+	tracker.Allocate("pid-1", quota)
+
+	// Record inference call
+	usage := tracker.RecordInferenceCall("pid-1", 100)
+	if usage.InferenceRequests != 1 {
+		t.Errorf("expected 1 inference request, got %d", usage.InferenceRequests)
+	}
+	if usage.InferenceInputChars != 100 {
+		t.Errorf("expected 100 input chars, got %d", usage.InferenceInputChars)
+	}
+
+	// Check quota - should be within bounds
+	if exceeded := tracker.CheckInferenceQuota("pid-1", 1, 100); exceeded != "" {
+		t.Errorf("should be within quota, got: %s", exceeded)
+	}
+
+	// Check quota - would exceed requests
+	if exceeded := tracker.CheckInferenceQuota("pid-1", 5, 100); exceeded != "max_inference_requests_exceeded" {
+		t.Errorf("expected max_inference_requests_exceeded, got: %s", exceeded)
+	}
+
+	// Check quota - would exceed chars
+	if exceeded := tracker.CheckInferenceQuota("pid-1", 1, 1000); exceeded != "max_inference_input_chars_exceeded" {
+		t.Errorf("expected max_inference_input_chars_exceeded, got: %s", exceeded)
+	}
+
+	// Record more calls to exceed quota (need 6 total to exceed 5)
+	tracker.RecordInferenceCall("pid-1", 200)
+	tracker.RecordInferenceCall("pid-1", 200)
+	tracker.RecordInferenceCall("pid-1", 200)
+	tracker.RecordInferenceCall("pid-1", 200)
+	tracker.RecordInferenceCall("pid-1", 200) // 6th call exceeds quota of 5
+
+	// Now check quota via ExceedsQuota
+	usageFinal := tracker.GetUsage("pid-1")
+	quotaFinal := tracker.GetQuota("pid-1")
+	if exceeded := usageFinal.ExceedsQuota(quotaFinal); exceeded != "max_inference_requests_exceeded" {
+		t.Errorf("expected max_inference_requests_exceeded from ExceedsQuota, got: %s", exceeded)
+	}
+}
+
 // =============================================================================
 // InterruptService Tests
 // =============================================================================

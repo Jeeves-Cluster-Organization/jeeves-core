@@ -33,6 +33,22 @@ const (
 )
 
 // =============================================================================
+// Service Types
+// =============================================================================
+
+// ServiceType constants for classifying services.
+const (
+	// ServiceTypeFlow is for flow orchestration services.
+	ServiceTypeFlow = "flow"
+	// ServiceTypeWorker is for worker/execution services.
+	ServiceTypeWorker = "worker"
+	// ServiceTypeVertical is for vertical/domain-specific services.
+	ServiceTypeVertical = "vertical"
+	// ServiceTypeInference is for ML inference services (embeddings, NLI, etc).
+	ServiceTypeInference = "inference"
+)
+
+// =============================================================================
 // Service Descriptor
 // =============================================================================
 

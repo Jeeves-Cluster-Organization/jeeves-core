@@ -594,6 +594,9 @@ message ResourceQuota {
     int32 rate_limit_rpm = 10;
     int32 rate_limit_rph = 11;
     int32 rate_limit_burst = 12;
+    // Inference limits (embeddings, NLI, classification)
+    int32 max_inference_requests = 13;
+    int32 max_inference_input_chars = 14;
 }
 
 message ResourceUsage {
@@ -604,6 +607,9 @@ message ResourceUsage {
     int32 tokens_in = 5;
     int32 tokens_out = 6;
     double elapsed_seconds = 7;
+    // Inference tracking (embeddings, NLI, classification)
+    int32 inference_requests = 8;
+    int32 inference_input_chars = 9;
 }
 
 message ProcessControlBlock {
@@ -695,6 +701,9 @@ message RecordUsageRequest {
     int32 agent_hops = 4;
     int32 tokens_in = 5;
     int32 tokens_out = 6;
+    // Inference tracking (embeddings, NLI, classification)
+    int32 inference_requests = 7;
+    int32 inference_input_chars = 8;
 }
 
 message CheckRateLimitRequest {

@@ -13,7 +13,7 @@
 // versions:
 // - protoc-gen-go-grpc v1.6.0
 // - protoc             v6.33.4
-// source: engine.proto
+// source: coreengine/proto/engine.proto
 
 package proto
 
@@ -522,7 +522,7 @@ var KernelService_ServiceDesc = grpc.ServiceDesc{
 		},
 	},
 	Streams:  []grpc.StreamDesc{},
-	Metadata: "engine.proto",
+	Metadata: "coreengine/proto/engine.proto",
 }
 
 const (
@@ -834,7 +834,7 @@ var EngineService_ServiceDesc = grpc.ServiceDesc{
 			ServerStreams: true,
 		},
 	},
-	Metadata: "engine.proto",
+	Metadata: "coreengine/proto/engine.proto",
 }
 
 const (
@@ -1070,7 +1070,7 @@ var CommBusService_ServiceDesc = grpc.ServiceDesc{
 			ServerStreams: true,
 		},
 	},
-	Metadata: "engine.proto",
+	Metadata: "coreengine/proto/engine.proto",
 }
 
 const (
@@ -1302,5 +1302,5 @@ var OrchestrationService_ServiceDesc = grpc.ServiceDesc{
 		},
 	},
 	Streams:  []grpc.StreamDesc{},
-	Metadata: "engine.proto",
+	Metadata: "coreengine/proto/engine.proto",
 }

@@ -440,6 +440,87 @@ func (k *Kernel) Dispatch(ctx context.Context, target *DispatchTarget, data map[
 	return k.services.Dispatch(ctx, target, data)
 }
 
+// DispatchInference dispatches an inference request with quota checking.
+// This is the kernel-mediated path for embeddings, NLI, and other ML inference.
+func (k *Kernel) DispatchInference(ctx context.Context, pid string, target *DispatchTarget, data map[string]any) *DispatchResult {
+	startTime := time.Now()
+
+	// Check context cancellation first
+	if ctx.Err() != nil {
+		return &DispatchResult{
+			Success:  false,
+			Error:    ctx.Err().Error(),
+			Duration: time.Since(startTime),
+		}
+	}
+
+	// Calculate input chars from payload
+	inputChars := extractInputChars(data)
+
+	// Check quota BEFORE dispatch
+	if exceeded := k.CheckInferenceQuota(pid, 1, inputChars); exceeded != "" {
+		if k.logger != nil {
+			k.logger.Warn("inference_quota_exceeded",
+				"pid", pid,
+				"reason", exceeded,
+				"input_chars", inputChars,
+			)
+		}
+		return &DispatchResult{
+			Success:  false,
+			Error:    fmt.Sprintf("inference quota exceeded: %s", exceeded),
+			Duration: time.Since(startTime),
+		}
+	}
+
+	// Dispatch to service
+	result := k.services.Dispatch(ctx, target, data)
+
+	// Record usage AFTER dispatch (even if failed, to track attempts)
+	k.RecordInferenceCall(pid, inputChars)
+
+	return result
+}
+
+// extractInputChars extracts the total character count from inference payload.
+func extractInputChars(data map[string]any) int {
+	totalChars := 0
+
+	// Check for single text
+	if text, ok := data["text"].(string); ok {
+		totalChars += len(text)
+	}
+
+	// Check for batch texts
+	if texts, ok := data["texts"].([]string); ok {
+		for _, text := range texts {
+			totalChars += len(text)
+		}
+	}
+
+	// Also handle []interface{} case (from JSON unmarshaling)
+	if texts, ok := data["texts"].([]interface{}); ok {
+		for _, t := range texts {
+			if text, ok := t.(string); ok {
+				totalChars += len(text)
+			}
+		}
+	}
+
+	return totalChars
+}
+
+// CheckInferenceQuota checks if an inference operation would exceed quota.
+// Returns the exceeded reason or empty string if within quota.
+func (k *Kernel) CheckInferenceQuota(pid string, requests, inputChars int) string {
+	return k.resources.CheckInferenceQuota(pid, requests, inputChars)
+}
+
+// RecordInferenceCall records an inference call for resource tracking.
+func (k *Kernel) RecordInferenceCall(pid string, inputChars int) {
+	k.resources.RecordInferenceCall(pid, inputChars)
+}
+
 // =============================================================================
 // Event System
 // =============================================================================

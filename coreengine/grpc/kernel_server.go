@@ -347,10 +347,19 @@ func (s *KernelServer) RecordUsage(
 		int(req.TokensOut),
 	)
 
+	// Record inference usage if present
+	if req.InferenceRequests > 0 || req.InferenceInputChars > 0 {
+		usage = s.kernel.Resources().RecordInferenceCall(
+			req.Pid,
+			int(req.InferenceInputChars),
+		)
+	}
+
 	s.logger.Debug("usage_recorded",
 		"pid", req.Pid,
 		"llm_calls", req.LlmCalls,
 		"tool_calls", req.ToolCalls,
+		"inference_requests", req.InferenceRequests,
 	)
 
 	return resourceUsageToProto(usage), nil
@@ -461,18 +470,20 @@ func pcbToProto(pcb *kernel.ProcessControlBlock) *pb.ProcessControlBlock {
 
 func resourceQuotaToProto(q *kernel.ResourceQuota) *pb.ResourceQuota {
 	return &pb.ResourceQuota{
-		MaxInputTokens:   int32(q.MaxInputTokens),
-		MaxOutputTokens:  int32(q.MaxOutputTokens),
-		MaxContextTokens: int32(q.MaxContextTokens),
-		MaxLlmCalls:      int32(q.MaxLLMCalls),
-		MaxToolCalls:     int32(q.MaxToolCalls),
-		MaxAgentHops:     int32(q.MaxAgentHops),
-		MaxIterations:    int32(q.MaxIterations),
-		TimeoutSeconds:   int32(q.TimeoutSeconds),
-		SoftTimeoutSeconds: int32(q.SoftTimeoutSeconds),
-		RateLimitRpm:     int32(q.RateLimitRPM),
-		RateLimitRph:     int32(q.RateLimitRPH),
-		RateLimitBurst:   int32(q.RateLimitBurst),
+		MaxInputTokens:         int32(q.MaxInputTokens),
+		MaxOutputTokens:        int32(q.MaxOutputTokens),
+		MaxContextTokens:       int32(q.MaxContextTokens),
+		MaxLlmCalls:            int32(q.MaxLLMCalls),
+		MaxToolCalls:           int32(q.MaxToolCalls),
+		MaxAgentHops:           int32(q.MaxAgentHops),
+		MaxIterations:          int32(q.MaxIterations),
+		TimeoutSeconds:         int32(q.TimeoutSeconds),
+		SoftTimeoutSeconds:     int32(q.SoftTimeoutSeconds),
+		RateLimitRpm:           int32(q.RateLimitRPM),
+		RateLimitRph:           int32(q.RateLimitRPH),
+		RateLimitBurst:         int32(q.RateLimitBurst),
+		MaxInferenceRequests:   int32(q.MaxInferenceRequests),
+		MaxInferenceInputChars: int32(q.MaxInferenceInputChars),
 	}
 }
 
@@ -481,30 +492,34 @@ func protoToResourceQuota(p *pb.ResourceQuota) *kernel.ResourceQuota {
 		return nil
 	}
 	return &kernel.ResourceQuota{
-		MaxInputTokens:     int(p.MaxInputTokens),
-		MaxOutputTokens:    int(p.MaxOutputTokens),
-		MaxContextTokens:   int(p.MaxContextTokens),
-		MaxLLMCalls:        int(p.MaxLlmCalls),
-		MaxToolCalls:       int(p.MaxToolCalls),
-		MaxAgentHops:       int(p.MaxAgentHops),
-		MaxIterations:      int(p.MaxIterations),
-		TimeoutSeconds:     int(p.TimeoutSeconds),
-		SoftTimeoutSeconds: int(p.SoftTimeoutSeconds),
-		RateLimitRPM:       int(p.RateLimitRpm),
-		RateLimitRPH:       int(p.RateLimitRph),
-		RateLimitBurst:     int(p.RateLimitBurst),
+		MaxInputTokens:         int(p.MaxInputTokens),
+		MaxOutputTokens:        int(p.MaxOutputTokens),
+		MaxContextTokens:       int(p.MaxContextTokens),
+		MaxLLMCalls:            int(p.MaxLlmCalls),
+		MaxToolCalls:           int(p.MaxToolCalls),
+		MaxAgentHops:           int(p.MaxAgentHops),
+		MaxIterations:          int(p.MaxIterations),
+		TimeoutSeconds:         int(p.TimeoutSeconds),
+		SoftTimeoutSeconds:     int(p.SoftTimeoutSeconds),
+		RateLimitRPM:           int(p.RateLimitRpm),
+		RateLimitRPH:           int(p.RateLimitRph),
+		RateLimitBurst:         int(p.RateLimitBurst),
+		MaxInferenceRequests:   int(p.MaxInferenceRequests),
+		MaxInferenceInputChars: int(p.MaxInferenceInputChars),
 	}
 }
 
 func resourceUsageToProto(u *kernel.ResourceUsage) *pb.ResourceUsage {
 	return &pb.ResourceUsage{
-		LlmCalls:       int32(u.LLMCalls),
-		ToolCalls:      int32(u.ToolCalls),
-		AgentHops:      int32(u.AgentHops),
-		Iterations:     int32(u.Iterations),
-		TokensIn:       int32(u.TokensIn),
-		TokensOut:      int32(u.TokensOut),
-		ElapsedSeconds: u.ElapsedSeconds,
+		LlmCalls:            int32(u.LLMCalls),
+		ToolCalls:           int32(u.ToolCalls),
+		AgentHops:           int32(u.AgentHops),
+		Iterations:          int32(u.Iterations),
+		TokensIn:            int32(u.TokensIn),
+		TokensOut:           int32(u.TokensOut),
+		ElapsedSeconds:      u.ElapsedSeconds,
+		InferenceRequests:   int32(u.InferenceRequests),
+		InferenceInputChars: int32(u.InferenceInputChars),
 	}
 }
 
