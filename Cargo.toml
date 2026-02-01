@@ -1,0 +1,117 @@
+[package]
+name = "jeeves-core"
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.75"
+authors = ["Jeeves Team"]
+description = "Rust implementation of Jeeves kernel - multi-agent orchestration runtime"
+license = "MIT"
+
+[[bin]]
+name = "jeeves-kernel"
+path = "src/main.rs"
+
+[lib]
+name = "jeeves_core"
+path = "src/lib.rs"
+
+[dependencies]
+# Async runtime
+tokio = { version = "1.41", features = ["full"] }
+tokio-util = "0.7"
+
+# gRPC and protobuf
+tonic = "0.12"
+prost = "0.13"
+prost-types = "0.13"
+
+# Serialization
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+
+# Error handling
+thiserror = "2.0"
+anyhow = "1.0"
+
+# Observability
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter", "json"] }
+tracing-opentelemetry = "0.27"
+opentelemetry = { version = "0.27", features = ["trace"] }
+opentelemetry_sdk = { version = "0.27", features = ["rt-tokio"] }
+opentelemetry-otlp = { version = "0.27", features = ["grpc-tonic"] }
+
+# Metrics
+prometheus = "0.13"
+
+# Concurrency primitives
+parking_lot = "0.12"
+dashmap = "6.1"
+
+# Time handling
+chrono = { version = "0.4", features = ["serde"] }
+humantime-serde = "1.1"
+
+# UUIDs
+uuid = { version = "1.11", features = ["v4", "serde"] }
+
+# Validation
+validator = { version = "0.19", features = ["derive"] }
+
+# Configuration
+config = "0.14"
+
+# Utilities
+itertools = "0.14"
+once_cell = "1.20"
+
+[dev-dependencies]
+# Testing
+proptest = "1.6"
+mockall = "0.13"
+tokio-test = "0.4"
+tracing-test = "0.2"
+criterion = "0.5"
+tempfile = "3.14"
+
+# Golden test utilities
+pretty_assertions = "1.4"
+insta = { version = "1.41", features = ["json"] }
+
+[build-dependencies]
+tonic-build = "0.12"
+prost-build = "0.13"
+
+[profile.release]
+opt-level = 3
+lto = "thin"
+codegen-units = 1
+strip = true
+
+[profile.dev]
+opt-level = 0
+debug = true
+
+[profile.test]
+opt-level = 1
+
+# Linting configuration
+[lints.clippy]
+# Enforce strict safety
+unwrap_used = "deny"
+expect_used = "warn"
+panic = "warn"
+# unwrap_in_result = "deny"
+
+# Performance lints
+large_enum_variant = "warn"
+large_stack_arrays = "warn"
+
+# Style lints
+missing_errors_doc = "allow"  # Too noisy for internal code
+missing_panics_doc = "allow"
+module_name_repetitions = "allow"
+
+[lints.rust]
+unsafe_code = "deny"
+missing_debug_implementations = "warn"
