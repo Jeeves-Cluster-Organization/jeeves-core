@@ -13,7 +13,7 @@
 // versions:
 // - protoc-gen-go-grpc v1.6.0
 // - protoc             v6.33.4
-// source: coreengine/proto/engine.proto
+// source: engine.proto
 
 package proto
 
@@ -522,7 +522,7 @@ var KernelService_ServiceDesc = grpc.ServiceDesc{
 		},
 	},
 	Streams:  []grpc.StreamDesc{},
-	Metadata: "coreengine/proto/engine.proto",
+	Metadata: "engine.proto",
 }
 
 const (
@@ -834,7 +834,7 @@ var EngineService_ServiceDesc = grpc.ServiceDesc{
 			ServerStreams: true,
 		},
 	},
-	Metadata: "coreengine/proto/engine.proto",
+	Metadata: "engine.proto",
 }
 
 const (
@@ -1070,5 +1070,237 @@ var CommBusService_ServiceDesc = grpc.ServiceDesc{
 			ServerStreams: true,
 		},
 	},
-	Metadata: "coreengine/proto/engine.proto",
+	Metadata: "engine.proto",
+}
+
+const (
+	OrchestrationService_InitializeSession_FullMethodName  = "/jeeves.engine.v1.OrchestrationService/InitializeSession"
+	OrchestrationService_GetNextInstruction_FullMethodName = "/jeeves.engine.v1.OrchestrationService/GetNextInstruction"
+	OrchestrationService_ReportAgentResult_FullMethodName  = "/jeeves.engine.v1.OrchestrationService/ReportAgentResult"
+	OrchestrationService_GetSessionState_FullMethodName    = "/jeeves.engine.v1.OrchestrationService/GetSessionState"
+)
+
+// OrchestrationServiceClient is the client API for OrchestrationService service.
+//
+// For semantics around ctx use and closing/ending streaming RPCs, please refer to https://pkg.go.dev/google.golang.org/grpc/?tab=doc#ClientConn.NewStream.
+//
+// OrchestrationService moves pipeline orchestration from Python to Go kernel.
+// Python workers ask the kernel for instructions, execute agents, and report results.
+// The kernel owns: loop control, routing, bounds checking, state transitions.
+type OrchestrationServiceClient interface {
+	// Initialize a new orchestration session with pipeline config
+	InitializeSession(ctx context.Context, in *InitializeSessionRequest, opts ...grpc.CallOption) (*SessionState, error)
+	// Get the next instruction (what agent to run, or terminal state)
+	GetNextInstruction(ctx context.Context, in *GetNextInstructionRequest, opts ...grpc.CallOption) (*Instruction, error)
+	// Report agent execution result and get next instruction
+	ReportAgentResult(ctx context.Context, in *ReportAgentResultRequest, opts ...grpc.CallOption) (*Instruction, error)
+	// Get current session state (for debugging/recovery)
+	GetSessionState(ctx context.Context, in *GetSessionStateRequest, opts ...grpc.CallOption) (*SessionState, error)
+}
+
+type orchestrationServiceClient struct {
+	cc grpc.ClientConnInterface
+}
+
+func NewOrchestrationServiceClient(cc grpc.ClientConnInterface) OrchestrationServiceClient {
+	return &orchestrationServiceClient{cc}
+}
+
+func (c *orchestrationServiceClient) InitializeSession(ctx context.Context, in *InitializeSessionRequest, opts ...grpc.CallOption) (*SessionState, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(SessionState)
+	err := c.cc.Invoke(ctx, OrchestrationService_InitializeSession_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *orchestrationServiceClient) GetNextInstruction(ctx context.Context, in *GetNextInstructionRequest, opts ...grpc.CallOption) (*Instruction, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(Instruction)
+	err := c.cc.Invoke(ctx, OrchestrationService_GetNextInstruction_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *orchestrationServiceClient) ReportAgentResult(ctx context.Context, in *ReportAgentResultRequest, opts ...grpc.CallOption) (*Instruction, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(Instruction)
+	err := c.cc.Invoke(ctx, OrchestrationService_ReportAgentResult_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *orchestrationServiceClient) GetSessionState(ctx context.Context, in *GetSessionStateRequest, opts ...grpc.CallOption) (*SessionState, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(SessionState)
+	err := c.cc.Invoke(ctx, OrchestrationService_GetSessionState_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+// OrchestrationServiceServer is the server API for OrchestrationService service.
+// All implementations must embed UnimplementedOrchestrationServiceServer
+// for forward compatibility.
+//
+// OrchestrationService moves pipeline orchestration from Python to Go kernel.
+// Python workers ask the kernel for instructions, execute agents, and report results.
+// The kernel owns: loop control, routing, bounds checking, state transitions.
+type OrchestrationServiceServer interface {
+	// Initialize a new orchestration session with pipeline config
+	InitializeSession(context.Context, *InitializeSessionRequest) (*SessionState, error)
+	// Get the next instruction (what agent to run, or terminal state)
+	GetNextInstruction(context.Context, *GetNextInstructionRequest) (*Instruction, error)
+	// Report agent execution result and get next instruction
+	ReportAgentResult(context.Context, *ReportAgentResultRequest) (*Instruction, error)
+	// Get current session state (for debugging/recovery)
+	GetSessionState(context.Context, *GetSessionStateRequest) (*SessionState, error)
+	mustEmbedUnimplementedOrchestrationServiceServer()
+}
+
+// UnimplementedOrchestrationServiceServer must be embedded to have
+// forward compatible implementations.
+//
+// NOTE: this should be embedded by value instead of pointer to avoid a nil
+// pointer dereference when methods are called.
+type UnimplementedOrchestrationServiceServer struct{}
+
+func (UnimplementedOrchestrationServiceServer) InitializeSession(context.Context, *InitializeSessionRequest) (*SessionState, error) {
+	return nil, status.Error(codes.Unimplemented, "method InitializeSession not implemented")
+}
+func (UnimplementedOrchestrationServiceServer) GetNextInstruction(context.Context, *GetNextInstructionRequest) (*Instruction, error) {
+	return nil, status.Error(codes.Unimplemented, "method GetNextInstruction not implemented")
+}
+func (UnimplementedOrchestrationServiceServer) ReportAgentResult(context.Context, *ReportAgentResultRequest) (*Instruction, error) {
+	return nil, status.Error(codes.Unimplemented, "method ReportAgentResult not implemented")
+}
+func (UnimplementedOrchestrationServiceServer) GetSessionState(context.Context, *GetSessionStateRequest) (*SessionState, error) {
+	return nil, status.Error(codes.Unimplemented, "method GetSessionState not implemented")
+}
+func (UnimplementedOrchestrationServiceServer) mustEmbedUnimplementedOrchestrationServiceServer() {}
+func (UnimplementedOrchestrationServiceServer) testEmbeddedByValue()                              {}
+
+// UnsafeOrchestrationServiceServer may be embedded to opt out of forward compatibility for this service.
+// Use of this interface is not recommended, as added methods to OrchestrationServiceServer will
+// result in compilation errors.
+type UnsafeOrchestrationServiceServer interface {
+	mustEmbedUnimplementedOrchestrationServiceServer()
+}
+
+func RegisterOrchestrationServiceServer(s grpc.ServiceRegistrar, srv OrchestrationServiceServer) {
+	// If the following call panics, it indicates UnimplementedOrchestrationServiceServer was
+	// embedded by pointer and is nil.  This will cause panics if an
+	// unimplemented method is ever invoked, so we test this at initialization
+	// time to prevent it from happening at runtime later due to I/O.
+	if t, ok := srv.(interface{ testEmbeddedByValue() }); ok {
+		t.testEmbeddedByValue()
+	}
+	s.RegisterService(&OrchestrationService_ServiceDesc, srv)
+}
+
+func _OrchestrationService_InitializeSession_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(InitializeSessionRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(OrchestrationServiceServer).InitializeSession(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: OrchestrationService_InitializeSession_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(OrchestrationServiceServer).InitializeSession(ctx, req.(*InitializeSessionRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _OrchestrationService_GetNextInstruction_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(GetNextInstructionRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(OrchestrationServiceServer).GetNextInstruction(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: OrchestrationService_GetNextInstruction_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(OrchestrationServiceServer).GetNextInstruction(ctx, req.(*GetNextInstructionRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _OrchestrationService_ReportAgentResult_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(ReportAgentResultRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(OrchestrationServiceServer).ReportAgentResult(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: OrchestrationService_ReportAgentResult_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(OrchestrationServiceServer).ReportAgentResult(ctx, req.(*ReportAgentResultRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _OrchestrationService_GetSessionState_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(GetSessionStateRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(OrchestrationServiceServer).GetSessionState(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: OrchestrationService_GetSessionState_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(OrchestrationServiceServer).GetSessionState(ctx, req.(*GetSessionStateRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+// OrchestrationService_ServiceDesc is the grpc.ServiceDesc for OrchestrationService service.
+// It's only intended for direct use with grpc.RegisterService,
+// and not to be introspected or modified (even as a copy)
+var OrchestrationService_ServiceDesc = grpc.ServiceDesc{
+	ServiceName: "jeeves.engine.v1.OrchestrationService",
+	HandlerType: (*OrchestrationServiceServer)(nil),
+	Methods: []grpc.MethodDesc{
+		{
+			MethodName: "InitializeSession",
+			Handler:    _OrchestrationService_InitializeSession_Handler,
+		},
+		{
+			MethodName: "GetNextInstruction",
+			Handler:    _OrchestrationService_GetNextInstruction_Handler,
+		},
+		{
+			MethodName: "ReportAgentResult",
+			Handler:    _OrchestrationService_ReportAgentResult_Handler,
+		},
+		{
+			MethodName: "GetSessionState",
+			Handler:    _OrchestrationService_GetSessionState_Handler,
+		},
+	},
+	Streams:  []grpc.StreamDesc{},
+	Metadata: "engine.proto",
 }

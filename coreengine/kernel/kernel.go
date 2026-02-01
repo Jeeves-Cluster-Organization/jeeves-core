@@ -81,11 +81,12 @@ type Kernel struct {
 	logger Logger
 
 	// Subsystems
-	lifecycle  *LifecycleManager
-	resources  *ResourceTracker
-	rateLimiter *RateLimiter
-	interrupts *InterruptService
-	services   *ServiceRegistry
+	lifecycle    *LifecycleManager
+	resources    *ResourceTracker
+	rateLimiter  *RateLimiter
+	interrupts   *InterruptService
+	services     *ServiceRegistry
+	orchestrator *Orchestrator
 
 	// Event listeners
 	eventHandlers []KernelEventHandler
@@ -116,6 +117,9 @@ func NewKernel(logger Logger, config *KernelConfig) *Kernel {
 		eventHandlers: []KernelEventHandler{},
 		startedAt:     time.Now().UTC(),
 	}
+
+	// Initialize orchestrator after kernel is created (needs reference to kernel)
+	k.orchestrator = NewOrchestrator(k, logger)
 
 	if logger != nil {
 		logger.Info("kernel_initialized",
@@ -155,6 +159,11 @@ func (k *Kernel) Interrupts() *InterruptService {
 // Services returns the service registry.
 func (k *Kernel) Services() *ServiceRegistry {
 	return k.services
+}
+
+// Orchestrator returns the orchestrator for kernel-driven pipeline execution.
+func (k *Kernel) Orchestrator() *Orchestrator {
+	return k.orchestrator
 }
 
 // =============================================================================
@@ -544,16 +553,58 @@ func (k *Kernel) Cleanup() {
 	}
 }
 
+// ShutdownError aggregates multiple errors that occurred during shutdown.
+type ShutdownError struct {
+	Errors []error
+}
+
+// Error returns a string representation of the shutdown errors.
+func (e *ShutdownError) Error() string {
+	if len(e.Errors) == 0 {
+		return "shutdown completed with no errors"
+	}
+	if len(e.Errors) == 1 {
+		return fmt.Sprintf("shutdown error: %v", e.Errors[0])
+	}
+	return fmt.Sprintf("shutdown completed with %d errors", len(e.Errors))
+}
+
+// Unwrap returns the first error for compatibility with errors.Is/As.
+func (e *ShutdownError) Unwrap() error {
+	if len(e.Errors) > 0 {
+		return e.Errors[0]
+	}
+	return nil
+}
+
 // Shutdown gracefully shuts down the kernel.
+// Returns a ShutdownError if any processes failed to terminate.
 func (k *Kernel) Shutdown(ctx context.Context) error {
 	if k.logger != nil {
 		k.logger.Info("kernel_shutdown_initiated")
 	}
 
+	var errs []error
+
 	// Terminate all running processes
 	for _, pcb := range k.lifecycle.ListProcesses(nil, "") {
+		// Check context cancellation
+		select {
+		case <-ctx.Done():
+			errs = append(errs, fmt.Errorf("shutdown cancelled: %w", ctx.Err()))
+			if k.logger != nil {
+				k.logger.Warn("shutdown_cancelled", "error", ctx.Err().Error())
+			}
+			if len(errs) > 0 {
+				return &ShutdownError{Errors: errs}
+			}
+			return ctx.Err()
+		default:
+		}
+
 		if !pcb.IsTerminated() {
 			if err := k.Terminate(pcb.PID, "kernel_shutdown", true); err != nil {
+				errs = append(errs, fmt.Errorf("failed to terminate %s: %w", pcb.PID, err))
 				if k.logger != nil {
 					k.logger.Warn("shutdown_terminate_failed",
 						"pid", pcb.PID,
@@ -565,8 +616,11 @@ func (k *Kernel) Shutdown(ctx context.Context) error {
 	}
 
 	if k.logger != nil {
-		k.logger.Info("kernel_shutdown_completed")
+		k.logger.Info("kernel_shutdown_completed", "errors", len(errs))
 	}
 
+	if len(errs) > 0 {
+		return &ShutdownError{Errors: errs}
+	}
 	return nil
 }

@@ -35,11 +35,12 @@ type Logger interface {
 type EngineServer struct {
 	pb.UnimplementedEngineServiceServer
 
-	logger        Logger
-	runner        *runtime.PipelineRunner
-	kernelServer  *KernelServer  // Optional: enables KernelService registration
-	commBusServer *CommBusServer // Optional: enables CommBusService registration
-	runtimeMu     sync.RWMutex   // Protects runtime field
+	logger              Logger
+	runner              *runtime.PipelineRunner
+	kernelServer        *KernelServer        // Optional: enables KernelService registration
+	commBusServer       *CommBusServer       // Optional: enables CommBusService registration
+	orchestrationServer *OrchestrationServer // Optional: enables OrchestrationService registration
+	runtimeMu           sync.RWMutex         // Protects runtime field
 }
 
 // NewEngineServer creates a new gRPC server.
@@ -73,6 +74,18 @@ func (s *EngineServer) SetKernel(k *kernel.Kernel) {
 // When set, Start/StartBackground/NewGracefulServer will register the service.
 func (s *EngineServer) SetCommBusServer(cs *CommBusServer) {
 	s.commBusServer = cs
+}
+
+// SetOrchestrationServer sets the OrchestrationServer for OrchestrationService registration.
+// When set, Start/StartBackground/NewGracefulServer will register the service.
+func (s *EngineServer) SetOrchestrationServer(os *OrchestrationServer) {
+	s.orchestrationServer = os
+}
+
+// SetOrchestrator creates and sets an OrchestrationServer from the kernel's Orchestrator.
+// Convenience method that combines NewOrchestrationServer + SetOrchestrationServer.
+func (s *EngineServer) SetOrchestrator(k *kernel.Kernel) {
+	s.orchestrationServer = NewOrchestrationServer(s.logger, k.Orchestrator())
 }
 
 // getRunner returns the current pipeline runner.
@@ -644,6 +657,12 @@ func Start(address string, server *EngineServer) error {
 		server.logger.Info("commbus_service_registered")
 	}
 
+	// Register OrchestrationService if orchestration server is configured
+	if server.orchestrationServer != nil {
+		pb.RegisterOrchestrationServiceServer(grpcServer, server.orchestrationServer)
+		server.logger.Info("orchestration_service_registered")
+	}
+
 	server.logger.Info("grpc_server_started", "address", address)
 	return grpcServer.Serve(lis)
 }
@@ -668,6 +687,12 @@ func StartBackground(address string, server *EngineServer) (*grpc.Server, error)
 	if server.commBusServer != nil {
 		pb.RegisterCommBusServiceServer(grpcServer, server.commBusServer)
 		server.logger.Info("commbus_service_registered")
+	}
+
+	// Register OrchestrationService if orchestration server is configured
+	if server.orchestrationServer != nil {
+		pb.RegisterOrchestrationServiceServer(grpcServer, server.orchestrationServer)
+		server.logger.Info("orchestration_service_registered")
 	}
 
 	go func() {
@@ -715,6 +740,12 @@ func NewGracefulServer(coreServer *EngineServer, address string, opts ...grpc.Se
 	if coreServer.commBusServer != nil {
 		pb.RegisterCommBusServiceServer(grpcServer, coreServer.commBusServer)
 		coreServer.logger.Info("commbus_service_registered")
+	}
+
+	// Register OrchestrationService if orchestration server is configured
+	if coreServer.orchestrationServer != nil {
+		pb.RegisterOrchestrationServiceServer(grpcServer, coreServer.orchestrationServer)
+		coreServer.logger.Info("orchestration_service_registered")
 	}
 
 	return &GracefulServer{

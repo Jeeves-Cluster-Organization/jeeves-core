@@ -11,7 +11,9 @@ import (
 	"time"
 
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/credentials/insecure"
+	"google.golang.org/grpc/status"
 
 	"github.com/jeeves-cluster-organization/codeanalysis/coreengine/config"
 	"github.com/jeeves-cluster-organization/codeanalysis/coreengine/envelope"
@@ -562,9 +564,12 @@ func TestGRPCIntegration_ClientTimeout(t *testing.T) {
 	ts := startTestServer(t)
 	defer ts.stop()
 
-	// Very short timeout
-	ctx, cancel := context.WithTimeout(context.Background(), 1*time.Nanosecond)
+	// Use a reasonable timeout and wait for it to expire
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Millisecond)
 	defer cancel()
+
+	// Wait for context to be cancelled (deadline exceeded)
+	<-ctx.Done()
 
 	req := &pb.CreateEnvelopeRequest{
 		RawInput:  "Timeout test",
@@ -574,8 +579,11 @@ func TestGRPCIntegration_ClientTimeout(t *testing.T) {
 
 	_, err := ts.client.CreateEnvelope(ctx, req)
 
-	// Should timeout
-	assert.Error(t, err)
+	// Should get DeadlineExceeded error
+	require.Error(t, err)
+	st, ok := status.FromError(err)
+	require.True(t, ok, "expected gRPC status error")
+	assert.Equal(t, codes.DeadlineExceeded, st.Code(), "expected DeadlineExceeded code")
 }
 
 // =============================================================================

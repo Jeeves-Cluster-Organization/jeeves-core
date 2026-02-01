@@ -5,6 +5,7 @@ import (
 	"context"
 	"errors"
 	"testing"
+	"time"
 
 	"github.com/jeeves-cluster-organization/codeanalysis/coreengine/kernel"
 	pb "github.com/jeeves-cluster-organization/codeanalysis/coreengine/proto"
@@ -471,4 +472,57 @@ func TestValidation_AgenticWorkflow(t *testing.T) {
 	err = ValidateQuotaAvailable(k, "proc-1")
 	require.Error(t, err)
 	assert.Equal(t, codes.ResourceExhausted, status.Code(err))
+}
+
+// =============================================================================
+// CONTEXT DEADLINE TESTS
+// =============================================================================
+
+func TestCheckContextDeadline_NotExceeded(t *testing.T) {
+	ctx := context.Background()
+
+	err := CheckContextDeadline(ctx)
+
+	assert.NoError(t, err)
+}
+
+func TestCheckContextDeadline_DeadlineExceeded(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), time.Millisecond)
+	defer cancel()
+
+	// Wait for deadline to expire
+	time.Sleep(5 * time.Millisecond)
+
+	err := CheckContextDeadline(ctx)
+
+	require.Error(t, err)
+	st, ok := status.FromError(err)
+	require.True(t, ok)
+	assert.Equal(t, codes.DeadlineExceeded, st.Code())
+	assert.Contains(t, st.Message(), "deadline exceeded")
+}
+
+func TestCheckContextDeadline_Canceled(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+
+	// Cancel immediately
+	cancel()
+
+	err := CheckContextDeadline(ctx)
+
+	require.Error(t, err)
+	st, ok := status.FromError(err)
+	require.True(t, ok)
+	assert.Equal(t, codes.Canceled, st.Code())
+	assert.Contains(t, st.Message(), "canceled")
+}
+
+func TestCheckContextDeadline_WithActiveDeadline(t *testing.T) {
+	// Context with deadline in the future should not error
+	ctx, cancel := context.WithTimeout(context.Background(), time.Hour)
+	defer cancel()
+
+	err := CheckContextDeadline(ctx)
+
+	assert.NoError(t, err)
 }

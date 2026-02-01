@@ -13,7 +13,7 @@
 // versions:
 // 	protoc-gen-go v1.36.11
 // 	protoc        v6.33.4
-// source: coreengine/proto/engine.proto
+// source: engine.proto
 
 package proto
 
@@ -83,11 +83,11 @@ func (x TerminalReason) String() string {
 }
 
 func (TerminalReason) Descriptor() protoreflect.EnumDescriptor {
-	return file_coreengine_proto_engine_proto_enumTypes[0].Descriptor()
+	return file_engine_proto_enumTypes[0].Descriptor()
 }
 
 func (TerminalReason) Type() protoreflect.EnumType {
-	return &file_coreengine_proto_engine_proto_enumTypes[0]
+	return &file_engine_proto_enumTypes[0]
 }
 
 func (x TerminalReason) Number() protoreflect.EnumNumber {
@@ -96,7 +96,7 @@ func (x TerminalReason) Number() protoreflect.EnumNumber {
 
 // Deprecated: Use TerminalReason.Descriptor instead.
 func (TerminalReason) EnumDescriptor() ([]byte, []int) {
-	return file_coreengine_proto_engine_proto_rawDescGZIP(), []int{0}
+	return file_engine_proto_rawDescGZIP(), []int{0}
 }
 
 type InterruptKind int32
@@ -147,11 +147,11 @@ func (x InterruptKind) String() string {
 }
 
 func (InterruptKind) Descriptor() protoreflect.EnumDescriptor {
-	return file_coreengine_proto_engine_proto_enumTypes[1].Descriptor()
+	return file_engine_proto_enumTypes[1].Descriptor()
 }
 
 func (InterruptKind) Type() protoreflect.EnumType {
-	return &file_coreengine_proto_engine_proto_enumTypes[1]
+	return &file_engine_proto_enumTypes[1]
 }
 
 func (x InterruptKind) Number() protoreflect.EnumNumber {
@@ -160,7 +160,7 @@ func (x InterruptKind) Number() protoreflect.EnumNumber {
 
 // Deprecated: Use InterruptKind.Descriptor instead.
 func (InterruptKind) EnumDescriptor() ([]byte, []int) {
-	return file_coreengine_proto_engine_proto_rawDescGZIP(), []int{1}
+	return file_engine_proto_rawDescGZIP(), []int{1}
 }
 
 type ExecutionEventType int32
@@ -211,11 +211,11 @@ func (x ExecutionEventType) String() string {
 }
 
 func (ExecutionEventType) Descriptor() protoreflect.EnumDescriptor {
-	return file_coreengine_proto_engine_proto_enumTypes[2].Descriptor()
+	return file_engine_proto_enumTypes[2].Descriptor()
 }
 
 func (ExecutionEventType) Type() protoreflect.EnumType {
-	return &file_coreengine_proto_engine_proto_enumTypes[2]
+	return &file_engine_proto_enumTypes[2]
 }
 
 func (x ExecutionEventType) Number() protoreflect.EnumNumber {
@@ -224,7 +224,7 @@ func (x ExecutionEventType) Number() protoreflect.EnumNumber {
 
 // Deprecated: Use ExecutionEventType.Descriptor instead.
 func (ExecutionEventType) EnumDescriptor() ([]byte, []int) {
-	return file_coreengine_proto_engine_proto_rawDescGZIP(), []int{2}
+	return file_engine_proto_rawDescGZIP(), []int{2}
 }
 
 type RiskLevel int32
@@ -277,11 +277,11 @@ func (x RiskLevel) String() string {
 }
 
 func (RiskLevel) Descriptor() protoreflect.EnumDescriptor {
-	return file_coreengine_proto_engine_proto_enumTypes[3].Descriptor()
+	return file_engine_proto_enumTypes[3].Descriptor()
 }
 
 func (RiskLevel) Type() protoreflect.EnumType {
-	return &file_coreengine_proto_engine_proto_enumTypes[3]
+	return &file_engine_proto_enumTypes[3]
 }
 
 func (x RiskLevel) Number() protoreflect.EnumNumber {
@@ -290,7 +290,7 @@ func (x RiskLevel) Number() protoreflect.EnumNumber {
 
 // Deprecated: Use RiskLevel.Descriptor instead.
 func (RiskLevel) EnumDescriptor() ([]byte, []int) {
-	return file_coreengine_proto_engine_proto_rawDescGZIP(), []int{3}
+	return file_engine_proto_rawDescGZIP(), []int{3}
 }
 
 type ToolCategory int32
@@ -352,11 +352,11 @@ func (x ToolCategory) String() string {
 }
 
 func (ToolCategory) Descriptor() protoreflect.EnumDescriptor {
-	return file_coreengine_proto_engine_proto_enumTypes[4].Descriptor()
+	return file_engine_proto_enumTypes[4].Descriptor()
 }
 
 func (ToolCategory) Type() protoreflect.EnumType {
-	return &file_coreengine_proto_engine_proto_enumTypes[4]
+	return &file_engine_proto_enumTypes[4]
 }
 
 func (x ToolCategory) Number() protoreflect.EnumNumber {
@@ -365,7 +365,7 @@ func (x ToolCategory) Number() protoreflect.EnumNumber {
 
 // Deprecated: Use ToolCategory.Descriptor instead.
 func (ToolCategory) EnumDescriptor() ([]byte, []int) {
-	return file_coreengine_proto_engine_proto_rawDescGZIP(), []int{4}
+	return file_engine_proto_rawDescGZIP(), []int{4}
 }
 
 type HealthStatus int32
@@ -407,11 +407,11 @@ func (x HealthStatus) String() string {
 }
 
 func (HealthStatus) Descriptor() protoreflect.EnumDescriptor {
-	return file_coreengine_proto_engine_proto_enumTypes[5].Descriptor()
+	return file_engine_proto_enumTypes[5].Descriptor()
 }
 
 func (HealthStatus) Type() protoreflect.EnumType {
-	return &file_coreengine_proto_engine_proto_enumTypes[5]
+	return &file_engine_proto_enumTypes[5]
 }
 
 func (x HealthStatus) Number() protoreflect.EnumNumber {
@@ -420,7 +420,7 @@ func (x HealthStatus) Number() protoreflect.EnumNumber {
 
 // Deprecated: Use HealthStatus.Descriptor instead.
 func (HealthStatus) EnumDescriptor() ([]byte, []int) {
-	return file_coreengine_proto_engine_proto_rawDescGZIP(), []int{5}
+	return file_engine_proto_rawDescGZIP(), []int{5}
 }
 
 type LoopVerdict int32
@@ -462,11 +462,11 @@ func (x LoopVerdict) String() string {
 }
 
 func (LoopVerdict) Descriptor() protoreflect.EnumDescriptor {
-	return file_coreengine_proto_engine_proto_enumTypes[6].Descriptor()
+	return file_engine_proto_enumTypes[6].Descriptor()
 }
 
 func (LoopVerdict) Type() protoreflect.EnumType {
-	return &file_coreengine_proto_engine_proto_enumTypes[6]
+	return &file_engine_proto_enumTypes[6]
 }
 
 func (x LoopVerdict) Number() protoreflect.EnumNumber {
@@ -475,7 +475,7 @@ func (x LoopVerdict) Number() protoreflect.EnumNumber {
 
 // Deprecated: Use LoopVerdict.Descriptor instead.
 func (LoopVerdict) EnumDescriptor() ([]byte, []int) {
-	return file_coreengine_proto_engine_proto_rawDescGZIP(), []int{6}
+	return file_engine_proto_rawDescGZIP(), []int{6}
 }
 
 type RiskApproval int32
@@ -514,11 +514,11 @@ func (x RiskApproval) String() string {
 }
 
 func (RiskApproval) Descriptor() protoreflect.EnumDescriptor {
-	return file_coreengine_proto_engine_proto_enumTypes[7].Descriptor()
+	return file_engine_proto_enumTypes[7].Descriptor()
 }
 
 func (RiskApproval) Type() protoreflect.EnumType {
-	return &file_coreengine_proto_engine_proto_enumTypes[7]
+	return &file_engine_proto_enumTypes[7]
 }
 
 func (x RiskApproval) Number() protoreflect.EnumNumber {
@@ -527,7 +527,7 @@ func (x RiskApproval) Number() protoreflect.EnumNumber {
 
 // Deprecated: Use RiskApproval.Descriptor instead.
 func (RiskApproval) EnumDescriptor() ([]byte, []int) {
-	return file_coreengine_proto_engine_proto_rawDescGZIP(), []int{7}
+	return file_engine_proto_rawDescGZIP(), []int{7}
 }
 
 type ToolAccess int32
@@ -569,11 +569,11 @@ func (x ToolAccess) String() string {
 }
 
 func (ToolAccess) Descriptor() protoreflect.EnumDescriptor {
-	return file_coreengine_proto_engine_proto_enumTypes[8].Descriptor()
+	return file_engine_proto_enumTypes[8].Descriptor()
 }
 
 func (ToolAccess) Type() protoreflect.EnumType {
-	return &file_coreengine_proto_engine_proto_enumTypes[8]
+	return &file_engine_proto_enumTypes[8]
 }
 
 func (x ToolAccess) Number() protoreflect.EnumNumber {
@@ -582,7 +582,7 @@ func (x ToolAccess) Number() protoreflect.EnumNumber {
 
 // Deprecated: Use ToolAccess.Descriptor instead.
 func (ToolAccess) EnumDescriptor() ([]byte, []int) {
-	return file_coreengine_proto_engine_proto_rawDescGZIP(), []int{8}
+	return file_engine_proto_rawDescGZIP(), []int{8}
 }
 
 type OperationStatus int32
@@ -633,11 +633,11 @@ func (x OperationStatus) String() string {
 }
 
 func (OperationStatus) Descriptor() protoreflect.EnumDescriptor {
-	return file_coreengine_proto_engine_proto_enumTypes[9].Descriptor()
+	return file_engine_proto_enumTypes[9].Descriptor()
 }
 
 func (OperationStatus) Type() protoreflect.EnumType {
-	return &file_coreengine_proto_engine_proto_enumTypes[9]
+	return &file_engine_proto_enumTypes[9]
 }
 
 func (x OperationStatus) Number() protoreflect.EnumNumber {
@@ -646,7 +646,7 @@ func (x OperationStatus) Number() protoreflect.EnumNumber {
 
 // Deprecated: Use OperationStatus.Descriptor instead.
 func (OperationStatus) EnumDescriptor() ([]byte, []int) {
-	return file_coreengine_proto_engine_proto_rawDescGZIP(), []int{9}
+	return file_engine_proto_rawDescGZIP(), []int{9}
 }
 
 type InterruptStatus int32
@@ -688,11 +688,11 @@ func (x InterruptStatus) String() string {
 }
 
 func (InterruptStatus) Descriptor() protoreflect.EnumDescriptor {
-	return file_coreengine_proto_engine_proto_enumTypes[10].Descriptor()
+	return file_engine_proto_enumTypes[10].Descriptor()
 }
 
 func (InterruptStatus) Type() protoreflect.EnumType {
-	return &file_coreengine_proto_engine_proto_enumTypes[10]
+	return &file_engine_proto_enumTypes[10]
 }
 
 func (x InterruptStatus) Number() protoreflect.EnumNumber {
@@ -701,7 +701,7 @@ func (x InterruptStatus) Number() protoreflect.EnumNumber {
 
 // Deprecated: Use InterruptStatus.Descriptor instead.
 func (InterruptStatus) EnumDescriptor() ([]byte, []int) {
-	return file_coreengine_proto_engine_proto_rawDescGZIP(), []int{10}
+	return file_engine_proto_rawDescGZIP(), []int{10}
 }
 
 type RunMode int32
@@ -737,11 +737,11 @@ func (x RunMode) String() string {
 }
 
 func (RunMode) Descriptor() protoreflect.EnumDescriptor {
-	return file_coreengine_proto_engine_proto_enumTypes[11].Descriptor()
+	return file_engine_proto_enumTypes[11].Descriptor()
 }
 
 func (RunMode) Type() protoreflect.EnumType {
-	return &file_coreengine_proto_engine_proto_enumTypes[11]
+	return &file_engine_proto_enumTypes[11]
 }
 
 func (x RunMode) Number() protoreflect.EnumNumber {
@@ -750,7 +750,7 @@ func (x RunMode) Number() protoreflect.EnumNumber {
 
 // Deprecated: Use RunMode.Descriptor instead.
 func (RunMode) EnumDescriptor() ([]byte, []int) {
-	return file_coreengine_proto_engine_proto_rawDescGZIP(), []int{11}
+	return file_engine_proto_rawDescGZIP(), []int{11}
 }
 
 type JoinStrategy int32
@@ -786,11 +786,11 @@ func (x JoinStrategy) String() string {
 }
 
 func (JoinStrategy) Descriptor() protoreflect.EnumDescriptor {
-	return file_coreengine_proto_engine_proto_enumTypes[12].Descriptor()
+	return file_engine_proto_enumTypes[12].Descriptor()
 }
 
 func (JoinStrategy) Type() protoreflect.EnumType {
-	return &file_coreengine_proto_engine_proto_enumTypes[12]
+	return &file_engine_proto_enumTypes[12]
 }
 
 func (x JoinStrategy) Number() protoreflect.EnumNumber {
@@ -799,7 +799,7 @@ func (x JoinStrategy) Number() protoreflect.EnumNumber {
 
 // Deprecated: Use JoinStrategy.Descriptor instead.
 func (JoinStrategy) EnumDescriptor() ([]byte, []int) {
-	return file_coreengine_proto_engine_proto_rawDescGZIP(), []int{12}
+	return file_engine_proto_rawDescGZIP(), []int{12}
 }
 
 type AgentOutputMode int32
@@ -835,11 +835,11 @@ func (x AgentOutputMode) String() string {
 }
 
 func (AgentOutputMode) Descriptor() protoreflect.EnumDescriptor {
-	return file_coreengine_proto_engine_proto_enumTypes[13].Descriptor()
+	return file_engine_proto_enumTypes[13].Descriptor()
 }
 
 func (AgentOutputMode) Type() protoreflect.EnumType {
-	return &file_coreengine_proto_engine_proto_enumTypes[13]
+	return &file_engine_proto_enumTypes[13]
 }
 
 func (x AgentOutputMode) Number() protoreflect.EnumNumber {
@@ -848,7 +848,7 @@ func (x AgentOutputMode) Number() protoreflect.EnumNumber {
 
 // Deprecated: Use AgentOutputMode.Descriptor instead.
 func (AgentOutputMode) EnumDescriptor() ([]byte, []int) {
-	return file_coreengine_proto_engine_proto_rawDescGZIP(), []int{13}
+	return file_engine_proto_rawDescGZIP(), []int{13}
 }
 
 type TokenStreamMode int32
@@ -887,11 +887,11 @@ func (x TokenStreamMode) String() string {
 }
 
 func (TokenStreamMode) Descriptor() protoreflect.EnumDescriptor {
-	return file_coreengine_proto_engine_proto_enumTypes[14].Descriptor()
+	return file_engine_proto_enumTypes[14].Descriptor()
 }
 
 func (TokenStreamMode) Type() protoreflect.EnumType {
-	return &file_coreengine_proto_engine_proto_enumTypes[14]
+	return &file_engine_proto_enumTypes[14]
 }
 
 func (x TokenStreamMode) Number() protoreflect.EnumNumber {
@@ -900,7 +900,7 @@ func (x TokenStreamMode) Number() protoreflect.EnumNumber {
 
 // Deprecated: Use TokenStreamMode.Descriptor instead.
 func (TokenStreamMode) EnumDescriptor() ([]byte, []int) {
-	return file_coreengine_proto_engine_proto_rawDescGZIP(), []int{14}
+	return file_engine_proto_rawDescGZIP(), []int{14}
 }
 
 type AgentCapability int32
@@ -942,11 +942,11 @@ func (x AgentCapability) String() string {
 }
 
 func (AgentCapability) Descriptor() protoreflect.EnumDescriptor {
-	return file_coreengine_proto_engine_proto_enumTypes[15].Descriptor()
+	return file_engine_proto_enumTypes[15].Descriptor()
 }
 
 func (AgentCapability) Type() protoreflect.EnumType {
-	return &file_coreengine_proto_engine_proto_enumTypes[15]
+	return &file_engine_proto_enumTypes[15]
 }
 
 func (x AgentCapability) Number() protoreflect.EnumNumber {
@@ -955,7 +955,7 @@ func (x AgentCapability) Number() protoreflect.EnumNumber {
 
 // Deprecated: Use AgentCapability.Descriptor instead.
 func (AgentCapability) EnumDescriptor() ([]byte, []int) {
-	return file_coreengine_proto_engine_proto_rawDescGZIP(), []int{15}
+	return file_engine_proto_rawDescGZIP(), []int{15}
 }
 
 type ProcessState int32
@@ -1006,11 +1006,11 @@ func (x ProcessState) String() string {
 }
 
 func (ProcessState) Descriptor() protoreflect.EnumDescriptor {
-	return file_coreengine_proto_engine_proto_enumTypes[16].Descriptor()
+	return file_engine_proto_enumTypes[16].Descriptor()
 }
 
 func (ProcessState) Type() protoreflect.EnumType {
-	return &file_coreengine_proto_engine_proto_enumTypes[16]
+	return &file_engine_proto_enumTypes[16]
 }
 
 func (x ProcessState) Number() protoreflect.EnumNumber {
@@ -1019,7 +1019,7 @@ func (x ProcessState) Number() protoreflect.EnumNumber {
 
 // Deprecated: Use ProcessState.Descriptor instead.
 func (ProcessState) EnumDescriptor() ([]byte, []int) {
-	return file_coreengine_proto_engine_proto_rawDescGZIP(), []int{16}
+	return file_engine_proto_rawDescGZIP(), []int{16}
 }
 
 type SchedulingPriority int32
@@ -1064,11 +1064,11 @@ func (x SchedulingPriority) String() string {
 }
 
 func (SchedulingPriority) Descriptor() protoreflect.EnumDescriptor {
-	return file_coreengine_proto_engine_proto_enumTypes[17].Descriptor()
+	return file_engine_proto_enumTypes[17].Descriptor()
 }
 
 func (SchedulingPriority) Type() protoreflect.EnumType {
-	return &file_coreengine_proto_engine_proto_enumTypes[17]
+	return &file_engine_proto_enumTypes[17]
 }
 
 func (x SchedulingPriority) Number() protoreflect.EnumNumber {
@@ -1077,7 +1077,60 @@ func (x SchedulingPriority) Number() protoreflect.EnumNumber {
 
 // Deprecated: Use SchedulingPriority.Descriptor instead.
 func (SchedulingPriority) EnumDescriptor() ([]byte, []int) {
-	return file_coreengine_proto_engine_proto_rawDescGZIP(), []int{17}
+	return file_engine_proto_rawDescGZIP(), []int{17}
+}
+
+// InstructionKind indicates what the Python worker should do next.
+type InstructionKind int32
+
+const (
+	InstructionKind_INSTRUCTION_KIND_UNSPECIFIED InstructionKind = 0
+	InstructionKind_RUN_AGENT                    InstructionKind = 1 // Execute the specified agent
+	InstructionKind_TERMINATE                    InstructionKind = 2 // Pipeline is done (success or failure)
+	InstructionKind_WAIT_INTERRUPT               InstructionKind = 3 // Waiting for user interrupt resolution
+)
+
+// Enum value maps for InstructionKind.
+var (
+	InstructionKind_name = map[int32]string{
+		0: "INSTRUCTION_KIND_UNSPECIFIED",
+		1: "RUN_AGENT",
+		2: "TERMINATE",
+		3: "WAIT_INTERRUPT",
+	}
+	InstructionKind_value = map[string]int32{
+		"INSTRUCTION_KIND_UNSPECIFIED": 0,
+		"RUN_AGENT":                    1,
+		"TERMINATE":                    2,
+		"WAIT_INTERRUPT":               3,
+	}
+)
+
+func (x InstructionKind) Enum() *InstructionKind {
+	p := new(InstructionKind)
+	*p = x
+	return p
+}
+
+func (x InstructionKind) String() string {
+	return protoimpl.X.EnumStringOf(x.Descriptor(), protoreflect.EnumNumber(x))
+}
+
+func (InstructionKind) Descriptor() protoreflect.EnumDescriptor {
+	return file_engine_proto_enumTypes[18].Descriptor()
+}
+
+func (InstructionKind) Type() protoreflect.EnumType {
+	return &file_engine_proto_enumTypes[18]
+}
+
+func (x InstructionKind) Number() protoreflect.EnumNumber {
+	return protoreflect.EnumNumber(x)
+}
+
+// Deprecated: Use InstructionKind.Descriptor instead.
+func (InstructionKind) EnumDescriptor() ([]byte, []int) {
+	return file_engine_proto_rawDescGZIP(), []int{18}
 }
 
 type CreateEnvelopeRequest struct {
@@ -1094,7 +1147,7 @@ type CreateEnvelopeRequest struct {
 
 func (x *CreateEnvelopeRequest) Reset() {
 	*x = CreateEnvelopeRequest{}
-	mi := &file_coreengine_proto_engine_proto_msgTypes[0]
+	mi := &file_engine_proto_msgTypes[0]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1106,7 +1159,7 @@ func (x *CreateEnvelopeRequest) String() string {
 func (*CreateEnvelopeRequest) ProtoMessage() {}
 
 func (x *CreateEnvelopeRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_coreengine_proto_engine_proto_msgTypes[0]
+	mi := &file_engine_proto_msgTypes[0]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1119,7 +1172,7 @@ func (x *CreateEnvelopeRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use CreateEnvelopeRequest.ProtoReflect.Descriptor instead.
 func (*CreateEnvelopeRequest) Descriptor() ([]byte, []int) {
-	return file_coreengine_proto_engine_proto_rawDescGZIP(), []int{0}
+	return file_engine_proto_rawDescGZIP(), []int{0}
 }
 
 func (x *CreateEnvelopeRequest) GetRawInput() string {
@@ -1173,7 +1226,7 @@ type UpdateEnvelopeRequest struct {
 
 func (x *UpdateEnvelopeRequest) Reset() {
 	*x = UpdateEnvelopeRequest{}
-	mi := &file_coreengine_proto_engine_proto_msgTypes[1]
+	mi := &file_engine_proto_msgTypes[1]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1185,7 +1238,7 @@ func (x *UpdateEnvelopeRequest) String() string {
 func (*UpdateEnvelopeRequest) ProtoMessage() {}
 
 func (x *UpdateEnvelopeRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_coreengine_proto_engine_proto_msgTypes[1]
+	mi := &file_engine_proto_msgTypes[1]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1198,7 +1251,7 @@ func (x *UpdateEnvelopeRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use UpdateEnvelopeRequest.ProtoReflect.Descriptor instead.
 func (*UpdateEnvelopeRequest) Descriptor() ([]byte, []int) {
-	return file_coreengine_proto_engine_proto_rawDescGZIP(), []int{1}
+	return file_engine_proto_rawDescGZIP(), []int{1}
 }
 
 func (x *UpdateEnvelopeRequest) GetEnvelope() *Envelope {
@@ -1217,7 +1270,7 @@ type CloneRequest struct {
 
 func (x *CloneRequest) Reset() {
 	*x = CloneRequest{}
-	mi := &file_coreengine_proto_engine_proto_msgTypes[2]
+	mi := &file_engine_proto_msgTypes[2]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1229,7 +1282,7 @@ func (x *CloneRequest) String() string {
 func (*CloneRequest) ProtoMessage() {}
 
 func (x *CloneRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_coreengine_proto_engine_proto_msgTypes[2]
+	mi := &file_engine_proto_msgTypes[2]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1242,7 +1295,7 @@ func (x *CloneRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use CloneRequest.ProtoReflect.Descriptor instead.
 func (*CloneRequest) Descriptor() ([]byte, []int) {
-	return file_coreengine_proto_engine_proto_rawDescGZIP(), []int{2}
+	return file_engine_proto_rawDescGZIP(), []int{2}
 }
 
 func (x *CloneRequest) GetEnvelope() *Envelope {
@@ -1302,7 +1355,7 @@ type Envelope struct {
 
 func (x *Envelope) Reset() {
 	*x = Envelope{}
-	mi := &file_coreengine_proto_engine_proto_msgTypes[3]
+	mi := &file_engine_proto_msgTypes[3]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1314,7 +1367,7 @@ func (x *Envelope) String() string {
 func (*Envelope) ProtoMessage() {}
 
 func (x *Envelope) ProtoReflect() protoreflect.Message {
-	mi := &file_coreengine_proto_engine_proto_msgTypes[3]
+	mi := &file_engine_proto_msgTypes[3]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1327,7 +1380,7 @@ func (x *Envelope) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Envelope.ProtoReflect.Descriptor instead.
 func (*Envelope) Descriptor() ([]byte, []int) {
-	return file_coreengine_proto_engine_proto_rawDescGZIP(), []int{3}
+	return file_engine_proto_rawDescGZIP(), []int{3}
 }
 
 func (x *Envelope) GetEnvelopeId() string {
@@ -1571,7 +1624,7 @@ type FlowInterrupt struct {
 
 func (x *FlowInterrupt) Reset() {
 	*x = FlowInterrupt{}
-	mi := &file_coreengine_proto_engine_proto_msgTypes[4]
+	mi := &file_engine_proto_msgTypes[4]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1583,7 +1636,7 @@ func (x *FlowInterrupt) String() string {
 func (*FlowInterrupt) ProtoMessage() {}
 
 func (x *FlowInterrupt) ProtoReflect() protoreflect.Message {
-	mi := &file_coreengine_proto_engine_proto_msgTypes[4]
+	mi := &file_engine_proto_msgTypes[4]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1596,7 +1649,7 @@ func (x *FlowInterrupt) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use FlowInterrupt.ProtoReflect.Descriptor instead.
 func (*FlowInterrupt) Descriptor() ([]byte, []int) {
-	return file_coreengine_proto_engine_proto_rawDescGZIP(), []int{4}
+	return file_engine_proto_rawDescGZIP(), []int{4}
 }
 
 func (x *FlowInterrupt) GetId() string {
@@ -1724,7 +1777,7 @@ type InterruptResponse struct {
 
 func (x *InterruptResponse) Reset() {
 	*x = InterruptResponse{}
-	mi := &file_coreengine_proto_engine_proto_msgTypes[5]
+	mi := &file_engine_proto_msgTypes[5]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1736,7 +1789,7 @@ func (x *InterruptResponse) String() string {
 func (*InterruptResponse) ProtoMessage() {}
 
 func (x *InterruptResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_coreengine_proto_engine_proto_msgTypes[5]
+	mi := &file_engine_proto_msgTypes[5]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1749,7 +1802,7 @@ func (x *InterruptResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use InterruptResponse.ProtoReflect.Descriptor instead.
 func (*InterruptResponse) Descriptor() ([]byte, []int) {
-	return file_coreengine_proto_engine_proto_rawDescGZIP(), []int{5}
+	return file_engine_proto_rawDescGZIP(), []int{5}
 }
 
 func (x *InterruptResponse) GetText() string {
@@ -1800,7 +1853,7 @@ type BoundsResult struct {
 
 func (x *BoundsResult) Reset() {
 	*x = BoundsResult{}
-	mi := &file_coreengine_proto_engine_proto_msgTypes[6]
+	mi := &file_engine_proto_msgTypes[6]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1812,7 +1865,7 @@ func (x *BoundsResult) String() string {
 func (*BoundsResult) ProtoMessage() {}
 
 func (x *BoundsResult) ProtoReflect() protoreflect.Message {
-	mi := &file_coreengine_proto_engine_proto_msgTypes[6]
+	mi := &file_engine_proto_msgTypes[6]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1825,7 +1878,7 @@ func (x *BoundsResult) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use BoundsResult.ProtoReflect.Descriptor instead.
 func (*BoundsResult) Descriptor() ([]byte, []int) {
-	return file_coreengine_proto_engine_proto_rawDescGZIP(), []int{6}
+	return file_engine_proto_rawDescGZIP(), []int{6}
 }
 
 func (x *BoundsResult) GetCanContinue() bool {
@@ -1874,7 +1927,7 @@ type ExecuteRequest struct {
 
 func (x *ExecuteRequest) Reset() {
 	*x = ExecuteRequest{}
-	mi := &file_coreengine_proto_engine_proto_msgTypes[7]
+	mi := &file_engine_proto_msgTypes[7]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1886,7 +1939,7 @@ func (x *ExecuteRequest) String() string {
 func (*ExecuteRequest) ProtoMessage() {}
 
 func (x *ExecuteRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_coreengine_proto_engine_proto_msgTypes[7]
+	mi := &file_engine_proto_msgTypes[7]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1899,7 +1952,7 @@ func (x *ExecuteRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ExecuteRequest.ProtoReflect.Descriptor instead.
 func (*ExecuteRequest) Descriptor() ([]byte, []int) {
-	return file_coreengine_proto_engine_proto_rawDescGZIP(), []int{7}
+	return file_engine_proto_rawDescGZIP(), []int{7}
 }
 
 func (x *ExecuteRequest) GetEnvelope() *Envelope {
@@ -1934,7 +1987,7 @@ type ExecuteAgentRequest struct {
 
 func (x *ExecuteAgentRequest) Reset() {
 	*x = ExecuteAgentRequest{}
-	mi := &file_coreengine_proto_engine_proto_msgTypes[8]
+	mi := &file_engine_proto_msgTypes[8]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1946,7 +1999,7 @@ func (x *ExecuteAgentRequest) String() string {
 func (*ExecuteAgentRequest) ProtoMessage() {}
 
 func (x *ExecuteAgentRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_coreengine_proto_engine_proto_msgTypes[8]
+	mi := &file_engine_proto_msgTypes[8]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1959,7 +2012,7 @@ func (x *ExecuteAgentRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ExecuteAgentRequest.ProtoReflect.Descriptor instead.
 func (*ExecuteAgentRequest) Descriptor() ([]byte, []int) {
-	return file_coreengine_proto_engine_proto_rawDescGZIP(), []int{8}
+	return file_engine_proto_rawDescGZIP(), []int{8}
 }
 
 func (x *ExecuteAgentRequest) GetEnvelope() *Envelope {
@@ -1996,7 +2049,7 @@ type ExecutionEvent struct {
 
 func (x *ExecutionEvent) Reset() {
 	*x = ExecutionEvent{}
-	mi := &file_coreengine_proto_engine_proto_msgTypes[9]
+	mi := &file_engine_proto_msgTypes[9]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2008,7 +2061,7 @@ func (x *ExecutionEvent) String() string {
 func (*ExecutionEvent) ProtoMessage() {}
 
 func (x *ExecutionEvent) ProtoReflect() protoreflect.Message {
-	mi := &file_coreengine_proto_engine_proto_msgTypes[9]
+	mi := &file_engine_proto_msgTypes[9]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2021,7 +2074,7 @@ func (x *ExecutionEvent) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ExecutionEvent.ProtoReflect.Descriptor instead.
 func (*ExecutionEvent) Descriptor() ([]byte, []int) {
-	return file_coreengine_proto_engine_proto_rawDescGZIP(), []int{9}
+	return file_engine_proto_rawDescGZIP(), []int{9}
 }
 
 func (x *ExecutionEvent) GetType() ExecutionEventType {
@@ -2073,7 +2126,7 @@ type AgentResult struct {
 
 func (x *AgentResult) Reset() {
 	*x = AgentResult{}
-	mi := &file_coreengine_proto_engine_proto_msgTypes[10]
+	mi := &file_engine_proto_msgTypes[10]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2085,7 +2138,7 @@ func (x *AgentResult) String() string {
 func (*AgentResult) ProtoMessage() {}
 
 func (x *AgentResult) ProtoReflect() protoreflect.Message {
-	mi := &file_coreengine_proto_engine_proto_msgTypes[10]
+	mi := &file_engine_proto_msgTypes[10]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2098,7 +2151,7 @@ func (x *AgentResult) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use AgentResult.ProtoReflect.Descriptor instead.
 func (*AgentResult) Descriptor() ([]byte, []int) {
-	return file_coreengine_proto_engine_proto_rawDescGZIP(), []int{10}
+	return file_engine_proto_rawDescGZIP(), []int{10}
 }
 
 func (x *AgentResult) GetSuccess() bool {
@@ -2157,7 +2210,7 @@ type OperationResult struct {
 
 func (x *OperationResult) Reset() {
 	*x = OperationResult{}
-	mi := &file_coreengine_proto_engine_proto_msgTypes[11]
+	mi := &file_engine_proto_msgTypes[11]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2169,7 +2222,7 @@ func (x *OperationResult) String() string {
 func (*OperationResult) ProtoMessage() {}
 
 func (x *OperationResult) ProtoReflect() protoreflect.Message {
-	mi := &file_coreengine_proto_engine_proto_msgTypes[11]
+	mi := &file_engine_proto_msgTypes[11]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2182,7 +2235,7 @@ func (x *OperationResult) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use OperationResult.ProtoReflect.Descriptor instead.
 func (*OperationResult) Descriptor() ([]byte, []int) {
-	return file_coreengine_proto_engine_proto_rawDescGZIP(), []int{11}
+	return file_engine_proto_rawDescGZIP(), []int{11}
 }
 
 func (x *OperationResult) GetStatus() OperationStatus {
@@ -2232,7 +2285,7 @@ type RateLimitConfig struct {
 
 func (x *RateLimitConfig) Reset() {
 	*x = RateLimitConfig{}
-	mi := &file_coreengine_proto_engine_proto_msgTypes[12]
+	mi := &file_engine_proto_msgTypes[12]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2244,7 +2297,7 @@ func (x *RateLimitConfig) String() string {
 func (*RateLimitConfig) ProtoMessage() {}
 
 func (x *RateLimitConfig) ProtoReflect() protoreflect.Message {
-	mi := &file_coreengine_proto_engine_proto_msgTypes[12]
+	mi := &file_engine_proto_msgTypes[12]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2257,7 +2310,7 @@ func (x *RateLimitConfig) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use RateLimitConfig.ProtoReflect.Descriptor instead.
 func (*RateLimitConfig) Descriptor() ([]byte, []int) {
-	return file_coreengine_proto_engine_proto_rawDescGZIP(), []int{12}
+	return file_engine_proto_rawDescGZIP(), []int{12}
 }
 
 func (x *RateLimitConfig) GetRequestsPerMinute() int32 {
@@ -2304,7 +2357,7 @@ type RateLimitResult struct {
 
 func (x *RateLimitResult) Reset() {
 	*x = RateLimitResult{}
-	mi := &file_coreengine_proto_engine_proto_msgTypes[13]
+	mi := &file_engine_proto_msgTypes[13]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2316,7 +2369,7 @@ func (x *RateLimitResult) String() string {
 func (*RateLimitResult) ProtoMessage() {}
 
 func (x *RateLimitResult) ProtoReflect() protoreflect.Message {
-	mi := &file_coreengine_proto_engine_proto_msgTypes[13]
+	mi := &file_engine_proto_msgTypes[13]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2329,7 +2382,7 @@ func (x *RateLimitResult) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use RateLimitResult.ProtoReflect.Descriptor instead.
 func (*RateLimitResult) Descriptor() ([]byte, []int) {
-	return file_coreengine_proto_engine_proto_rawDescGZIP(), []int{13}
+	return file_engine_proto_rawDescGZIP(), []int{13}
 }
 
 func (x *RateLimitResult) GetAllowed() bool {
@@ -2399,7 +2452,7 @@ type RoutingRule struct {
 
 func (x *RoutingRule) Reset() {
 	*x = RoutingRule{}
-	mi := &file_coreengine_proto_engine_proto_msgTypes[14]
+	mi := &file_engine_proto_msgTypes[14]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2411,7 +2464,7 @@ func (x *RoutingRule) String() string {
 func (*RoutingRule) ProtoMessage() {}
 
 func (x *RoutingRule) ProtoReflect() protoreflect.Message {
-	mi := &file_coreengine_proto_engine_proto_msgTypes[14]
+	mi := &file_engine_proto_msgTypes[14]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2424,7 +2477,7 @@ func (x *RoutingRule) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use RoutingRule.ProtoReflect.Descriptor instead.
 func (*RoutingRule) Descriptor() ([]byte, []int) {
-	return file_coreengine_proto_engine_proto_rawDescGZIP(), []int{14}
+	return file_engine_proto_rawDescGZIP(), []int{14}
 }
 
 func (x *RoutingRule) GetCondition() string {
@@ -2459,7 +2512,7 @@ type EdgeLimit struct {
 
 func (x *EdgeLimit) Reset() {
 	*x = EdgeLimit{}
-	mi := &file_coreengine_proto_engine_proto_msgTypes[15]
+	mi := &file_engine_proto_msgTypes[15]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2471,7 +2524,7 @@ func (x *EdgeLimit) String() string {
 func (*EdgeLimit) ProtoMessage() {}
 
 func (x *EdgeLimit) ProtoReflect() protoreflect.Message {
-	mi := &file_coreengine_proto_engine_proto_msgTypes[15]
+	mi := &file_engine_proto_msgTypes[15]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2484,7 +2537,7 @@ func (x *EdgeLimit) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use EdgeLimit.ProtoReflect.Descriptor instead.
 func (*EdgeLimit) Descriptor() ([]byte, []int) {
-	return file_coreengine_proto_engine_proto_rawDescGZIP(), []int{15}
+	return file_engine_proto_rawDescGZIP(), []int{15}
 }
 
 func (x *EdgeLimit) GetFromStage() string {
@@ -2521,7 +2574,7 @@ type GenerationParams struct {
 
 func (x *GenerationParams) Reset() {
 	*x = GenerationParams{}
-	mi := &file_coreengine_proto_engine_proto_msgTypes[16]
+	mi := &file_engine_proto_msgTypes[16]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2533,7 +2586,7 @@ func (x *GenerationParams) String() string {
 func (*GenerationParams) ProtoMessage() {}
 
 func (x *GenerationParams) ProtoReflect() protoreflect.Message {
-	mi := &file_coreengine_proto_engine_proto_msgTypes[16]
+	mi := &file_engine_proto_msgTypes[16]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2546,7 +2599,7 @@ func (x *GenerationParams) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GenerationParams.ProtoReflect.Descriptor instead.
 func (*GenerationParams) Descriptor() ([]byte, []int) {
-	return file_coreengine_proto_engine_proto_rawDescGZIP(), []int{16}
+	return file_engine_proto_rawDescGZIP(), []int{16}
 }
 
 func (x *GenerationParams) GetStop() []string {
@@ -2625,7 +2678,7 @@ type AgentConfig struct {
 
 func (x *AgentConfig) Reset() {
 	*x = AgentConfig{}
-	mi := &file_coreengine_proto_engine_proto_msgTypes[17]
+	mi := &file_engine_proto_msgTypes[17]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2637,7 +2690,7 @@ func (x *AgentConfig) String() string {
 func (*AgentConfig) ProtoMessage() {}
 
 func (x *AgentConfig) ProtoReflect() protoreflect.Message {
-	mi := &file_coreengine_proto_engine_proto_msgTypes[17]
+	mi := &file_engine_proto_msgTypes[17]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2650,7 +2703,7 @@ func (x *AgentConfig) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use AgentConfig.ProtoReflect.Descriptor instead.
 func (*AgentConfig) Descriptor() ([]byte, []int) {
-	return file_coreengine_proto_engine_proto_rawDescGZIP(), []int{17}
+	return file_engine_proto_rawDescGZIP(), []int{17}
 }
 
 func (x *AgentConfig) GetName() string {
@@ -2851,7 +2904,7 @@ type PipelineConfig struct {
 
 func (x *PipelineConfig) Reset() {
 	*x = PipelineConfig{}
-	mi := &file_coreengine_proto_engine_proto_msgTypes[18]
+	mi := &file_engine_proto_msgTypes[18]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2863,7 +2916,7 @@ func (x *PipelineConfig) String() string {
 func (*PipelineConfig) ProtoMessage() {}
 
 func (x *PipelineConfig) ProtoReflect() protoreflect.Message {
-	mi := &file_coreengine_proto_engine_proto_msgTypes[18]
+	mi := &file_engine_proto_msgTypes[18]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2876,7 +2929,7 @@ func (x *PipelineConfig) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use PipelineConfig.ProtoReflect.Descriptor instead.
 func (*PipelineConfig) Descriptor() ([]byte, []int) {
-	return file_coreengine_proto_engine_proto_rawDescGZIP(), []int{18}
+	return file_engine_proto_rawDescGZIP(), []int{18}
 }
 
 func (x *PipelineConfig) GetName() string {
@@ -2968,7 +3021,7 @@ type ContextBounds struct {
 
 func (x *ContextBounds) Reset() {
 	*x = ContextBounds{}
-	mi := &file_coreengine_proto_engine_proto_msgTypes[19]
+	mi := &file_engine_proto_msgTypes[19]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2980,7 +3033,7 @@ func (x *ContextBounds) String() string {
 func (*ContextBounds) ProtoMessage() {}
 
 func (x *ContextBounds) ProtoReflect() protoreflect.Message {
-	mi := &file_coreengine_proto_engine_proto_msgTypes[19]
+	mi := &file_engine_proto_msgTypes[19]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2993,7 +3046,7 @@ func (x *ContextBounds) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ContextBounds.ProtoReflect.Descriptor instead.
 func (*ContextBounds) Descriptor() ([]byte, []int) {
-	return file_coreengine_proto_engine_proto_rawDescGZIP(), []int{19}
+	return file_engine_proto_rawDescGZIP(), []int{19}
 }
 
 func (x *ContextBounds) GetMaxInputTokens() int32 {
@@ -3039,7 +3092,7 @@ type ExecutionConfig struct {
 
 func (x *ExecutionConfig) Reset() {
 	*x = ExecutionConfig{}
-	mi := &file_coreengine_proto_engine_proto_msgTypes[20]
+	mi := &file_engine_proto_msgTypes[20]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3051,7 +3104,7 @@ func (x *ExecutionConfig) String() string {
 func (*ExecutionConfig) ProtoMessage() {}
 
 func (x *ExecutionConfig) ProtoReflect() protoreflect.Message {
-	mi := &file_coreengine_proto_engine_proto_msgTypes[20]
+	mi := &file_engine_proto_msgTypes[20]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3064,7 +3117,7 @@ func (x *ExecutionConfig) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ExecutionConfig.ProtoReflect.Descriptor instead.
 func (*ExecutionConfig) Descriptor() ([]byte, []int) {
-	return file_coreengine_proto_engine_proto_rawDescGZIP(), []int{20}
+	return file_engine_proto_rawDescGZIP(), []int{20}
 }
 
 func (x *ExecutionConfig) GetMaxIterations() int32 {
@@ -3130,7 +3183,7 @@ type OrchestrationFlags struct {
 
 func (x *OrchestrationFlags) Reset() {
 	*x = OrchestrationFlags{}
-	mi := &file_coreengine_proto_engine_proto_msgTypes[21]
+	mi := &file_engine_proto_msgTypes[21]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3142,7 +3195,7 @@ func (x *OrchestrationFlags) String() string {
 func (*OrchestrationFlags) ProtoMessage() {}
 
 func (x *OrchestrationFlags) ProtoReflect() protoreflect.Message {
-	mi := &file_coreengine_proto_engine_proto_msgTypes[21]
+	mi := &file_engine_proto_msgTypes[21]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3155,7 +3208,7 @@ func (x *OrchestrationFlags) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use OrchestrationFlags.ProtoReflect.Descriptor instead.
 func (*OrchestrationFlags) Descriptor() ([]byte, []int) {
-	return file_coreengine_proto_engine_proto_rawDescGZIP(), []int{21}
+	return file_engine_proto_rawDescGZIP(), []int{21}
 }
 
 func (x *OrchestrationFlags) GetEnableParallelAgents() bool {
@@ -3216,7 +3269,7 @@ type RequestContext struct {
 
 func (x *RequestContext) Reset() {
 	*x = RequestContext{}
-	mi := &file_coreengine_proto_engine_proto_msgTypes[22]
+	mi := &file_engine_proto_msgTypes[22]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3228,7 +3281,7 @@ func (x *RequestContext) String() string {
 func (*RequestContext) ProtoMessage() {}
 
 func (x *RequestContext) ProtoReflect() protoreflect.Message {
-	mi := &file_coreengine_proto_engine_proto_msgTypes[22]
+	mi := &file_engine_proto_msgTypes[22]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3241,7 +3294,7 @@ func (x *RequestContext) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use RequestContext.ProtoReflect.Descriptor instead.
 func (*RequestContext) Descriptor() ([]byte, []int) {
-	return file_coreengine_proto_engine_proto_rawDescGZIP(), []int{22}
+	return file_engine_proto_rawDescGZIP(), []int{22}
 }
 
 func (x *RequestContext) GetRequestId() string {
@@ -3316,7 +3369,7 @@ type ProcessingRecord struct {
 
 func (x *ProcessingRecord) Reset() {
 	*x = ProcessingRecord{}
-	mi := &file_coreengine_proto_engine_proto_msgTypes[23]
+	mi := &file_engine_proto_msgTypes[23]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3328,7 +3381,7 @@ func (x *ProcessingRecord) String() string {
 func (*ProcessingRecord) ProtoMessage() {}
 
 func (x *ProcessingRecord) ProtoReflect() protoreflect.Message {
-	mi := &file_coreengine_proto_engine_proto_msgTypes[23]
+	mi := &file_engine_proto_msgTypes[23]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3341,7 +3394,7 @@ func (x *ProcessingRecord) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ProcessingRecord.ProtoReflect.Descriptor instead.
 func (*ProcessingRecord) Descriptor() ([]byte, []int) {
-	return file_coreengine_proto_engine_proto_rawDescGZIP(), []int{23}
+	return file_engine_proto_rawDescGZIP(), []int{23}
 }
 
 func (x *ProcessingRecord) GetAgent() string {
@@ -3412,7 +3465,7 @@ type PipelineEvent struct {
 
 func (x *PipelineEvent) Reset() {
 	*x = PipelineEvent{}
-	mi := &file_coreengine_proto_engine_proto_msgTypes[24]
+	mi := &file_engine_proto_msgTypes[24]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3424,7 +3477,7 @@ func (x *PipelineEvent) String() string {
 func (*PipelineEvent) ProtoMessage() {}
 
 func (x *PipelineEvent) ProtoReflect() protoreflect.Message {
-	mi := &file_coreengine_proto_engine_proto_msgTypes[24]
+	mi := &file_engine_proto_msgTypes[24]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3437,7 +3490,7 @@ func (x *PipelineEvent) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use PipelineEvent.ProtoReflect.Descriptor instead.
 func (*PipelineEvent) Descriptor() ([]byte, []int) {
-	return file_coreengine_proto_engine_proto_rawDescGZIP(), []int{24}
+	return file_engine_proto_rawDescGZIP(), []int{24}
 }
 
 func (x *PipelineEvent) GetType() string {
@@ -3484,7 +3537,7 @@ type AgentLLMConfig struct {
 
 func (x *AgentLLMConfig) Reset() {
 	*x = AgentLLMConfig{}
-	mi := &file_coreengine_proto_engine_proto_msgTypes[25]
+	mi := &file_engine_proto_msgTypes[25]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3496,7 +3549,7 @@ func (x *AgentLLMConfig) String() string {
 func (*AgentLLMConfig) ProtoMessage() {}
 
 func (x *AgentLLMConfig) ProtoReflect() protoreflect.Message {
-	mi := &file_coreengine_proto_engine_proto_msgTypes[25]
+	mi := &file_engine_proto_msgTypes[25]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3509,7 +3562,7 @@ func (x *AgentLLMConfig) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use AgentLLMConfig.ProtoReflect.Descriptor instead.
 func (*AgentLLMConfig) Descriptor() ([]byte, []int) {
-	return file_coreengine_proto_engine_proto_rawDescGZIP(), []int{25}
+	return file_engine_proto_rawDescGZIP(), []int{25}
 }
 
 func (x *AgentLLMConfig) GetAgentName() string {
@@ -3588,7 +3641,7 @@ type ResourceQuota struct {
 
 func (x *ResourceQuota) Reset() {
 	*x = ResourceQuota{}
-	mi := &file_coreengine_proto_engine_proto_msgTypes[26]
+	mi := &file_engine_proto_msgTypes[26]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3600,7 +3653,7 @@ func (x *ResourceQuota) String() string {
 func (*ResourceQuota) ProtoMessage() {}
 
 func (x *ResourceQuota) ProtoReflect() protoreflect.Message {
-	mi := &file_coreengine_proto_engine_proto_msgTypes[26]
+	mi := &file_engine_proto_msgTypes[26]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3613,7 +3666,7 @@ func (x *ResourceQuota) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ResourceQuota.ProtoReflect.Descriptor instead.
 func (*ResourceQuota) Descriptor() ([]byte, []int) {
-	return file_coreengine_proto_engine_proto_rawDescGZIP(), []int{26}
+	return file_engine_proto_rawDescGZIP(), []int{26}
 }
 
 func (x *ResourceQuota) GetMaxInputTokens() int32 {
@@ -3715,7 +3768,7 @@ type ResourceUsage struct {
 
 func (x *ResourceUsage) Reset() {
 	*x = ResourceUsage{}
-	mi := &file_coreengine_proto_engine_proto_msgTypes[27]
+	mi := &file_engine_proto_msgTypes[27]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3727,7 +3780,7 @@ func (x *ResourceUsage) String() string {
 func (*ResourceUsage) ProtoMessage() {}
 
 func (x *ResourceUsage) ProtoReflect() protoreflect.Message {
-	mi := &file_coreengine_proto_engine_proto_msgTypes[27]
+	mi := &file_engine_proto_msgTypes[27]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3740,7 +3793,7 @@ func (x *ResourceUsage) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ResourceUsage.ProtoReflect.Descriptor instead.
 func (*ResourceUsage) Descriptor() ([]byte, []int) {
-	return file_coreengine_proto_engine_proto_rawDescGZIP(), []int{27}
+	return file_engine_proto_rawDescGZIP(), []int{27}
 }
 
 func (x *ResourceUsage) GetLlmCalls() int32 {
@@ -3825,7 +3878,7 @@ type ProcessControlBlock struct {
 
 func (x *ProcessControlBlock) Reset() {
 	*x = ProcessControlBlock{}
-	mi := &file_coreengine_proto_engine_proto_msgTypes[28]
+	mi := &file_engine_proto_msgTypes[28]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3837,7 +3890,7 @@ func (x *ProcessControlBlock) String() string {
 func (*ProcessControlBlock) ProtoMessage() {}
 
 func (x *ProcessControlBlock) ProtoReflect() protoreflect.Message {
-	mi := &file_coreengine_proto_engine_proto_msgTypes[28]
+	mi := &file_engine_proto_msgTypes[28]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3850,7 +3903,7 @@ func (x *ProcessControlBlock) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ProcessControlBlock.ProtoReflect.Descriptor instead.
 func (*ProcessControlBlock) Descriptor() ([]byte, []int) {
-	return file_coreengine_proto_engine_proto_rawDescGZIP(), []int{28}
+	return file_engine_proto_rawDescGZIP(), []int{28}
 }
 
 func (x *ProcessControlBlock) GetPid() string {
@@ -3993,7 +4046,7 @@ type CreateProcessRequest struct {
 
 func (x *CreateProcessRequest) Reset() {
 	*x = CreateProcessRequest{}
-	mi := &file_coreengine_proto_engine_proto_msgTypes[29]
+	mi := &file_engine_proto_msgTypes[29]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -4005,7 +4058,7 @@ func (x *CreateProcessRequest) String() string {
 func (*CreateProcessRequest) ProtoMessage() {}
 
 func (x *CreateProcessRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_coreengine_proto_engine_proto_msgTypes[29]
+	mi := &file_engine_proto_msgTypes[29]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -4018,7 +4071,7 @@ func (x *CreateProcessRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use CreateProcessRequest.ProtoReflect.Descriptor instead.
 func (*CreateProcessRequest) Descriptor() ([]byte, []int) {
-	return file_coreengine_proto_engine_proto_rawDescGZIP(), []int{29}
+	return file_engine_proto_rawDescGZIP(), []int{29}
 }
 
 func (x *CreateProcessRequest) GetPid() string {
@@ -4072,7 +4125,7 @@ type GetProcessRequest struct {
 
 func (x *GetProcessRequest) Reset() {
 	*x = GetProcessRequest{}
-	mi := &file_coreengine_proto_engine_proto_msgTypes[30]
+	mi := &file_engine_proto_msgTypes[30]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -4084,7 +4137,7 @@ func (x *GetProcessRequest) String() string {
 func (*GetProcessRequest) ProtoMessage() {}
 
 func (x *GetProcessRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_coreengine_proto_engine_proto_msgTypes[30]
+	mi := &file_engine_proto_msgTypes[30]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -4097,7 +4150,7 @@ func (x *GetProcessRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GetProcessRequest.ProtoReflect.Descriptor instead.
 func (*GetProcessRequest) Descriptor() ([]byte, []int) {
-	return file_coreengine_proto_engine_proto_rawDescGZIP(), []int{30}
+	return file_engine_proto_rawDescGZIP(), []int{30}
 }
 
 func (x *GetProcessRequest) GetPid() string {
@@ -4116,7 +4169,7 @@ type ScheduleProcessRequest struct {
 
 func (x *ScheduleProcessRequest) Reset() {
 	*x = ScheduleProcessRequest{}
-	mi := &file_coreengine_proto_engine_proto_msgTypes[31]
+	mi := &file_engine_proto_msgTypes[31]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -4128,7 +4181,7 @@ func (x *ScheduleProcessRequest) String() string {
 func (*ScheduleProcessRequest) ProtoMessage() {}
 
 func (x *ScheduleProcessRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_coreengine_proto_engine_proto_msgTypes[31]
+	mi := &file_engine_proto_msgTypes[31]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -4141,7 +4194,7 @@ func (x *ScheduleProcessRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ScheduleProcessRequest.ProtoReflect.Descriptor instead.
 func (*ScheduleProcessRequest) Descriptor() ([]byte, []int) {
-	return file_coreengine_proto_engine_proto_rawDescGZIP(), []int{31}
+	return file_engine_proto_rawDescGZIP(), []int{31}
 }
 
 func (x *ScheduleProcessRequest) GetPid() string {
@@ -4159,7 +4212,7 @@ type GetNextRunnableRequest struct {
 
 func (x *GetNextRunnableRequest) Reset() {
 	*x = GetNextRunnableRequest{}
-	mi := &file_coreengine_proto_engine_proto_msgTypes[32]
+	mi := &file_engine_proto_msgTypes[32]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -4171,7 +4224,7 @@ func (x *GetNextRunnableRequest) String() string {
 func (*GetNextRunnableRequest) ProtoMessage() {}
 
 func (x *GetNextRunnableRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_coreengine_proto_engine_proto_msgTypes[32]
+	mi := &file_engine_proto_msgTypes[32]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -4184,7 +4237,7 @@ func (x *GetNextRunnableRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GetNextRunnableRequest.ProtoReflect.Descriptor instead.
 func (*GetNextRunnableRequest) Descriptor() ([]byte, []int) {
-	return file_coreengine_proto_engine_proto_rawDescGZIP(), []int{32}
+	return file_engine_proto_rawDescGZIP(), []int{32}
 }
 
 type TransitionStateRequest struct {
@@ -4198,7 +4251,7 @@ type TransitionStateRequest struct {
 
 func (x *TransitionStateRequest) Reset() {
 	*x = TransitionStateRequest{}
-	mi := &file_coreengine_proto_engine_proto_msgTypes[33]
+	mi := &file_engine_proto_msgTypes[33]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -4210,7 +4263,7 @@ func (x *TransitionStateRequest) String() string {
 func (*TransitionStateRequest) ProtoMessage() {}
 
 func (x *TransitionStateRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_coreengine_proto_engine_proto_msgTypes[33]
+	mi := &file_engine_proto_msgTypes[33]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -4223,7 +4276,7 @@ func (x *TransitionStateRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use TransitionStateRequest.ProtoReflect.Descriptor instead.
 func (*TransitionStateRequest) Descriptor() ([]byte, []int) {
-	return file_coreengine_proto_engine_proto_rawDescGZIP(), []int{33}
+	return file_engine_proto_rawDescGZIP(), []int{33}
 }
 
 func (x *TransitionStateRequest) GetPid() string {
@@ -4258,7 +4311,7 @@ type TerminateProcessRequest struct {
 
 func (x *TerminateProcessRequest) Reset() {
 	*x = TerminateProcessRequest{}
-	mi := &file_coreengine_proto_engine_proto_msgTypes[34]
+	mi := &file_engine_proto_msgTypes[34]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -4270,7 +4323,7 @@ func (x *TerminateProcessRequest) String() string {
 func (*TerminateProcessRequest) ProtoMessage() {}
 
 func (x *TerminateProcessRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_coreengine_proto_engine_proto_msgTypes[34]
+	mi := &file_engine_proto_msgTypes[34]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -4283,7 +4336,7 @@ func (x *TerminateProcessRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use TerminateProcessRequest.ProtoReflect.Descriptor instead.
 func (*TerminateProcessRequest) Descriptor() ([]byte, []int) {
-	return file_coreengine_proto_engine_proto_rawDescGZIP(), []int{34}
+	return file_engine_proto_rawDescGZIP(), []int{34}
 }
 
 func (x *TerminateProcessRequest) GetPid() string {
@@ -4316,7 +4369,7 @@ type CheckQuotaRequest struct {
 
 func (x *CheckQuotaRequest) Reset() {
 	*x = CheckQuotaRequest{}
-	mi := &file_coreengine_proto_engine_proto_msgTypes[35]
+	mi := &file_engine_proto_msgTypes[35]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -4328,7 +4381,7 @@ func (x *CheckQuotaRequest) String() string {
 func (*CheckQuotaRequest) ProtoMessage() {}
 
 func (x *CheckQuotaRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_coreengine_proto_engine_proto_msgTypes[35]
+	mi := &file_engine_proto_msgTypes[35]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -4341,7 +4394,7 @@ func (x *CheckQuotaRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use CheckQuotaRequest.ProtoReflect.Descriptor instead.
 func (*CheckQuotaRequest) Descriptor() ([]byte, []int) {
-	return file_coreengine_proto_engine_proto_rawDescGZIP(), []int{35}
+	return file_engine_proto_rawDescGZIP(), []int{35}
 }
 
 func (x *CheckQuotaRequest) GetPid() string {
@@ -4363,7 +4416,7 @@ type QuotaResult struct {
 
 func (x *QuotaResult) Reset() {
 	*x = QuotaResult{}
-	mi := &file_coreengine_proto_engine_proto_msgTypes[36]
+	mi := &file_engine_proto_msgTypes[36]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -4375,7 +4428,7 @@ func (x *QuotaResult) String() string {
 func (*QuotaResult) ProtoMessage() {}
 
 func (x *QuotaResult) ProtoReflect() protoreflect.Message {
-	mi := &file_coreengine_proto_engine_proto_msgTypes[36]
+	mi := &file_engine_proto_msgTypes[36]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -4388,7 +4441,7 @@ func (x *QuotaResult) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use QuotaResult.ProtoReflect.Descriptor instead.
 func (*QuotaResult) Descriptor() ([]byte, []int) {
-	return file_coreengine_proto_engine_proto_rawDescGZIP(), []int{36}
+	return file_engine_proto_rawDescGZIP(), []int{36}
 }
 
 func (x *QuotaResult) GetWithinBounds() bool {
@@ -4433,7 +4486,7 @@ type RecordUsageRequest struct {
 
 func (x *RecordUsageRequest) Reset() {
 	*x = RecordUsageRequest{}
-	mi := &file_coreengine_proto_engine_proto_msgTypes[37]
+	mi := &file_engine_proto_msgTypes[37]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -4445,7 +4498,7 @@ func (x *RecordUsageRequest) String() string {
 func (*RecordUsageRequest) ProtoMessage() {}
 
 func (x *RecordUsageRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_coreengine_proto_engine_proto_msgTypes[37]
+	mi := &file_engine_proto_msgTypes[37]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -4458,7 +4511,7 @@ func (x *RecordUsageRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use RecordUsageRequest.ProtoReflect.Descriptor instead.
 func (*RecordUsageRequest) Descriptor() ([]byte, []int) {
-	return file_coreengine_proto_engine_proto_rawDescGZIP(), []int{37}
+	return file_engine_proto_rawDescGZIP(), []int{37}
 }
 
 func (x *RecordUsageRequest) GetPid() string {
@@ -4514,7 +4567,7 @@ type CheckRateLimitRequest struct {
 
 func (x *CheckRateLimitRequest) Reset() {
 	*x = CheckRateLimitRequest{}
-	mi := &file_coreengine_proto_engine_proto_msgTypes[38]
+	mi := &file_engine_proto_msgTypes[38]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -4526,7 +4579,7 @@ func (x *CheckRateLimitRequest) String() string {
 func (*CheckRateLimitRequest) ProtoMessage() {}
 
 func (x *CheckRateLimitRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_coreengine_proto_engine_proto_msgTypes[38]
+	mi := &file_engine_proto_msgTypes[38]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -4539,7 +4592,7 @@ func (x *CheckRateLimitRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use CheckRateLimitRequest.ProtoReflect.Descriptor instead.
 func (*CheckRateLimitRequest) Descriptor() ([]byte, []int) {
-	return file_coreengine_proto_engine_proto_rawDescGZIP(), []int{38}
+	return file_engine_proto_rawDescGZIP(), []int{38}
 }
 
 func (x *CheckRateLimitRequest) GetUserId() string {
@@ -4573,7 +4626,7 @@ type ListProcessesRequest struct {
 
 func (x *ListProcessesRequest) Reset() {
 	*x = ListProcessesRequest{}
-	mi := &file_coreengine_proto_engine_proto_msgTypes[39]
+	mi := &file_engine_proto_msgTypes[39]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -4585,7 +4638,7 @@ func (x *ListProcessesRequest) String() string {
 func (*ListProcessesRequest) ProtoMessage() {}
 
 func (x *ListProcessesRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_coreengine_proto_engine_proto_msgTypes[39]
+	mi := &file_engine_proto_msgTypes[39]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -4598,7 +4651,7 @@ func (x *ListProcessesRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ListProcessesRequest.ProtoReflect.Descriptor instead.
 func (*ListProcessesRequest) Descriptor() ([]byte, []int) {
-	return file_coreengine_proto_engine_proto_rawDescGZIP(), []int{39}
+	return file_engine_proto_rawDescGZIP(), []int{39}
 }
 
 func (x *ListProcessesRequest) GetState() ProcessState {
@@ -4624,7 +4677,7 @@ type ListProcessesResponse struct {
 
 func (x *ListProcessesResponse) Reset() {
 	*x = ListProcessesResponse{}
-	mi := &file_coreengine_proto_engine_proto_msgTypes[40]
+	mi := &file_engine_proto_msgTypes[40]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -4636,7 +4689,7 @@ func (x *ListProcessesResponse) String() string {
 func (*ListProcessesResponse) ProtoMessage() {}
 
 func (x *ListProcessesResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_coreengine_proto_engine_proto_msgTypes[40]
+	mi := &file_engine_proto_msgTypes[40]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -4649,7 +4702,7 @@ func (x *ListProcessesResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ListProcessesResponse.ProtoReflect.Descriptor instead.
 func (*ListProcessesResponse) Descriptor() ([]byte, []int) {
-	return file_coreengine_proto_engine_proto_rawDescGZIP(), []int{40}
+	return file_engine_proto_rawDescGZIP(), []int{40}
 }
 
 func (x *ListProcessesResponse) GetProcesses() []*ProcessControlBlock {
@@ -4667,7 +4720,7 @@ type GetProcessCountsRequest struct {
 
 func (x *GetProcessCountsRequest) Reset() {
 	*x = GetProcessCountsRequest{}
-	mi := &file_coreengine_proto_engine_proto_msgTypes[41]
+	mi := &file_engine_proto_msgTypes[41]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -4679,7 +4732,7 @@ func (x *GetProcessCountsRequest) String() string {
 func (*GetProcessCountsRequest) ProtoMessage() {}
 
 func (x *GetProcessCountsRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_coreengine_proto_engine_proto_msgTypes[41]
+	mi := &file_engine_proto_msgTypes[41]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -4692,7 +4745,7 @@ func (x *GetProcessCountsRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GetProcessCountsRequest.ProtoReflect.Descriptor instead.
 func (*GetProcessCountsRequest) Descriptor() ([]byte, []int) {
-	return file_coreengine_proto_engine_proto_rawDescGZIP(), []int{41}
+	return file_engine_proto_rawDescGZIP(), []int{41}
 }
 
 type ProcessCountsResponse struct {
@@ -4706,7 +4759,7 @@ type ProcessCountsResponse struct {
 
 func (x *ProcessCountsResponse) Reset() {
 	*x = ProcessCountsResponse{}
-	mi := &file_coreengine_proto_engine_proto_msgTypes[42]
+	mi := &file_engine_proto_msgTypes[42]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -4718,7 +4771,7 @@ func (x *ProcessCountsResponse) String() string {
 func (*ProcessCountsResponse) ProtoMessage() {}
 
 func (x *ProcessCountsResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_coreengine_proto_engine_proto_msgTypes[42]
+	mi := &file_engine_proto_msgTypes[42]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -4731,7 +4784,7 @@ func (x *ProcessCountsResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ProcessCountsResponse.ProtoReflect.Descriptor instead.
 func (*ProcessCountsResponse) Descriptor() ([]byte, []int) {
-	return file_coreengine_proto_engine_proto_rawDescGZIP(), []int{42}
+	return file_engine_proto_rawDescGZIP(), []int{42}
 }
 
 func (x *ProcessCountsResponse) GetCountsByState() map[string]int32 {
@@ -4765,7 +4818,7 @@ type CommBusPublishRequest struct {
 
 func (x *CommBusPublishRequest) Reset() {
 	*x = CommBusPublishRequest{}
-	mi := &file_coreengine_proto_engine_proto_msgTypes[43]
+	mi := &file_engine_proto_msgTypes[43]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -4777,7 +4830,7 @@ func (x *CommBusPublishRequest) String() string {
 func (*CommBusPublishRequest) ProtoMessage() {}
 
 func (x *CommBusPublishRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_coreengine_proto_engine_proto_msgTypes[43]
+	mi := &file_engine_proto_msgTypes[43]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -4790,7 +4843,7 @@ func (x *CommBusPublishRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use CommBusPublishRequest.ProtoReflect.Descriptor instead.
 func (*CommBusPublishRequest) Descriptor() ([]byte, []int) {
-	return file_coreengine_proto_engine_proto_rawDescGZIP(), []int{43}
+	return file_engine_proto_rawDescGZIP(), []int{43}
 }
 
 func (x *CommBusPublishRequest) GetEventType() string {
@@ -4817,7 +4870,7 @@ type CommBusPublishResponse struct {
 
 func (x *CommBusPublishResponse) Reset() {
 	*x = CommBusPublishResponse{}
-	mi := &file_coreengine_proto_engine_proto_msgTypes[44]
+	mi := &file_engine_proto_msgTypes[44]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -4829,7 +4882,7 @@ func (x *CommBusPublishResponse) String() string {
 func (*CommBusPublishResponse) ProtoMessage() {}
 
 func (x *CommBusPublishResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_coreengine_proto_engine_proto_msgTypes[44]
+	mi := &file_engine_proto_msgTypes[44]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -4842,7 +4895,7 @@ func (x *CommBusPublishResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use CommBusPublishResponse.ProtoReflect.Descriptor instead.
 func (*CommBusPublishResponse) Descriptor() ([]byte, []int) {
-	return file_coreengine_proto_engine_proto_rawDescGZIP(), []int{44}
+	return file_engine_proto_rawDescGZIP(), []int{44}
 }
 
 func (x *CommBusPublishResponse) GetSuccess() bool {
@@ -4869,7 +4922,7 @@ type CommBusSendRequest struct {
 
 func (x *CommBusSendRequest) Reset() {
 	*x = CommBusSendRequest{}
-	mi := &file_coreengine_proto_engine_proto_msgTypes[45]
+	mi := &file_engine_proto_msgTypes[45]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -4881,7 +4934,7 @@ func (x *CommBusSendRequest) String() string {
 func (*CommBusSendRequest) ProtoMessage() {}
 
 func (x *CommBusSendRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_coreengine_proto_engine_proto_msgTypes[45]
+	mi := &file_engine_proto_msgTypes[45]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -4894,7 +4947,7 @@ func (x *CommBusSendRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use CommBusSendRequest.ProtoReflect.Descriptor instead.
 func (*CommBusSendRequest) Descriptor() ([]byte, []int) {
-	return file_coreengine_proto_engine_proto_rawDescGZIP(), []int{45}
+	return file_engine_proto_rawDescGZIP(), []int{45}
 }
 
 func (x *CommBusSendRequest) GetCommandType() string {
@@ -4921,7 +4974,7 @@ type CommBusSendResponse struct {
 
 func (x *CommBusSendResponse) Reset() {
 	*x = CommBusSendResponse{}
-	mi := &file_coreengine_proto_engine_proto_msgTypes[46]
+	mi := &file_engine_proto_msgTypes[46]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -4933,7 +4986,7 @@ func (x *CommBusSendResponse) String() string {
 func (*CommBusSendResponse) ProtoMessage() {}
 
 func (x *CommBusSendResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_coreengine_proto_engine_proto_msgTypes[46]
+	mi := &file_engine_proto_msgTypes[46]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -4946,7 +4999,7 @@ func (x *CommBusSendResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use CommBusSendResponse.ProtoReflect.Descriptor instead.
 func (*CommBusSendResponse) Descriptor() ([]byte, []int) {
-	return file_coreengine_proto_engine_proto_rawDescGZIP(), []int{46}
+	return file_engine_proto_rawDescGZIP(), []int{46}
 }
 
 func (x *CommBusSendResponse) GetSuccess() bool {
@@ -4974,7 +5027,7 @@ type CommBusQueryRequest struct {
 
 func (x *CommBusQueryRequest) Reset() {
 	*x = CommBusQueryRequest{}
-	mi := &file_coreengine_proto_engine_proto_msgTypes[47]
+	mi := &file_engine_proto_msgTypes[47]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -4986,7 +5039,7 @@ func (x *CommBusQueryRequest) String() string {
 func (*CommBusQueryRequest) ProtoMessage() {}
 
 func (x *CommBusQueryRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_coreengine_proto_engine_proto_msgTypes[47]
+	mi := &file_engine_proto_msgTypes[47]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -4999,7 +5052,7 @@ func (x *CommBusQueryRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use CommBusQueryRequest.ProtoReflect.Descriptor instead.
 func (*CommBusQueryRequest) Descriptor() ([]byte, []int) {
-	return file_coreengine_proto_engine_proto_rawDescGZIP(), []int{47}
+	return file_engine_proto_rawDescGZIP(), []int{47}
 }
 
 func (x *CommBusQueryRequest) GetQueryType() string {
@@ -5034,7 +5087,7 @@ type CommBusQueryResponse struct {
 
 func (x *CommBusQueryResponse) Reset() {
 	*x = CommBusQueryResponse{}
-	mi := &file_coreengine_proto_engine_proto_msgTypes[48]
+	mi := &file_engine_proto_msgTypes[48]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -5046,7 +5099,7 @@ func (x *CommBusQueryResponse) String() string {
 func (*CommBusQueryResponse) ProtoMessage() {}
 
 func (x *CommBusQueryResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_coreengine_proto_engine_proto_msgTypes[48]
+	mi := &file_engine_proto_msgTypes[48]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -5059,7 +5112,7 @@ func (x *CommBusQueryResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use CommBusQueryResponse.ProtoReflect.Descriptor instead.
 func (*CommBusQueryResponse) Descriptor() ([]byte, []int) {
-	return file_coreengine_proto_engine_proto_rawDescGZIP(), []int{48}
+	return file_engine_proto_rawDescGZIP(), []int{48}
 }
 
 func (x *CommBusQueryResponse) GetSuccess() bool {
@@ -5092,7 +5145,7 @@ type CommBusSubscribeRequest struct {
 
 func (x *CommBusSubscribeRequest) Reset() {
 	*x = CommBusSubscribeRequest{}
-	mi := &file_coreengine_proto_engine_proto_msgTypes[49]
+	mi := &file_engine_proto_msgTypes[49]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -5104,7 +5157,7 @@ func (x *CommBusSubscribeRequest) String() string {
 func (*CommBusSubscribeRequest) ProtoMessage() {}
 
 func (x *CommBusSubscribeRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_coreengine_proto_engine_proto_msgTypes[49]
+	mi := &file_engine_proto_msgTypes[49]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -5117,7 +5170,7 @@ func (x *CommBusSubscribeRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use CommBusSubscribeRequest.ProtoReflect.Descriptor instead.
 func (*CommBusSubscribeRequest) Descriptor() ([]byte, []int) {
-	return file_coreengine_proto_engine_proto_rawDescGZIP(), []int{49}
+	return file_engine_proto_rawDescGZIP(), []int{49}
 }
 
 func (x *CommBusSubscribeRequest) GetEventTypes() []string {
@@ -5138,7 +5191,7 @@ type CommBusEvent struct {
 
 func (x *CommBusEvent) Reset() {
 	*x = CommBusEvent{}
-	mi := &file_coreengine_proto_engine_proto_msgTypes[50]
+	mi := &file_engine_proto_msgTypes[50]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -5150,7 +5203,7 @@ func (x *CommBusEvent) String() string {
 func (*CommBusEvent) ProtoMessage() {}
 
 func (x *CommBusEvent) ProtoReflect() protoreflect.Message {
-	mi := &file_coreengine_proto_engine_proto_msgTypes[50]
+	mi := &file_engine_proto_msgTypes[50]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -5163,7 +5216,7 @@ func (x *CommBusEvent) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use CommBusEvent.ProtoReflect.Descriptor instead.
 func (*CommBusEvent) Descriptor() ([]byte, []int) {
-	return file_coreengine_proto_engine_proto_rawDescGZIP(), []int{50}
+	return file_engine_proto_rawDescGZIP(), []int{50}
 }
 
 func (x *CommBusEvent) GetEventType() string {
@@ -5187,11 +5240,526 @@ func (x *CommBusEvent) GetTimestampMs() int64 {
 	return 0
 }
 
-var File_coreengine_proto_engine_proto protoreflect.FileDescriptor
+// Instruction tells Python worker what to do next.
+type Instruction struct {
+	state              protoimpl.MessageState `protogen:"open.v1"`
+	Kind               InstructionKind        `protobuf:"varint,1,opt,name=kind,proto3,enum=jeeves.engine.v1.InstructionKind" json:"kind,omitempty"`
+	AgentName          string                 `protobuf:"bytes,2,opt,name=agent_name,json=agentName,proto3" json:"agent_name,omitempty"`                                                      // Set if kind == RUN_AGENT
+	AgentConfig        []byte                 `protobuf:"bytes,3,opt,name=agent_config,json=agentConfig,proto3" json:"agent_config,omitempty"`                                                // JSON-encoded AgentConfig
+	Envelope           []byte                 `protobuf:"bytes,4,opt,name=envelope,proto3" json:"envelope,omitempty"`                                                                         // JSON-encoded envelope state
+	TerminalReason     TerminalReason         `protobuf:"varint,5,opt,name=terminal_reason,json=terminalReason,proto3,enum=jeeves.engine.v1.TerminalReason" json:"terminal_reason,omitempty"` // Set if kind == TERMINATE
+	TerminationMessage string                 `protobuf:"bytes,6,opt,name=termination_message,json=terminationMessage,proto3" json:"termination_message,omitempty"`                           // Human-readable termination message
+	InterruptPending   bool                   `protobuf:"varint,7,opt,name=interrupt_pending,json=interruptPending,proto3" json:"interrupt_pending,omitempty"`                                // Set if kind == WAIT_INTERRUPT
+	Interrupt          *FlowInterrupt         `protobuf:"bytes,8,opt,name=interrupt,proto3" json:"interrupt,omitempty"`                                                                       // Interrupt details if pending
+	unknownFields      protoimpl.UnknownFields
+	sizeCache          protoimpl.SizeCache
+}
 
-const file_coreengine_proto_engine_proto_rawDesc = "" +
+func (x *Instruction) Reset() {
+	*x = Instruction{}
+	mi := &file_engine_proto_msgTypes[51]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *Instruction) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*Instruction) ProtoMessage() {}
+
+func (x *Instruction) ProtoReflect() protoreflect.Message {
+	mi := &file_engine_proto_msgTypes[51]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use Instruction.ProtoReflect.Descriptor instead.
+func (*Instruction) Descriptor() ([]byte, []int) {
+	return file_engine_proto_rawDescGZIP(), []int{51}
+}
+
+func (x *Instruction) GetKind() InstructionKind {
+	if x != nil {
+		return x.Kind
+	}
+	return InstructionKind_INSTRUCTION_KIND_UNSPECIFIED
+}
+
+func (x *Instruction) GetAgentName() string {
+	if x != nil {
+		return x.AgentName
+	}
+	return ""
+}
+
+func (x *Instruction) GetAgentConfig() []byte {
+	if x != nil {
+		return x.AgentConfig
+	}
+	return nil
+}
+
+func (x *Instruction) GetEnvelope() []byte {
+	if x != nil {
+		return x.Envelope
+	}
+	return nil
+}
+
+func (x *Instruction) GetTerminalReason() TerminalReason {
+	if x != nil {
+		return x.TerminalReason
+	}
+	return TerminalReason_TERMINAL_REASON_UNSPECIFIED
+}
+
+func (x *Instruction) GetTerminationMessage() string {
+	if x != nil {
+		return x.TerminationMessage
+	}
+	return ""
+}
+
+func (x *Instruction) GetInterruptPending() bool {
+	if x != nil {
+		return x.InterruptPending
+	}
+	return false
+}
+
+func (x *Instruction) GetInterrupt() *FlowInterrupt {
+	if x != nil {
+		return x.Interrupt
+	}
+	return nil
+}
+
+// Request to get next instruction for a process.
+type GetNextInstructionRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	ProcessId     string                 `protobuf:"bytes,1,opt,name=process_id,json=processId,proto3" json:"process_id,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *GetNextInstructionRequest) Reset() {
+	*x = GetNextInstructionRequest{}
+	mi := &file_engine_proto_msgTypes[52]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *GetNextInstructionRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*GetNextInstructionRequest) ProtoMessage() {}
+
+func (x *GetNextInstructionRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_engine_proto_msgTypes[52]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use GetNextInstructionRequest.ProtoReflect.Descriptor instead.
+func (*GetNextInstructionRequest) Descriptor() ([]byte, []int) {
+	return file_engine_proto_rawDescGZIP(), []int{52}
+}
+
+func (x *GetNextInstructionRequest) GetProcessId() string {
+	if x != nil {
+		return x.ProcessId
+	}
+	return ""
+}
+
+// Request to report agent execution result.
+type ReportAgentResultRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	ProcessId     string                 `protobuf:"bytes,1,opt,name=process_id,json=processId,proto3" json:"process_id,omitempty"`
+	AgentName     string                 `protobuf:"bytes,2,opt,name=agent_name,json=agentName,proto3" json:"agent_name,omitempty"` // Agent that just completed
+	Output        []byte                 `protobuf:"bytes,3,opt,name=output,proto3" json:"output,omitempty"`                        // JSON-encoded agent output
+	Metrics       *AgentExecutionMetrics `protobuf:"bytes,4,opt,name=metrics,proto3" json:"metrics,omitempty"`
+	Success       bool                   `protobuf:"varint,5,opt,name=success,proto3" json:"success,omitempty"`
+	Error         string                 `protobuf:"bytes,6,opt,name=error,proto3" json:"error,omitempty"` // Error message if success=false
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ReportAgentResultRequest) Reset() {
+	*x = ReportAgentResultRequest{}
+	mi := &file_engine_proto_msgTypes[53]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ReportAgentResultRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ReportAgentResultRequest) ProtoMessage() {}
+
+func (x *ReportAgentResultRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_engine_proto_msgTypes[53]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ReportAgentResultRequest.ProtoReflect.Descriptor instead.
+func (*ReportAgentResultRequest) Descriptor() ([]byte, []int) {
+	return file_engine_proto_rawDescGZIP(), []int{53}
+}
+
+func (x *ReportAgentResultRequest) GetProcessId() string {
+	if x != nil {
+		return x.ProcessId
+	}
+	return ""
+}
+
+func (x *ReportAgentResultRequest) GetAgentName() string {
+	if x != nil {
+		return x.AgentName
+	}
+	return ""
+}
+
+func (x *ReportAgentResultRequest) GetOutput() []byte {
+	if x != nil {
+		return x.Output
+	}
+	return nil
+}
+
+func (x *ReportAgentResultRequest) GetMetrics() *AgentExecutionMetrics {
+	if x != nil {
+		return x.Metrics
+	}
+	return nil
+}
+
+func (x *ReportAgentResultRequest) GetSuccess() bool {
+	if x != nil {
+		return x.Success
+	}
+	return false
+}
+
+func (x *ReportAgentResultRequest) GetError() string {
+	if x != nil {
+		return x.Error
+	}
+	return ""
+}
+
+// Metrics from agent execution.
+type AgentExecutionMetrics struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	LlmCalls      int32                  `protobuf:"varint,1,opt,name=llm_calls,json=llmCalls,proto3" json:"llm_calls,omitempty"`
+	ToolCalls     int32                  `protobuf:"varint,2,opt,name=tool_calls,json=toolCalls,proto3" json:"tool_calls,omitempty"`
+	TokensIn      int32                  `protobuf:"varint,3,opt,name=tokens_in,json=tokensIn,proto3" json:"tokens_in,omitempty"`
+	TokensOut     int32                  `protobuf:"varint,4,opt,name=tokens_out,json=tokensOut,proto3" json:"tokens_out,omitempty"`
+	DurationMs    int32                  `protobuf:"varint,5,opt,name=duration_ms,json=durationMs,proto3" json:"duration_ms,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *AgentExecutionMetrics) Reset() {
+	*x = AgentExecutionMetrics{}
+	mi := &file_engine_proto_msgTypes[54]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *AgentExecutionMetrics) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*AgentExecutionMetrics) ProtoMessage() {}
+
+func (x *AgentExecutionMetrics) ProtoReflect() protoreflect.Message {
+	mi := &file_engine_proto_msgTypes[54]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use AgentExecutionMetrics.ProtoReflect.Descriptor instead.
+func (*AgentExecutionMetrics) Descriptor() ([]byte, []int) {
+	return file_engine_proto_rawDescGZIP(), []int{54}
+}
+
+func (x *AgentExecutionMetrics) GetLlmCalls() int32 {
+	if x != nil {
+		return x.LlmCalls
+	}
+	return 0
+}
+
+func (x *AgentExecutionMetrics) GetToolCalls() int32 {
+	if x != nil {
+		return x.ToolCalls
+	}
+	return 0
+}
+
+func (x *AgentExecutionMetrics) GetTokensIn() int32 {
+	if x != nil {
+		return x.TokensIn
+	}
+	return 0
+}
+
+func (x *AgentExecutionMetrics) GetTokensOut() int32 {
+	if x != nil {
+		return x.TokensOut
+	}
+	return 0
+}
+
+func (x *AgentExecutionMetrics) GetDurationMs() int32 {
+	if x != nil {
+		return x.DurationMs
+	}
+	return 0
+}
+
+// Request to initialize an orchestration session.
+type InitializeSessionRequest struct {
+	state          protoimpl.MessageState `protogen:"open.v1"`
+	ProcessId      string                 `protobuf:"bytes,1,opt,name=process_id,json=processId,proto3" json:"process_id,omitempty"`
+	PipelineConfig []byte                 `protobuf:"bytes,2,opt,name=pipeline_config,json=pipelineConfig,proto3" json:"pipeline_config,omitempty"` // JSON-encoded PipelineConfig
+	Envelope       []byte                 `protobuf:"bytes,3,opt,name=envelope,proto3" json:"envelope,omitempty"`                                   // JSON-encoded initial envelope
+	Force          bool                   `protobuf:"varint,4,opt,name=force,proto3" json:"force,omitempty"`                                        // If true, replace existing session (K8s-style)
+	unknownFields  protoimpl.UnknownFields
+	sizeCache      protoimpl.SizeCache
+}
+
+func (x *InitializeSessionRequest) Reset() {
+	*x = InitializeSessionRequest{}
+	mi := &file_engine_proto_msgTypes[55]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *InitializeSessionRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*InitializeSessionRequest) ProtoMessage() {}
+
+func (x *InitializeSessionRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_engine_proto_msgTypes[55]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use InitializeSessionRequest.ProtoReflect.Descriptor instead.
+func (*InitializeSessionRequest) Descriptor() ([]byte, []int) {
+	return file_engine_proto_rawDescGZIP(), []int{55}
+}
+
+func (x *InitializeSessionRequest) GetProcessId() string {
+	if x != nil {
+		return x.ProcessId
+	}
+	return ""
+}
+
+func (x *InitializeSessionRequest) GetPipelineConfig() []byte {
+	if x != nil {
+		return x.PipelineConfig
+	}
+	return nil
+}
+
+func (x *InitializeSessionRequest) GetEnvelope() []byte {
+	if x != nil {
+		return x.Envelope
+	}
+	return nil
+}
+
+func (x *InitializeSessionRequest) GetForce() bool {
+	if x != nil {
+		return x.Force
+	}
+	return false
+}
+
+// Current state of an orchestration session.
+type SessionState struct {
+	state          protoimpl.MessageState `protogen:"open.v1"`
+	ProcessId      string                 `protobuf:"bytes,1,opt,name=process_id,json=processId,proto3" json:"process_id,omitempty"`
+	CurrentStage   string                 `protobuf:"bytes,2,opt,name=current_stage,json=currentStage,proto3" json:"current_stage,omitempty"`
+	StageOrder     []string               `protobuf:"bytes,3,rep,name=stage_order,json=stageOrder,proto3" json:"stage_order,omitempty"`
+	Envelope       []byte                 `protobuf:"bytes,4,opt,name=envelope,proto3" json:"envelope,omitempty"`                                                                                                              // JSON-encoded envelope
+	EdgeTraversals map[string]int32       `protobuf:"bytes,5,rep,name=edge_traversals,json=edgeTraversals,proto3" json:"edge_traversals,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"varint,2,opt,name=value"` // "from->to" -> count
+	Terminated     bool                   `protobuf:"varint,6,opt,name=terminated,proto3" json:"terminated,omitempty"`
+	TerminalReason TerminalReason         `protobuf:"varint,7,opt,name=terminal_reason,json=terminalReason,proto3,enum=jeeves.engine.v1.TerminalReason" json:"terminal_reason,omitempty"`
+	unknownFields  protoimpl.UnknownFields
+	sizeCache      protoimpl.SizeCache
+}
+
+func (x *SessionState) Reset() {
+	*x = SessionState{}
+	mi := &file_engine_proto_msgTypes[56]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *SessionState) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*SessionState) ProtoMessage() {}
+
+func (x *SessionState) ProtoReflect() protoreflect.Message {
+	mi := &file_engine_proto_msgTypes[56]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use SessionState.ProtoReflect.Descriptor instead.
+func (*SessionState) Descriptor() ([]byte, []int) {
+	return file_engine_proto_rawDescGZIP(), []int{56}
+}
+
+func (x *SessionState) GetProcessId() string {
+	if x != nil {
+		return x.ProcessId
+	}
+	return ""
+}
+
+func (x *SessionState) GetCurrentStage() string {
+	if x != nil {
+		return x.CurrentStage
+	}
+	return ""
+}
+
+func (x *SessionState) GetStageOrder() []string {
+	if x != nil {
+		return x.StageOrder
+	}
+	return nil
+}
+
+func (x *SessionState) GetEnvelope() []byte {
+	if x != nil {
+		return x.Envelope
+	}
+	return nil
+}
+
+func (x *SessionState) GetEdgeTraversals() map[string]int32 {
+	if x != nil {
+		return x.EdgeTraversals
+	}
+	return nil
+}
+
+func (x *SessionState) GetTerminated() bool {
+	if x != nil {
+		return x.Terminated
+	}
+	return false
+}
+
+func (x *SessionState) GetTerminalReason() TerminalReason {
+	if x != nil {
+		return x.TerminalReason
+	}
+	return TerminalReason_TERMINAL_REASON_UNSPECIFIED
+}
+
+// Request to get current session state.
+type GetSessionStateRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	ProcessId     string                 `protobuf:"bytes,1,opt,name=process_id,json=processId,proto3" json:"process_id,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *GetSessionStateRequest) Reset() {
+	*x = GetSessionStateRequest{}
+	mi := &file_engine_proto_msgTypes[57]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *GetSessionStateRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*GetSessionStateRequest) ProtoMessage() {}
+
+func (x *GetSessionStateRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_engine_proto_msgTypes[57]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use GetSessionStateRequest.ProtoReflect.Descriptor instead.
+func (*GetSessionStateRequest) Descriptor() ([]byte, []int) {
+	return file_engine_proto_rawDescGZIP(), []int{57}
+}
+
+func (x *GetSessionStateRequest) GetProcessId() string {
+	if x != nil {
+		return x.ProcessId
+	}
+	return ""
+}
+
+var File_engine_proto protoreflect.FileDescriptor
+
+const file_engine_proto_rawDesc = "" +
 	"\n" +
-	"\x1dcoreengine/proto/engine.proto\x12\x10jeeves.engine.v1\"\xbc\x02\n" +
+	"\fengine.proto\x12\x10jeeves.engine.v1\"\xbc\x02\n" +
 	"\x15CreateEnvelopeRequest\x12\x1b\n" +
 	"\traw_input\x18\x01 \x01(\tR\brawInput\x12\x17\n" +
 	"\auser_id\x18\x02 \x01(\tR\x06userId\x12\x1d\n" +
@@ -5625,7 +6193,62 @@ const file_coreengine_proto_engine_proto_rawDesc = "" +
 	"\n" +
 	"event_type\x18\x01 \x01(\tR\teventType\x12\x18\n" +
 	"\apayload\x18\x02 \x01(\fR\apayload\x12!\n" +
-	"\ftimestamp_ms\x18\x03 \x01(\x03R\vtimestampMs*\xf1\x01\n" +
+	"\ftimestamp_ms\x18\x03 \x01(\x03R\vtimestampMs\"\x8a\x03\n" +
+	"\vInstruction\x125\n" +
+	"\x04kind\x18\x01 \x01(\x0e2!.jeeves.engine.v1.InstructionKindR\x04kind\x12\x1d\n" +
+	"\n" +
+	"agent_name\x18\x02 \x01(\tR\tagentName\x12!\n" +
+	"\fagent_config\x18\x03 \x01(\fR\vagentConfig\x12\x1a\n" +
+	"\benvelope\x18\x04 \x01(\fR\benvelope\x12I\n" +
+	"\x0fterminal_reason\x18\x05 \x01(\x0e2 .jeeves.engine.v1.TerminalReasonR\x0eterminalReason\x12/\n" +
+	"\x13termination_message\x18\x06 \x01(\tR\x12terminationMessage\x12+\n" +
+	"\x11interrupt_pending\x18\a \x01(\bR\x10interruptPending\x12=\n" +
+	"\tinterrupt\x18\b \x01(\v2\x1f.jeeves.engine.v1.FlowInterruptR\tinterrupt\":\n" +
+	"\x19GetNextInstructionRequest\x12\x1d\n" +
+	"\n" +
+	"process_id\x18\x01 \x01(\tR\tprocessId\"\xe3\x01\n" +
+	"\x18ReportAgentResultRequest\x12\x1d\n" +
+	"\n" +
+	"process_id\x18\x01 \x01(\tR\tprocessId\x12\x1d\n" +
+	"\n" +
+	"agent_name\x18\x02 \x01(\tR\tagentName\x12\x16\n" +
+	"\x06output\x18\x03 \x01(\fR\x06output\x12A\n" +
+	"\ametrics\x18\x04 \x01(\v2'.jeeves.engine.v1.AgentExecutionMetricsR\ametrics\x12\x18\n" +
+	"\asuccess\x18\x05 \x01(\bR\asuccess\x12\x14\n" +
+	"\x05error\x18\x06 \x01(\tR\x05error\"\xb0\x01\n" +
+	"\x15AgentExecutionMetrics\x12\x1b\n" +
+	"\tllm_calls\x18\x01 \x01(\x05R\bllmCalls\x12\x1d\n" +
+	"\n" +
+	"tool_calls\x18\x02 \x01(\x05R\ttoolCalls\x12\x1b\n" +
+	"\ttokens_in\x18\x03 \x01(\x05R\btokensIn\x12\x1d\n" +
+	"\n" +
+	"tokens_out\x18\x04 \x01(\x05R\ttokensOut\x12\x1f\n" +
+	"\vduration_ms\x18\x05 \x01(\x05R\n" +
+	"durationMs\"\x94\x01\n" +
+	"\x18InitializeSessionRequest\x12\x1d\n" +
+	"\n" +
+	"process_id\x18\x01 \x01(\tR\tprocessId\x12'\n" +
+	"\x0fpipeline_config\x18\x02 \x01(\fR\x0epipelineConfig\x12\x1a\n" +
+	"\benvelope\x18\x03 \x01(\fR\benvelope\x12\x14\n" +
+	"\x05force\x18\x04 \x01(\bR\x05force\"\x9a\x03\n" +
+	"\fSessionState\x12\x1d\n" +
+	"\n" +
+	"process_id\x18\x01 \x01(\tR\tprocessId\x12#\n" +
+	"\rcurrent_stage\x18\x02 \x01(\tR\fcurrentStage\x12\x1f\n" +
+	"\vstage_order\x18\x03 \x03(\tR\n" +
+	"stageOrder\x12\x1a\n" +
+	"\benvelope\x18\x04 \x01(\fR\benvelope\x12[\n" +
+	"\x0fedge_traversals\x18\x05 \x03(\v22.jeeves.engine.v1.SessionState.EdgeTraversalsEntryR\x0eedgeTraversals\x12\x1e\n" +
+	"\n" +
+	"terminated\x18\x06 \x01(\bR\n" +
+	"terminated\x12I\n" +
+	"\x0fterminal_reason\x18\a \x01(\x0e2 .jeeves.engine.v1.TerminalReasonR\x0eterminalReason\x1aA\n" +
+	"\x13EdgeTraversalsEntry\x12\x10\n" +
+	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
+	"\x05value\x18\x02 \x01(\x05R\x05value:\x028\x01\"7\n" +
+	"\x16GetSessionStateRequest\x12\x1d\n" +
+	"\n" +
+	"process_id\x18\x01 \x01(\tR\tprocessId*\xf1\x01\n" +
 	"\x0eTerminalReason\x12\x1f\n" +
 	"\x1bTERMINAL_REASON_UNSPECIFIED\x10\x00\x12\x1b\n" +
 	"\x17MAX_ITERATIONS_EXCEEDED\x10\x01\x12\x1a\n" +
@@ -5756,7 +6379,12 @@ const file_coreengine_proto_engine_proto_rawDesc = "" +
 	"\x18SCHEDULING_PRIORITY_HIGH\x10\x02\x12\x1e\n" +
 	"\x1aSCHEDULING_PRIORITY_NORMAL\x10\x03\x12\x1b\n" +
 	"\x17SCHEDULING_PRIORITY_LOW\x10\x04\x12\x1c\n" +
-	"\x18SCHEDULING_PRIORITY_IDLE\x10\x052\xab\b\n" +
+	"\x18SCHEDULING_PRIORITY_IDLE\x10\x05*e\n" +
+	"\x0fInstructionKind\x12 \n" +
+	"\x1cINSTRUCTION_KIND_UNSPECIFIED\x10\x00\x12\r\n" +
+	"\tRUN_AGENT\x10\x01\x12\r\n" +
+	"\tTERMINATE\x10\x02\x12\x12\n" +
+	"\x0eWAIT_INTERRUPT\x10\x032\xab\b\n" +
 	"\rKernelService\x12^\n" +
 	"\rCreateProcess\x12&.jeeves.engine.v1.CreateProcessRequest\x1a%.jeeves.engine.v1.ProcessControlBlock\x12X\n" +
 	"\n" +
@@ -5782,221 +6410,249 @@ const file_coreengine_proto_engine_proto_rawDesc = "" +
 	"\aPublish\x12'.jeeves.engine.v1.CommBusPublishRequest\x1a(.jeeves.engine.v1.CommBusPublishResponse\x12S\n" +
 	"\x04Send\x12$.jeeves.engine.v1.CommBusSendRequest\x1a%.jeeves.engine.v1.CommBusSendResponse\x12V\n" +
 	"\x05Query\x12%.jeeves.engine.v1.CommBusQueryRequest\x1a&.jeeves.engine.v1.CommBusQueryResponse\x12X\n" +
-	"\tSubscribe\x12).jeeves.engine.v1.CommBusSubscribeRequest\x1a\x1e.jeeves.engine.v1.CommBusEvent0\x01BFZDgithub.com/jeeves-cluster-organization/codeanalysis/coreengine/protob\x06proto3"
+	"\tSubscribe\x12).jeeves.engine.v1.CommBusSubscribeRequest\x1a\x1e.jeeves.engine.v1.CommBusEvent0\x012\x96\x03\n" +
+	"\x14OrchestrationService\x12_\n" +
+	"\x11InitializeSession\x12*.jeeves.engine.v1.InitializeSessionRequest\x1a\x1e.jeeves.engine.v1.SessionState\x12`\n" +
+	"\x12GetNextInstruction\x12+.jeeves.engine.v1.GetNextInstructionRequest\x1a\x1d.jeeves.engine.v1.Instruction\x12^\n" +
+	"\x11ReportAgentResult\x12*.jeeves.engine.v1.ReportAgentResultRequest\x1a\x1d.jeeves.engine.v1.Instruction\x12[\n" +
+	"\x0fGetSessionState\x12(.jeeves.engine.v1.GetSessionStateRequest\x1a\x1e.jeeves.engine.v1.SessionStateBFZDgithub.com/jeeves-cluster-organization/codeanalysis/coreengine/protob\x06proto3"
 
 var (
-	file_coreengine_proto_engine_proto_rawDescOnce sync.Once
-	file_coreengine_proto_engine_proto_rawDescData []byte
+	file_engine_proto_rawDescOnce sync.Once
+	file_engine_proto_rawDescData []byte
 )
 
-func file_coreengine_proto_engine_proto_rawDescGZIP() []byte {
-	file_coreengine_proto_engine_proto_rawDescOnce.Do(func() {
-		file_coreengine_proto_engine_proto_rawDescData = protoimpl.X.CompressGZIP(unsafe.Slice(unsafe.StringData(file_coreengine_proto_engine_proto_rawDesc), len(file_coreengine_proto_engine_proto_rawDesc)))
+func file_engine_proto_rawDescGZIP() []byte {
+	file_engine_proto_rawDescOnce.Do(func() {
+		file_engine_proto_rawDescData = protoimpl.X.CompressGZIP(unsafe.Slice(unsafe.StringData(file_engine_proto_rawDesc), len(file_engine_proto_rawDesc)))
 	})
-	return file_coreengine_proto_engine_proto_rawDescData
+	return file_engine_proto_rawDescData
 }
 
-var file_coreengine_proto_engine_proto_enumTypes = make([]protoimpl.EnumInfo, 18)
-var file_coreengine_proto_engine_proto_msgTypes = make([]protoimpl.MessageInfo, 60)
-var file_coreengine_proto_engine_proto_goTypes = []any{
-	(TerminalReason)(0),             // 0: jeeves.engine.v1.TerminalReason
-	(InterruptKind)(0),              // 1: jeeves.engine.v1.InterruptKind
-	(ExecutionEventType)(0),         // 2: jeeves.engine.v1.ExecutionEventType
-	(RiskLevel)(0),                  // 3: jeeves.engine.v1.RiskLevel
-	(ToolCategory)(0),               // 4: jeeves.engine.v1.ToolCategory
-	(HealthStatus)(0),               // 5: jeeves.engine.v1.HealthStatus
-	(LoopVerdict)(0),                // 6: jeeves.engine.v1.LoopVerdict
-	(RiskApproval)(0),               // 7: jeeves.engine.v1.RiskApproval
-	(ToolAccess)(0),                 // 8: jeeves.engine.v1.ToolAccess
-	(OperationStatus)(0),            // 9: jeeves.engine.v1.OperationStatus
-	(InterruptStatus)(0),            // 10: jeeves.engine.v1.InterruptStatus
-	(RunMode)(0),                    // 11: jeeves.engine.v1.RunMode
-	(JoinStrategy)(0),               // 12: jeeves.engine.v1.JoinStrategy
-	(AgentOutputMode)(0),            // 13: jeeves.engine.v1.AgentOutputMode
-	(TokenStreamMode)(0),            // 14: jeeves.engine.v1.TokenStreamMode
-	(AgentCapability)(0),            // 15: jeeves.engine.v1.AgentCapability
-	(ProcessState)(0),               // 16: jeeves.engine.v1.ProcessState
-	(SchedulingPriority)(0),         // 17: jeeves.engine.v1.SchedulingPriority
-	(*CreateEnvelopeRequest)(nil),   // 18: jeeves.engine.v1.CreateEnvelopeRequest
-	(*UpdateEnvelopeRequest)(nil),   // 19: jeeves.engine.v1.UpdateEnvelopeRequest
-	(*CloneRequest)(nil),            // 20: jeeves.engine.v1.CloneRequest
-	(*Envelope)(nil),                // 21: jeeves.engine.v1.Envelope
-	(*FlowInterrupt)(nil),           // 22: jeeves.engine.v1.FlowInterrupt
-	(*InterruptResponse)(nil),       // 23: jeeves.engine.v1.InterruptResponse
-	(*BoundsResult)(nil),            // 24: jeeves.engine.v1.BoundsResult
-	(*ExecuteRequest)(nil),          // 25: jeeves.engine.v1.ExecuteRequest
-	(*ExecuteAgentRequest)(nil),     // 26: jeeves.engine.v1.ExecuteAgentRequest
-	(*ExecutionEvent)(nil),          // 27: jeeves.engine.v1.ExecutionEvent
-	(*AgentResult)(nil),             // 28: jeeves.engine.v1.AgentResult
-	(*OperationResult)(nil),         // 29: jeeves.engine.v1.OperationResult
-	(*RateLimitConfig)(nil),         // 30: jeeves.engine.v1.RateLimitConfig
-	(*RateLimitResult)(nil),         // 31: jeeves.engine.v1.RateLimitResult
-	(*RoutingRule)(nil),             // 32: jeeves.engine.v1.RoutingRule
-	(*EdgeLimit)(nil),               // 33: jeeves.engine.v1.EdgeLimit
-	(*GenerationParams)(nil),        // 34: jeeves.engine.v1.GenerationParams
-	(*AgentConfig)(nil),             // 35: jeeves.engine.v1.AgentConfig
-	(*PipelineConfig)(nil),          // 36: jeeves.engine.v1.PipelineConfig
-	(*ContextBounds)(nil),           // 37: jeeves.engine.v1.ContextBounds
-	(*ExecutionConfig)(nil),         // 38: jeeves.engine.v1.ExecutionConfig
-	(*OrchestrationFlags)(nil),      // 39: jeeves.engine.v1.OrchestrationFlags
-	(*RequestContext)(nil),          // 40: jeeves.engine.v1.RequestContext
-	(*ProcessingRecord)(nil),        // 41: jeeves.engine.v1.ProcessingRecord
-	(*PipelineEvent)(nil),           // 42: jeeves.engine.v1.PipelineEvent
-	(*AgentLLMConfig)(nil),          // 43: jeeves.engine.v1.AgentLLMConfig
-	(*ResourceQuota)(nil),           // 44: jeeves.engine.v1.ResourceQuota
-	(*ResourceUsage)(nil),           // 45: jeeves.engine.v1.ResourceUsage
-	(*ProcessControlBlock)(nil),     // 46: jeeves.engine.v1.ProcessControlBlock
-	(*CreateProcessRequest)(nil),    // 47: jeeves.engine.v1.CreateProcessRequest
-	(*GetProcessRequest)(nil),       // 48: jeeves.engine.v1.GetProcessRequest
-	(*ScheduleProcessRequest)(nil),  // 49: jeeves.engine.v1.ScheduleProcessRequest
-	(*GetNextRunnableRequest)(nil),  // 50: jeeves.engine.v1.GetNextRunnableRequest
-	(*TransitionStateRequest)(nil),  // 51: jeeves.engine.v1.TransitionStateRequest
-	(*TerminateProcessRequest)(nil), // 52: jeeves.engine.v1.TerminateProcessRequest
-	(*CheckQuotaRequest)(nil),       // 53: jeeves.engine.v1.CheckQuotaRequest
-	(*QuotaResult)(nil),             // 54: jeeves.engine.v1.QuotaResult
-	(*RecordUsageRequest)(nil),      // 55: jeeves.engine.v1.RecordUsageRequest
-	(*CheckRateLimitRequest)(nil),   // 56: jeeves.engine.v1.CheckRateLimitRequest
-	(*ListProcessesRequest)(nil),    // 57: jeeves.engine.v1.ListProcessesRequest
-	(*ListProcessesResponse)(nil),   // 58: jeeves.engine.v1.ListProcessesResponse
-	(*GetProcessCountsRequest)(nil), // 59: jeeves.engine.v1.GetProcessCountsRequest
-	(*ProcessCountsResponse)(nil),   // 60: jeeves.engine.v1.ProcessCountsResponse
-	(*CommBusPublishRequest)(nil),   // 61: jeeves.engine.v1.CommBusPublishRequest
-	(*CommBusPublishResponse)(nil),  // 62: jeeves.engine.v1.CommBusPublishResponse
-	(*CommBusSendRequest)(nil),      // 63: jeeves.engine.v1.CommBusSendRequest
-	(*CommBusSendResponse)(nil),     // 64: jeeves.engine.v1.CommBusSendResponse
-	(*CommBusQueryRequest)(nil),     // 65: jeeves.engine.v1.CommBusQueryRequest
-	(*CommBusQueryResponse)(nil),    // 66: jeeves.engine.v1.CommBusQueryResponse
-	(*CommBusSubscribeRequest)(nil), // 67: jeeves.engine.v1.CommBusSubscribeRequest
-	(*CommBusEvent)(nil),            // 68: jeeves.engine.v1.CommBusEvent
-	nil,                             // 69: jeeves.engine.v1.CreateEnvelopeRequest.MetadataEntry
-	nil,                             // 70: jeeves.engine.v1.Envelope.OutputsEntry
-	nil,                             // 71: jeeves.engine.v1.Envelope.ActiveStagesEntry
-	nil,                             // 72: jeeves.engine.v1.Envelope.CompletedStageSetEntry
-	nil,                             // 73: jeeves.engine.v1.Envelope.FailedStagesEntry
-	nil,                             // 74: jeeves.engine.v1.Envelope.GoalCompletionStatusEntry
-	nil,                             // 75: jeeves.engine.v1.Envelope.MetadataStrEntry
-	nil,                             // 76: jeeves.engine.v1.RequestContext.TagsEntry
-	nil,                             // 77: jeeves.engine.v1.ProcessCountsResponse.CountsByStateEntry
+var file_engine_proto_enumTypes = make([]protoimpl.EnumInfo, 19)
+var file_engine_proto_msgTypes = make([]protoimpl.MessageInfo, 68)
+var file_engine_proto_goTypes = []any{
+	(TerminalReason)(0),               // 0: jeeves.engine.v1.TerminalReason
+	(InterruptKind)(0),                // 1: jeeves.engine.v1.InterruptKind
+	(ExecutionEventType)(0),           // 2: jeeves.engine.v1.ExecutionEventType
+	(RiskLevel)(0),                    // 3: jeeves.engine.v1.RiskLevel
+	(ToolCategory)(0),                 // 4: jeeves.engine.v1.ToolCategory
+	(HealthStatus)(0),                 // 5: jeeves.engine.v1.HealthStatus
+	(LoopVerdict)(0),                  // 6: jeeves.engine.v1.LoopVerdict
+	(RiskApproval)(0),                 // 7: jeeves.engine.v1.RiskApproval
+	(ToolAccess)(0),                   // 8: jeeves.engine.v1.ToolAccess
+	(OperationStatus)(0),              // 9: jeeves.engine.v1.OperationStatus
+	(InterruptStatus)(0),              // 10: jeeves.engine.v1.InterruptStatus
+	(RunMode)(0),                      // 11: jeeves.engine.v1.RunMode
+	(JoinStrategy)(0),                 // 12: jeeves.engine.v1.JoinStrategy
+	(AgentOutputMode)(0),              // 13: jeeves.engine.v1.AgentOutputMode
+	(TokenStreamMode)(0),              // 14: jeeves.engine.v1.TokenStreamMode
+	(AgentCapability)(0),              // 15: jeeves.engine.v1.AgentCapability
+	(ProcessState)(0),                 // 16: jeeves.engine.v1.ProcessState
+	(SchedulingPriority)(0),           // 17: jeeves.engine.v1.SchedulingPriority
+	(InstructionKind)(0),              // 18: jeeves.engine.v1.InstructionKind
+	(*CreateEnvelopeRequest)(nil),     // 19: jeeves.engine.v1.CreateEnvelopeRequest
+	(*UpdateEnvelopeRequest)(nil),     // 20: jeeves.engine.v1.UpdateEnvelopeRequest
+	(*CloneRequest)(nil),              // 21: jeeves.engine.v1.CloneRequest
+	(*Envelope)(nil),                  // 22: jeeves.engine.v1.Envelope
+	(*FlowInterrupt)(nil),             // 23: jeeves.engine.v1.FlowInterrupt
+	(*InterruptResponse)(nil),         // 24: jeeves.engine.v1.InterruptResponse
+	(*BoundsResult)(nil),              // 25: jeeves.engine.v1.BoundsResult
+	(*ExecuteRequest)(nil),            // 26: jeeves.engine.v1.ExecuteRequest
+	(*ExecuteAgentRequest)(nil),       // 27: jeeves.engine.v1.ExecuteAgentRequest
+	(*ExecutionEvent)(nil),            // 28: jeeves.engine.v1.ExecutionEvent
+	(*AgentResult)(nil),               // 29: jeeves.engine.v1.AgentResult
+	(*OperationResult)(nil),           // 30: jeeves.engine.v1.OperationResult
+	(*RateLimitConfig)(nil),           // 31: jeeves.engine.v1.RateLimitConfig
+	(*RateLimitResult)(nil),           // 32: jeeves.engine.v1.RateLimitResult
+	(*RoutingRule)(nil),               // 33: jeeves.engine.v1.RoutingRule
+	(*EdgeLimit)(nil),                 // 34: jeeves.engine.v1.EdgeLimit
+	(*GenerationParams)(nil),          // 35: jeeves.engine.v1.GenerationParams
+	(*AgentConfig)(nil),               // 36: jeeves.engine.v1.AgentConfig
+	(*PipelineConfig)(nil),            // 37: jeeves.engine.v1.PipelineConfig
+	(*ContextBounds)(nil),             // 38: jeeves.engine.v1.ContextBounds
+	(*ExecutionConfig)(nil),           // 39: jeeves.engine.v1.ExecutionConfig
+	(*OrchestrationFlags)(nil),        // 40: jeeves.engine.v1.OrchestrationFlags
+	(*RequestContext)(nil),            // 41: jeeves.engine.v1.RequestContext
+	(*ProcessingRecord)(nil),          // 42: jeeves.engine.v1.ProcessingRecord
+	(*PipelineEvent)(nil),             // 43: jeeves.engine.v1.PipelineEvent
+	(*AgentLLMConfig)(nil),            // 44: jeeves.engine.v1.AgentLLMConfig
+	(*ResourceQuota)(nil),             // 45: jeeves.engine.v1.ResourceQuota
+	(*ResourceUsage)(nil),             // 46: jeeves.engine.v1.ResourceUsage
+	(*ProcessControlBlock)(nil),       // 47: jeeves.engine.v1.ProcessControlBlock
+	(*CreateProcessRequest)(nil),      // 48: jeeves.engine.v1.CreateProcessRequest
+	(*GetProcessRequest)(nil),         // 49: jeeves.engine.v1.GetProcessRequest
+	(*ScheduleProcessRequest)(nil),    // 50: jeeves.engine.v1.ScheduleProcessRequest
+	(*GetNextRunnableRequest)(nil),    // 51: jeeves.engine.v1.GetNextRunnableRequest
+	(*TransitionStateRequest)(nil),    // 52: jeeves.engine.v1.TransitionStateRequest
+	(*TerminateProcessRequest)(nil),   // 53: jeeves.engine.v1.TerminateProcessRequest
+	(*CheckQuotaRequest)(nil),         // 54: jeeves.engine.v1.CheckQuotaRequest
+	(*QuotaResult)(nil),               // 55: jeeves.engine.v1.QuotaResult
+	(*RecordUsageRequest)(nil),        // 56: jeeves.engine.v1.RecordUsageRequest
+	(*CheckRateLimitRequest)(nil),     // 57: jeeves.engine.v1.CheckRateLimitRequest
+	(*ListProcessesRequest)(nil),      // 58: jeeves.engine.v1.ListProcessesRequest
+	(*ListProcessesResponse)(nil),     // 59: jeeves.engine.v1.ListProcessesResponse
+	(*GetProcessCountsRequest)(nil),   // 60: jeeves.engine.v1.GetProcessCountsRequest
+	(*ProcessCountsResponse)(nil),     // 61: jeeves.engine.v1.ProcessCountsResponse
+	(*CommBusPublishRequest)(nil),     // 62: jeeves.engine.v1.CommBusPublishRequest
+	(*CommBusPublishResponse)(nil),    // 63: jeeves.engine.v1.CommBusPublishResponse
+	(*CommBusSendRequest)(nil),        // 64: jeeves.engine.v1.CommBusSendRequest
+	(*CommBusSendResponse)(nil),       // 65: jeeves.engine.v1.CommBusSendResponse
+	(*CommBusQueryRequest)(nil),       // 66: jeeves.engine.v1.CommBusQueryRequest
+	(*CommBusQueryResponse)(nil),      // 67: jeeves.engine.v1.CommBusQueryResponse
+	(*CommBusSubscribeRequest)(nil),   // 68: jeeves.engine.v1.CommBusSubscribeRequest
+	(*CommBusEvent)(nil),              // 69: jeeves.engine.v1.CommBusEvent
+	(*Instruction)(nil),               // 70: jeeves.engine.v1.Instruction
+	(*GetNextInstructionRequest)(nil), // 71: jeeves.engine.v1.GetNextInstructionRequest
+	(*ReportAgentResultRequest)(nil),  // 72: jeeves.engine.v1.ReportAgentResultRequest
+	(*AgentExecutionMetrics)(nil),     // 73: jeeves.engine.v1.AgentExecutionMetrics
+	(*InitializeSessionRequest)(nil),  // 74: jeeves.engine.v1.InitializeSessionRequest
+	(*SessionState)(nil),              // 75: jeeves.engine.v1.SessionState
+	(*GetSessionStateRequest)(nil),    // 76: jeeves.engine.v1.GetSessionStateRequest
+	nil,                               // 77: jeeves.engine.v1.CreateEnvelopeRequest.MetadataEntry
+	nil,                               // 78: jeeves.engine.v1.Envelope.OutputsEntry
+	nil,                               // 79: jeeves.engine.v1.Envelope.ActiveStagesEntry
+	nil,                               // 80: jeeves.engine.v1.Envelope.CompletedStageSetEntry
+	nil,                               // 81: jeeves.engine.v1.Envelope.FailedStagesEntry
+	nil,                               // 82: jeeves.engine.v1.Envelope.GoalCompletionStatusEntry
+	nil,                               // 83: jeeves.engine.v1.Envelope.MetadataStrEntry
+	nil,                               // 84: jeeves.engine.v1.RequestContext.TagsEntry
+	nil,                               // 85: jeeves.engine.v1.ProcessCountsResponse.CountsByStateEntry
+	nil,                               // 86: jeeves.engine.v1.SessionState.EdgeTraversalsEntry
 }
-var file_coreengine_proto_engine_proto_depIdxs = []int32{
-	69, // 0: jeeves.engine.v1.CreateEnvelopeRequest.metadata:type_name -> jeeves.engine.v1.CreateEnvelopeRequest.MetadataEntry
-	21, // 1: jeeves.engine.v1.UpdateEnvelopeRequest.envelope:type_name -> jeeves.engine.v1.Envelope
-	21, // 2: jeeves.engine.v1.CloneRequest.envelope:type_name -> jeeves.engine.v1.Envelope
+var file_engine_proto_depIdxs = []int32{
+	77, // 0: jeeves.engine.v1.CreateEnvelopeRequest.metadata:type_name -> jeeves.engine.v1.CreateEnvelopeRequest.MetadataEntry
+	22, // 1: jeeves.engine.v1.UpdateEnvelopeRequest.envelope:type_name -> jeeves.engine.v1.Envelope
+	22, // 2: jeeves.engine.v1.CloneRequest.envelope:type_name -> jeeves.engine.v1.Envelope
 	0,  // 3: jeeves.engine.v1.Envelope.terminal_reason:type_name -> jeeves.engine.v1.TerminalReason
-	22, // 4: jeeves.engine.v1.Envelope.interrupt:type_name -> jeeves.engine.v1.FlowInterrupt
-	70, // 5: jeeves.engine.v1.Envelope.outputs:type_name -> jeeves.engine.v1.Envelope.OutputsEntry
-	71, // 6: jeeves.engine.v1.Envelope.active_stages:type_name -> jeeves.engine.v1.Envelope.ActiveStagesEntry
-	72, // 7: jeeves.engine.v1.Envelope.completed_stage_set:type_name -> jeeves.engine.v1.Envelope.CompletedStageSetEntry
-	73, // 8: jeeves.engine.v1.Envelope.failed_stages:type_name -> jeeves.engine.v1.Envelope.FailedStagesEntry
-	74, // 9: jeeves.engine.v1.Envelope.goal_completion_status:type_name -> jeeves.engine.v1.Envelope.GoalCompletionStatusEntry
-	75, // 10: jeeves.engine.v1.Envelope.metadata_str:type_name -> jeeves.engine.v1.Envelope.MetadataStrEntry
+	23, // 4: jeeves.engine.v1.Envelope.interrupt:type_name -> jeeves.engine.v1.FlowInterrupt
+	78, // 5: jeeves.engine.v1.Envelope.outputs:type_name -> jeeves.engine.v1.Envelope.OutputsEntry
+	79, // 6: jeeves.engine.v1.Envelope.active_stages:type_name -> jeeves.engine.v1.Envelope.ActiveStagesEntry
+	80, // 7: jeeves.engine.v1.Envelope.completed_stage_set:type_name -> jeeves.engine.v1.Envelope.CompletedStageSetEntry
+	81, // 8: jeeves.engine.v1.Envelope.failed_stages:type_name -> jeeves.engine.v1.Envelope.FailedStagesEntry
+	82, // 9: jeeves.engine.v1.Envelope.goal_completion_status:type_name -> jeeves.engine.v1.Envelope.GoalCompletionStatusEntry
+	83, // 10: jeeves.engine.v1.Envelope.metadata_str:type_name -> jeeves.engine.v1.Envelope.MetadataStrEntry
 	1,  // 11: jeeves.engine.v1.FlowInterrupt.kind:type_name -> jeeves.engine.v1.InterruptKind
-	23, // 12: jeeves.engine.v1.FlowInterrupt.response:type_name -> jeeves.engine.v1.InterruptResponse
+	24, // 12: jeeves.engine.v1.FlowInterrupt.response:type_name -> jeeves.engine.v1.InterruptResponse
 	10, // 13: jeeves.engine.v1.FlowInterrupt.status:type_name -> jeeves.engine.v1.InterruptStatus
 	0,  // 14: jeeves.engine.v1.BoundsResult.terminal_reason:type_name -> jeeves.engine.v1.TerminalReason
-	21, // 15: jeeves.engine.v1.ExecuteRequest.envelope:type_name -> jeeves.engine.v1.Envelope
-	21, // 16: jeeves.engine.v1.ExecuteAgentRequest.envelope:type_name -> jeeves.engine.v1.Envelope
+	22, // 15: jeeves.engine.v1.ExecuteRequest.envelope:type_name -> jeeves.engine.v1.Envelope
+	22, // 16: jeeves.engine.v1.ExecuteAgentRequest.envelope:type_name -> jeeves.engine.v1.Envelope
 	2,  // 17: jeeves.engine.v1.ExecutionEvent.type:type_name -> jeeves.engine.v1.ExecutionEventType
-	21, // 18: jeeves.engine.v1.ExecutionEvent.envelope:type_name -> jeeves.engine.v1.Envelope
-	21, // 19: jeeves.engine.v1.AgentResult.envelope:type_name -> jeeves.engine.v1.Envelope
+	22, // 18: jeeves.engine.v1.ExecutionEvent.envelope:type_name -> jeeves.engine.v1.Envelope
+	22, // 19: jeeves.engine.v1.AgentResult.envelope:type_name -> jeeves.engine.v1.Envelope
 	9,  // 20: jeeves.engine.v1.OperationResult.status:type_name -> jeeves.engine.v1.OperationStatus
 	12, // 21: jeeves.engine.v1.AgentConfig.join_strategy:type_name -> jeeves.engine.v1.JoinStrategy
 	8,  // 22: jeeves.engine.v1.AgentConfig.tool_access:type_name -> jeeves.engine.v1.ToolAccess
-	34, // 23: jeeves.engine.v1.AgentConfig.generation:type_name -> jeeves.engine.v1.GenerationParams
+	35, // 23: jeeves.engine.v1.AgentConfig.generation:type_name -> jeeves.engine.v1.GenerationParams
 	13, // 24: jeeves.engine.v1.AgentConfig.output_mode:type_name -> jeeves.engine.v1.AgentOutputMode
 	14, // 25: jeeves.engine.v1.AgentConfig.token_stream:type_name -> jeeves.engine.v1.TokenStreamMode
-	32, // 26: jeeves.engine.v1.AgentConfig.routing_rules:type_name -> jeeves.engine.v1.RoutingRule
-	35, // 27: jeeves.engine.v1.PipelineConfig.agents:type_name -> jeeves.engine.v1.AgentConfig
+	33, // 26: jeeves.engine.v1.AgentConfig.routing_rules:type_name -> jeeves.engine.v1.RoutingRule
+	36, // 27: jeeves.engine.v1.PipelineConfig.agents:type_name -> jeeves.engine.v1.AgentConfig
 	11, // 28: jeeves.engine.v1.PipelineConfig.default_run_mode:type_name -> jeeves.engine.v1.RunMode
-	33, // 29: jeeves.engine.v1.PipelineConfig.edge_limits:type_name -> jeeves.engine.v1.EdgeLimit
-	37, // 30: jeeves.engine.v1.ExecutionConfig.context_bounds:type_name -> jeeves.engine.v1.ContextBounds
-	76, // 31: jeeves.engine.v1.RequestContext.tags:type_name -> jeeves.engine.v1.RequestContext.TagsEntry
+	34, // 29: jeeves.engine.v1.PipelineConfig.edge_limits:type_name -> jeeves.engine.v1.EdgeLimit
+	38, // 30: jeeves.engine.v1.ExecutionConfig.context_bounds:type_name -> jeeves.engine.v1.ContextBounds
+	84, // 31: jeeves.engine.v1.RequestContext.tags:type_name -> jeeves.engine.v1.RequestContext.TagsEntry
 	16, // 32: jeeves.engine.v1.ProcessControlBlock.state:type_name -> jeeves.engine.v1.ProcessState
 	17, // 33: jeeves.engine.v1.ProcessControlBlock.priority:type_name -> jeeves.engine.v1.SchedulingPriority
-	44, // 34: jeeves.engine.v1.ProcessControlBlock.quota:type_name -> jeeves.engine.v1.ResourceQuota
-	45, // 35: jeeves.engine.v1.ProcessControlBlock.usage:type_name -> jeeves.engine.v1.ResourceUsage
+	45, // 34: jeeves.engine.v1.ProcessControlBlock.quota:type_name -> jeeves.engine.v1.ResourceQuota
+	46, // 35: jeeves.engine.v1.ProcessControlBlock.usage:type_name -> jeeves.engine.v1.ResourceUsage
 	1,  // 36: jeeves.engine.v1.ProcessControlBlock.pending_interrupt:type_name -> jeeves.engine.v1.InterruptKind
 	17, // 37: jeeves.engine.v1.CreateProcessRequest.priority:type_name -> jeeves.engine.v1.SchedulingPriority
-	44, // 38: jeeves.engine.v1.CreateProcessRequest.quota:type_name -> jeeves.engine.v1.ResourceQuota
+	45, // 38: jeeves.engine.v1.CreateProcessRequest.quota:type_name -> jeeves.engine.v1.ResourceQuota
 	16, // 39: jeeves.engine.v1.TransitionStateRequest.new_state:type_name -> jeeves.engine.v1.ProcessState
-	45, // 40: jeeves.engine.v1.QuotaResult.usage:type_name -> jeeves.engine.v1.ResourceUsage
-	44, // 41: jeeves.engine.v1.QuotaResult.quota:type_name -> jeeves.engine.v1.ResourceQuota
+	46, // 40: jeeves.engine.v1.QuotaResult.usage:type_name -> jeeves.engine.v1.ResourceUsage
+	45, // 41: jeeves.engine.v1.QuotaResult.quota:type_name -> jeeves.engine.v1.ResourceQuota
 	16, // 42: jeeves.engine.v1.ListProcessesRequest.state:type_name -> jeeves.engine.v1.ProcessState
-	46, // 43: jeeves.engine.v1.ListProcessesResponse.processes:type_name -> jeeves.engine.v1.ProcessControlBlock
-	77, // 44: jeeves.engine.v1.ProcessCountsResponse.counts_by_state:type_name -> jeeves.engine.v1.ProcessCountsResponse.CountsByStateEntry
-	47, // 45: jeeves.engine.v1.KernelService.CreateProcess:input_type -> jeeves.engine.v1.CreateProcessRequest
-	48, // 46: jeeves.engine.v1.KernelService.GetProcess:input_type -> jeeves.engine.v1.GetProcessRequest
-	49, // 47: jeeves.engine.v1.KernelService.ScheduleProcess:input_type -> jeeves.engine.v1.ScheduleProcessRequest
-	50, // 48: jeeves.engine.v1.KernelService.GetNextRunnable:input_type -> jeeves.engine.v1.GetNextRunnableRequest
-	51, // 49: jeeves.engine.v1.KernelService.TransitionState:input_type -> jeeves.engine.v1.TransitionStateRequest
-	52, // 50: jeeves.engine.v1.KernelService.TerminateProcess:input_type -> jeeves.engine.v1.TerminateProcessRequest
-	53, // 51: jeeves.engine.v1.KernelService.CheckQuota:input_type -> jeeves.engine.v1.CheckQuotaRequest
-	55, // 52: jeeves.engine.v1.KernelService.RecordUsage:input_type -> jeeves.engine.v1.RecordUsageRequest
-	56, // 53: jeeves.engine.v1.KernelService.CheckRateLimit:input_type -> jeeves.engine.v1.CheckRateLimitRequest
-	57, // 54: jeeves.engine.v1.KernelService.ListProcesses:input_type -> jeeves.engine.v1.ListProcessesRequest
-	59, // 55: jeeves.engine.v1.KernelService.GetProcessCounts:input_type -> jeeves.engine.v1.GetProcessCountsRequest
-	18, // 56: jeeves.engine.v1.EngineService.CreateEnvelope:input_type -> jeeves.engine.v1.CreateEnvelopeRequest
-	19, // 57: jeeves.engine.v1.EngineService.UpdateEnvelope:input_type -> jeeves.engine.v1.UpdateEnvelopeRequest
-	21, // 58: jeeves.engine.v1.EngineService.CheckBounds:input_type -> jeeves.engine.v1.Envelope
-	25, // 59: jeeves.engine.v1.EngineService.ExecutePipeline:input_type -> jeeves.engine.v1.ExecuteRequest
-	26, // 60: jeeves.engine.v1.EngineService.ExecuteAgent:input_type -> jeeves.engine.v1.ExecuteAgentRequest
-	20, // 61: jeeves.engine.v1.EngineService.CloneEnvelope:input_type -> jeeves.engine.v1.CloneRequest
-	61, // 62: jeeves.engine.v1.CommBusService.Publish:input_type -> jeeves.engine.v1.CommBusPublishRequest
-	63, // 63: jeeves.engine.v1.CommBusService.Send:input_type -> jeeves.engine.v1.CommBusSendRequest
-	65, // 64: jeeves.engine.v1.CommBusService.Query:input_type -> jeeves.engine.v1.CommBusQueryRequest
-	67, // 65: jeeves.engine.v1.CommBusService.Subscribe:input_type -> jeeves.engine.v1.CommBusSubscribeRequest
-	46, // 66: jeeves.engine.v1.KernelService.CreateProcess:output_type -> jeeves.engine.v1.ProcessControlBlock
-	46, // 67: jeeves.engine.v1.KernelService.GetProcess:output_type -> jeeves.engine.v1.ProcessControlBlock
-	46, // 68: jeeves.engine.v1.KernelService.ScheduleProcess:output_type -> jeeves.engine.v1.ProcessControlBlock
-	46, // 69: jeeves.engine.v1.KernelService.GetNextRunnable:output_type -> jeeves.engine.v1.ProcessControlBlock
-	46, // 70: jeeves.engine.v1.KernelService.TransitionState:output_type -> jeeves.engine.v1.ProcessControlBlock
-	46, // 71: jeeves.engine.v1.KernelService.TerminateProcess:output_type -> jeeves.engine.v1.ProcessControlBlock
-	54, // 72: jeeves.engine.v1.KernelService.CheckQuota:output_type -> jeeves.engine.v1.QuotaResult
-	45, // 73: jeeves.engine.v1.KernelService.RecordUsage:output_type -> jeeves.engine.v1.ResourceUsage
-	31, // 74: jeeves.engine.v1.KernelService.CheckRateLimit:output_type -> jeeves.engine.v1.RateLimitResult
-	58, // 75: jeeves.engine.v1.KernelService.ListProcesses:output_type -> jeeves.engine.v1.ListProcessesResponse
-	60, // 76: jeeves.engine.v1.KernelService.GetProcessCounts:output_type -> jeeves.engine.v1.ProcessCountsResponse
-	21, // 77: jeeves.engine.v1.EngineService.CreateEnvelope:output_type -> jeeves.engine.v1.Envelope
-	21, // 78: jeeves.engine.v1.EngineService.UpdateEnvelope:output_type -> jeeves.engine.v1.Envelope
-	24, // 79: jeeves.engine.v1.EngineService.CheckBounds:output_type -> jeeves.engine.v1.BoundsResult
-	27, // 80: jeeves.engine.v1.EngineService.ExecutePipeline:output_type -> jeeves.engine.v1.ExecutionEvent
-	28, // 81: jeeves.engine.v1.EngineService.ExecuteAgent:output_type -> jeeves.engine.v1.AgentResult
-	21, // 82: jeeves.engine.v1.EngineService.CloneEnvelope:output_type -> jeeves.engine.v1.Envelope
-	62, // 83: jeeves.engine.v1.CommBusService.Publish:output_type -> jeeves.engine.v1.CommBusPublishResponse
-	64, // 84: jeeves.engine.v1.CommBusService.Send:output_type -> jeeves.engine.v1.CommBusSendResponse
-	66, // 85: jeeves.engine.v1.CommBusService.Query:output_type -> jeeves.engine.v1.CommBusQueryResponse
-	68, // 86: jeeves.engine.v1.CommBusService.Subscribe:output_type -> jeeves.engine.v1.CommBusEvent
-	66, // [66:87] is the sub-list for method output_type
-	45, // [45:66] is the sub-list for method input_type
-	45, // [45:45] is the sub-list for extension type_name
-	45, // [45:45] is the sub-list for extension extendee
-	0,  // [0:45] is the sub-list for field type_name
+	47, // 43: jeeves.engine.v1.ListProcessesResponse.processes:type_name -> jeeves.engine.v1.ProcessControlBlock
+	85, // 44: jeeves.engine.v1.ProcessCountsResponse.counts_by_state:type_name -> jeeves.engine.v1.ProcessCountsResponse.CountsByStateEntry
+	18, // 45: jeeves.engine.v1.Instruction.kind:type_name -> jeeves.engine.v1.InstructionKind
+	0,  // 46: jeeves.engine.v1.Instruction.terminal_reason:type_name -> jeeves.engine.v1.TerminalReason
+	23, // 47: jeeves.engine.v1.Instruction.interrupt:type_name -> jeeves.engine.v1.FlowInterrupt
+	73, // 48: jeeves.engine.v1.ReportAgentResultRequest.metrics:type_name -> jeeves.engine.v1.AgentExecutionMetrics
+	86, // 49: jeeves.engine.v1.SessionState.edge_traversals:type_name -> jeeves.engine.v1.SessionState.EdgeTraversalsEntry
+	0,  // 50: jeeves.engine.v1.SessionState.terminal_reason:type_name -> jeeves.engine.v1.TerminalReason
+	48, // 51: jeeves.engine.v1.KernelService.CreateProcess:input_type -> jeeves.engine.v1.CreateProcessRequest
+	49, // 52: jeeves.engine.v1.KernelService.GetProcess:input_type -> jeeves.engine.v1.GetProcessRequest
+	50, // 53: jeeves.engine.v1.KernelService.ScheduleProcess:input_type -> jeeves.engine.v1.ScheduleProcessRequest
+	51, // 54: jeeves.engine.v1.KernelService.GetNextRunnable:input_type -> jeeves.engine.v1.GetNextRunnableRequest
+	52, // 55: jeeves.engine.v1.KernelService.TransitionState:input_type -> jeeves.engine.v1.TransitionStateRequest
+	53, // 56: jeeves.engine.v1.KernelService.TerminateProcess:input_type -> jeeves.engine.v1.TerminateProcessRequest
+	54, // 57: jeeves.engine.v1.KernelService.CheckQuota:input_type -> jeeves.engine.v1.CheckQuotaRequest
+	56, // 58: jeeves.engine.v1.KernelService.RecordUsage:input_type -> jeeves.engine.v1.RecordUsageRequest
+	57, // 59: jeeves.engine.v1.KernelService.CheckRateLimit:input_type -> jeeves.engine.v1.CheckRateLimitRequest
+	58, // 60: jeeves.engine.v1.KernelService.ListProcesses:input_type -> jeeves.engine.v1.ListProcessesRequest
+	60, // 61: jeeves.engine.v1.KernelService.GetProcessCounts:input_type -> jeeves.engine.v1.GetProcessCountsRequest
+	19, // 62: jeeves.engine.v1.EngineService.CreateEnvelope:input_type -> jeeves.engine.v1.CreateEnvelopeRequest
+	20, // 63: jeeves.engine.v1.EngineService.UpdateEnvelope:input_type -> jeeves.engine.v1.UpdateEnvelopeRequest
+	22, // 64: jeeves.engine.v1.EngineService.CheckBounds:input_type -> jeeves.engine.v1.Envelope
+	26, // 65: jeeves.engine.v1.EngineService.ExecutePipeline:input_type -> jeeves.engine.v1.ExecuteRequest
+	27, // 66: jeeves.engine.v1.EngineService.ExecuteAgent:input_type -> jeeves.engine.v1.ExecuteAgentRequest
+	21, // 67: jeeves.engine.v1.EngineService.CloneEnvelope:input_type -> jeeves.engine.v1.CloneRequest
+	62, // 68: jeeves.engine.v1.CommBusService.Publish:input_type -> jeeves.engine.v1.CommBusPublishRequest
+	64, // 69: jeeves.engine.v1.CommBusService.Send:input_type -> jeeves.engine.v1.CommBusSendRequest
+	66, // 70: jeeves.engine.v1.CommBusService.Query:input_type -> jeeves.engine.v1.CommBusQueryRequest
+	68, // 71: jeeves.engine.v1.CommBusService.Subscribe:input_type -> jeeves.engine.v1.CommBusSubscribeRequest
+	74, // 72: jeeves.engine.v1.OrchestrationService.InitializeSession:input_type -> jeeves.engine.v1.InitializeSessionRequest
+	71, // 73: jeeves.engine.v1.OrchestrationService.GetNextInstruction:input_type -> jeeves.engine.v1.GetNextInstructionRequest
+	72, // 74: jeeves.engine.v1.OrchestrationService.ReportAgentResult:input_type -> jeeves.engine.v1.ReportAgentResultRequest
+	76, // 75: jeeves.engine.v1.OrchestrationService.GetSessionState:input_type -> jeeves.engine.v1.GetSessionStateRequest
+	47, // 76: jeeves.engine.v1.KernelService.CreateProcess:output_type -> jeeves.engine.v1.ProcessControlBlock
+	47, // 77: jeeves.engine.v1.KernelService.GetProcess:output_type -> jeeves.engine.v1.ProcessControlBlock
+	47, // 78: jeeves.engine.v1.KernelService.ScheduleProcess:output_type -> jeeves.engine.v1.ProcessControlBlock
+	47, // 79: jeeves.engine.v1.KernelService.GetNextRunnable:output_type -> jeeves.engine.v1.ProcessControlBlock
+	47, // 80: jeeves.engine.v1.KernelService.TransitionState:output_type -> jeeves.engine.v1.ProcessControlBlock
+	47, // 81: jeeves.engine.v1.KernelService.TerminateProcess:output_type -> jeeves.engine.v1.ProcessControlBlock
+	55, // 82: jeeves.engine.v1.KernelService.CheckQuota:output_type -> jeeves.engine.v1.QuotaResult
+	46, // 83: jeeves.engine.v1.KernelService.RecordUsage:output_type -> jeeves.engine.v1.ResourceUsage
+	32, // 84: jeeves.engine.v1.KernelService.CheckRateLimit:output_type -> jeeves.engine.v1.RateLimitResult
+	59, // 85: jeeves.engine.v1.KernelService.ListProcesses:output_type -> jeeves.engine.v1.ListProcessesResponse
+	61, // 86: jeeves.engine.v1.KernelService.GetProcessCounts:output_type -> jeeves.engine.v1.ProcessCountsResponse
+	22, // 87: jeeves.engine.v1.EngineService.CreateEnvelope:output_type -> jeeves.engine.v1.Envelope
+	22, // 88: jeeves.engine.v1.EngineService.UpdateEnvelope:output_type -> jeeves.engine.v1.Envelope
+	25, // 89: jeeves.engine.v1.EngineService.CheckBounds:output_type -> jeeves.engine.v1.BoundsResult
+	28, // 90: jeeves.engine.v1.EngineService.ExecutePipeline:output_type -> jeeves.engine.v1.ExecutionEvent
+	29, // 91: jeeves.engine.v1.EngineService.ExecuteAgent:output_type -> jeeves.engine.v1.AgentResult
+	22, // 92: jeeves.engine.v1.EngineService.CloneEnvelope:output_type -> jeeves.engine.v1.Envelope
+	63, // 93: jeeves.engine.v1.CommBusService.Publish:output_type -> jeeves.engine.v1.CommBusPublishResponse
+	65, // 94: jeeves.engine.v1.CommBusService.Send:output_type -> jeeves.engine.v1.CommBusSendResponse
+	67, // 95: jeeves.engine.v1.CommBusService.Query:output_type -> jeeves.engine.v1.CommBusQueryResponse
+	69, // 96: jeeves.engine.v1.CommBusService.Subscribe:output_type -> jeeves.engine.v1.CommBusEvent
+	75, // 97: jeeves.engine.v1.OrchestrationService.InitializeSession:output_type -> jeeves.engine.v1.SessionState
+	70, // 98: jeeves.engine.v1.OrchestrationService.GetNextInstruction:output_type -> jeeves.engine.v1.Instruction
+	70, // 99: jeeves.engine.v1.OrchestrationService.ReportAgentResult:output_type -> jeeves.engine.v1.Instruction
+	75, // 100: jeeves.engine.v1.OrchestrationService.GetSessionState:output_type -> jeeves.engine.v1.SessionState
+	76, // [76:101] is the sub-list for method output_type
+	51, // [51:76] is the sub-list for method input_type
+	51, // [51:51] is the sub-list for extension type_name
+	51, // [51:51] is the sub-list for extension extendee
+	0,  // [0:51] is the sub-list for field type_name
 }
 
-func init() { file_coreengine_proto_engine_proto_init() }
-func file_coreengine_proto_engine_proto_init() {
-	if File_coreengine_proto_engine_proto != nil {
+func init() { file_engine_proto_init() }
+func file_engine_proto_init() {
+	if File_engine_proto != nil {
 		return
 	}
-	file_coreengine_proto_engine_proto_msgTypes[16].OneofWrappers = []any{}
-	file_coreengine_proto_engine_proto_msgTypes[17].OneofWrappers = []any{}
-	file_coreengine_proto_engine_proto_msgTypes[25].OneofWrappers = []any{}
+	file_engine_proto_msgTypes[16].OneofWrappers = []any{}
+	file_engine_proto_msgTypes[17].OneofWrappers = []any{}
+	file_engine_proto_msgTypes[25].OneofWrappers = []any{}
 	type x struct{}
 	out := protoimpl.TypeBuilder{
 		File: protoimpl.DescBuilder{
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
-			RawDescriptor: unsafe.Slice(unsafe.StringData(file_coreengine_proto_engine_proto_rawDesc), len(file_coreengine_proto_engine_proto_rawDesc)),
-			NumEnums:      18,
-			NumMessages:   60,
+			RawDescriptor: unsafe.Slice(unsafe.StringData(file_engine_proto_rawDesc), len(file_engine_proto_rawDesc)),
+			NumEnums:      19,
+			NumMessages:   68,
 			NumExtensions: 0,
-			NumServices:   3,
+			NumServices:   4,
 		},
-		GoTypes:           file_coreengine_proto_engine_proto_goTypes,
-		DependencyIndexes: file_coreengine_proto_engine_proto_depIdxs,
-		EnumInfos:         file_coreengine_proto_engine_proto_enumTypes,
-		MessageInfos:      file_coreengine_proto_engine_proto_msgTypes,
+		GoTypes:           file_engine_proto_goTypes,
+		DependencyIndexes: file_engine_proto_depIdxs,
+		EnumInfos:         file_engine_proto_enumTypes,
+		MessageInfos:      file_engine_proto_msgTypes,
 	}.Build()
-	File_coreengine_proto_engine_proto = out.File
-	file_coreengine_proto_engine_proto_goTypes = nil
-	file_coreengine_proto_engine_proto_depIdxs = nil
+	File_engine_proto = out.File
+	file_engine_proto_goTypes = nil
+	file_engine_proto_depIdxs = nil
 }

@@ -382,3 +382,22 @@ func (lm *LifecycleManager) GetTotalProcesses() int {
 	defer lm.mu.RUnlock()
 	return len(lm.processes)
 }
+
+// CleanupTerminated removes terminated processes that completed before the given duration.
+// Returns the number of processes cleaned up.
+func (lm *LifecycleManager) CleanupTerminated(olderThan time.Duration) int {
+	lm.mu.Lock()
+	defer lm.mu.Unlock()
+
+	cutoff := time.Now().UTC().Add(-olderThan)
+	cleaned := 0
+
+	for pid, pcb := range lm.processes {
+		if pcb.IsTerminated() && pcb.CompletedAt != nil && pcb.CompletedAt.Before(cutoff) {
+			delete(lm.processes, pid)
+			cleaned++
+		}
+	}
+
+	return cleaned
+}

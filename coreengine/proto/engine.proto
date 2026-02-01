@@ -780,3 +780,92 @@ message CommBusEvent {
     bytes payload = 2;      // JSON-encoded event data
     int64 timestamp_ms = 3;
 }
+
+// =============================================================================
+// OrchestrationService - Kernel-driven pipeline execution
+// =============================================================================
+
+// OrchestrationService moves pipeline orchestration from Python to Go kernel.
+// Python workers ask the kernel for instructions, execute agents, and report results.
+// The kernel owns: loop control, routing, bounds checking, state transitions.
+service OrchestrationService {
+    // Initialize a new orchestration session with pipeline config
+    rpc InitializeSession(InitializeSessionRequest) returns (SessionState);
+
+    // Get the next instruction (what agent to run, or terminal state)
+    rpc GetNextInstruction(GetNextInstructionRequest) returns (Instruction);
+
+    // Report agent execution result and get next instruction
+    rpc ReportAgentResult(ReportAgentResultRequest) returns (Instruction);
+
+    // Get current session state (for debugging/recovery)
+    rpc GetSessionState(GetSessionStateRequest) returns (SessionState);
+}
+
+// InstructionKind indicates what the Python worker should do next.
+enum InstructionKind {
+    INSTRUCTION_KIND_UNSPECIFIED = 0;
+    RUN_AGENT = 1;          // Execute the specified agent
+    TERMINATE = 2;          // Pipeline is done (success or failure)
+    WAIT_INTERRUPT = 3;     // Waiting for user interrupt resolution
+}
+
+// Instruction tells Python worker what to do next.
+message Instruction {
+    InstructionKind kind = 1;
+    string agent_name = 2;              // Set if kind == RUN_AGENT
+    bytes agent_config = 3;             // JSON-encoded AgentConfig
+    bytes envelope = 4;                 // JSON-encoded envelope state
+    TerminalReason terminal_reason = 5; // Set if kind == TERMINATE
+    string termination_message = 6;     // Human-readable termination message
+    bool interrupt_pending = 7;         // Set if kind == WAIT_INTERRUPT
+    FlowInterrupt interrupt = 8;        // Interrupt details if pending
+}
+
+// Request to get next instruction for a process.
+message GetNextInstructionRequest {
+    string process_id = 1;
+}
+
+// Request to report agent execution result.
+message ReportAgentResultRequest {
+    string process_id = 1;
+    string agent_name = 2;              // Agent that just completed
+    bytes output = 3;                   // JSON-encoded agent output
+    AgentExecutionMetrics metrics = 4;
+    bool success = 5;
+    string error = 6;                   // Error message if success=false
+}
+
+// Metrics from agent execution.
+message AgentExecutionMetrics {
+    int32 llm_calls = 1;
+    int32 tool_calls = 2;
+    int32 tokens_in = 3;
+    int32 tokens_out = 4;
+    int32 duration_ms = 5;
+}
+
+// Request to initialize an orchestration session.
+message InitializeSessionRequest {
+    string process_id = 1;
+    bytes pipeline_config = 2;          // JSON-encoded PipelineConfig
+    bytes envelope = 3;                 // JSON-encoded initial envelope
+    bool force = 4;                     // If true, replace existing session (K8s-style)
+}
+
+// Current state of an orchestration session.
+message SessionState {
+    string process_id = 1;
+    string current_stage = 2;
+    repeated string stage_order = 3;
+    bytes envelope = 4;                 // JSON-encoded envelope
+    map<string, int32> edge_traversals = 5;  // "from->to" -> count
+    bool terminated = 6;
+    TerminalReason terminal_reason = 7;
+}
+
+// Request to get current session state.
+message GetSessionStateRequest {
+    string process_id = 1;
+}

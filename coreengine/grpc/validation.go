@@ -173,3 +173,22 @@ func PermissionDenied(operation, reason string) error {
 	return status.Errorf(codes.PermissionDenied,
 		"%s denied: %s", operation, reason)
 }
+
+// =============================================================================
+// CONTEXT DEADLINE VALIDATION
+// =============================================================================
+
+// CheckContextDeadline checks if the context has already exceeded its deadline.
+// Returns gRPC DeadlineExceeded or Canceled error if context is done.
+// Should be called at the start of each RPC handler.
+func CheckContextDeadline(ctx context.Context) error {
+	select {
+	case <-ctx.Done():
+		if ctx.Err() == context.DeadlineExceeded {
+			return status.Error(codes.DeadlineExceeded, "request deadline exceeded")
+		}
+		return status.Error(codes.Canceled, "request was canceled")
+	default:
+		return nil
+	}
+}

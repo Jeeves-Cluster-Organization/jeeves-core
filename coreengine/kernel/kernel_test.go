@@ -2731,6 +2731,9 @@ func TestKernel_ComponentAccessors(t *testing.T) {
 	if kernel.Services() == nil {
 		t.Error("Services() should not return nil")
 	}
+	if kernel.Orchestrator() == nil {
+		t.Error("Orchestrator() should not return nil")
+	}
 }
 
 func TestKernel_GetNextRunnable(t *testing.T) {
