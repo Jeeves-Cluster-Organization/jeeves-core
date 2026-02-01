@@ -117,8 +117,8 @@ pub struct ProcessingRecord {
 /// Unlike hardcoded per-agent output fields, Envelope uses a dynamic `Outputs` map
 /// where any agent can write results keyed by agent name.
 ///
-/// Example:
-/// ```
+/// Example (pseudo-code):
+/// ```ignore
 /// envelope.outputs.insert("perception", {...});
 /// envelope.outputs.insert("intent", {...});
 /// ```
