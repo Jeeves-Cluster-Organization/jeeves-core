@@ -43,7 +43,7 @@ impl PartialOrd for PriorityItem {
 #[derive(Debug)]
 pub struct LifecycleManager {
     default_quota: ResourceQuota,
-    processes: HashMap<String, ProcessControlBlock>,
+    pub(crate) processes: HashMap<String, ProcessControlBlock>,
     ready_queue: BinaryHeap<PriorityItem>,
 }
 

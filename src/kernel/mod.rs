@@ -10,17 +10,21 @@ use std::collections::HashMap;
 pub mod types;
 
 // Subsystem modules
+pub mod cleanup;
 pub mod interrupts;
 pub mod lifecycle;
 pub mod orchestrator;
 pub mod rate_limiter;
+pub mod recovery;
 pub mod resources;
 pub mod services;
 
 // Re-export key types
+pub use cleanup::{CleanupConfig, CleanupService, CleanupStats};
 pub use interrupts::{InterruptConfig, InterruptService, InterruptStatus, KernelInterrupt};
 pub use lifecycle::LifecycleManager;
 pub use rate_limiter::{RateLimitConfig, RateLimiter};
+pub use recovery::with_recovery;
 pub use resources::ResourceTracker;
 pub use services::{
     DispatchResult, DispatchTarget, RegistryStats, ServiceInfo, ServiceRegistry, ServiceStats,
@@ -57,6 +61,9 @@ pub struct Kernel {
     /// Pipeline orchestration (kernel-driven execution)
     pub orchestrator: orchestrator::Orchestrator,
 
+    /// Communication bus (kernel-mediated IPC)
+    pub commbus: crate::commbus::CommBus,
+
     /// Envelope storage (pid -> envelope)
     envelopes: HashMap<String, Envelope>,
 }
@@ -70,6 +77,7 @@ impl Kernel {
             interrupts: interrupts::InterruptService::new(),
             services: services::ServiceRegistry::new(),
             orchestrator: orchestrator::Orchestrator::new(),
+            commbus: crate::commbus::CommBus::new(),
             envelopes: HashMap::new(),
         }
     }
@@ -85,6 +93,7 @@ impl Kernel {
             interrupts: interrupts::InterruptService::new(),
             services: services::ServiceRegistry::new(),
             orchestrator: orchestrator::Orchestrator::new(),
+            commbus: crate::commbus::CommBus::new(),
             envelopes: HashMap::new(),
         }
     }

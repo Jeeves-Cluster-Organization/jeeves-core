@@ -143,6 +143,19 @@ impl RateLimiter {
     pub fn clear_user_limits(&mut self, user_id: &str) {
         self.user_windows.remove(user_id);
     }
+
+    /// Clean up expired rate limit windows.
+    ///
+    /// Removes windows that have no recent requests (older than window duration).
+    pub fn cleanup_expired(&mut self) {
+        let now = Utc::now();
+        let window_cutoff = now - Duration::minutes(2); // Keep windows with activity in last 2 min
+
+        self.user_windows.retain(|_, window| {
+            // Keep window if it has any recent timestamps
+            window.timestamps.iter().any(|&ts| ts >= window_cutoff)
+        });
+    }
 }
 
 impl Default for RateLimiter {

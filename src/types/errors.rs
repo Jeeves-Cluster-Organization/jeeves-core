@@ -35,6 +35,10 @@ pub enum Error {
     #[error("operation cancelled: {0}")]
     Cancelled(String),
 
+    /// Timeout (map to gRPC DEADLINE_EXCEEDED).
+    #[error("timeout: {0}")]
+    Timeout(String),
+
     /// Serialization/deserialization errors.
     #[error("serialization error: {0}")]
     Serialization(#[from] serde_json::Error),
@@ -66,6 +70,9 @@ impl Error {
             }
             Error::Cancelled(msg) => {
                 tonic::Status::cancelled(msg)
+            }
+            Error::Timeout(msg) => {
+                tonic::Status::deadline_exceeded(msg)
             }
             Error::Internal(msg) => {
                 tonic::Status::internal(msg)
@@ -105,6 +112,10 @@ impl Error {
 
     pub fn cancelled(msg: impl Into<String>) -> Self {
         Self::Cancelled(msg.into())
+    }
+
+    pub fn timeout(msg: impl Into<String>) -> Self {
+        Self::Timeout(msg.into())
     }
 }
 
