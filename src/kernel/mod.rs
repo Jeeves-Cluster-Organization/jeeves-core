@@ -15,11 +15,17 @@ pub mod lifecycle;
 pub mod orchestrator;
 pub mod rate_limiter;
 pub mod resources;
+pub mod services;
 
 // Re-export key types
+pub use interrupts::{InterruptConfig, InterruptService, InterruptStatus, KernelInterrupt};
 pub use lifecycle::LifecycleManager;
 pub use rate_limiter::{RateLimitConfig, RateLimiter};
 pub use resources::ResourceTracker;
+pub use services::{
+    DispatchResult, DispatchTarget, RegistryStats, ServiceInfo, ServiceRegistry, ServiceStats,
+    ServiceStatus,
+};
 pub use types::{
     ProcessControlBlock, ProcessState, ResourceQuota, ResourceUsage, SchedulingPriority,
 };
