@@ -410,3 +410,285 @@ fn get_agent_for_stage(
         .map(|s| s.agent.clone())
         .ok_or_else(|| format!("Stage not found in pipeline: {}", stage_name))
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn create_test_pipeline() -> PipelineConfig {
+        PipelineConfig {
+            name: "test_pipeline".to_string(),
+            stages: vec![
+                PipelineStage {
+                    name: "stage1".to_string(),
+                    agent: "agent1".to_string(),
+                    routing: vec![],
+                },
+                PipelineStage {
+                    name: "stage2".to_string(),
+                    agent: "agent2".to_string(),
+                    routing: vec![],
+                },
+            ],
+            max_iterations: 10,
+            max_llm_calls: 50,
+            max_agent_hops: 5,
+        }
+    }
+
+    fn create_test_envelope() -> Envelope {
+        let mut env = Envelope::new();
+        env.current_stage = String::new(); // Clear so initialize_session sets it
+        env
+    }
+
+    #[test]
+    fn test_initialize_session() {
+        let mut orch = Orchestrator::new();
+        let pipeline = create_test_pipeline();
+        let envelope = create_test_envelope();
+
+        let state = orch
+            .initialize_session("proc1".to_string(), pipeline.clone(), envelope, false)
+            .unwrap();
+
+        assert_eq!(state.process_id, "proc1");
+        assert_eq!(state.current_stage, "stage1"); // First stage
+        assert_eq!(state.stage_order, vec!["stage1", "stage2"]);
+        assert!(!state.terminated);
+    }
+
+    #[test]
+    fn test_initialize_session_duplicate_fails() {
+        let mut orch = Orchestrator::new();
+        let pipeline = create_test_pipeline();
+        let envelope = create_test_envelope();
+
+        // Initialize first time
+        orch.initialize_session("proc1".to_string(), pipeline.clone(), envelope.clone(), false)
+            .unwrap();
+
+        // Try to initialize again without force
+        let result =
+            orch.initialize_session("proc1".to_string(), pipeline, envelope, false);
+
+        assert!(result.is_err());
+        assert!(result.unwrap_err().contains("already exists"));
+    }
+
+    #[test]
+    fn test_initialize_session_force_replaces() {
+        let mut orch = Orchestrator::new();
+        let pipeline = create_test_pipeline();
+        let envelope = create_test_envelope();
+
+        // Initialize first time
+        orch.initialize_session("proc1".to_string(), pipeline.clone(), envelope.clone(), false)
+            .unwrap();
+
+        // Initialize again with force=true should succeed
+        let result =
+            orch.initialize_session("proc1".to_string(), pipeline, envelope, true);
+
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn test_get_next_instruction_run_agent() {
+        let mut orch = Orchestrator::new();
+        let pipeline = create_test_pipeline();
+        let envelope = create_test_envelope();
+
+        orch.initialize_session("proc1".to_string(), pipeline, envelope, false)
+            .unwrap();
+
+        let instruction = orch.get_next_instruction("proc1").unwrap();
+
+        assert_eq!(instruction.kind, InstructionKind::RunAgent);
+        assert_eq!(instruction.agent_name, Some("agent1".to_string()));
+        assert!(!instruction.interrupt_pending);
+    }
+
+    #[test]
+    fn test_get_next_instruction_terminate_after_terminated() {
+        let mut orch = Orchestrator::new();
+        let pipeline = create_test_pipeline();
+        let envelope = create_test_envelope();
+
+        orch.initialize_session("proc1".to_string(), pipeline, envelope, false)
+            .unwrap();
+
+        // Manually terminate session
+        let session = orch.sessions.get_mut("proc1").unwrap();
+        session.terminated = true;
+        session.terminal_reason = Some(TerminalReason::MaxIterationsExceeded);
+
+        let instruction = orch.get_next_instruction("proc1").unwrap();
+
+        assert_eq!(instruction.kind, InstructionKind::Terminate);
+        assert_eq!(
+            instruction.terminal_reason,
+            Some(TerminalReason::MaxIterationsExceeded)
+        );
+    }
+
+    #[test]
+    fn test_get_next_instruction_wait_interrupt() {
+        let mut orch = Orchestrator::new();
+        let pipeline = create_test_pipeline();
+        let mut envelope = create_test_envelope();
+
+        // Set interrupt pending
+        envelope.interrupt_pending = true;
+        envelope.interrupt = Some(
+            FlowInterrupt::new(crate::envelope::InterruptKind::Clarification)
+                .with_message("Need clarification".to_string())
+        );
+
+        orch.initialize_session("proc1".to_string(), pipeline, envelope, false)
+            .unwrap();
+
+        let instruction = orch.get_next_instruction("proc1").unwrap();
+
+        assert_eq!(instruction.kind, InstructionKind::WaitInterrupt);
+        assert!(instruction.interrupt_pending);
+        assert!(instruction.interrupt.is_some());
+    }
+
+    #[test]
+    fn test_check_bounds_llm_exceeded() {
+        let mut orch = Orchestrator::new();
+        let pipeline = create_test_pipeline();
+        let envelope = create_test_envelope();
+
+        orch.initialize_session("proc1".to_string(), pipeline, envelope, false)
+            .unwrap();
+
+        // Manually exceed LLM calls
+        let session = orch.sessions.get_mut("proc1").unwrap();
+        session.envelope.llm_call_count = 50; // At limit
+        session.envelope.max_llm_calls = 50;
+
+        let instruction = orch.get_next_instruction("proc1").unwrap();
+
+        assert_eq!(instruction.kind, InstructionKind::Terminate);
+        assert_eq!(
+            instruction.terminal_reason,
+            Some(TerminalReason::MaxLlmCallsExceeded)
+        );
+    }
+
+    #[test]
+    fn test_check_bounds_iterations_exceeded() {
+        let mut orch = Orchestrator::new();
+        let pipeline = create_test_pipeline();
+        let envelope = create_test_envelope();
+
+        orch.initialize_session("proc1".to_string(), pipeline, envelope, false)
+            .unwrap();
+
+        // Manually exceed iterations
+        let session = orch.sessions.get_mut("proc1").unwrap();
+        session.envelope.iteration = 10; // At limit
+        session.envelope.max_iterations = 10;
+
+        let instruction = orch.get_next_instruction("proc1").unwrap();
+
+        assert_eq!(instruction.kind, InstructionKind::Terminate);
+        assert_eq!(
+            instruction.terminal_reason,
+            Some(TerminalReason::MaxIterationsExceeded)
+        );
+    }
+
+    #[test]
+    fn test_report_agent_result_updates_metrics() {
+        let mut orch = Orchestrator::new();
+        let pipeline = create_test_pipeline();
+        let envelope = create_test_envelope();
+
+        orch.initialize_session("proc1".to_string(), pipeline, envelope.clone(), false)
+            .unwrap();
+
+        let metrics = AgentExecutionMetrics {
+            llm_calls: 2,
+            tool_calls: 5,
+            tokens_in: 1000,
+            tokens_out: 500,
+            duration_ms: 1500,
+        };
+
+        orch.report_agent_result("proc1", metrics, envelope)
+            .unwrap();
+
+        // Check metrics were updated
+        let session = orch.sessions.get("proc1").unwrap();
+        assert_eq!(session.envelope.llm_call_count, 2);
+        assert_eq!(session.envelope.tool_call_count, 5);
+        assert_eq!(session.envelope.tokens_in, 1000);
+        assert_eq!(session.envelope.tokens_out, 500);
+        assert_eq!(session.envelope.iteration, 1); // Incremented
+    }
+
+    #[test]
+    fn test_get_session_state() {
+        let mut orch = Orchestrator::new();
+        let pipeline = create_test_pipeline();
+        let envelope = create_test_envelope();
+
+        orch.initialize_session("proc1".to_string(), pipeline, envelope, false)
+            .unwrap();
+
+        let state = orch.get_session_state("proc1").unwrap();
+
+        assert_eq!(state.process_id, "proc1");
+        assert_eq!(state.current_stage, "stage1");
+        assert!(!state.terminated);
+    }
+
+    #[test]
+    fn test_cleanup_session() {
+        let mut orch = Orchestrator::new();
+        let pipeline = create_test_pipeline();
+        let envelope = create_test_envelope();
+
+        orch.initialize_session("proc1".to_string(), pipeline, envelope, false)
+            .unwrap();
+
+        assert_eq!(orch.get_session_count(), 1);
+
+        let removed = orch.cleanup_session("proc1");
+        assert!(removed);
+        assert_eq!(orch.get_session_count(), 0);
+
+        // Second cleanup should return false
+        let removed = orch.cleanup_session("proc1");
+        assert!(!removed);
+    }
+
+    #[test]
+    fn test_get_session_state_not_found() {
+        let orch = Orchestrator::new();
+
+        let result = orch.get_session_state("nonexistent");
+        assert!(result.is_err());
+        assert!(result.unwrap_err().contains("Unknown process"));
+    }
+
+    #[test]
+    fn test_pipeline_validation() {
+        let mut pipeline = create_test_pipeline();
+
+        // Valid pipeline
+        assert!(pipeline.validate().is_ok());
+
+        // Empty name
+        pipeline.name = String::new();
+        assert!(pipeline.validate().is_err());
+
+        // Empty stages
+        let mut pipeline2 = create_test_pipeline();
+        pipeline2.stages = vec![];
+        assert!(pipeline2.validate().is_err());
+    }
+}

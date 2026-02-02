@@ -151,3 +151,185 @@ impl Default for RateLimiter {
     }
 }
 
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_rate_limit_allows_within_limit() {
+        let config = RateLimitConfig {
+            requests_per_minute: 60,
+            requests_per_hour: 1000,
+            burst_size: 10,
+        };
+        let mut limiter = RateLimiter::new(Some(config));
+
+        // First request should succeed
+        assert!(limiter.check_rate_limit("user1").is_ok());
+
+        // Second request should also succeed (well within limits)
+        assert!(limiter.check_rate_limit("user1").is_ok());
+    }
+
+    #[test]
+    fn test_rate_limit_blocks_per_minute() {
+        let config = RateLimitConfig {
+            requests_per_minute: 3,
+            requests_per_hour: 1000,
+            burst_size: 10,
+        };
+        let mut limiter = RateLimiter::new(Some(config));
+
+        // First 3 requests should succeed
+        for i in 0..3 {
+            assert!(limiter.check_rate_limit("user1").is_ok(), "Request {} should succeed", i);
+        }
+
+        // 4th request should fail (exceeds per-minute limit)
+        let result = limiter.check_rate_limit("user1");
+        assert!(result.is_err());
+        assert!(result.unwrap_err().to_string().contains("requests per minute"));
+    }
+
+    #[test]
+    fn test_rate_limit_blocks_per_hour() {
+        let config = RateLimitConfig {
+            requests_per_minute: 1000, // Set high to not hit minute limit
+            requests_per_hour: 5,
+            burst_size: 1000, // Set high to not hit burst limit
+        };
+        let mut limiter = RateLimiter::new(Some(config));
+
+        // First 5 requests should succeed
+        for i in 0..5 {
+            assert!(limiter.check_rate_limit("user1").is_ok(), "Request {} should succeed", i);
+        }
+
+        // 6th request should fail (exceeds per-hour limit)
+        let result = limiter.check_rate_limit("user1");
+        assert!(result.is_err());
+        assert!(result.unwrap_err().to_string().contains("requests per hour"));
+    }
+
+    #[test]
+    fn test_burst_allows_initial_requests() {
+        let config = RateLimitConfig {
+            requests_per_minute: 100,
+            requests_per_hour: 1000,
+            burst_size: 5,
+        };
+        let mut limiter = RateLimiter::new(Some(config));
+
+        // First 5 requests (burst) should succeed
+        for i in 0..5 {
+            assert!(limiter.check_rate_limit("user1").is_ok(), "Request {} failed", i);
+        }
+    }
+
+    #[test]
+    fn test_burst_blocks_after_exhausted() {
+        let config = RateLimitConfig {
+            requests_per_minute: 100,
+            requests_per_hour: 1000,
+            burst_size: 3,
+        };
+        let mut limiter = RateLimiter::new(Some(config));
+
+        // First 3 requests (burst size) should succeed
+        for i in 0..3 {
+            assert!(limiter.check_rate_limit("user1").is_ok(), "Request {} should succeed", i);
+        }
+
+        // 4th should fail (burst exhausted)
+        let result = limiter.check_rate_limit("user1");
+        assert!(result.is_err());
+        assert!(result.unwrap_err().to_string().contains("Burst limit exceeded"));
+    }
+
+    #[test]
+    fn test_per_user_isolation() {
+        let config = RateLimitConfig {
+            requests_per_minute: 2,
+            requests_per_hour: 1000,
+            burst_size: 10,
+        };
+        let mut limiter = RateLimiter::new(Some(config));
+
+        // User1 makes 2 requests (at limit)
+        limiter.check_rate_limit("user1").unwrap();
+        limiter.check_rate_limit("user1").unwrap();
+
+        // User1's 3rd request should fail
+        assert!(limiter.check_rate_limit("user1").is_err());
+
+        // User2's first request should still succeed (separate window)
+        assert!(limiter.check_rate_limit("user2").is_ok());
+    }
+
+    #[test]
+    fn test_get_current_rate() {
+        let config = RateLimitConfig {
+            requests_per_minute: 100,
+            requests_per_hour: 1000,
+            burst_size: 10,
+        };
+        let mut limiter = RateLimiter::new(Some(config));
+
+        // Initially zero
+        assert_eq!(limiter.get_current_rate("user1"), 0);
+
+        // After 3 requests
+        for _ in 0..3 {
+            limiter.check_rate_limit("user1").unwrap();
+        }
+        assert_eq!(limiter.get_current_rate("user1"), 3);
+    }
+
+    #[test]
+    fn test_clear_user_limits() {
+        let config = RateLimitConfig {
+            requests_per_minute: 2,
+            requests_per_hour: 1000,
+            burst_size: 10,
+        };
+        let mut limiter = RateLimiter::new(Some(config));
+
+        // User1 hits limit
+        limiter.check_rate_limit("user1").unwrap();
+        limiter.check_rate_limit("user1").unwrap();
+        assert!(limiter.check_rate_limit("user1").is_err());
+
+        // Clear limits
+        limiter.clear_user_limits("user1");
+
+        // Should succeed again
+        assert!(limiter.check_rate_limit("user1").is_ok());
+    }
+
+    #[test]
+    fn test_multiple_users_independent() {
+        let config = RateLimitConfig {
+            requests_per_minute: 2,
+            requests_per_hour: 1000,
+            burst_size: 10,
+        };
+        let mut limiter = RateLimiter::new(Some(config));
+
+        // User1 uses 2 requests
+        limiter.check_rate_limit("user1").unwrap();
+        limiter.check_rate_limit("user1").unwrap();
+
+        // User2 uses 1 request
+        limiter.check_rate_limit("user2").unwrap();
+
+        // User1 blocked
+        assert!(limiter.check_rate_limit("user1").is_err());
+
+        // User2 still has capacity
+        assert!(limiter.check_rate_limit("user2").is_ok());
+
+        // User3 fresh
+        assert!(limiter.check_rate_limit("user3").is_ok());
+    }
+}
+
