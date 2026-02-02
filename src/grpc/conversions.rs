@@ -432,8 +432,11 @@ impl TryFrom<proto::Envelope> for Envelope {
             parallel_mode: Some(false), // Not in proto
             llm_call_count: proto.llm_call_count,
             max_llm_calls: proto.max_llm_calls,
+            tool_call_count: 0, // Not in proto yet
             agent_hop_count: proto.agent_hop_count,
             max_agent_hops: proto.max_agent_hops,
+            tokens_in: 0, // Not in proto yet
+            tokens_out: 0, // Not in proto yet
             terminal_reason,
             terminated: proto.terminated,
             termination_reason: if proto.termination_reason.is_empty() {

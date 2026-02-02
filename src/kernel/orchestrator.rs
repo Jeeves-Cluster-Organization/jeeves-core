@@ -252,7 +252,7 @@ impl Orchestrator {
         }
 
         // Check bounds
-        if let Some(reason) = self.check_bounds(&session.envelope) {
+        if let Some(reason) = check_bounds(&session.envelope) {
             session.terminated = true;
             session.terminal_reason = Some(reason);
             return Ok(Instruction {
@@ -273,7 +273,7 @@ impl Orchestrator {
             return Err("No current stage set".to_string());
         }
 
-        let agent_name = self.get_agent_for_stage(&session.pipeline_config, current_stage)?;
+        let agent_name = get_agent_for_stage(&session.pipeline_config, current_stage)?;
 
         Ok(Instruction {
             kind: InstructionKind::RunAgent,
@@ -372,38 +372,41 @@ impl Orchestrator {
             terminal_reason: session.terminal_reason,
         }
     }
-
-    /// Check if envelope exceeds bounds.
-    fn check_bounds(&self, envelope: &Envelope) -> Option<TerminalReason> {
-        if envelope.llm_call_count >= envelope.max_llm_calls {
-            return Some(TerminalReason::MaxLlmCallsExceeded);
-        }
-        if envelope.iteration >= envelope.max_iterations {
-            return Some(TerminalReason::MaxIterationsExceeded);
-        }
-        if envelope.agent_hop_count >= envelope.max_agent_hops {
-            return Some(TerminalReason::MaxAgentHopsExceeded);
-        }
-        None
-    }
-
-    /// Get agent name for a stage.
-    fn get_agent_for_stage(
-        &self,
-        pipeline_config: &PipelineConfig,
-        stage_name: &str,
-    ) -> Result<String, String> {
-        pipeline_config
-            .stages
-            .iter()
-            .find(|s| s.name == stage_name)
-            .map(|s| s.agent.clone())
-            .ok_or_else(|| format!("Stage not found in pipeline: {}", stage_name))
-    }
 }
 
 impl Default for Orchestrator {
     fn default() -> Self {
         Self::new()
     }
+}
+
+// =============================================================================
+// Helper Functions (outside impl to avoid borrow checker issues)
+// =============================================================================
+
+/// Check if envelope exceeds bounds.
+fn check_bounds(envelope: &Envelope) -> Option<TerminalReason> {
+    if envelope.llm_call_count >= envelope.max_llm_calls {
+        return Some(TerminalReason::MaxLlmCallsExceeded);
+    }
+    if envelope.iteration >= envelope.max_iterations {
+        return Some(TerminalReason::MaxIterationsExceeded);
+    }
+    if envelope.agent_hop_count >= envelope.max_agent_hops {
+        return Some(TerminalReason::MaxAgentHopsExceeded);
+    }
+    None
+}
+
+/// Get agent name for a stage.
+fn get_agent_for_stage(
+    pipeline_config: &PipelineConfig,
+    stage_name: &str,
+) -> Result<String, String> {
+    pipeline_config
+        .stages
+        .iter()
+        .find(|s| s.name == stage_name)
+        .map(|s| s.agent.clone())
+        .ok_or_else(|| format!("Stage not found in pipeline: {}", stage_name))
 }

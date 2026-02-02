@@ -160,8 +160,11 @@ pub struct Envelope {
     // ===== Bounds Tracking =====
     pub llm_call_count: i32,
     pub max_llm_calls: i32,
+    pub tool_call_count: i32,
     pub agent_hop_count: i32,
     pub max_agent_hops: i32,
+    pub tokens_in: i64,
+    pub tokens_out: i64,
 
     #[serde(skip_serializing_if = "Option::is_none")]
     pub terminal_reason: Option<TerminalReason>,
@@ -239,8 +242,11 @@ impl Envelope {
             // Bounds
             llm_call_count: 0,
             max_llm_calls: 10,
+            tool_call_count: 0,
             agent_hop_count: 0,
             max_agent_hops: 21,
+            tokens_in: 0,
+            tokens_out: 0,
             terminal_reason: None,
 
             // Control flow
