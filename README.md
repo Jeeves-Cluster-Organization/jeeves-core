@@ -1,24 +1,29 @@
 # Jeeves Core
 
-A micro-kernel for AI agent orchestration written in Go.
+A high-performance micro-kernel for AI agent orchestration written in Rust.
 
-[![Go](https://img.shields.io/badge/Go-1.21+-00ADD8?logo=go&logoColor=white)](https://go.dev)
+[![Rust](https://img.shields.io/badge/Rust-1.70+-orange?logo=rust&logoColor=white)](https://rust-lang.org)
 [![License](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](LICENSE)
-[![Tests](https://img.shields.io/badge/Tests-400%2B%20passing-brightgreen)](.)
+[![Tests](https://img.shields.io/badge/Tests-96%20passing-brightgreen)](.)
+[![Coverage](https://img.shields.io/badge/Coverage-81.36%25-green)](COVERAGE_REPORT.md)
 
 ## Overview
 
-Jeeves Core is a **micro-kernel** that provides the foundational runtime for AI agent systems. It handles:
+Jeeves Core is a **production-grade micro-kernel** that provides the foundational runtime for AI agent systems. Built in Rust for safety, performance, and reliability.
 
-- **Pipeline Orchestration** - Multi-stage agent pipelines with routing rules
-- **Envelope State Management** - Immutable state transitions with bounds checking
-- **Resource Quotas** - Defense-in-depth limits on iterations, LLM calls, and agent hops
-- **gRPC Services** - High-performance communication with Python infrastructure layer
-- **Circuit Breakers** - Fault tolerance for external service calls
+### Key Features
+
+- **Process Lifecycle Management** - Unix-like process states with resource quotas
+- **Kernel-Mediated IPC** - CommBus for secure inter-agent communication
+- **Interrupt Handling** - Human-in-the-loop patterns with timeout enforcement
+- **Resource Quotas** - Defense-in-depth limits on LLM calls, tokens, and execution hops
+- **gRPC Services** - High-performance communication with infrastructure layer
+- **Background Cleanup** - Automatic garbage collection of stale processes
+- **Panic Recovery** - Fault isolation prevents single-agent failures from crashing the kernel
 
 ## Architecture
 
-```
+\`\`\`
 ┌─────────────────────────────────────────────────────────────────┐
 │  Capabilities (User Space)                                       │
 │  mini-swe-agent, chat-agent, etc.                               │
@@ -35,181 +40,283 @@ Jeeves Core is a **micro-kernel** that provides the foundational runtime for AI 
 │  jeeves-core (Micro-Kernel)  ← THIS PACKAGE                     │
 │                                                                  │
 │  ┌──────────────┐  ┌──────────────┐  ┌──────────────┐          │
-│  │   Runtime    │  │   Envelope   │  │   CommBus    │          │
-│  │  (Pipeline)  │  │   (State)    │  │  (Messaging) │          │
+│  │  Lifecycle   │  │  Interrupts  │  │   CommBus    │          │
+│  │  Manager     │  │   Service    │  │ (IPC/Pub-Sub)│          │
 │  └──────────────┘  └──────────────┘  └──────────────┘          │
 │                                                                  │
 │  ┌──────────────┐  ┌──────────────┐  ┌──────────────┐          │
-│  │    Config    │  │    Tools     │  │    gRPC      │          │
-│  │  (Pipeline)  │  │  (Registry)  │  │  (Services)  │          │
+│  │  Resources   │  │ Rate Limiter │  │    gRPC      │          │
+│  │  Tracker     │  │              │  │  (Services)  │          │
+│  └──────────────┘  └──────────────┘  └──────────────┘          │
+│                                                                  │
+│  ┌──────────────┐  ┌──────────────┐  ┌──────────────┐          │
+│  │ Orchestrator │  │   Cleanup    │  │   Recovery   │          │
+│  │  (Pipeline)  │  │   Service    │  │   (Panics)   │          │
 │  └──────────────┘  └──────────────┘  └──────────────┘          │
 └─────────────────────────────────────────────────────────────────┘
-```
+\`\`\`
 
 ## Installation
 
-```bash
-go get github.com/Jeeves-Cluster-Organization/jeeves-core
-```
+### Prerequisites
 
-Or clone and build:
+- Rust 1.70 or later
+- Protocol Buffers compiler (\`protoc\`)
 
-```bash
+### Build from Source
+
+\`\`\`bash
 git clone https://github.com/Jeeves-Cluster-Organization/jeeves-core.git
 cd jeeves-core
-go build ./...
-```
+cargo build --release
+\`\`\`
+
+### Run Tests
+
+\`\`\`bash
+# Run all tests
+cargo test
+
+# Run with coverage report
+cargo tarpaulin --lib --out Stdout
+
+# Run specific module tests
+cargo test --lib kernel::lifecycle
+\`\`\`
 
 ## Quick Start
 
 ### Running the Kernel
 
-```bash
-# Start the gRPC server
-go run ./cmd -addr :50051
+\`\`\`bash
+# Start the gRPC server (default port 50051)
+cargo run --release
 
-# With metrics enabled
-go run ./cmd -addr :50051 -metrics-addr :9091
-```
+# With custom configuration
+JEEVES_GRPC_PORT=50052 cargo run --release
+\`\`\`
 
 ### Using as a Library
 
-```go
-package main
+Add to your \`Cargo.toml\`:
 
-import (
-    "github.com/Jeeves-Cluster-Organization/jeeves-core/coreengine/config"
-    "github.com/Jeeves-Cluster-Organization/jeeves-core/coreengine/runtime"
-    "github.com/Jeeves-Cluster-Organization/jeeves-core/coreengine/envelope"
-)
+\`\`\`toml
+[dependencies]
+jeeves-core = { git = "https://github.com/Jeeves-Cluster-Organization/jeeves-core" }
+tokio = { version = "1", features = ["full"] }
+\`\`\`
 
-func main() {
-    // Create pipeline configuration
-    cfg := &config.PipelineConfig{
-        Name:          "my_pipeline",
-        MaxIterations: 10,
-        MaxLLMCalls:   5,
-        MaxAgentHops:  20,
-        Agents: []config.AgentConfig{
-            {
-                Name:        "analyzer",
-                OutputKey:   "analysis",
-                HasLLM:      true,
-                HasTools:    true,
-                DefaultNext: "executor",
-            },
-            {
-                Name:        "executor",
-                OutputKey:   "result",
-                HasLLM:      true,
-                HasTools:    true,
-                DefaultNext: "end",
-            },
-        },
-    }
+Example usage:
 
-    // Create runtime
-    rt := runtime.NewRuntime(cfg)
+\`\`\`rust
+use jeeves_core::kernel::{Kernel, SchedulingPriority, ResourceQuota};
+use std::sync::Arc;
+use tokio::sync::Mutex;
 
-    // Create envelope with task
-    env := envelope.NewEnvelope("task-123", "Fix the bug in auth.py")
+#[tokio::main]
+async fn main() {
+    // Create kernel with default quotas
+    let kernel = Arc::new(Mutex::new(Kernel::new()));
 
-    // Execute pipeline (integrate with jeeves-infra for LLM calls)
-    // ...
+    // Create a process with resource quotas
+    let quota = ResourceQuota {
+        max_llm_calls: 10,
+        max_output_tokens: 50000,
+        max_agent_hops: 20,
+        max_iterations: 5,
+    };
+
+    let mut k = kernel.lock().await;
+    let process = k.create_process(
+        "process-123".to_string(),
+        "request-456".to_string(),
+        "user-789".to_string(),
+        "session-abc".to_string(),
+        SchedulingPriority::Normal,
+        Some(quota),
+    ).expect("Failed to create process");
+
+    println!("Created process: {}", process.pid);
 }
-```
+\`\`\`
 
 ## Core Concepts
 
-### Envelope
+### Process Lifecycle
 
-The `Envelope` is the immutable state container that flows through the pipeline:
+Processes follow Unix-like state transitions:
 
-```go
-type Envelope struct {
-    EnvelopeID    string
-    Task          string
-    CurrentStage  string
-    Outputs       map[string]interface{}
-    IterationCount int
-    LLMCallCount   int
-    AgentHopCount  int
+\`\`\`
+New → Ready → Running → Blocked → Ready → ... → Terminated → Zombie
+\`\`\`
+
+- **New**: Process created but not scheduled
+- **Ready**: Waiting in priority queue for CPU
+- **Running**: Currently executing
+- **Blocked**: Waiting for interrupt resolution
+- **Terminated**: Execution complete
+- **Zombie**: Awaiting cleanup
+
+### Resource Quotas
+
+Defense-in-depth resource limits:
+
+\`\`\`rust
+pub struct ResourceQuota {
+    pub max_llm_calls: usize,       // Limit LLM API calls
+    pub max_output_tokens: usize,   // Limit token generation
+    pub max_agent_hops: usize,      // Limit pipeline depth
+    pub max_iterations: usize,      // Prevent infinite loops
 }
-```
+\`\`\`
 
-### Pipeline Configuration
+### Interrupts (Human-in-the-Loop)
 
-Pipelines are configured declaratively with agents, routing rules, and bounds:
+Three interrupt types for human interaction:
 
-```go
-type PipelineConfig struct {
-    Name          string
-    MaxIterations int
-    MaxLLMCalls   int
-    MaxAgentHops  int
-    Agents        []AgentConfig
-}
+- **Clarification**: Agent requests user input
+- **Confirmation**: Agent seeks approval to proceed
+- **ResourceExhausted**: Quota exceeded, request extension
 
-type AgentConfig struct {
-    Name         string
-    OutputKey    string
-    HasLLM       bool
-    HasTools     bool
-    DefaultNext  string
-    RoutingRules []RoutingRule
-}
-```
+\`\`\`rust
+// Create an interrupt
+let interrupt = k.create_interrupt(
+    "process-123".to_string(),
+    InterruptKind::Clarification,
+    "Need input: Which file should I modify?".to_string(),
+    "user-789".to_string(),
+)?;
 
-### Circuit Breakers
+// Resolve with user response
+k.resolve_interrupt(&interrupt.id, "user-789", true, Some("auth.py"))?;
+\`\`\`
 
-Built-in fault tolerance for external service calls:
+### CommBus (IPC)
 
-```go
-cb := commbus.NewCircuitBreaker(commbus.CircuitBreakerConfig{
-    Threshold:   5,
-    ResetPeriod: 30 * time.Second,
-})
-```
+Kernel-mediated inter-process communication:
+
+\`\`\`rust
+// Event pub/sub (fan-out)
+let (subscription, mut rx) = k.commbus
+    .subscribe("agent-123".to_string(), vec!["system.event".to_string()])
+    .await?;
+
+// Command (fire-and-forget)
+k.commbus.send_command(Command {
+    command_type: "agent.restart".to_string(),
+    payload: b"{}".to_vec(),
+    source: "supervisor".to_string(),
+}).await?;
+
+// Query (request-response with timeout)
+let response = k.commbus.query(Query {
+    query_type: "agent.status".to_string(),
+    payload: b"{}".to_vec(),
+    timeout_ms: 1000,
+    source: "monitor".to_string(),
+}).await?;
+\`\`\`
+
+## Module Structure
+
+| Module | Description |
+|--------|-------------|
+| \`kernel::lifecycle\` | Process state machine and scheduling |
+| \`kernel::resources\` | Quota enforcement and usage tracking |
+| \`kernel::interrupts\` | Human-in-the-loop interrupt handling |
+| \`kernel::rate_limiter\` | Per-user rate limiting (sliding window) |
+| \`kernel::services\` | Service registry for agent dispatch |
+| \`kernel::orchestrator\` | Pipeline orchestration (session management) |
+| \`kernel::cleanup\` | Background garbage collection |
+| \`kernel::recovery\` | Panic recovery for fault isolation |
+| \`commbus\` | Message bus (events, commands, queries) |
+| \`envelope\` | State container for pipeline execution |
+| \`grpc\` | gRPC service implementations |
+| \`types\` | Error types and core data structures |
+
+## gRPC Services
+
+The kernel exposes four gRPC services:
+
+1. **KernelService** (12 RPCs): Process lifecycle operations
+2. **EngineService** (6 RPCs): Envelope and pipeline management
+3. **OrchestrationService** (4 RPCs): Session and instruction flow
+4. **CommBusService** (4 RPCs): IPC operations (pub/sub/query)
+
+See \`proto/\` directory for service definitions.
 
 ## Testing
 
-```bash
+The codebase has **81.36% line coverage** with **96 comprehensive tests**.
+
+\`\`\`bash
 # Run all tests
-go test ./...
+cargo test
 
-# With coverage
-go test ./... -cover
+# Run with output
+cargo test -- --nocapture
 
-# Verbose output
-go test ./... -v
+# Run specific module
+cargo test kernel::lifecycle::tests
 
-# Specific package
-go test ./coreengine/runtime -v
-```
+# Run with coverage
+cargo tarpaulin --lib --out Stdout
+\`\`\`
 
-## Package Structure
+See [COVERAGE_REPORT.md](COVERAGE_REPORT.md) for detailed coverage analysis.
 
-| Package | Description |
-|---------|-------------|
-| `coreengine/runtime` | Pipeline execution engine |
-| `coreengine/envelope` | State container and transitions |
-| `coreengine/config` | Pipeline configuration types |
-| `coreengine/commbus` | Message bus with circuit breakers |
-| `coreengine/tools` | Tool registry and definitions |
-| `coreengine/grpc` | gRPC service implementations |
-| `coreengine/testutil` | Test helpers and fixtures |
+## Production Features
 
-## Metrics
+### Background Cleanup
 
-Prometheus metrics are exposed when running with `-metrics-addr`:
+Automatic garbage collection of stale processes:
 
-```promql
-# Pipeline execution rate
-rate(jeeves_pipeline_executions_total[5m])
+\`\`\`rust
+use jeeves_core::kernel::cleanup::{CleanupService, CleanupConfig};
 
-# Agent latency (P95)
-histogram_quantile(0.95, rate(jeeves_agent_duration_seconds_bucket[5m]))
-```
+let config = CleanupConfig {
+    interval_seconds: 300,              // Run every 5 minutes
+    process_retention_seconds: 86400,   // Keep zombies for 24 hours
+    session_retention_seconds: 3600,    // Keep sessions for 1 hour
+    interrupt_retention_seconds: 86400, // Keep interrupts for 24 hours
+};
+
+let mut cleanup = CleanupService::new(kernel.clone(), config);
+let handle = cleanup.start(); // Spawns background task
+\`\`\`
+
+### Panic Recovery
+
+Prevent single-agent failures from crashing the kernel:
+
+\`\`\`rust
+use jeeves_core::kernel::with_recovery;
+
+let result = with_recovery(|| {
+    // Potentially panicking agent operation
+    execute_agent()?;
+    Ok(())
+}, "agent_execution");
+
+match result {
+    Ok(_) => println!("Success"),
+    Err(e) => eprintln!("Agent panicked: {}", e),
+}
+\`\`\`
+
+## Performance
+
+- **Zero-copy message passing** via Arc and tokio channels
+- **Compile-time memory safety** (no garbage collector pauses)
+- **Lock-free scheduling** with priority queues
+- **Efficient resource tracking** with HashMap lookups
+
+## Safety Guarantees
+
+- **Zero unsafe code blocks** in the entire codebase
+- **Compile-time null safety** (no null pointer dereferences)
+- **Thread safety** enforced by the borrow checker
+- **Panic recovery** prevents cascading failures
 
 ## Related Projects
 
@@ -221,17 +328,18 @@ histogram_quantile(0.95, rate(jeeves_agent_duration_seconds_bucket[5m]))
 We welcome contributions! Please see [CONTRIBUTING.md](CONTRIBUTING.md) for guidelines.
 
 1. Fork the repository
-2. Create a feature branch (`git checkout -b feature/amazing-feature`)
-3. Commit your changes (`git commit -m 'Add amazing feature'`)
-4. Push to the branch (`git push origin feature/amazing-feature`)
-5. Open a Pull Request
+2. Create a feature branch (\`git checkout -b feature/amazing-feature\`)
+3. Write tests for your changes
+4. Ensure \`cargo test\` passes
+5. Ensure \`cargo fmt\` and \`cargo clippy\` are clean
+6. Push to your fork and open a Pull Request
 
 ## License
 
 Apache License 2.0 - see [LICENSE](LICENSE) for details.
 
-```
-Copyright 2024 Jeeves Cluster Organization
+\`\`\`
+Copyright 2024-2026 Jeeves Cluster Organization
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -244,4 +352,4 @@ distributed under the License is distributed on an "AS IS" BASIS,
 WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 See the License for the specific language governing permissions and
 limitations under the License.
-```
+\`\`\`
