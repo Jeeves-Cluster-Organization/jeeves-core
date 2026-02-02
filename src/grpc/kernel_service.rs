@@ -12,17 +12,17 @@ use crate::proto::{
 };
 use crate::types::Error;
 use std::sync::Arc;
-use tokio::sync::RwLock;
+use tokio::sync::Mutex;
 use tonic::{Request, Response, Status};
 
 /// KernelService implementation wrapping the Kernel actor.
 #[derive(Debug)]
 pub struct KernelServiceImpl {
-    kernel: Arc<RwLock<Kernel>>,
+    kernel: Arc<Mutex<Kernel>>,
 }
 
 impl KernelServiceImpl {
-    pub fn new(kernel: Arc<RwLock<Kernel>>) -> Self {
+    pub fn new(kernel: Arc<Mutex<Kernel>>) -> Self {
         Self { kernel }
     }
 }
@@ -57,7 +57,7 @@ impl KernelService for KernelServiceImpl {
         };
 
         // Call kernel
-        let mut kernel = self.kernel.write().await;
+        let mut kernel = self.kernel.lock().await;
         let pcb = kernel
             .create_process(
                 req.pid.clone(),
@@ -82,7 +82,7 @@ impl KernelService for KernelServiceImpl {
             return Err(Error::validation("pid is required".to_string()).to_grpc_status());
         }
 
-        let kernel = self.kernel.read().await;
+        let kernel = self.kernel.lock().await;
         let pcb = kernel
             .get_process(&req.pid)
             .ok_or_else(|| Error::not_found(format!("Process {} not found", req.pid)))?;
@@ -100,7 +100,7 @@ impl KernelService for KernelServiceImpl {
             return Err(Error::validation("pid is required".to_string()).to_grpc_status());
         }
 
-        let mut kernel = self.kernel.write().await;
+        let mut kernel = self.kernel.lock().await;
         kernel
             .lifecycle
             .schedule(&req.pid)
@@ -117,7 +117,7 @@ impl KernelService for KernelServiceImpl {
         &self,
         _request: Request<GetNextRunnableRequest>,
     ) -> std::result::Result<Response<ProcessControlBlock>, Status> {
-        let mut kernel = self.kernel.write().await;
+        let mut kernel = self.kernel.lock().await;
         let pcb = kernel.get_next_runnable().ok_or_else(|| {
             Error::not_found("No runnable processes".to_string()).to_grpc_status()
         })?;
@@ -138,7 +138,7 @@ impl KernelService for KernelServiceImpl {
         let new_state =
             crate::kernel::ProcessState::try_from(req.new_state).map_err(|e| e.to_grpc_status())?;
 
-        let mut kernel = self.kernel.write().await;
+        let mut kernel = self.kernel.lock().await;
 
         // Get current PCB to check transition
         let pcb = kernel
@@ -200,7 +200,7 @@ impl KernelService for KernelServiceImpl {
             return Err(Error::validation("pid is required".to_string()).to_grpc_status());
         }
 
-        let mut kernel = self.kernel.write().await;
+        let mut kernel = self.kernel.lock().await;
         kernel
             .terminate_process(&req.pid)
             .map_err(|e| e.to_grpc_status())?;
@@ -222,7 +222,7 @@ impl KernelService for KernelServiceImpl {
             return Err(Error::validation("pid is required".to_string()).to_grpc_status());
         }
 
-        let kernel = self.kernel.read().await;
+        let kernel = self.kernel.lock().await;
         let pcb = kernel
             .get_process(&req.pid)
             .ok_or_else(|| Error::not_found(format!("Process {} not found", req.pid)))?;
@@ -249,7 +249,7 @@ impl KernelService for KernelServiceImpl {
             return Err(Error::validation("pid is required".to_string()).to_grpc_status());
         }
 
-        let mut kernel = self.kernel.write().await;
+        let mut kernel = self.kernel.lock().await;
 
         // Get user_id from PCB
         let user_id = {
@@ -285,7 +285,7 @@ impl KernelService for KernelServiceImpl {
             return Err(Error::validation("user_id is required".to_string()).to_grpc_status());
         }
 
-        let mut kernel = self.kernel.write().await;
+        let mut kernel = self.kernel.lock().await;
         let result = if req.record {
             kernel.rate_limiter.check_rate_limit(&req.user_id)
         } else {
@@ -323,7 +323,7 @@ impl KernelService for KernelServiceImpl {
     ) -> std::result::Result<Response<ListProcessesResponse>, Status> {
         let req = request.into_inner();
 
-        let kernel = self.kernel.read().await;
+        let kernel = self.kernel.lock().await;
         let processes = kernel.list_processes();
 
         // Filter by state if specified
@@ -360,7 +360,7 @@ impl KernelService for KernelServiceImpl {
         &self,
         _request: Request<GetProcessCountsRequest>,
     ) -> std::result::Result<Response<ProcessCountsResponse>, Status> {
-        let kernel = self.kernel.read().await;
+        let kernel = self.kernel.lock().await;
 
         let total = kernel.process_count() as i32;
         let queue_depth = 0; // TODO: implement queue depth in kernel

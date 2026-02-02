@@ -654,3 +654,106 @@ fn ms_to_datetime(ms: i64) -> Result<DateTime<Utc>, Error> {
 fn datetime_to_ms(dt: &DateTime<Utc>) -> i64 {
     dt.timestamp_millis()
 }
+// =============================================================================
+// Orchestrator conversions (for OrchestrationService)
+// =============================================================================
+
+use crate::kernel::orchestrator::{
+    AgentExecutionMetrics, Instruction, InstructionKind, SessionState,
+};
+
+// InstructionKind conversions
+impl From<InstructionKind> for i32 {
+    fn from(kind: InstructionKind) -> i32 {
+        match kind {
+            InstructionKind::RunAgent => proto::InstructionKind::RunAgent as i32,
+            InstructionKind::Terminate => proto::InstructionKind::Terminate as i32,
+            InstructionKind::WaitInterrupt => proto::InstructionKind::WaitInterrupt as i32,
+        }
+    }
+}
+
+impl TryFrom<i32> for InstructionKind {
+    type Error = Error;
+
+    fn try_from(value: i32) -> Result<Self, Self::Error> {
+        match proto::InstructionKind::try_from(value) {
+            Ok(proto::InstructionKind::RunAgent) => Ok(InstructionKind::RunAgent),
+            Ok(proto::InstructionKind::Terminate) => Ok(InstructionKind::Terminate),
+            Ok(proto::InstructionKind::WaitInterrupt) => Ok(InstructionKind::WaitInterrupt),
+            _ => Err(Error::validation(format!(
+                "Invalid InstructionKind: {}",
+                value
+            ))),
+        }
+    }
+}
+
+// Instruction conversions
+impl From<Instruction> for proto::Instruction {
+    fn from(instruction: Instruction) -> proto::Instruction {
+        proto::Instruction {
+            kind: i32::from(instruction.kind),
+            agent_name: instruction.agent_name.unwrap_or_default(),
+            agent_config: instruction
+                .agent_config
+                .and_then(|v| serde_json::to_vec(&v).ok())
+                .unwrap_or_default(),
+            envelope: instruction
+                .envelope
+                .and_then(|e| serde_json::to_vec(&e).ok())
+                .unwrap_or_default(),
+            terminal_reason: instruction
+                .terminal_reason
+                .map(|r| i32::from(r))
+                .unwrap_or(0),
+            termination_message: instruction.termination_message.unwrap_or_default(),
+            interrupt_pending: instruction.interrupt_pending,
+            interrupt: instruction.interrupt.map(|i| i.into()),
+        }
+    }
+}
+
+// AgentExecutionMetrics conversions
+impl TryFrom<proto::AgentExecutionMetrics> for AgentExecutionMetrics {
+    type Error = Error;
+
+    fn try_from(proto: proto::AgentExecutionMetrics) -> Result<Self, Self::Error> {
+        Ok(AgentExecutionMetrics {
+            llm_calls: proto.llm_calls,
+            tool_calls: proto.tool_calls,
+            tokens_in: proto.tokens_in as i64,
+            tokens_out: proto.tokens_out as i64,
+            duration_ms: proto.duration_ms as i64,
+        })
+    }
+}
+
+impl From<AgentExecutionMetrics> for proto::AgentExecutionMetrics {
+    fn from(metrics: AgentExecutionMetrics) -> proto::AgentExecutionMetrics {
+        proto::AgentExecutionMetrics {
+            llm_calls: metrics.llm_calls,
+            tool_calls: metrics.tool_calls,
+            tokens_in: metrics.tokens_in as i32,
+            tokens_out: metrics.tokens_out as i32,
+            duration_ms: metrics.duration_ms as i32,
+        }
+    }
+}
+
+// SessionState conversions
+impl From<SessionState> for proto::SessionState {
+    fn from(state: SessionState) -> proto::SessionState {
+        proto::SessionState {
+            process_id: state.process_id,
+            current_stage: state.current_stage,
+            stage_order: state.stage_order,
+            envelope: serde_json::to_vec(&state.envelope)
+                .ok()
+                .unwrap_or_default(),
+            edge_traversals: state.edge_traversals,
+            terminated: state.terminated,
+            terminal_reason: state.terminal_reason.map(|r| i32::from(r)).unwrap_or(0),
+        }
+    }
+}

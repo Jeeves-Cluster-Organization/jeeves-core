@@ -24,6 +24,7 @@ use crate::proto::{
 };
 
 /// EngineService implementation.
+#[derive(Debug, Clone)]
 pub struct EngineService {
     kernel: Arc<Mutex<Kernel>>,
 }
@@ -212,13 +213,16 @@ impl EngineServiceTrait for EngineService {
         // 3. Handle interrupts and errors
         // For now, we'll return a simple completion event
 
+        // Clone Arc before stream to satisfy 'static lifetime
+        let kernel = self.kernel.clone();
+        let process_id_clone = process_id.clone();
+
         let stream = async_stream::stream! {
             // Get kernel reference for streaming
-            let kernel = self.kernel.clone();
             let mut kernel_guard = kernel.lock().await;
 
             // Get next instruction
-            match kernel_guard.get_next_instruction(&process_id) {
+            match kernel_guard.get_next_instruction(&process_id_clone) {
                 Ok(instruction) => {
                     // Create event from instruction
                     let event = ExecutionEvent {
