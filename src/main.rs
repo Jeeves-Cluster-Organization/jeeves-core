@@ -8,7 +8,7 @@
 
 use jeeves_core::Config;
 use std::sync::Arc;
-use tokio::sync::{Mutex, RwLock};
+use tokio::sync::Mutex;
 use tonic::transport::Server;
 
 // Import service implementations
@@ -31,17 +31,14 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Initialize observability
     jeeves_core::observability::init_tracing();
 
-    // Create shared kernel instance with RwLock (for KernelService compatibility)
-    let kernel = Arc::new(RwLock::new(Kernel::new()));
+    // Create shared kernel instance (all services share one kernel)
+    let kernel = Arc::new(Mutex::new(Kernel::new()));
 
-    // Create KernelService with RwLock
+    // Create all 4 gRPC services sharing the same kernel
     let kernel_service = KernelServiceImpl::new(kernel.clone());
-
-    // Create other services with Mutex (wrap kernel in Mutex for them)
-    let kernel_mutex = Arc::new(Mutex::new(Kernel::new()));
-    let engine_service = EngineService::new(kernel_mutex.clone());
-    let orchestration_service = OrchestrationService::new(kernel_mutex.clone());
-    let commbus_service = CommBusService::new(kernel_mutex.clone());
+    let engine_service = EngineService::new(kernel.clone());
+    let orchestration_service = OrchestrationService::new(kernel.clone());
+    let commbus_service = CommBusService::new(kernel.clone());
 
     // Bind address
     let addr = "[::1]:50051".parse()?;
