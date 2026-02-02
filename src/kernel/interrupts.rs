@@ -590,3 +590,376 @@ impl Default for InterruptService {
         Self::new()
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_create_clarification_interrupt() {
+        let mut service = InterruptService::new();
+        let interrupt = service.create_clarification(
+            "req1".to_string(),
+            "user1".to_string(),
+            "sess1".to_string(),
+            "env1".to_string(),
+            "What should I do next?".to_string(),
+            None,
+        );
+
+        assert_eq!(interrupt.flow_interrupt.kind, InterruptKind::Clarification);
+        assert_eq!(interrupt.status, InterruptStatus::Pending);
+        assert_eq!(interrupt.request_id, "req1");
+        assert_eq!(interrupt.user_id, "user1");
+        assert_eq!(interrupt.session_id, "sess1");
+        assert!(interrupt.flow_interrupt.question.is_some());
+        assert_eq!(service.get_pending_count(), 1);
+    }
+
+    #[test]
+    fn test_create_confirmation_interrupt() {
+        let mut service = InterruptService::new();
+        let interrupt = service.create_confirmation(
+            "req1".to_string(),
+            "user1".to_string(),
+            "sess1".to_string(),
+            "env1".to_string(),
+            "Should I delete this file?".to_string(),
+            None,
+        );
+
+        assert_eq!(interrupt.flow_interrupt.kind, InterruptKind::Confirmation);
+        assert_eq!(interrupt.status, InterruptStatus::Pending);
+        assert!(interrupt.flow_interrupt.message.is_some());
+        assert_eq!(service.get_pending_count(), 1);
+    }
+
+    #[test]
+    fn test_resolve_interrupt_with_approval() {
+        let mut service = InterruptService::new();
+        let interrupt = service.create_confirmation(
+            "req1".to_string(),
+            "user1".to_string(),
+            "sess1".to_string(),
+            "env1".to_string(),
+            "Proceed?".to_string(),
+            None,
+        );
+
+        let interrupt_id = interrupt.flow_interrupt.id.clone();
+        let response = InterruptResponse {
+            text: Some("Yes, proceed".to_string()),
+            approved: Some(true),
+            decision: None,
+            data: None,
+            received_at: Utc::now(),
+        };
+
+        let success = service.resolve(&interrupt_id, response, Some("user1"));
+        assert!(success);
+
+        let resolved = service.get_interrupt(&interrupt_id).unwrap();
+        assert_eq!(resolved.status, InterruptStatus::Resolved);
+        assert!(resolved.flow_interrupt.response.is_some());
+        assert_eq!(resolved.flow_interrupt.response.as_ref().unwrap().approved, Some(true));
+    }
+
+    #[test]
+    fn test_resolve_wrong_user_fails() {
+        let mut service = InterruptService::new();
+        let interrupt = service.create_clarification(
+            "req1".to_string(),
+            "user1".to_string(),
+            "sess1".to_string(),
+            "env1".to_string(),
+            "Question?".to_string(),
+            None,
+        );
+
+        let interrupt_id = interrupt.flow_interrupt.id.clone();
+        let response = InterruptResponse {
+            text: Some("Answer".to_string()),
+            approved: Some(true),
+            decision: None,
+            data: None,
+            received_at: Utc::now(),
+        };
+
+        // Try to resolve with wrong user
+        let success = service.resolve(&interrupt_id, response, Some("user2"));
+        assert!(!success);
+
+        // Interrupt should still be pending
+        let still_pending = service.get_interrupt(&interrupt_id).unwrap();
+        assert_eq!(still_pending.status, InterruptStatus::Pending);
+    }
+
+    #[test]
+    fn test_cancel_interrupt() {
+        let mut service = InterruptService::new();
+        let interrupt = service.create_clarification(
+            "req1".to_string(),
+            "user1".to_string(),
+            "sess1".to_string(),
+            "env1".to_string(),
+            "Question?".to_string(),
+            None,
+        );
+
+        let interrupt_id = interrupt.flow_interrupt.id.clone();
+        let success = service.cancel(&interrupt_id, "User cancelled operation".to_string());
+        assert!(success);
+
+        let cancelled = service.get_interrupt(&interrupt_id).unwrap();
+        assert_eq!(cancelled.status, InterruptStatus::Cancelled);
+        assert!(cancelled.flow_interrupt.data.is_some());
+        assert!(cancelled.flow_interrupt.data.as_ref().unwrap().contains_key("cancel_reason"));
+    }
+
+    #[test]
+    fn test_expire_pending_interrupts() {
+        let mut service = InterruptService::new();
+
+        // Create interrupt with very short TTL (1 second)
+        let interrupt = service.create_interrupt(
+            InterruptKind::Confirmation,
+            "req1".to_string(),
+            "user1".to_string(),
+            "sess1".to_string(),
+            "env1".to_string(),
+            Some("Quick question?".to_string()),
+            None,
+            None,
+            None,
+            None,
+        );
+
+        // Manually set expiry to past
+        let interrupt_id = interrupt.flow_interrupt.id.clone();
+        if let Some(int) = service.store.get_mut(&interrupt_id) {
+            int.flow_interrupt.expires_at = Some(Utc::now() - Duration::minutes(1));
+        }
+
+        let expired_count = service.expire_pending();
+        assert_eq!(expired_count, 1);
+
+        let expired = service.get_interrupt(&interrupt_id).unwrap();
+        assert_eq!(expired.status, InterruptStatus::Expired);
+    }
+
+    #[test]
+    fn test_get_pending_for_request() {
+        let mut service = InterruptService::new();
+
+        // Create multiple interrupts for same request
+        service.create_clarification(
+            "req1".to_string(),
+            "user1".to_string(),
+            "sess1".to_string(),
+            "env1".to_string(),
+            "First question?".to_string(),
+            None,
+        );
+
+        let second = service.create_clarification(
+            "req1".to_string(),
+            "user1".to_string(),
+            "sess1".to_string(),
+            "env2".to_string(),
+            "Second question?".to_string(),
+            None,
+        );
+
+        // Should return most recent pending
+        let pending = service.get_pending_for_request("req1");
+        assert!(pending.is_some());
+        assert_eq!(pending.unwrap().flow_interrupt.id, second.flow_interrupt.id);
+    }
+
+    #[test]
+    fn test_get_pending_for_session_filtered() {
+        let mut service = InterruptService::new();
+
+        // Create interrupts of different kinds
+        service.create_clarification(
+            "req1".to_string(),
+            "user1".to_string(),
+            "sess1".to_string(),
+            "env1".to_string(),
+            "Clarification?".to_string(),
+            None,
+        );
+
+        service.create_confirmation(
+            "req2".to_string(),
+            "user1".to_string(),
+            "sess1".to_string(),
+            "env2".to_string(),
+            "Confirmation?".to_string(),
+            None,
+        );
+
+        service.create_clarification(
+            "req3".to_string(),
+            "user1".to_string(),
+            "sess1".to_string(),
+            "env3".to_string(),
+            "Another clarification?".to_string(),
+            None,
+        );
+
+        // Get all pending for session
+        let all_pending = service.get_pending_for_session("sess1", None);
+        assert_eq!(all_pending.len(), 3);
+
+        // Filter by clarification kind only
+        let clarifications = service.get_pending_for_session(
+            "sess1",
+            Some(&[InterruptKind::Clarification]),
+        );
+        assert_eq!(clarifications.len(), 2);
+
+        // Filter by confirmation kind only
+        let confirmations = service.get_pending_for_session(
+            "sess1",
+            Some(&[InterruptKind::Confirmation]),
+        );
+        assert_eq!(confirmations.len(), 1);
+    }
+
+    #[test]
+    fn test_cleanup_resolved() {
+        let mut service = InterruptService::new();
+
+        // Create and resolve an interrupt
+        let interrupt = service.create_confirmation(
+            "req1".to_string(),
+            "user1".to_string(),
+            "sess1".to_string(),
+            "env1".to_string(),
+            "Old interrupt".to_string(),
+            None,
+        );
+
+        let interrupt_id = interrupt.flow_interrupt.id.clone();
+        let response = InterruptResponse {
+            text: None,
+            approved: Some(true),
+            decision: None,
+            data: None,
+            received_at: Utc::now(),
+        };
+        service.resolve(&interrupt_id, response, None);
+
+        // Create a pending interrupt (should not be cleaned)
+        service.create_clarification(
+            "req2".to_string(),
+            "user1".to_string(),
+            "sess1".to_string(),
+            "env2".to_string(),
+            "New interrupt".to_string(),
+            None,
+        );
+
+        assert_eq!(service.store.len(), 2);
+
+        // Cleanup resolved interrupts older than 0 seconds (should remove resolved)
+        let cleaned = service.cleanup_resolved(Duration::seconds(0));
+        assert_eq!(cleaned, 1);
+        assert_eq!(service.store.len(), 1);
+    }
+
+    #[test]
+    fn test_interrupt_ttl_config() {
+        let service = InterruptService::new();
+
+        // Check default TTLs for different kinds
+        let clarification_config = service.get_config(InterruptKind::Clarification);
+        assert!(clarification_config.default_ttl.is_some());
+        assert_eq!(clarification_config.default_ttl.unwrap().num_hours(), 24);
+
+        let confirmation_config = service.get_config(InterruptKind::Confirmation);
+        assert!(confirmation_config.default_ttl.is_some());
+        assert_eq!(confirmation_config.default_ttl.unwrap().num_hours(), 1);
+
+        let checkpoint_config = service.get_config(InterruptKind::Checkpoint);
+        assert!(checkpoint_config.default_ttl.is_none());
+    }
+
+    #[test]
+    fn test_interrupt_stats() {
+        let mut service = InterruptService::new();
+
+        // Create various interrupts
+        let int1 = service.create_clarification(
+            "req1".to_string(),
+            "user1".to_string(),
+            "sess1".to_string(),
+            "env1".to_string(),
+            "Q1?".to_string(),
+            None,
+        );
+
+        let int2 = service.create_confirmation(
+            "req2".to_string(),
+            "user1".to_string(),
+            "sess1".to_string(),
+            "env2".to_string(),
+            "Q2?".to_string(),
+            None,
+        );
+
+        // Resolve one
+        let response = InterruptResponse {
+            text: None,
+            approved: Some(true),
+            decision: None,
+            data: None,
+            received_at: Utc::now(),
+        };
+        service.resolve(&int1.flow_interrupt.id, response, None);
+
+        // Cancel one
+        service.cancel(&int2.flow_interrupt.id, "Cancelled".to_string());
+
+        // Create one more pending
+        service.create_clarification(
+            "req3".to_string(),
+            "user1".to_string(),
+            "sess1".to_string(),
+            "env3".to_string(),
+            "Q3?".to_string(),
+            None,
+        );
+
+        let stats = service.get_stats();
+        assert_eq!(stats.get("total"), Some(&3));
+        assert_eq!(stats.get("pending"), Some(&1));
+        assert_eq!(stats.get("resolved"), Some(&1));
+        assert_eq!(stats.get("cancelled"), Some(&1));
+        assert_eq!(stats.get("expired"), Some(&0));
+    }
+
+    #[test]
+    fn test_resource_exhausted_interrupt() {
+        let mut service = InterruptService::new();
+        let interrupt = service.create_resource_exhausted(
+            "req1".to_string(),
+            "user1".to_string(),
+            "sess1".to_string(),
+            "env1".to_string(),
+            "llm_calls".to_string(),
+            60.0,
+        );
+
+        assert_eq!(interrupt.flow_interrupt.kind, InterruptKind::ResourceExhausted);
+        assert!(interrupt.flow_interrupt.message.is_some());
+        assert!(interrupt.flow_interrupt.data.is_some());
+
+        let data = interrupt.flow_interrupt.data.as_ref().unwrap();
+        assert_eq!(
+            data.get("resource_type").unwrap().as_str().unwrap(),
+            "llm_calls"
+        );
+    }
+}

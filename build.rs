@@ -1,5 +1,5 @@
 fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let proto_file = "coreengine/proto/engine.proto";
+    let proto_file = "proto/engine.proto";
 
     println!("cargo:rerun-if-changed={}", proto_file);
 
@@ -7,7 +7,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     tonic_build::configure()
         .build_server(true)
         .build_client(true)
-        .compile_protos(&[proto_file], &["coreengine/proto"])?;
+        .compile_protos(&[proto_file], &["proto"])?;
 
     Ok(())
 }

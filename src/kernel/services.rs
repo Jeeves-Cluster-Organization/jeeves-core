@@ -436,3 +436,259 @@ pub struct RegistryStats {
     pub total_capacity: usize,
     pub services_by_type: HashMap<String, usize>,
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_register_service() {
+        let mut registry = ServiceRegistry::new();
+
+        let service = ServiceInfo::new("flow_service".to_string(), SERVICE_TYPE_FLOW.to_string());
+        let success = registry.register_service(service.clone());
+        assert!(success);
+
+        // Verify service is registered
+        let retrieved = registry.get_service("flow_service");
+        assert!(retrieved.is_some());
+        assert_eq!(retrieved.unwrap().name, "flow_service");
+
+        // Try to register again - should fail
+        let duplicate = registry.register_service(service);
+        assert!(!duplicate);
+    }
+
+    #[test]
+    fn test_unregister_service() {
+        let mut registry = ServiceRegistry::new();
+
+        let service = ServiceInfo::new("flow_service".to_string(), SERVICE_TYPE_FLOW.to_string());
+        registry.register_service(service);
+        registry.register_handler("flow_service".to_string());
+
+        // Verify service exists
+        assert!(registry.has_service("flow_service"));
+        assert!(registry.has_handler("flow_service"));
+
+        // Unregister
+        let success = registry.unregister_service("flow_service");
+        assert!(success);
+
+        // Verify service is gone
+        assert!(!registry.has_service("flow_service"));
+        assert!(!registry.has_handler("flow_service"));
+
+        // Try to unregister again - should fail
+        let not_found = registry.unregister_service("flow_service");
+        assert!(!not_found);
+    }
+
+    #[test]
+    fn test_get_service() {
+        let mut registry = ServiceRegistry::new();
+
+        let service = ServiceInfo::new("worker1".to_string(), SERVICE_TYPE_WORKER.to_string());
+        registry.register_service(service);
+
+        // Get existing service
+        let retrieved = registry.get_service("worker1");
+        assert!(retrieved.is_some());
+        assert_eq!(retrieved.unwrap().service_type, SERVICE_TYPE_WORKER);
+
+        // Get non-existent service
+        let not_found = registry.get_service("nonexistent");
+        assert!(not_found.is_none());
+    }
+
+    #[test]
+    fn test_list_services_filtered() {
+        let mut registry = ServiceRegistry::new();
+
+        // Register multiple services of different types
+        let flow1 = ServiceInfo::new("flow1".to_string(), SERVICE_TYPE_FLOW.to_string());
+        let flow2 = ServiceInfo::new("flow2".to_string(), SERVICE_TYPE_FLOW.to_string());
+        let worker1 = ServiceInfo::new("worker1".to_string(), SERVICE_TYPE_WORKER.to_string());
+
+        registry.register_service(flow1);
+        registry.register_service(flow2);
+        registry.register_service(worker1);
+
+        // Mark one as unhealthy
+        registry.update_health("flow2", ServiceStatus::Unhealthy);
+
+        // List all services
+        let all = registry.list_services(None, false);
+        assert_eq!(all.len(), 3);
+
+        // List only flow services
+        let flows = registry.list_services(Some(SERVICE_TYPE_FLOW), false);
+        assert_eq!(flows.len(), 2);
+
+        // List only healthy services
+        let healthy = registry.list_services(None, true);
+        assert_eq!(healthy.len(), 2);
+
+        // List healthy flow services
+        let healthy_flows = registry.list_services(Some(SERVICE_TYPE_FLOW), true);
+        assert_eq!(healthy_flows.len(), 1);
+        assert_eq!(healthy_flows[0].name, "flow1");
+    }
+
+    #[test]
+    fn test_increment_decrement_load() {
+        let mut registry = ServiceRegistry::new();
+
+        let service = ServiceInfo::new("worker1".to_string(), SERVICE_TYPE_WORKER.to_string());
+        registry.register_service(service);
+
+        // Initial load is 0
+        assert_eq!(registry.get_load("worker1"), 0);
+
+        // Increment load
+        let success = registry.increment_load("worker1");
+        assert!(success);
+        assert_eq!(registry.get_load("worker1"), 1);
+
+        // Increment again
+        registry.increment_load("worker1");
+        assert_eq!(registry.get_load("worker1"), 2);
+
+        // Decrement load
+        let success = registry.decrement_load("worker1");
+        assert!(success);
+        assert_eq!(registry.get_load("worker1"), 1);
+
+        // Decrement to zero
+        registry.decrement_load("worker1");
+        assert_eq!(registry.get_load("worker1"), 0);
+
+        // Decrement below zero (should stay at 0)
+        registry.decrement_load("worker1");
+        assert_eq!(registry.get_load("worker1"), 0);
+
+        // Try to increment non-existent service
+        let not_found = registry.increment_load("nonexistent");
+        assert!(!not_found);
+    }
+
+    #[test]
+    fn test_update_health() {
+        let mut registry = ServiceRegistry::new();
+
+        let service = ServiceInfo::new("worker1".to_string(), SERVICE_TYPE_WORKER.to_string());
+        registry.register_service(service);
+
+        // Initial status is healthy
+        let svc = registry.get_service("worker1").unwrap();
+        assert_eq!(svc.status, ServiceStatus::Healthy);
+
+        // Update to degraded
+        let success = registry.update_health("worker1", ServiceStatus::Degraded);
+        assert!(success);
+        assert_eq!(registry.get_service("worker1").unwrap().status, ServiceStatus::Degraded);
+
+        // Update to unhealthy
+        registry.update_health("worker1", ServiceStatus::Unhealthy);
+        assert_eq!(registry.get_service("worker1").unwrap().status, ServiceStatus::Unhealthy);
+
+        // Try to update non-existent service
+        let not_found = registry.update_health("nonexistent", ServiceStatus::Healthy);
+        assert!(!not_found);
+    }
+
+    #[test]
+    fn test_dispatch_checks_capacity() {
+        let mut registry = ServiceRegistry::new();
+
+        // Create service at capacity
+        let mut service = ServiceInfo::new("flow1".to_string(), SERVICE_TYPE_FLOW.to_string());
+        service.max_concurrent = 2;
+        service.current_load = 2; // At capacity
+        registry.register_service(service);
+        registry.register_handler("flow1".to_string());
+
+        let target = DispatchTarget {
+            service_name: "flow1".to_string(),
+            method: "execute".to_string(),
+            priority: SchedulingPriority::Normal,
+            timeout_seconds: 30,
+            retry_count: 0,
+            max_retries: 3,
+        };
+
+        // Dispatch should fail due to capacity
+        let result = registry.dispatch(&target, &HashMap::new());
+        assert!(result.is_err());
+        assert!(result.unwrap_err().contains("cannot accept more load"));
+
+        // Reduce load and try again
+        registry.decrement_load("flow1");
+        let result2 = registry.dispatch(&target, &HashMap::new());
+        assert!(result2.is_ok());
+        assert!(result2.unwrap().success);
+    }
+
+    #[test]
+    fn test_get_stats() {
+        let mut registry = ServiceRegistry::new();
+
+        // Register multiple services
+        let flow1 = ServiceInfo::new("flow1".to_string(), SERVICE_TYPE_FLOW.to_string());
+        let mut flow2 = ServiceInfo::new("flow2".to_string(), SERVICE_TYPE_FLOW.to_string());
+        flow2.current_load = 3;
+        flow2.max_concurrent = 5;
+
+        let mut worker1 = ServiceInfo::new("worker1".to_string(), SERVICE_TYPE_WORKER.to_string());
+        worker1.current_load = 2;
+        worker1.max_concurrent = 10;
+
+        registry.register_service(flow1);
+        registry.register_service(flow2);
+        registry.register_service(worker1);
+
+        // Update health statuses
+        registry.update_health("flow2", ServiceStatus::Degraded);
+
+        // Get overall stats
+        let stats = registry.get_stats();
+        assert_eq!(stats.total_services, 3);
+        assert_eq!(stats.healthy_services, 2);
+        assert_eq!(stats.degraded_services, 1);
+        assert_eq!(stats.unhealthy_services, 0);
+        assert_eq!(stats.total_load, 5); // 0 + 3 + 2
+        assert_eq!(stats.total_capacity, 25); // 10 + 5 + 10
+        assert_eq!(stats.services_by_type.get(SERVICE_TYPE_FLOW), Some(&2));
+        assert_eq!(stats.services_by_type.get(SERVICE_TYPE_WORKER), Some(&1));
+
+        // Get service-specific stats
+        let flow2_stats = registry.get_service_stats("flow2").unwrap();
+        assert_eq!(flow2_stats.name, "flow2");
+        assert_eq!(flow2_stats.current_load, 3);
+        assert_eq!(flow2_stats.max_concurrent, 5);
+        assert_eq!(flow2_stats.utilization, 60.0); // 3/5 * 100
+    }
+
+    #[test]
+    fn test_service_can_accept() {
+        let mut service = ServiceInfo::new("test".to_string(), SERVICE_TYPE_FLOW.to_string());
+        service.max_concurrent = 5;
+        service.current_load = 3;
+
+        // Healthy and below capacity
+        assert!(service.can_accept());
+
+        // At capacity
+        service.current_load = 5;
+        assert!(!service.can_accept());
+
+        // Unhealthy
+        service.current_load = 3;
+        service.status = ServiceStatus::Unhealthy;
+        assert!(!service.can_accept());
+
+        // Degraded but below capacity (should accept)
+        service.status = ServiceStatus::Degraded;
+        assert!(service.is_healthy()); // Degraded is considered healthy for is_healthy()
+    }
+}
