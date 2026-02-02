@@ -30,7 +30,7 @@ pub use types::{
     ProcessControlBlock, ProcessState, ResourceQuota, ResourceUsage, SchedulingPriority,
 };
 
-use crate::envelope::{Envelope, FlowInterrupt};
+use crate::envelope::{Envelope, FlowInterrupt, InterruptResponse};
 use crate::types::{Error, Result};
 
 /// Kernel - the main orchestrator.
@@ -48,6 +48,15 @@ pub struct Kernel {
     /// Rate limiting per user
     pub rate_limiter: RateLimiter,
 
+    /// Interrupt handling (human-in-the-loop)
+    pub interrupts: interrupts::InterruptService,
+
+    /// Service registry (IPC and dispatch)
+    pub services: services::ServiceRegistry,
+
+    /// Pipeline orchestration (kernel-driven execution)
+    pub orchestrator: orchestrator::Orchestrator,
+
     /// Envelope storage (pid -> envelope)
     envelopes: HashMap<String, Envelope>,
 }
@@ -58,6 +67,9 @@ impl Kernel {
             lifecycle: LifecycleManager::default(),
             resources: ResourceTracker::default(),
             rate_limiter: RateLimiter::default(),
+            interrupts: interrupts::InterruptService::new(),
+            services: services::ServiceRegistry::new(),
+            orchestrator: orchestrator::Orchestrator::new(),
             envelopes: HashMap::new(),
         }
     }
@@ -70,6 +82,9 @@ impl Kernel {
             lifecycle: LifecycleManager::new(default_quota),
             resources: ResourceTracker::new(),
             rate_limiter: RateLimiter::new(rate_limit_config),
+            interrupts: interrupts::InterruptService::new(),
+            services: services::ServiceRegistry::new(),
+            orchestrator: orchestrator::Orchestrator::new(),
             envelopes: HashMap::new(),
         }
     }
@@ -218,6 +233,177 @@ impl Kernel {
     pub fn process_count_by_state(&self, state: ProcessState) -> usize {
         self.lifecycle.count_by_state(state)
     }
+
+    // =============================================================================
+    // Interrupt Methods (Delegation to InterruptService)
+    // =============================================================================
+
+    /// Create a new interrupt for a process.
+    pub fn create_interrupt(
+        &mut self,
+        kind: crate::envelope::InterruptKind,
+        request_id: String,
+        user_id: String,
+        session_id: String,
+        envelope_id: String,
+        question: Option<String>,
+        message: Option<String>,
+        data: Option<HashMap<String, serde_json::Value>>,
+    ) -> interrupts::KernelInterrupt {
+        self.interrupts.create_interrupt(
+            kind,
+            request_id,
+            user_id,
+            session_id,
+            envelope_id,
+            question,
+            message,
+            data,
+            None, // trace_id
+            None, // span_id
+        )
+    }
+
+    /// Resolve an interrupt with a response.
+    pub fn resolve_interrupt(
+        &mut self,
+        interrupt_id: &str,
+        response: InterruptResponse,
+        user_id: Option<&str>,
+    ) -> bool {
+        self.interrupts.resolve(interrupt_id, response, user_id)
+    }
+
+    /// Get the most recent pending interrupt for a request.
+    pub fn get_pending_interrupt(&self, request_id: &str) -> Option<&interrupts::KernelInterrupt> {
+        self.interrupts.get_pending_for_request(request_id)
+    }
+
+    // =============================================================================
+    // Service Methods (Delegation to ServiceRegistry)
+    // =============================================================================
+
+    /// Register a service.
+    pub fn register_service(&mut self, info: services::ServiceInfo) -> bool {
+        self.services.register_service(info)
+    }
+
+    /// Unregister a service.
+    pub fn unregister_service(&mut self, service_name: &str) -> bool {
+        self.services.unregister_service(service_name)
+    }
+
+    /// Dispatch a request to a service.
+    pub fn dispatch(
+        &mut self,
+        target: &services::DispatchTarget,
+        data: &HashMap<String, serde_json::Value>,
+    ) -> Result<services::DispatchResult> {
+        self.services
+            .dispatch(target, data)
+            .map_err(|e| Error::internal(e))
+    }
+
+    // =============================================================================
+    // Orchestrator Methods (Delegation to Orchestrator)
+    // =============================================================================
+
+    /// Initialize an orchestration session.
+    pub fn initialize_orchestration(
+        &mut self,
+        process_id: String,
+        pipeline_config: orchestrator::PipelineConfig,
+        envelope: Envelope,
+        force: bool,
+    ) -> Result<orchestrator::SessionState> {
+        self.orchestrator
+            .initialize_session(process_id, pipeline_config, envelope, force)
+            .map_err(|e| Error::internal(e))
+    }
+
+    /// Get the next instruction for a process.
+    pub fn get_next_instruction(
+        &mut self,
+        process_id: &str,
+    ) -> Result<orchestrator::Instruction> {
+        self.orchestrator
+            .get_next_instruction(process_id)
+            .map_err(|e| Error::internal(e))
+    }
+
+    /// Report agent execution result.
+    pub fn report_agent_result(
+        &mut self,
+        process_id: &str,
+        metrics: orchestrator::AgentExecutionMetrics,
+        updated_envelope: Envelope,
+    ) -> Result<()> {
+        self.orchestrator
+            .report_agent_result(process_id, metrics, updated_envelope)
+            .map_err(|e| Error::internal(e))
+    }
+
+    /// Get orchestration session state.
+    pub fn get_orchestration_state(&self, process_id: &str) -> Result<orchestrator::SessionState> {
+        self.orchestrator
+            .get_session_state(process_id)
+            .map_err(|e| Error::internal(e))
+    }
+
+    // =============================================================================
+    // Resource Tracking (Additional Methods)
+    // =============================================================================
+
+    /// Record a tool call for a process.
+    pub fn record_tool_call(&mut self, pid: &str) -> Result<()> {
+        if let Some(pcb) = self.lifecycle.get_mut(pid) {
+            pcb.usage.tool_calls += 1;
+        }
+        if let Some(env) = self.envelopes.get_mut(pid) {
+            env.tool_call_count += 1;
+        }
+        Ok(())
+    }
+
+    /// Record an agent hop for a process.
+    pub fn record_agent_hop(&mut self, pid: &str) -> Result<()> {
+        if let Some(pcb) = self.lifecycle.get_mut(pid) {
+            pcb.usage.agent_hops += 1;
+        }
+        if let Some(env) = self.envelopes.get_mut(pid) {
+            env.agent_hop_count += 1;
+        }
+        Ok(())
+    }
+
+    /// Get remaining resource budget for a process.
+    pub fn get_remaining_budget(&self, pid: &str) -> Option<RemainingBudget> {
+        let pcb = self.lifecycle.get(pid)?;
+        Some(RemainingBudget {
+            llm_calls_remaining: (pcb.quota.max_llm_calls - pcb.usage.llm_calls).max(0),
+            iterations_remaining: (pcb.quota.max_iterations - pcb.usage.iterations).max(0),
+            agent_hops_remaining: (pcb.quota.max_agent_hops - pcb.usage.agent_hops).max(0),
+            tokens_in_remaining: (pcb.quota.max_input_tokens as i64 - pcb.usage.tokens_in).max(0),
+            tokens_out_remaining: (pcb.quota.max_output_tokens as i64 - pcb.usage.tokens_out)
+                .max(0),
+            time_remaining_seconds: if pcb.quota.timeout_seconds > 0 {
+                (pcb.quota.timeout_seconds as f64 - pcb.usage.elapsed_seconds).max(0.0)
+            } else {
+                f64::MAX
+            },
+        })
+    }
+}
+
+/// Remaining resource budget for a process.
+#[derive(Debug, Clone)]
+pub struct RemainingBudget {
+    pub llm_calls_remaining: i32,
+    pub iterations_remaining: i32,
+    pub agent_hops_remaining: i32,
+    pub tokens_in_remaining: i64,
+    pub tokens_out_remaining: i64,
+    pub time_remaining_seconds: f64,
 }
 
 impl Default for Kernel {
