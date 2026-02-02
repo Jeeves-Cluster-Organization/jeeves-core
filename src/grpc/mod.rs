@@ -7,8 +7,10 @@
 //! - CommBusService - Message bus operations
 
 pub mod conversions;
+pub mod engine_service;
 pub mod kernel_service;
 
 // Re-export conversion helpers if needed
 // pub use conversions::*;
+pub use engine_service::EngineService;
 pub use kernel_service::KernelServiceImpl;
