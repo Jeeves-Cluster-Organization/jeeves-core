@@ -1,19 +1,14 @@
 //! gRPC service implementations.
 //!
 //! Implements the four main services:
-//! - KernelService (Phase 4)
-//! - EngineService (Phase 4)
-//! - OrchestrationService (Phase 4)
-//! - CommBusService (Phase 4)
+//! - KernelService - Process lifecycle and resource management
+//! - EngineService - Envelope operations
+//! - OrchestrationService - Kernel-driven pipeline execution
+//! - CommBusService - Message bus operations
 
-/// gRPC service stubs (Phase 4 - will be implemented after kernel logic).
-#[derive(Debug, Default)]
-pub struct Services {
-    // Services will be implemented in Phase 4
-}
+pub mod conversions;
+pub mod kernel_service;
 
-impl Services {
-    pub fn new() -> Self {
-        Self::default()
-    }
-}
+// Re-export conversion helpers if needed
+// pub use conversions::*;
+pub use kernel_service::KernelServiceImpl;

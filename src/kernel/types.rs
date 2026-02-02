@@ -103,29 +103,40 @@ impl Default for SchedulingPriority {
 }
 
 /// Resource quota (cgroup-style limits).
+/// Matches proto ResourceQuota exactly.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct ResourceQuota {
+    pub max_input_tokens: i32,
+    pub max_output_tokens: i32,
+    pub max_context_tokens: i32,
     pub max_llm_calls: i32,
     pub max_tool_calls: i32,
     pub max_agent_hops: i32,
     pub max_iterations: i32,
-    pub max_tokens_in: i64,
-    pub max_tokens_out: i64,
-    pub max_elapsed_seconds: i32,
+    pub timeout_seconds: i32,
+    pub soft_timeout_seconds: i32,
+    pub rate_limit_rpm: i32,
+    pub rate_limit_rph: i32,
+    pub rate_limit_burst: i32,
     pub max_inference_requests: i32,
-    pub max_inference_input_chars: i64,
+    pub max_inference_input_chars: i32,
 }
 
 impl ResourceQuota {
     pub fn default_quota() -> Self {
         Self {
+            max_input_tokens: 100_000,
+            max_output_tokens: 50_000,
+            max_context_tokens: 150_000,
             max_llm_calls: 100,
             max_tool_calls: 50,
             max_agent_hops: 10,
             max_iterations: 20,
-            max_tokens_in: 100_000,
-            max_tokens_out: 50_000,
-            max_elapsed_seconds: 300,
+            timeout_seconds: 300,
+            soft_timeout_seconds: 240,
+            rate_limit_rpm: 60,
+            rate_limit_rph: 1000,
+            rate_limit_burst: 10,
             max_inference_requests: 50,
             max_inference_input_chars: 500_000,
         }
@@ -179,22 +190,22 @@ impl ResourceUsage {
                 self.iterations, quota.max_iterations
             ));
         }
-        if self.tokens_in > quota.max_tokens_in {
+        if self.tokens_in > quota.max_input_tokens as i64 {
             return Some(format!(
                 "tokens_in {} > {}",
-                self.tokens_in, quota.max_tokens_in
+                self.tokens_in, quota.max_input_tokens
             ));
         }
-        if self.tokens_out > quota.max_tokens_out {
+        if self.tokens_out > quota.max_output_tokens as i64 {
             return Some(format!(
                 "tokens_out {} > {}",
-                self.tokens_out, quota.max_tokens_out
+                self.tokens_out, quota.max_output_tokens
             ));
         }
-        if self.elapsed_seconds > quota.max_elapsed_seconds as f64 {
+        if self.elapsed_seconds > quota.timeout_seconds as f64 {
             return Some(format!(
                 "elapsed_seconds {} > {}",
-                self.elapsed_seconds, quota.max_elapsed_seconds
+                self.elapsed_seconds, quota.timeout_seconds
             ));
         }
         if self.inference_requests > quota.max_inference_requests {
@@ -203,7 +214,7 @@ impl ResourceUsage {
                 self.inference_requests, quota.max_inference_requests
             ));
         }
-        if self.inference_input_chars > quota.max_inference_input_chars {
+        if self.inference_input_chars > quota.max_inference_input_chars as i64 {
             return Some(format!(
                 "inference_input_chars {} > {}",
                 self.inference_input_chars, quota.max_inference_input_chars

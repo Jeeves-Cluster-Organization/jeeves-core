@@ -4,7 +4,7 @@
 
 use serde::{Deserialize, Serialize};
 
-/// Why processing terminated.
+/// Why processing terminated (matches proto TerminalReason exactly).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum TerminalReason {
@@ -12,7 +12,6 @@ pub enum TerminalReason {
     MaxIterationsExceeded,
     MaxLlmCallsExceeded,
     MaxAgentHopsExceeded,
-    MaxLoopExceeded,
     UserCancelled,
     ToolFailedFatally,
     LlmFailedFatally,

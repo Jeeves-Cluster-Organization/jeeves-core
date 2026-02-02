@@ -107,3 +107,10 @@ impl Error {
         Self::Cancelled(msg.into())
     }
 }
+
+// Implement From<Error> for Status to enable ? operator in gRPC handlers
+impl From<Error> for tonic::Status {
+    fn from(err: Error) -> Self {
+        err.to_grpc_status()
+    }
+}
