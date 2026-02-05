@@ -185,14 +185,14 @@ impl Orchestrator {
         pipeline_config.validate()?;
 
         // Initialize envelope with pipeline bounds
-        envelope.max_iterations = pipeline_config.max_iterations;
-        envelope.max_llm_calls = pipeline_config.max_llm_calls;
-        envelope.max_agent_hops = pipeline_config.max_agent_hops;
-        envelope.stage_order = pipeline_config.get_stage_order();
+        envelope.pipeline.max_iterations = pipeline_config.max_iterations;
+        envelope.bounds.max_llm_calls = pipeline_config.max_llm_calls;
+        envelope.bounds.max_agent_hops = pipeline_config.max_agent_hops;
+        envelope.pipeline.stage_order = pipeline_config.get_stage_order();
 
         // Set initial stage if not set
-        if envelope.current_stage.is_empty() && !envelope.stage_order.is_empty() {
-            envelope.current_stage = envelope.stage_order[0].clone();
+        if envelope.pipeline.current_stage.is_empty() && !envelope.pipeline.stage_order.is_empty() {
+            envelope.pipeline.current_stage = envelope.pipeline.stage_order[0].clone();
         }
 
         let now = Utc::now();
@@ -238,7 +238,7 @@ impl Orchestrator {
         }
 
         // Check for pending interrupt
-        if session.envelope.interrupt_pending {
+        if session.envelope.interrupts.interrupt_pending {
             return Ok(Instruction {
                 kind: InstructionKind::WaitInterrupt,
                 agent_name: None,
@@ -247,7 +247,7 @@ impl Orchestrator {
                 terminal_reason: None,
                 termination_message: None,
                 interrupt_pending: true,
-                interrupt: session.envelope.interrupt.clone(),
+                interrupt: session.envelope.interrupts.interrupt.clone(),
             });
         }
 
@@ -268,7 +268,7 @@ impl Orchestrator {
         }
 
         // Determine next agent to run
-        let current_stage = &session.envelope.current_stage;
+        let current_stage = &session.envelope.pipeline.current_stage;
         if current_stage.is_empty() {
             return Err("No current stage set".to_string());
         }
@@ -303,25 +303,25 @@ impl Orchestrator {
         session.envelope = updated_envelope;
 
         // Update metrics in envelope
-        session.envelope.llm_call_count += metrics.llm_calls;
-        session.envelope.tool_call_count += metrics.tool_calls;
-        session.envelope.tokens_in += metrics.tokens_in;
-        session.envelope.tokens_out += metrics.tokens_out;
+        session.envelope.bounds.llm_call_count += metrics.llm_calls;
+        session.envelope.bounds.tool_call_count += metrics.tool_calls;
+        session.envelope.bounds.tokens_in += metrics.tokens_in;
+        session.envelope.bounds.tokens_out += metrics.tokens_out;
 
         // Increment iteration
-        session.envelope.iteration += 1;
+        session.envelope.pipeline.iteration += 1;
 
         // ===== STAGE ADVANCEMENT LOGIC =====
         // Find current stage index in stage_order
-        let stage_order = session.envelope.stage_order.clone();
+        let stage_order = session.envelope.pipeline.stage_order.clone();
         let current_stage_idx = stage_order
             .iter()
-            .position(|s| s == &session.envelope.current_stage);
+            .position(|s| s == &session.envelope.pipeline.current_stage);
 
         match current_stage_idx {
             Some(idx) => {
                 // Clone current_stage to avoid borrow checker issues
-                let current_stage = session.envelope.current_stage.clone();
+                let current_stage = session.envelope.pipeline.current_stage.clone();
 
                 // Mark current stage as completed
                 session.envelope.complete_stage(&current_stage);
@@ -329,10 +329,10 @@ impl Orchestrator {
                 // Check if there's a next stage
                 if idx + 1 < stage_order.len() {
                     // Advance to next stage
-                    session.envelope.current_stage = stage_order[idx + 1].clone();
+                    session.envelope.pipeline.current_stage = stage_order[idx + 1].clone();
 
                     // Increment agent_hop_count to track stage progression
-                    session.envelope.agent_hop_count += 1;
+                    session.envelope.bounds.agent_hop_count += 1;
 
                     // Update activity timestamp
                     session.last_activity_at = Utc::now();
@@ -340,8 +340,8 @@ impl Orchestrator {
                     // Last stage completed - mark pipeline as complete
                     session.terminated = true;
                     session.terminal_reason = Some(TerminalReason::Completed);
-                    session.envelope.terminated = true;
-                    session.envelope.terminal_reason = Some(TerminalReason::Completed);
+                    session.envelope.bounds.terminated = true;
+                    session.envelope.bounds.terminal_reason = Some(TerminalReason::Completed);
 
                     // Update activity timestamp
                     session.last_activity_at = Utc::now();
@@ -351,7 +351,7 @@ impl Orchestrator {
                 // Current stage not found in stage_order - error
                 return Err(format!(
                     "Current stage '{}' not found in stage_order: {:?}",
-                    session.envelope.current_stage, stage_order
+                    session.envelope.pipeline.current_stage, stage_order
                 ));
             }
         }
@@ -414,8 +414,8 @@ impl Orchestrator {
     fn build_session_state(&self, session: &OrchestrationSession) -> SessionState {
         SessionState {
             process_id: session.process_id.clone(),
-            current_stage: session.envelope.current_stage.clone(),
-            stage_order: session.envelope.stage_order.clone(),
+            current_stage: session.envelope.pipeline.current_stage.clone(),
+            stage_order: session.envelope.pipeline.stage_order.clone(),
             envelope: HashMap::new(), // Simplified - full impl would serialize envelope
             edge_traversals: session.edge_traversals.clone(),
             terminated: session.terminated,
@@ -436,13 +436,13 @@ impl Default for Orchestrator {
 
 /// Check if envelope exceeds bounds.
 fn check_bounds(envelope: &Envelope) -> Option<TerminalReason> {
-    if envelope.llm_call_count >= envelope.max_llm_calls {
+    if envelope.bounds.llm_call_count >= envelope.bounds.max_llm_calls {
         return Some(TerminalReason::MaxLlmCallsExceeded);
     }
-    if envelope.iteration >= envelope.max_iterations {
+    if envelope.pipeline.iteration >= envelope.pipeline.max_iterations {
         return Some(TerminalReason::MaxIterationsExceeded);
     }
-    if envelope.agent_hop_count >= envelope.max_agent_hops {
+    if envelope.bounds.agent_hop_count >= envelope.bounds.max_agent_hops {
         return Some(TerminalReason::MaxAgentHopsExceeded);
     }
     None
@@ -488,7 +488,7 @@ mod tests {
 
     fn create_test_envelope() -> Envelope {
         let mut env = Envelope::new();
-        env.current_stage = String::new(); // Clear so initialize_session sets it
+        env.pipeline.current_stage = String::new(); // Clear so initialize_session sets it
         env
     }
 
@@ -589,8 +589,8 @@ mod tests {
         let mut envelope = create_test_envelope();
 
         // Set interrupt pending
-        envelope.interrupt_pending = true;
-        envelope.interrupt = Some(
+        envelope.interrupts.interrupt_pending = true;
+        envelope.interrupts.interrupt = Some(
             FlowInterrupt::new(crate::envelope::InterruptKind::Clarification)
                 .with_message("Need clarification".to_string())
         );
@@ -616,8 +616,8 @@ mod tests {
 
         // Manually exceed LLM calls
         let session = orch.sessions.get_mut("proc1").unwrap();
-        session.envelope.llm_call_count = 50; // At limit
-        session.envelope.max_llm_calls = 50;
+        session.envelope.bounds.llm_call_count = 50; // At limit
+        session.envelope.bounds.max_llm_calls = 50;
 
         let instruction = orch.get_next_instruction("proc1").unwrap();
 
@@ -639,8 +639,8 @@ mod tests {
 
         // Manually exceed iterations
         let session = orch.sessions.get_mut("proc1").unwrap();
-        session.envelope.iteration = 10; // At limit
-        session.envelope.max_iterations = 10;
+        session.envelope.pipeline.iteration = 10; // At limit
+        session.envelope.pipeline.max_iterations = 10;
 
         let instruction = orch.get_next_instruction("proc1").unwrap();
 
@@ -675,11 +675,11 @@ mod tests {
 
         // Check metrics were updated
         let session = orch.sessions.get("proc1").unwrap();
-        assert_eq!(session.envelope.llm_call_count, 2);
-        assert_eq!(session.envelope.tool_call_count, 5);
-        assert_eq!(session.envelope.tokens_in, 1000);
-        assert_eq!(session.envelope.tokens_out, 500);
-        assert_eq!(session.envelope.iteration, 1); // Incremented
+        assert_eq!(session.envelope.bounds.llm_call_count, 2);
+        assert_eq!(session.envelope.bounds.tool_call_count, 5);
+        assert_eq!(session.envelope.bounds.tokens_in, 1000);
+        assert_eq!(session.envelope.bounds.tokens_out, 500);
+        assert_eq!(session.envelope.pipeline.iteration, 1); // Incremented
     }
 
     #[test]

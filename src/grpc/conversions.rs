@@ -325,50 +325,62 @@ impl TryFrom<proto::Envelope> for Envelope {
             .transpose()?;
 
         Ok(Envelope {
-            envelope_id: proto.envelope_id,
-            request_id: proto.request_id,
-            user_id: proto.user_id,
-            session_id: proto.session_id,
+            identity: crate::envelope::Identity {
+                envelope_id: proto.envelope_id,
+                request_id: proto.request_id,
+                user_id: proto.user_id,
+                session_id: proto.session_id,
+            },
             raw_input: proto.raw_input,
             received_at,
             outputs,
-            current_stage: proto.current_stage,
-            stage_order: proto.stage_order,
-            iteration: proto.iteration,
-            max_iterations: proto.max_iterations,
-            active_stages: proto.active_stages.into_keys().collect(),
-            completed_stage_set: proto.completed_stage_set.into_keys().collect(),
-            failed_stages: Some(proto.failed_stages),
-            parallel_mode: Some(false), // Not in proto
-            llm_call_count: proto.llm_call_count,
-            max_llm_calls: proto.max_llm_calls,
-            tool_call_count: 0, // Not in proto yet
-            agent_hop_count: proto.agent_hop_count,
-            max_agent_hops: proto.max_agent_hops,
-            tokens_in: 0, // Not in proto yet
-            tokens_out: 0, // Not in proto yet
-            terminal_reason,
-            terminated: proto.terminated,
-            termination_reason: if proto.termination_reason.is_empty() {
-                None
-            } else {
-                Some(proto.termination_reason)
+            pipeline: crate::envelope::Pipeline {
+                current_stage: proto.current_stage,
+                stage_order: proto.stage_order,
+                iteration: proto.iteration,
+                max_iterations: proto.max_iterations,
+                active_stages: proto.active_stages.into_keys().collect(),
+                completed_stage_set: proto.completed_stage_set.into_keys().collect(),
+                failed_stages: Some(proto.failed_stages),
+                parallel_mode: Some(false),
             },
-            interrupt_pending: proto.interrupt_pending,
-            interrupt,
-            completed_stages: Vec::new(), // Not in proto
-            current_stage_number: proto.current_stage_number,
-            max_stages: proto.max_stages,
-            all_goals: proto.all_goals,
-            remaining_goals: proto.remaining_goals,
-            goal_completion_status: proto.goal_completion_status,
-            prior_plans: Vec::new(), // Not in proto
-            loop_feedback: Vec::new(), // Not in proto
-            processing_history: Vec::new(), // Not in proto
-            errors: Vec::new(),       // Not in proto
-            created_at,
-            completed_at,
-            metadata: HashMap::new(), // Not in proto
+            bounds: crate::envelope::Bounds {
+                llm_call_count: proto.llm_call_count,
+                max_llm_calls: proto.max_llm_calls,
+                tool_call_count: 0,
+                agent_hop_count: proto.agent_hop_count,
+                max_agent_hops: proto.max_agent_hops,
+                tokens_in: 0,
+                tokens_out: 0,
+                terminal_reason,
+                terminated: proto.terminated,
+                termination_reason: if proto.termination_reason.is_empty() {
+                    None
+                } else {
+                    Some(proto.termination_reason)
+                },
+            },
+            interrupts: crate::envelope::InterruptState {
+                interrupt_pending: proto.interrupt_pending,
+                interrupt,
+            },
+            execution: crate::envelope::Execution {
+                completed_stages: Vec::new(),
+                current_stage_number: proto.current_stage_number,
+                max_stages: proto.max_stages,
+                all_goals: proto.all_goals,
+                remaining_goals: proto.remaining_goals,
+                goal_completion_status: proto.goal_completion_status,
+                prior_plans: Vec::new(),
+                loop_feedback: Vec::new(),
+            },
+            audit: crate::envelope::Audit {
+                processing_history: Vec::new(),
+                errors: Vec::new(),
+                created_at,
+                completed_at,
+                metadata: HashMap::new(),
+            },
         })
     }
 }
@@ -384,37 +396,37 @@ impl From<Envelope> for proto::Envelope {
         }
 
         proto::Envelope {
-            envelope_id: env.envelope_id,
-            request_id: env.request_id,
-            user_id: env.user_id,
-            session_id: env.session_id,
+            envelope_id: env.identity.envelope_id,
+            request_id: env.identity.request_id,
+            user_id: env.identity.user_id,
+            session_id: env.identity.session_id,
             raw_input: env.raw_input,
             received_at_ms: datetime_to_ms(&env.received_at),
-            current_stage: env.current_stage,
-            stage_order: env.stage_order,
-            iteration: env.iteration,
-            max_iterations: env.max_iterations,
-            llm_call_count: env.llm_call_count,
-            max_llm_calls: env.max_llm_calls,
-            agent_hop_count: env.agent_hop_count,
-            max_agent_hops: env.max_agent_hops,
-            terminated: env.terminated,
-            termination_reason: env.termination_reason.unwrap_or_default(),
-            terminal_reason: env.terminal_reason.map(|r| i32::from(r)).unwrap_or(0),
-            completed_at_ms: env.completed_at.map(|t| datetime_to_ms(&t)).unwrap_or(0),
-            interrupt_pending: env.interrupt_pending,
-            interrupt: env.interrupt.map(|i| proto::FlowInterrupt::from(i)),
+            current_stage: env.pipeline.current_stage,
+            stage_order: env.pipeline.stage_order,
+            iteration: env.pipeline.iteration,
+            max_iterations: env.pipeline.max_iterations,
+            llm_call_count: env.bounds.llm_call_count,
+            max_llm_calls: env.bounds.max_llm_calls,
+            agent_hop_count: env.bounds.agent_hop_count,
+            max_agent_hops: env.bounds.max_agent_hops,
+            terminated: env.bounds.terminated,
+            termination_reason: env.bounds.termination_reason.unwrap_or_default(),
+            terminal_reason: env.bounds.terminal_reason.map(|r| i32::from(r)).unwrap_or(0),
+            completed_at_ms: env.audit.completed_at.map(|t| datetime_to_ms(&t)).unwrap_or(0),
+            interrupt_pending: env.interrupts.interrupt_pending,
+            interrupt: env.interrupts.interrupt.map(|i| proto::FlowInterrupt::from(i)),
             outputs,
-            active_stages: env.active_stages.into_iter().map(|s| (s, true)).collect(),
-            completed_stage_set: env.completed_stage_set.into_iter().map(|s| (s, true)).collect(),
-            failed_stages: env.failed_stages.unwrap_or_default(),
-            current_stage_number: env.current_stage_number,
-            max_stages: env.max_stages,
-            all_goals: env.all_goals,
-            remaining_goals: env.remaining_goals,
-            goal_completion_status: env.goal_completion_status,
-            metadata_str: HashMap::new(), // Not in domain
-            created_at_ms: datetime_to_ms(&env.created_at),
+            active_stages: env.pipeline.active_stages.into_iter().map(|s| (s, true)).collect(),
+            completed_stage_set: env.pipeline.completed_stage_set.into_iter().map(|s| (s, true)).collect(),
+            failed_stages: env.pipeline.failed_stages.unwrap_or_default(),
+            current_stage_number: env.execution.current_stage_number,
+            max_stages: env.execution.max_stages,
+            all_goals: env.execution.all_goals,
+            remaining_goals: env.execution.remaining_goals,
+            goal_completion_status: env.execution.goal_completion_status,
+            metadata_str: HashMap::new(),
+            created_at_ms: datetime_to_ms(&env.audit.created_at),
         }
     }
 }

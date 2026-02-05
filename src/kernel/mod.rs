@@ -136,7 +136,7 @@ impl Kernel {
     /// Store envelope.
     pub fn store_envelope(&mut self, envelope: Envelope) {
         self.envelopes
-            .insert(envelope.envelope_id.clone(), envelope);
+            .insert(envelope.identity.envelope_id.clone(), envelope);
     }
 
     /// Get envelope by ID.
@@ -370,7 +370,7 @@ impl Kernel {
             pcb.usage.tool_calls += 1;
         }
         if let Some(env) = self.envelopes.get_mut(pid.as_str()) {
-            env.tool_call_count += 1;
+            env.bounds.tool_call_count += 1;
         }
         Ok(())
     }
@@ -381,7 +381,7 @@ impl Kernel {
             pcb.usage.agent_hops += 1;
         }
         if let Some(env) = self.envelopes.get_mut(pid.as_str()) {
-            env.agent_hop_count += 1;
+            env.bounds.agent_hop_count += 1;
         }
         Ok(())
     }
