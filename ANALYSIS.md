@@ -1,164 +1,92 @@
 # Jeeves Core — Rust Improvement Plan
 
-AI agent orchestration micro-kernel (~8,700 LOC). Process lifecycle, resource quotas, human-in-the-loop interrupts, IPC — via 4 gRPC services. Single `Kernel` struct behind `Arc<Mutex<Kernel>>`. Ported from Go. 107 tests, 81% coverage. `#![deny(unsafe_code)]`.
+AI agent orchestration micro-kernel (~8,700 LOC). Process lifecycle, resource quotas, human-in-the-loop interrupts, IPC — via 4 gRPC services. Single `Kernel` struct behind `Arc<Mutex<Kernel>>`. Ported from Go. 108 tests, 81% coverage. `#![deny(unsafe_code)]`.
 
 ---
 
-## Execution Plan
+## Status
 
-6 changes. No wire-format breaks. No proto file changes. Each step is independently committable.
+| Step | Description | Status | Commit |
+|------|-------------|--------|--------|
+| 1 | ID type macro | **Done** | `f77af63` |
+| 2 | HashSet for stage sets | **Done** | `fa8e991` |
+| 3 | Structured QuotaViolation | **Done** | `52a3d6c` |
+| 4 | Proto enum conversion macro | **Done** | `1e74bd5` |
+| 5 | Newtype IDs in PCB | **Stashed (WIP)** | — |
+| 6 | Envelope decomposition | Not started | — |
 
-Run after every step:
-```bash
-cargo build && cargo test && cargo clippy -- -D warnings
+108 tests pass on committed code. Steps 1-4 are clean and independently revertable.
+
+---
+
+## Audit findings
+
+### Step 2 — JSON serde format change (known risk)
+
+The `HashSet<String>` serializes as a JSON array `["stage1", "stage2"]`, not the old `HashMap<String, bool>` format `{"stage1": true}`. **Proto/gRPC is unaffected** — the conversion layer handles translation. But if any external system deserializes `Envelope` from JSON (not proto), old payloads will fail to parse.
+
+**Mitigation if needed**: Add a custom deserializer that accepts both formats, or confirm all Envelope serialization goes through proto.
+
+### Steps 1, 3, 4 — Clean
+
+- Step 1: Macro correctly handles uuid/no-uuid variants. UserId lacks new()/Default as intended.
+- Step 3: Display impl produces identical strings to old format!(). Wire compat preserved.
+- Step 4: Macro handles UNSPECIFIED=0 correctly (falls to error arm). All 38 variants across 5 enums verified against proto.
+
+### Pre-existing bugs fixed along the way
+
+- `orchestrator.rs:471`: `stages:` → `agents:` (field name mismatch, test didn't compile under `cargo test`)
+- `orchestrator.rs:672`: `test_report_agent_result_updates_metrics` passed a blank envelope instead of the initialized one (panic at runtime)
+
+---
+
+## Where Step 5 got stuck
+
+Step 5 (newtype IDs in PCB) is partially implemented and stashed (`git stash list` to see). The PCB struct, lifecycle manager struct, PriorityItem, and submit() signature are all updated. The remaining work hit 3 blockers:
+
+### Blocker 1: `ids` module is private
+
+`src/types/mod.rs` doesn't `pub mod ids;`. The lifecycle and types modules import `crate::types::ids::ProcessId` but it's not public.
+
+**Fix**: Add `pub mod ids;` to `src/types/mod.rs`.
+
+### Blocker 2: `HashMap<ProcessId, V>` can't be indexed by `&str`
+
+All lifecycle methods (`schedule`, `start`, `terminate`, etc.) take `pid: &str` and do `self.processes.get(pid)`. After changing to `HashMap<ProcessId, V>`, this requires either:
+
+- **Option A**: Implement `Borrow<str>` on ProcessId so HashMap lookup works with `&str`. Added the import but didn't implement the trait in the macro yet.
+- **Option B**: Change all method signatures to take `&ProcessId`. Simpler but forces all callers (Kernel, gRPC handlers) to construct a ProcessId before calling.
+- **Recommended**: Option A — add `Borrow<str>` to the macro. This keeps the internal API ergonomic (`lifecycle.get("pid1")` still works in tests) while the external API (gRPC handlers) constructs typed IDs at the boundary.
+
+### Blocker 3: Cascade to Kernel + gRPC + conversions + tests
+
+Once lifecycle signatures change, the Kernel delegation methods, gRPC handlers, proto conversions, and ~20 tests all need updating. This is the highest-churn step and should be done as one atomic pass across all 5 files, not incrementally.
+
+**Estimated remaining work**: Add `Borrow<str>` to macro → make `ids` module public → update Kernel methods → update gRPC handlers → update conversions → update 20+ tests.
+
+---
+
+## Remaining execution plan
+
+### Step 5 — Newtype IDs in PCB (resume from stash)
+
+```
+git stash pop
 ```
 
-### Dependency graph
-```
-1 ID macro ──────────┐
-                      ├─→ 5 Newtype IDs in PCB ──┐
-4 num_enum ──────────┘                             ├─→ 6 Envelope decomposition
-2 HashSet ─────────────────────────────────────────┘
-3 QuotaViolation ──── (independent, slot anywhere)
-```
-
----
-
-### Step 1 — ID type macro
-
-**Win**: 162 LOC → ~35 LOC. One-line ID type creation. Impossible to forget a trait impl.
-
-| | |
-|-|-|
-| Files | 1 (`src/types/ids.rs`) |
-| Tests to update | 0 |
-| Wire impact | None |
-
-Replace 5 identical newtype wrappers with `define_id!` macro. Public API unchanged.
-
-**Watch out**: `UserId` lacks `new()` and `Default` — macro needs an opt-out flag, or align `UserId` with the others.
-
----
-
-### Step 2 — `HashMap<String, bool>` → `HashSet<String>`
-
-**Win**: Correct semantics. `contains()` instead of `.get().copied().unwrap_or(false)`. Drop useless `Option` wrappers.
-
-| | |
-|-|-|
-| Files | 2 (`envelope/mod.rs`, `conversions.rs`) |
-| Call sites | 13 |
-| Tests to update | 0 (Envelope has no unit tests) |
-| Wire impact | None — proto stays `map<string, bool>`, conversion layer translates |
-
-Changes `active_stages` and `completed_stage_set`. Leave `failed_stages: HashMap<String, String>` alone (values are error messages).
-
-**Watch out**: Dropping `Option` changes serde JSON from `null` to `[]` for empty — verify no external consumer depends on `null`.
-
----
-
-### Step 3 — Structured `QuotaViolation` enum
-
-**Win**: Callers can match on *which* quota was exceeded. Enables differentiated backoff (token exhaustion vs timeout). No string parsing.
-
-| | |
-|-|-|
-| Files | 4 (`types.rs`, `resources.rs`, `mod.rs`, `kernel_service.rs`) |
-| Call sites | 5 |
-| Tests to update | ~3 (assertions change from string match to variant match) |
-| Wire impact | None — `.to_string()` at gRPC boundary via `Display` impl |
-
-```rust
-pub enum QuotaViolation {
-    LlmCalls { used: i32, limit: i32 },
-    TokensIn { used: i64, limit: i64 },
-    Timeout { elapsed: f64, limit: f64 },
-    // ... 9 variants matching 9 current checks
-}
-```
-
-**Watch out**: Decide `Option<QuotaViolation>` (first violation, current behavior) vs `Vec<QuotaViolation>` (all violations, more useful for debugging).
-
----
-
-### Step 4 — `num_enum` for proto enum conversions
-
-**Win**: Delete ~110 lines of hand-written `match` arms across 5 enums (38 variants). Derive-based — new variants are one line.
-
-| | |
-|-|-|
-| Files | 2 (`Cargo.toml`, `conversions.rs`) |
-| Tests to update | 0 |
-| Wire impact | None if discriminants match proto exactly |
-| New dep | `num_enum = "0.7"` (MSRV 1.64, ours is 1.75) |
-
-Add `#[repr(i32)]` with explicit discriminants to domain enums. Proto `UNSPECIFIED = 0` has no domain equivalent — `TryFromPrimitiveError` maps to `Error::Validation`, same as today.
-
-**Watch out**: `#[repr(i32)]` + `#[serde(rename_all = "lowercase")]` coexist fine, but verify. Check that `num_enum` derive expansion doesn't trigger `unwrap_used = "deny"` clippy lint.
-
----
-
-### Step 5 — Newtype IDs in `ProcessControlBlock`
-
-**Win**: The newtype IDs exist but PCB uses bare `String`. This closes that gap — can't pass a `user_id` where a `session_id` goes. Compiler catches it.
-
-| | |
-|-|-|
-| Files | 5 (`types.rs`, `lifecycle.rs`, `kernel_service.rs`, `conversions.rs`, `cleanup.rs`) |
-| Call sites | ~66 |
-| Tests to update | ~20 (most test churn of any step) |
-| Wire impact | None — conversion layer does `ProcessId::from_string(proto.pid)?` / `.to_string()` |
-
-Changes 6 PCB fields: `pid`, `request_id`, `user_id`, `session_id`, `parent_pid`, `child_pids`. Also changes `HashMap<String, PCB>` → `HashMap<ProcessId, PCB>` and `PriorityItem.pid`.
-
-**Watch out**: Full call chain changes together — gRPC handler → `Kernel` method → `LifecycleManager` method. Don't do one layer at a time. Also change `HashMap<String, Envelope>` in Kernel (keyed by PID).
-
----
+Then:
+1. Add `Borrow<str>` impl to both macro variants in `ids.rs`
+2. Add `pub mod ids;` to `src/types/mod.rs`
+3. Keep lifecycle methods taking `&str` (Borrow<str> makes this work)
+4. Update `Kernel::create_process` signature: `envelope_id: String` → `ProcessId` etc.
+5. Update `Kernel::envelopes: HashMap<String, Envelope>` → `HashMap<ProcessId, Envelope>`
+6. Update gRPC handlers: construct typed IDs from proto strings at the boundary
+7. Update conversions: `ProcessId::from_string(proto.pid)?` inbound, `pcb.pid.to_string()` outbound
+8. Update all tests: `"pid1".to_string()` → `ProcessId::from_string("pid1".to_string()).unwrap()`
 
 ### Step 6 — Envelope decomposition
 
-**Win**: 30+ flat fields → 6 coherent sub-structs. Self-documenting (`env.bounds.at_limit()` vs `env.at_limit()`). Different contributors can own different concerns.
-
-| | |
-|-|-|
-| Files | 5 (`envelope/mod.rs`, `engine_service.rs`, `orchestrator.rs`, `orchestration_service.rs`, `conversions.rs`) |
-| Field accesses to rewrite | 72 |
-| Tests to update | ~13 (orchestrator tests, mechanical `env.x` → `env.group.x`) |
-| Wire impact | None — proto `Envelope` stays flat, conversion layer maps |
-
-Groupings:
-- **Identity** — `envelope_id`, `request_id`, `user_id`, `session_id`
-- **Pipeline** — `current_stage`, `stage_order`, `iteration`, `max_iterations`, `active_stages`, `completed_stage_set`, `failed_stages`, `parallel_mode`
-- **Bounds** — `llm_call_count`, `max_llm_calls`, `tool_call_count`, `agent_hop_count`, `max_agent_hops`, `tokens_in`, `tokens_out`, `terminal_reason`
-- **Interrupts** — `interrupt_pending`, `interrupt`
-- **Execution** — `completed_stages`, `current_stage_number`, `max_stages`, `all_goals`, `remaining_goals`, `goal_completion_status`, `prior_plans`, `loop_feedback`
-- **Audit** — `processing_history`, `errors`
-- **Top-level** — `raw_input`, `received_at`, `outputs`, `terminated`, `termination_reason`, `created_at`, `completed_at`, `metadata`
-
-**Watch out**: Use `#[serde(flatten)]` on sub-structs to keep JSON serialization flat (backward compat). Verify `flatten` + `skip_serializing_if` interact correctly. Give each sub-struct a `Default` impl so `Envelope::new()` stays clean.
-
----
-
-## Expected delta
-
-| Metric | Before | After |
-|--------|--------|-------|
-| `ids.rs` LOC | 162 | ~35 |
-| `conversions.rs` LOC | 760 | ~650 |
-| `HashMap<_, bool>` sets | 2 | 0 |
-| Opaque `Option<String>` quota errors | 1 | 0 |
-| Bare `String` IDs in PCB | 6 | 0 |
-| Flat Envelope fields | 30+ | 8 top-level + 6 sub-structs |
-| Test count | 107 | 107 |
-
----
-
-## Pre-flight checklist
-
-- [ ] Identify external gRPC consumers (proto comments reference Python + Go) — verify no conversion behavior changes break them
-- [ ] Check for `.snap` files (`insta`) and `.proptest-regressions` — serialization changes break snapshots
-- [ ] Run `criterion` benchmarks before starting for regression baseline
-- [ ] Verify `num_enum 0.7` clippy compliance under `unwrap_used = "deny"`
+No changes from original plan. Depends on step 5 (identity fields move to sub-struct).
 
 ---
 
