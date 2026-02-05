@@ -6,6 +6,7 @@ use jeeves_core::grpc::{
     CommBusService, EngineService, KernelServiceImpl, OrchestrationService,
 };
 use jeeves_core::kernel::Kernel;
+use jeeves_core::types::{ProcessId, RequestId, SessionId, UserId};
 use std::sync::Arc;
 use tokio::sync::Mutex;
 
@@ -70,10 +71,10 @@ async fn test_kernel_can_be_accessed_from_service() {
     {
         let mut k = kernel.lock().await;
         let result = k.create_process(
-            "test1".to_string(),
-            "req1".to_string(),
-            "user1".to_string(),
-            "sess1".to_string(),
+            ProcessId::must("test1"),
+            RequestId::must("req1"),
+            UserId::must("user1"),
+            SessionId::must("sess1"),
             jeeves_core::kernel::SchedulingPriority::Normal,
             None,
         );
@@ -83,9 +84,10 @@ async fn test_kernel_can_be_accessed_from_service() {
     // Verify state persists
     {
         let k = kernel.lock().await;
-        let pcb = k.get_process("test1");
+        let pid = ProcessId::must("test1");
+        let pcb = k.get_process(&pid);
         assert!(pcb.is_some());
-        assert_eq!(pcb.unwrap().pid, "test1");
+        assert_eq!(pcb.unwrap().pid.as_str(), "test1");
     }
 }
 
@@ -97,10 +99,10 @@ async fn test_services_can_share_kernel_state() {
     {
         let mut k = kernel.lock().await;
         k.create_process(
-            "test1".to_string(),
-            "req1".to_string(),
-            "user1".to_string(),
-            "sess1".to_string(),
+            ProcessId::must("test1"),
+            RequestId::must("req1"),
+            UserId::must("user1"),
+            SessionId::must("sess1"),
             jeeves_core::kernel::SchedulingPriority::Normal,
             None,
         )

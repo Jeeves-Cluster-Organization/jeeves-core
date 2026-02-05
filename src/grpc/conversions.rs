@@ -10,165 +10,58 @@ use crate::kernel::{
     ProcessControlBlock, ProcessState, ResourceQuota, ResourceUsage, SchedulingPriority,
 };
 use crate::proto::{self, InterruptStatus};
-use crate::types::Error;
+use crate::types::{Error, ProcessId, RequestId, SessionId, UserId};
 use chrono::{DateTime, TimeZone, Utc};
 use std::collections::HashMap;
 
 // =============================================================================
-// ProcessState conversions
+// Enum conversion macro — generates TryFrom<i32> and From<X> for i32
+// via the proto enum as intermediary (handles UNSPECIFIED = 0 as error).
 // =============================================================================
 
-impl TryFrom<i32> for ProcessState {
-    type Error = Error;
+macro_rules! proto_enum_conv {
+    ($domain:ty, $proto:ty, $label:expr, [$( $variant:ident ),+ $(,)?]) => {
+        impl TryFrom<i32> for $domain {
+            type Error = Error;
 
-    fn try_from(value: i32) -> Result<Self, Self::Error> {
-        match proto::ProcessState::try_from(value) {
-            Ok(proto::ProcessState::New) => Ok(ProcessState::New),
-            Ok(proto::ProcessState::Ready) => Ok(ProcessState::Ready),
-            Ok(proto::ProcessState::Running) => Ok(ProcessState::Running),
-            Ok(proto::ProcessState::Waiting) => Ok(ProcessState::Waiting),
-            Ok(proto::ProcessState::Blocked) => Ok(ProcessState::Blocked),
-            Ok(proto::ProcessState::Terminated) => Ok(ProcessState::Terminated),
-            Ok(proto::ProcessState::Zombie) => Ok(ProcessState::Zombie),
-            _ => Err(Error::validation(format!("Invalid ProcessState: {}", value))),
-        }
-    }
-}
-
-impl From<ProcessState> for i32 {
-    fn from(state: ProcessState) -> i32 {
-        match state {
-            ProcessState::New => proto::ProcessState::New as i32,
-            ProcessState::Ready => proto::ProcessState::Ready as i32,
-            ProcessState::Running => proto::ProcessState::Running as i32,
-            ProcessState::Waiting => proto::ProcessState::Waiting as i32,
-            ProcessState::Blocked => proto::ProcessState::Blocked as i32,
-            ProcessState::Terminated => proto::ProcessState::Terminated as i32,
-            ProcessState::Zombie => proto::ProcessState::Zombie as i32,
-        }
-    }
-}
-
-// =============================================================================
-// SchedulingPriority conversions
-// =============================================================================
-
-impl TryFrom<i32> for SchedulingPriority {
-    type Error = Error;
-
-    fn try_from(value: i32) -> Result<Self, Self::Error> {
-        match proto::SchedulingPriority::try_from(value) {
-            Ok(proto::SchedulingPriority::Realtime) => Ok(SchedulingPriority::Realtime),
-            Ok(proto::SchedulingPriority::High) => Ok(SchedulingPriority::High),
-            Ok(proto::SchedulingPriority::Normal) => Ok(SchedulingPriority::Normal),
-            Ok(proto::SchedulingPriority::Low) => Ok(SchedulingPriority::Low),
-            Ok(proto::SchedulingPriority::Idle) => Ok(SchedulingPriority::Idle),
-            _ => Err(Error::validation(format!(
-                "Invalid SchedulingPriority: {}",
-                value
-            ))),
-        }
-    }
-}
-
-impl From<SchedulingPriority> for i32 {
-    fn from(priority: SchedulingPriority) -> i32 {
-        match priority {
-            SchedulingPriority::Realtime => proto::SchedulingPriority::Realtime as i32,
-            SchedulingPriority::High => proto::SchedulingPriority::High as i32,
-            SchedulingPriority::Normal => proto::SchedulingPriority::Normal as i32,
-            SchedulingPriority::Low => proto::SchedulingPriority::Low as i32,
-            SchedulingPriority::Idle => proto::SchedulingPriority::Idle as i32,
-        }
-    }
-}
-
-// =============================================================================
-// InterruptKind conversions
-// =============================================================================
-
-impl TryFrom<i32> for InterruptKind {
-    type Error = Error;
-
-    fn try_from(value: i32) -> Result<Self, Self::Error> {
-        match proto::InterruptKind::try_from(value) {
-            Ok(proto::InterruptKind::Clarification) => Ok(InterruptKind::Clarification),
-            Ok(proto::InterruptKind::Confirmation) => Ok(InterruptKind::Confirmation),
-            Ok(proto::InterruptKind::Checkpoint) => Ok(InterruptKind::Checkpoint),
-            Ok(proto::InterruptKind::ResourceExhausted) => Ok(InterruptKind::ResourceExhausted),
-            Ok(proto::InterruptKind::Timeout) => Ok(InterruptKind::Timeout),
-            Ok(proto::InterruptKind::SystemError) => Ok(InterruptKind::SystemError),
-            Ok(proto::InterruptKind::AgentReview) => Ok(InterruptKind::AgentReview),
-            _ => Err(Error::validation(format!("Invalid InterruptKind: {}", value))),
-        }
-    }
-}
-
-impl From<InterruptKind> for i32 {
-    fn from(kind: InterruptKind) -> i32 {
-        match kind {
-            InterruptKind::Clarification => proto::InterruptKind::Clarification as i32,
-            InterruptKind::Confirmation => proto::InterruptKind::Confirmation as i32,
-            InterruptKind::Checkpoint => proto::InterruptKind::Checkpoint as i32,
-            InterruptKind::ResourceExhausted => proto::InterruptKind::ResourceExhausted as i32,
-            InterruptKind::Timeout => proto::InterruptKind::Timeout as i32,
-            InterruptKind::SystemError => proto::InterruptKind::SystemError as i32,
-            InterruptKind::AgentReview => proto::InterruptKind::AgentReview as i32,
-        }
-    }
-}
-
-// =============================================================================
-// TerminalReason conversions
-// =============================================================================
-
-impl TryFrom<i32> for TerminalReason {
-    type Error = Error;
-
-    fn try_from(value: i32) -> Result<Self, Self::Error> {
-        match proto::TerminalReason::try_from(value) {
-            Ok(proto::TerminalReason::Completed) => Ok(TerminalReason::Completed),
-            Ok(proto::TerminalReason::MaxIterationsExceeded) => {
-                Ok(TerminalReason::MaxIterationsExceeded)
+            fn try_from(value: i32) -> Result<Self, Self::Error> {
+                match <$proto>::try_from(value) {
+                    $( Ok(<$proto>::$variant) => Ok(<$domain>::$variant), )+
+                    _ => Err(Error::validation(format!(concat!("Invalid ", $label, ": {}"), value))),
+                }
             }
-            Ok(proto::TerminalReason::MaxLlmCallsExceeded) => {
-                Ok(TerminalReason::MaxLlmCallsExceeded)
-            }
-            Ok(proto::TerminalReason::MaxAgentHopsExceeded) => {
-                Ok(TerminalReason::MaxAgentHopsExceeded)
-            }
-            Ok(proto::TerminalReason::UserCancelled) => Ok(TerminalReason::UserCancelled),
-            Ok(proto::TerminalReason::ToolFailedFatally) => Ok(TerminalReason::ToolFailedFatally),
-            Ok(proto::TerminalReason::LlmFailedFatally) => Ok(TerminalReason::LlmFailedFatally),
-            Ok(proto::TerminalReason::PolicyViolation) => Ok(TerminalReason::PolicyViolation),
-            _ => Err(Error::validation(format!(
-                "Invalid TerminalReason: {}",
-                value
-            ))),
         }
-    }
+
+        impl From<$domain> for i32 {
+            fn from(val: $domain) -> i32 {
+                match val {
+                    $( <$domain>::$variant => <$proto>::$variant as i32, )+
+                }
+            }
+        }
+    };
 }
 
-impl From<TerminalReason> for i32 {
-    fn from(reason: TerminalReason) -> i32 {
-        match reason {
-            TerminalReason::Completed => proto::TerminalReason::Completed as i32,
-            TerminalReason::MaxIterationsExceeded => {
-                proto::TerminalReason::MaxIterationsExceeded as i32
-            }
-            TerminalReason::MaxLlmCallsExceeded => {
-                proto::TerminalReason::MaxLlmCallsExceeded as i32
-            }
-            TerminalReason::MaxAgentHopsExceeded => {
-                proto::TerminalReason::MaxAgentHopsExceeded as i32
-            }
-            TerminalReason::UserCancelled => proto::TerminalReason::UserCancelled as i32,
-            TerminalReason::ToolFailedFatally => proto::TerminalReason::ToolFailedFatally as i32,
-            TerminalReason::LlmFailedFatally => proto::TerminalReason::LlmFailedFatally as i32,
-            TerminalReason::PolicyViolation => proto::TerminalReason::PolicyViolation as i32,
-        }
-    }
-}
+// =============================================================================
+// Enum conversions (all 5 enums)
+// =============================================================================
+
+proto_enum_conv!(ProcessState, proto::ProcessState, "ProcessState", [
+    New, Ready, Running, Waiting, Blocked, Terminated, Zombie,
+]);
+
+proto_enum_conv!(SchedulingPriority, proto::SchedulingPriority, "SchedulingPriority", [
+    Realtime, High, Normal, Low, Idle,
+]);
+
+proto_enum_conv!(InterruptKind, proto::InterruptKind, "InterruptKind", [
+    Clarification, Confirmation, Checkpoint, ResourceExhausted, Timeout, SystemError, AgentReview,
+]);
+
+proto_enum_conv!(TerminalReason, proto::TerminalReason, "TerminalReason", [
+    Completed, MaxIterationsExceeded, MaxLlmCallsExceeded, MaxAgentHopsExceeded,
+    UserCancelled, ToolFailedFatally, LlmFailedFatally, PolicyViolation,
+]);
 
 // =============================================================================
 // ResourceQuota conversions
@@ -308,11 +201,32 @@ impl TryFrom<proto::ProcessControlBlock> for ProcessControlBlock {
             None
         };
 
+        let pid = ProcessId::from_string(proto.pid)
+            .map_err(|e| Error::validation(e.to_string()))?;
+        let request_id = RequestId::from_string(proto.request_id)
+            .map_err(|e| Error::validation(e.to_string()))?;
+        let user_id = UserId::from_string(proto.user_id)
+            .map_err(|e| Error::validation(e.to_string()))?;
+        let session_id = SessionId::from_string(proto.session_id)
+            .map_err(|e| Error::validation(e.to_string()))?;
+
+        let parent_pid = if proto.parent_pid.is_empty() {
+            None
+        } else {
+            Some(ProcessId::from_string(proto.parent_pid)
+                .map_err(|e| Error::validation(e.to_string()))?)
+        };
+
+        let child_pids: Vec<ProcessId> = proto.child_pids
+            .into_iter()
+            .map(|s| ProcessId::from_string(s).map_err(|e| Error::validation(e.to_string())))
+            .collect::<std::result::Result<_, _>>()?;
+
         Ok(ProcessControlBlock {
-            pid: proto.pid,
-            request_id: proto.request_id,
-            user_id: proto.user_id,
-            session_id: proto.session_id,
+            pid,
+            request_id,
+            user_id,
+            session_id,
             state,
             priority,
             quota,
@@ -333,12 +247,8 @@ impl TryFrom<proto::ProcessControlBlock> for ProcessControlBlock {
             },
             pending_interrupt,
             interrupt_data,
-            parent_pid: if proto.parent_pid.is_empty() {
-                None
-            } else {
-                Some(proto.parent_pid)
-            },
-            child_pids: proto.child_pids,
+            parent_pid,
+            child_pids,
         })
     }
 }
@@ -346,10 +256,10 @@ impl TryFrom<proto::ProcessControlBlock> for ProcessControlBlock {
 impl From<ProcessControlBlock> for proto::ProcessControlBlock {
     fn from(pcb: ProcessControlBlock) -> proto::ProcessControlBlock {
         proto::ProcessControlBlock {
-            pid: pcb.pid,
-            request_id: pcb.request_id,
-            user_id: pcb.user_id,
-            session_id: pcb.session_id,
+            pid: pcb.pid.to_string(),
+            request_id: pcb.request_id.to_string(),
+            user_id: pcb.user_id.to_string(),
+            session_id: pcb.session_id.to_string(),
             state: i32::from(pcb.state),
             priority: i32::from(pcb.priority),
             quota: Some(proto::ResourceQuota::from(pcb.quota)),
@@ -371,8 +281,8 @@ impl From<ProcessControlBlock> for proto::ProcessControlBlock {
                 .interrupt_data
                 .map(|d| serde_json::to_vec(&d).unwrap_or_default())
                 .unwrap_or_default(),
-            parent_pid: pcb.parent_pid.unwrap_or_default(),
-            child_pids: pcb.child_pids,
+            parent_pid: pcb.parent_pid.map(|p| p.to_string()).unwrap_or_default(),
+            child_pids: pcb.child_pids.into_iter().map(|p| p.to_string()).collect(),
         }
     }
 }
@@ -415,50 +325,62 @@ impl TryFrom<proto::Envelope> for Envelope {
             .transpose()?;
 
         Ok(Envelope {
-            envelope_id: proto.envelope_id,
-            request_id: proto.request_id,
-            user_id: proto.user_id,
-            session_id: proto.session_id,
+            identity: crate::envelope::Identity {
+                envelope_id: proto.envelope_id,
+                request_id: proto.request_id,
+                user_id: proto.user_id,
+                session_id: proto.session_id,
+            },
             raw_input: proto.raw_input,
             received_at,
             outputs,
-            current_stage: proto.current_stage,
-            stage_order: proto.stage_order,
-            iteration: proto.iteration,
-            max_iterations: proto.max_iterations,
-            active_stages: Some(proto.active_stages),
-            completed_stage_set: Some(proto.completed_stage_set),
-            failed_stages: Some(proto.failed_stages),
-            parallel_mode: Some(false), // Not in proto
-            llm_call_count: proto.llm_call_count,
-            max_llm_calls: proto.max_llm_calls,
-            tool_call_count: 0, // Not in proto yet
-            agent_hop_count: proto.agent_hop_count,
-            max_agent_hops: proto.max_agent_hops,
-            tokens_in: 0, // Not in proto yet
-            tokens_out: 0, // Not in proto yet
-            terminal_reason,
-            terminated: proto.terminated,
-            termination_reason: if proto.termination_reason.is_empty() {
-                None
-            } else {
-                Some(proto.termination_reason)
+            pipeline: crate::envelope::Pipeline {
+                current_stage: proto.current_stage,
+                stage_order: proto.stage_order,
+                iteration: proto.iteration,
+                max_iterations: proto.max_iterations,
+                active_stages: proto.active_stages.into_keys().collect(),
+                completed_stage_set: proto.completed_stage_set.into_keys().collect(),
+                failed_stages: Some(proto.failed_stages),
+                parallel_mode: Some(false),
             },
-            interrupt_pending: proto.interrupt_pending,
-            interrupt,
-            completed_stages: Vec::new(), // Not in proto
-            current_stage_number: proto.current_stage_number,
-            max_stages: proto.max_stages,
-            all_goals: proto.all_goals,
-            remaining_goals: proto.remaining_goals,
-            goal_completion_status: proto.goal_completion_status,
-            prior_plans: Vec::new(), // Not in proto
-            loop_feedback: Vec::new(), // Not in proto
-            processing_history: Vec::new(), // Not in proto
-            errors: Vec::new(),       // Not in proto
-            created_at,
-            completed_at,
-            metadata: HashMap::new(), // Not in proto
+            bounds: crate::envelope::Bounds {
+                llm_call_count: proto.llm_call_count,
+                max_llm_calls: proto.max_llm_calls,
+                tool_call_count: 0,
+                agent_hop_count: proto.agent_hop_count,
+                max_agent_hops: proto.max_agent_hops,
+                tokens_in: 0,
+                tokens_out: 0,
+                terminal_reason,
+                terminated: proto.terminated,
+                termination_reason: if proto.termination_reason.is_empty() {
+                    None
+                } else {
+                    Some(proto.termination_reason)
+                },
+            },
+            interrupts: crate::envelope::InterruptState {
+                interrupt_pending: proto.interrupt_pending,
+                interrupt,
+            },
+            execution: crate::envelope::Execution {
+                completed_stages: Vec::new(),
+                current_stage_number: proto.current_stage_number,
+                max_stages: proto.max_stages,
+                all_goals: proto.all_goals,
+                remaining_goals: proto.remaining_goals,
+                goal_completion_status: proto.goal_completion_status,
+                prior_plans: Vec::new(),
+                loop_feedback: Vec::new(),
+            },
+            audit: crate::envelope::Audit {
+                processing_history: Vec::new(),
+                errors: Vec::new(),
+                created_at,
+                completed_at,
+                metadata: HashMap::new(),
+            },
         })
     }
 }
@@ -474,37 +396,37 @@ impl From<Envelope> for proto::Envelope {
         }
 
         proto::Envelope {
-            envelope_id: env.envelope_id,
-            request_id: env.request_id,
-            user_id: env.user_id,
-            session_id: env.session_id,
+            envelope_id: env.identity.envelope_id,
+            request_id: env.identity.request_id,
+            user_id: env.identity.user_id,
+            session_id: env.identity.session_id,
             raw_input: env.raw_input,
             received_at_ms: datetime_to_ms(&env.received_at),
-            current_stage: env.current_stage,
-            stage_order: env.stage_order,
-            iteration: env.iteration,
-            max_iterations: env.max_iterations,
-            llm_call_count: env.llm_call_count,
-            max_llm_calls: env.max_llm_calls,
-            agent_hop_count: env.agent_hop_count,
-            max_agent_hops: env.max_agent_hops,
-            terminated: env.terminated,
-            termination_reason: env.termination_reason.unwrap_or_default(),
-            terminal_reason: env.terminal_reason.map(|r| i32::from(r)).unwrap_or(0),
-            completed_at_ms: env.completed_at.map(|t| datetime_to_ms(&t)).unwrap_or(0),
-            interrupt_pending: env.interrupt_pending,
-            interrupt: env.interrupt.map(|i| proto::FlowInterrupt::from(i)),
+            current_stage: env.pipeline.current_stage,
+            stage_order: env.pipeline.stage_order,
+            iteration: env.pipeline.iteration,
+            max_iterations: env.pipeline.max_iterations,
+            llm_call_count: env.bounds.llm_call_count,
+            max_llm_calls: env.bounds.max_llm_calls,
+            agent_hop_count: env.bounds.agent_hop_count,
+            max_agent_hops: env.bounds.max_agent_hops,
+            terminated: env.bounds.terminated,
+            termination_reason: env.bounds.termination_reason.unwrap_or_default(),
+            terminal_reason: env.bounds.terminal_reason.map(|r| i32::from(r)).unwrap_or(0),
+            completed_at_ms: env.audit.completed_at.map(|t| datetime_to_ms(&t)).unwrap_or(0),
+            interrupt_pending: env.interrupts.interrupt_pending,
+            interrupt: env.interrupts.interrupt.map(|i| proto::FlowInterrupt::from(i)),
             outputs,
-            active_stages: env.active_stages.unwrap_or_default(),
-            completed_stage_set: env.completed_stage_set.unwrap_or_default(),
-            failed_stages: env.failed_stages.unwrap_or_default(),
-            current_stage_number: env.current_stage_number,
-            max_stages: env.max_stages,
-            all_goals: env.all_goals,
-            remaining_goals: env.remaining_goals,
-            goal_completion_status: env.goal_completion_status,
-            metadata_str: HashMap::new(), // Not in domain
-            created_at_ms: datetime_to_ms(&env.created_at),
+            active_stages: env.pipeline.active_stages.into_iter().map(|s| (s, true)).collect(),
+            completed_stage_set: env.pipeline.completed_stage_set.into_iter().map(|s| (s, true)).collect(),
+            failed_stages: env.pipeline.failed_stages.unwrap_or_default(),
+            current_stage_number: env.execution.current_stage_number,
+            max_stages: env.execution.max_stages,
+            all_goals: env.execution.all_goals,
+            remaining_goals: env.execution.remaining_goals,
+            goal_completion_status: env.execution.goal_completion_status,
+            metadata_str: HashMap::new(),
+            created_at_ms: datetime_to_ms(&env.audit.created_at),
         }
     }
 }
@@ -662,32 +584,9 @@ use crate::kernel::orchestrator::{
     AgentExecutionMetrics, Instruction, InstructionKind, SessionState,
 };
 
-// InstructionKind conversions
-impl From<InstructionKind> for i32 {
-    fn from(kind: InstructionKind) -> i32 {
-        match kind {
-            InstructionKind::RunAgent => proto::InstructionKind::RunAgent as i32,
-            InstructionKind::Terminate => proto::InstructionKind::Terminate as i32,
-            InstructionKind::WaitInterrupt => proto::InstructionKind::WaitInterrupt as i32,
-        }
-    }
-}
-
-impl TryFrom<i32> for InstructionKind {
-    type Error = Error;
-
-    fn try_from(value: i32) -> Result<Self, Self::Error> {
-        match proto::InstructionKind::try_from(value) {
-            Ok(proto::InstructionKind::RunAgent) => Ok(InstructionKind::RunAgent),
-            Ok(proto::InstructionKind::Terminate) => Ok(InstructionKind::Terminate),
-            Ok(proto::InstructionKind::WaitInterrupt) => Ok(InstructionKind::WaitInterrupt),
-            _ => Err(Error::validation(format!(
-                "Invalid InstructionKind: {}",
-                value
-            ))),
-        }
-    }
-}
+proto_enum_conv!(InstructionKind, proto::InstructionKind, "InstructionKind", [
+    RunAgent, Terminate, WaitInterrupt,
+]);
 
 // Instruction conversions
 impl From<Instruction> for proto::Instruction {

@@ -67,16 +67,16 @@ impl EngineServiceTrait for EngineService {
         let mut envelope = Envelope::new();
 
         // Override with request values
-        envelope.envelope_id = envelope_id;
-        envelope.request_id = request_id;
-        envelope.user_id = req.user_id;
-        envelope.session_id = req.session_id;
+        envelope.identity.envelope_id = envelope_id;
+        envelope.identity.request_id = request_id;
+        envelope.identity.user_id = req.user_id;
+        envelope.identity.session_id = req.session_id;
         envelope.raw_input = req.raw_input;
 
         // Set stage order if provided
         if !req.stage_order.is_empty() {
-            envelope.stage_order = req.stage_order;
-            envelope.current_stage = envelope.stage_order[0].clone();
+            envelope.pipeline.stage_order = req.stage_order;
+            envelope.pipeline.current_stage = envelope.pipeline.stage_order[0].clone();
         }
 
         // Store envelope in kernel
@@ -107,7 +107,7 @@ impl EngineServiceTrait for EngineService {
 
         // Update envelope in kernel
         let mut kernel = self.kernel.lock().await;
-        let envelope_id = envelope.envelope_id.clone();
+        let envelope_id = envelope.identity.envelope_id.clone();
 
         if kernel.get_envelope(&envelope_id).is_none() {
             return Err(Status::not_found(format!(
@@ -141,16 +141,16 @@ impl EngineServiceTrait for EngineService {
             .map_err(|e| Status::internal(format!("Failed to convert envelope: {}", e)))?;
 
         // Check bounds
-        let can_continue = envelope.llm_call_count < envelope.max_llm_calls
-            && envelope.iteration < envelope.max_iterations
-            && envelope.agent_hop_count < envelope.max_agent_hops;
+        let can_continue = envelope.bounds.llm_call_count < envelope.bounds.max_llm_calls
+            && envelope.pipeline.iteration < envelope.pipeline.max_iterations
+            && envelope.bounds.agent_hop_count < envelope.bounds.max_agent_hops;
 
         // Determine terminal reason if bounds exceeded
-        let terminal_reason = if envelope.llm_call_count >= envelope.max_llm_calls {
+        let terminal_reason = if envelope.bounds.llm_call_count >= envelope.bounds.max_llm_calls {
             crate::proto::TerminalReason::MaxLlmCallsExceeded as i32
-        } else if envelope.iteration >= envelope.max_iterations {
+        } else if envelope.pipeline.iteration >= envelope.pipeline.max_iterations {
             crate::proto::TerminalReason::MaxIterationsExceeded as i32
-        } else if envelope.agent_hop_count >= envelope.max_agent_hops {
+        } else if envelope.bounds.agent_hop_count >= envelope.bounds.max_agent_hops {
             crate::proto::TerminalReason::MaxAgentHopsExceeded as i32
         } else {
             crate::proto::TerminalReason::Unspecified as i32
@@ -159,9 +159,9 @@ impl EngineServiceTrait for EngineService {
         let result = BoundsResult {
             can_continue,
             terminal_reason,
-            llm_calls_remaining: (envelope.max_llm_calls - envelope.llm_call_count).max(0),
-            agent_hops_remaining: (envelope.max_agent_hops - envelope.agent_hop_count).max(0),
-            iterations_remaining: (envelope.max_iterations - envelope.iteration).max(0),
+            llm_calls_remaining: (envelope.bounds.max_llm_calls - envelope.bounds.llm_call_count).max(0),
+            agent_hops_remaining: (envelope.bounds.max_agent_hops - envelope.bounds.agent_hop_count).max(0),
+            iterations_remaining: (envelope.pipeline.max_iterations - envelope.pipeline.iteration).max(0),
         };
 
         Ok(Response::new(result))
@@ -197,7 +197,7 @@ impl EngineServiceTrait for EngineService {
             })?;
 
         // Initialize orchestration session
-        let process_id = envelope.envelope_id.clone();
+        let process_id = envelope.identity.envelope_id.clone();
         let mut kernel = self.kernel.lock().await;
 
         let _session_state = kernel
@@ -300,7 +300,7 @@ impl EngineServiceTrait for EngineService {
 
         // Clone envelope with new ID
         let mut cloned = envelope.clone();
-        cloned.envelope_id = format!("env_{}", uuid::Uuid::new_v4().simple());
+        cloned.identity.envelope_id = format!("env_{}", uuid::Uuid::new_v4().simple());
 
         // Store cloned envelope in kernel
         let mut kernel = self.kernel.lock().await;

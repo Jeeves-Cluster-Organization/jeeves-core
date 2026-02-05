@@ -25,10 +25,10 @@ impl ResourceTracker {
 
     /// Check if process quota is exceeded.
     pub fn check_quota(&self, pcb: &ProcessControlBlock) -> Result<()> {
-        if let Some(reason) = pcb.check_quota() {
+        if let Some(violation) = pcb.check_quota() {
             return Err(Error::quota_exceeded(format!(
                 "Process {} quota exceeded: {}",
-                pcb.pid, reason
+                pcb.pid, violation
             )));
         }
         Ok(())
@@ -81,6 +81,7 @@ impl ResourceTracker {
 mod tests {
     use super::*;
     use crate::kernel::types::{ProcessControlBlock, ProcessState, ResourceQuota};
+    use crate::types::{ProcessId, RequestId, SessionId, UserId};
 
     #[test]
     fn test_record_usage() {
@@ -99,10 +100,10 @@ mod tests {
         let tracker = ResourceTracker::new();
 
         let mut pcb = ProcessControlBlock::new(
-            "env1".to_string(),
-            "req1".to_string(),
-            "user1".to_string(),
-            "sess1".to_string(),
+            ProcessId::must("env1"),
+            RequestId::must("req1"),
+            UserId::must("user1"),
+            SessionId::must("sess1"),
         );
         pcb.state = ProcessState::Running;
         pcb.quota = ResourceQuota {
@@ -131,10 +132,10 @@ mod tests {
         let tracker = ResourceTracker::new();
 
         let mut pcb = ProcessControlBlock::new(
-            "env1".to_string(),
-            "req1".to_string(),
-            "user1".to_string(),
-            "sess1".to_string(),
+            ProcessId::must("env1"),
+            RequestId::must("req1"),
+            UserId::must("user1"),
+            SessionId::must("sess1"),
         );
         pcb.state = ProcessState::Running;
         pcb.quota = ResourceQuota {
@@ -165,10 +166,10 @@ mod tests {
         let tracker = ResourceTracker::new();
 
         let mut pcb = ProcessControlBlock::new(
-            "env1".to_string(),
-            "req1".to_string(),
-            "user1".to_string(),
-            "sess1".to_string(),
+            ProcessId::must("env1"),
+            RequestId::must("req1"),
+            UserId::must("user1"),
+            SessionId::must("sess1"),
         );
         pcb.state = ProcessState::Running;
         pcb.quota = ResourceQuota {
@@ -199,10 +200,10 @@ mod tests {
         let tracker = ResourceTracker::new();
 
         let mut pcb = ProcessControlBlock::new(
-            "env1".to_string(),
-            "req1".to_string(),
-            "user1".to_string(),
-            "sess1".to_string(),
+            ProcessId::must("env1"),
+            RequestId::must("req1"),
+            UserId::must("user1"),
+            SessionId::must("sess1"),
         );
         pcb.state = ProcessState::Running;
         pcb.quota = ResourceQuota {

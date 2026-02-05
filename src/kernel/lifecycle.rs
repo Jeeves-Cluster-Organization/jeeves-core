@@ -7,14 +7,14 @@ use chrono::{DateTime, Utc};
 use std::cmp::Ordering;
 use std::collections::{BinaryHeap, HashMap};
 
-use crate::types::{Error, Result};
+use crate::types::{Error, ProcessId, RequestId, Result, SessionId, UserId};
 
 pub use super::types::{ProcessControlBlock, ProcessState, ResourceQuota, SchedulingPriority};
 
 /// Priority queue item (wraps for min-heap behavior).
 #[derive(Debug, Clone, PartialEq, Eq)]
 struct PriorityItem {
-    pid: String,
+    pid: ProcessId,
     priority: i32,      // Lower = higher priority
     created_at: DateTime<Utc>, // FIFO within same priority
 }
@@ -43,7 +43,7 @@ impl PartialOrd for PriorityItem {
 #[derive(Debug)]
 pub struct LifecycleManager {
     default_quota: ResourceQuota,
-    pub(crate) processes: HashMap<String, ProcessControlBlock>,
+    pub(crate) processes: HashMap<ProcessId, ProcessControlBlock>,
     ready_queue: BinaryHeap<PriorityItem>,
 }
 
@@ -59,10 +59,10 @@ impl LifecycleManager {
     /// Submit creates a new process in NEW state.
     pub fn submit(
         &mut self,
-        pid: String,
-        request_id: String,
-        user_id: String,
-        session_id: String,
+        pid: ProcessId,
+        request_id: RequestId,
+        user_id: UserId,
+        session_id: SessionId,
         priority: SchedulingPriority,
         quota: Option<ResourceQuota>,
     ) -> Result<ProcessControlBlock> {
@@ -81,7 +81,7 @@ impl LifecycleManager {
     }
 
     /// Schedule transitions process from NEW to READY and adds to queue.
-    pub fn schedule(&mut self, pid: &str) -> Result<()> {
+    pub fn schedule(&mut self, pid: &ProcessId) -> Result<()> {
         let pcb = self
             .processes
             .get_mut(pid)
@@ -99,7 +99,7 @@ impl LifecycleManager {
 
         // Add to ready queue
         self.ready_queue.push(PriorityItem {
-            pid: pid.to_string(),
+            pid: pid.clone(),
             priority: pcb.priority.to_heap_value(),
             created_at: pcb.created_at,
         });
@@ -120,7 +120,7 @@ impl LifecycleManager {
     }
 
     /// Transition process to RUNNING state.
-    pub fn start(&mut self, pid: &str) -> Result<()> {
+    pub fn start(&mut self, pid: &ProcessId) -> Result<()> {
         let pcb = self
             .processes
             .get_mut(pid)
@@ -138,7 +138,7 @@ impl LifecycleManager {
     }
 
     /// Transition process to WAITING state (e.g., awaiting clarification).
-    pub fn wait(&mut self, pid: &str, interrupt_kind: crate::envelope::InterruptKind) -> Result<()> {
+    pub fn wait(&mut self, pid: &ProcessId, interrupt_kind: crate::envelope::InterruptKind) -> Result<()> {
         let pcb = self
             .processes
             .get_mut(pid)
@@ -156,7 +156,7 @@ impl LifecycleManager {
     }
 
     /// Transition process to BLOCKED state (e.g., resource exhausted).
-    pub fn block(&mut self, pid: &str, reason: String) -> Result<()> {
+    pub fn block(&mut self, pid: &ProcessId, reason: String) -> Result<()> {
         let pcb = self
             .processes
             .get_mut(pid)
@@ -174,7 +174,7 @@ impl LifecycleManager {
     }
 
     /// Resume process from WAITING/BLOCKED to READY.
-    pub fn resume(&mut self, pid: &str) -> Result<()> {
+    pub fn resume(&mut self, pid: &ProcessId) -> Result<()> {
         let pcb = self
             .processes
             .get_mut(pid)
@@ -191,7 +191,7 @@ impl LifecycleManager {
 
         // Re-add to ready queue
         self.ready_queue.push(PriorityItem {
-            pid: pid.to_string(),
+            pid: pid.clone(),
             priority: pcb.priority.to_heap_value(),
             created_at: pcb.created_at,
         });
@@ -200,7 +200,7 @@ impl LifecycleManager {
     }
 
     /// Terminate process.
-    pub fn terminate(&mut self, pid: &str) -> Result<()> {
+    pub fn terminate(&mut self, pid: &ProcessId) -> Result<()> {
         let pcb = self
             .processes
             .get_mut(pid)
@@ -215,7 +215,7 @@ impl LifecycleManager {
     }
 
     /// Cleanup terminated process (transition to ZOMBIE).
-    pub fn cleanup(&mut self, pid: &str) -> Result<()> {
+    pub fn cleanup(&mut self, pid: &ProcessId) -> Result<()> {
         let pcb = self
             .processes
             .get_mut(pid)
@@ -233,19 +233,19 @@ impl LifecycleManager {
     }
 
     /// Remove process completely (zombie collection).
-    pub fn remove(&mut self, pid: &str) -> Result<ProcessControlBlock> {
+    pub fn remove(&mut self, pid: &ProcessId) -> Result<ProcessControlBlock> {
         self.processes
             .remove(pid)
             .ok_or_else(|| Error::not_found(format!("unknown pid: {}", pid)))
     }
 
     /// Get process by PID.
-    pub fn get(&self, pid: &str) -> Option<&ProcessControlBlock> {
+    pub fn get(&self, pid: &ProcessId) -> Option<&ProcessControlBlock> {
         self.processes.get(pid)
     }
 
     /// Get mutable process by PID.
-    pub fn get_mut(&mut self, pid: &str) -> Option<&mut ProcessControlBlock> {
+    pub fn get_mut(&mut self, pid: &ProcessId) -> Option<&mut ProcessControlBlock> {
         self.processes.get_mut(pid)
     }
 
@@ -290,84 +290,57 @@ mod tests {
     #[test]
     fn test_state_transitions() {
         let mut lm = LifecycleManager::default();
+        let pid = ProcessId::must("pid1");
 
-        // Submit process
         let pcb = lm
             .submit(
-                "pid1".to_string(),
-                "req1".to_string(),
-                "user1".to_string(),
-                "sess1".to_string(),
+                pid.clone(),
+                RequestId::must("req1"),
+                UserId::must("user1"),
+                SessionId::must("sess1"),
                 SchedulingPriority::Normal,
                 None,
             )
             .unwrap();
         assert_eq!(pcb.state, ProcessState::New);
 
-        // Schedule to READY
-        lm.schedule("pid1").unwrap();
-        assert_eq!(lm.get("pid1").unwrap().state, ProcessState::Ready);
+        lm.schedule(&pid).unwrap();
+        assert_eq!(lm.get(&pid).unwrap().state, ProcessState::Ready);
 
-        // Start to RUNNING
-        lm.start("pid1").unwrap();
-        assert_eq!(lm.get("pid1").unwrap().state, ProcessState::Running);
+        lm.start(&pid).unwrap();
+        assert_eq!(lm.get(&pid).unwrap().state, ProcessState::Running);
 
-        // Terminate
-        lm.terminate("pid1").unwrap();
-        assert_eq!(lm.get("pid1").unwrap().state, ProcessState::Terminated);
+        lm.terminate(&pid).unwrap();
+        assert_eq!(lm.get(&pid).unwrap().state, ProcessState::Terminated);
 
-        // Cleanup to ZOMBIE
-        lm.cleanup("pid1").unwrap();
-        assert_eq!(lm.get("pid1").unwrap().state, ProcessState::Zombie);
+        lm.cleanup(&pid).unwrap();
+        assert_eq!(lm.get(&pid).unwrap().state, ProcessState::Zombie);
     }
 
     #[test]
     fn test_priority_queue() {
         let mut lm = LifecycleManager::default();
 
-        // Submit 3 processes with different priorities
-        lm.submit(
-            "low".to_string(),
-            "r1".to_string(),
-            "u1".to_string(),
-            "s1".to_string(),
-            SchedulingPriority::Low,
-            None,
-        )
-        .unwrap();
-        lm.submit(
-            "high".to_string(),
-            "r2".to_string(),
-            "u2".to_string(),
-            "s2".to_string(),
-            SchedulingPriority::High,
-            None,
-        )
-        .unwrap();
-        lm.submit(
-            "normal".to_string(),
-            "r3".to_string(),
-            "u3".to_string(),
-            "s3".to_string(),
-            SchedulingPriority::Normal,
-            None,
-        )
-        .unwrap();
+        let pid_low = ProcessId::must("low");
+        let pid_high = ProcessId::must("high");
+        let pid_normal = ProcessId::must("normal");
 
-        // Schedule all
-        lm.schedule("low").unwrap();
-        lm.schedule("high").unwrap();
-        lm.schedule("normal").unwrap();
+        lm.submit(pid_low.clone(), RequestId::must("r1"), UserId::must("u1"), SessionId::must("s1"), SchedulingPriority::Low, None).unwrap();
+        lm.submit(pid_high.clone(), RequestId::must("r2"), UserId::must("u2"), SessionId::must("s2"), SchedulingPriority::High, None).unwrap();
+        lm.submit(pid_normal.clone(), RequestId::must("r3"), UserId::must("u3"), SessionId::must("s3"), SchedulingPriority::Normal, None).unwrap();
 
-        // Should dequeue in priority order: high, normal, low
-        let next = lm.get_next_runnable().unwrap();
-        assert_eq!(next.pid, "high");
+        lm.schedule(&pid_low).unwrap();
+        lm.schedule(&pid_high).unwrap();
+        lm.schedule(&pid_normal).unwrap();
 
         let next = lm.get_next_runnable().unwrap();
-        assert_eq!(next.pid, "normal");
+        assert_eq!(next.pid.as_str(), "high");
 
         let next = lm.get_next_runnable().unwrap();
-        assert_eq!(next.pid, "low");
+        assert_eq!(next.pid.as_str(), "normal");
+
+        let next = lm.get_next_runnable().unwrap();
+        assert_eq!(next.pid.as_str(), "low");
     }
 
     #[test]
@@ -381,7 +354,6 @@ mod tests {
         assert!(ProcessState::Blocked.can_transition_to(ProcessState::Ready));
         assert!(ProcessState::Terminated.can_transition_to(ProcessState::Zombie));
 
-        // Invalid transitions
         assert!(!ProcessState::New.can_transition_to(ProcessState::Running));
         assert!(!ProcessState::Ready.can_transition_to(ProcessState::Waiting));
         assert!(!ProcessState::Zombie.can_transition_to(ProcessState::Ready));
@@ -390,66 +362,37 @@ mod tests {
     #[test]
     fn test_submit_duplicate_pid_returns_existing() {
         let mut lm = LifecycleManager::default();
+        let pid = ProcessId::must("pid1");
 
-        // Submit process
         let pcb1 = lm
-            .submit(
-                "pid1".to_string(),
-                "req1".to_string(),
-                "user1".to_string(),
-                "sess1".to_string(),
-                SchedulingPriority::Normal,
-                None,
-            )
+            .submit(pid.clone(), RequestId::must("req1"), UserId::must("user1"), SessionId::must("sess1"), SchedulingPriority::Normal, None)
             .unwrap();
 
-        // Submit again with same PID
         let pcb2 = lm
-            .submit(
-                "pid1".to_string(),
-                "req2".to_string(),
-                "user2".to_string(),
-                "sess2".to_string(),
-                SchedulingPriority::High,
-                None,
-            )
+            .submit(pid, RequestId::must("req2"), UserId::must("user2"), SessionId::must("sess2"), SchedulingPriority::High, None)
             .unwrap();
 
-        // Should return existing process
         assert_eq!(pcb1.pid, pcb2.pid);
-        assert_eq!(pcb2.request_id, "req1"); // Original, not new
+        assert_eq!(pcb2.request_id.as_str(), "req1");
     }
 
     #[test]
     fn test_transition_invalid_state_fails() {
         let mut lm = LifecycleManager::default();
+        let pid = ProcessId::must("pid1");
 
-        lm.submit(
-            "pid1".to_string(),
-            "req1".to_string(),
-            "user1".to_string(),
-            "sess1".to_string(),
-            SchedulingPriority::Normal,
-            None,
-        )
-        .unwrap();
+        lm.submit(pid.clone(), RequestId::must("req1"), UserId::must("user1"), SessionId::must("sess1"), SchedulingPriority::Normal, None).unwrap();
 
-        // Try to start without scheduling (NEW → RUNNING invalid)
-        assert!(lm.start("pid1").is_err());
+        assert!(lm.start(&pid).is_err());
 
-        // Schedule to READY
-        lm.schedule("pid1").unwrap();
+        lm.schedule(&pid).unwrap();
 
-        // Try to wait from READY (should be RUNNING)
-        assert!(lm.wait("pid1", crate::envelope::InterruptKind::Clarification).is_err());
+        assert!(lm.wait(&pid, crate::envelope::InterruptKind::Clarification).is_err());
     }
 
     #[test]
     fn test_get_next_runnable_empty_queue() {
-        let lm = LifecycleManager::default();
-
-        // Empty queue should return None
-        let mut lm = lm;
+        let mut lm = LifecycleManager::default();
         assert!(lm.get_next_runnable().is_none());
     }
 
@@ -457,42 +400,19 @@ mod tests {
     fn test_count_by_state() {
         let mut lm = LifecycleManager::default();
 
-        // Submit 3 processes
-        lm.submit(
-            "pid1".to_string(),
-            "req1".to_string(),
-            "user1".to_string(),
-            "sess1".to_string(),
-            SchedulingPriority::Normal,
-            None,
-        )
-        .unwrap();
-        lm.submit(
-            "pid2".to_string(),
-            "req2".to_string(),
-            "user2".to_string(),
-            "sess2".to_string(),
-            SchedulingPriority::Normal,
-            None,
-        )
-        .unwrap();
-        lm.submit(
-            "pid3".to_string(),
-            "req3".to_string(),
-            "user3".to_string(),
-            "sess3".to_string(),
-            SchedulingPriority::Normal,
-            None,
-        )
-        .unwrap();
+        let pid1 = ProcessId::must("pid1");
+        let pid2 = ProcessId::must("pid2");
+        let pid3 = ProcessId::must("pid3");
 
-        // All in NEW state
+        lm.submit(pid1.clone(), RequestId::must("req1"), UserId::must("user1"), SessionId::must("sess1"), SchedulingPriority::Normal, None).unwrap();
+        lm.submit(pid2.clone(), RequestId::must("req2"), UserId::must("user2"), SessionId::must("sess2"), SchedulingPriority::Normal, None).unwrap();
+        lm.submit(pid3.clone(), RequestId::must("req3"), UserId::must("user3"), SessionId::must("sess3"), SchedulingPriority::Normal, None).unwrap();
+
         assert_eq!(lm.count_by_state(ProcessState::New), 3);
         assert_eq!(lm.count_by_state(ProcessState::Ready), 0);
 
-        // Schedule 2 of them
-        lm.schedule("pid1").unwrap();
-        lm.schedule("pid2").unwrap();
+        lm.schedule(&pid1).unwrap();
+        lm.schedule(&pid2).unwrap();
 
         assert_eq!(lm.count_by_state(ProcessState::New), 1);
         assert_eq!(lm.count_by_state(ProcessState::Ready), 2);
@@ -501,169 +421,109 @@ mod tests {
     #[test]
     fn test_wait_and_resume() {
         let mut lm = LifecycleManager::default();
+        let pid = ProcessId::must("pid1");
 
-        lm.submit(
-            "pid1".to_string(),
-            "req1".to_string(),
-            "user1".to_string(),
-            "sess1".to_string(),
-            SchedulingPriority::Normal,
-            None,
-        )
-        .unwrap();
-        lm.schedule("pid1").unwrap();
-        lm.start("pid1").unwrap();
+        lm.submit(pid.clone(), RequestId::must("req1"), UserId::must("user1"), SessionId::must("sess1"), SchedulingPriority::Normal, None).unwrap();
+        lm.schedule(&pid).unwrap();
+        lm.start(&pid).unwrap();
 
-        // RUNNING → WAITING
-        lm.wait("pid1", crate::envelope::InterruptKind::Clarification).unwrap();
-        assert_eq!(lm.get("pid1").unwrap().state, ProcessState::Waiting);
+        lm.wait(&pid, crate::envelope::InterruptKind::Clarification).unwrap();
+        assert_eq!(lm.get(&pid).unwrap().state, ProcessState::Waiting);
 
-        // WAITING → READY
-        lm.resume("pid1").unwrap();
-        assert_eq!(lm.get("pid1").unwrap().state, ProcessState::Ready);
+        lm.resume(&pid).unwrap();
+        assert_eq!(lm.get(&pid).unwrap().state, ProcessState::Ready);
 
-        // Should be back in ready queue
         let next = lm.get_next_runnable().unwrap();
-        assert_eq!(next.pid, "pid1");
+        assert_eq!(next.pid.as_str(), "pid1");
     }
 
     #[test]
     fn test_block_and_resume() {
         let mut lm = LifecycleManager::default();
+        let pid = ProcessId::must("pid1");
 
-        lm.submit(
-            "pid1".to_string(),
-            "req1".to_string(),
-            "user1".to_string(),
-            "sess1".to_string(),
-            SchedulingPriority::Normal,
-            None,
-        )
-        .unwrap();
-        lm.schedule("pid1").unwrap();
-        lm.start("pid1").unwrap();
+        lm.submit(pid.clone(), RequestId::must("req1"), UserId::must("user1"), SessionId::must("sess1"), SchedulingPriority::Normal, None).unwrap();
+        lm.schedule(&pid).unwrap();
+        lm.start(&pid).unwrap();
 
-        // RUNNING → BLOCKED
-        lm.block("pid1", "quota exceeded".to_string()).unwrap();
-        assert_eq!(lm.get("pid1").unwrap().state, ProcessState::Blocked);
+        lm.block(&pid, "quota exceeded".to_string()).unwrap();
+        assert_eq!(lm.get(&pid).unwrap().state, ProcessState::Blocked);
 
-        // BLOCKED → READY
-        lm.resume("pid1").unwrap();
-        assert_eq!(lm.get("pid1").unwrap().state, ProcessState::Ready);
+        lm.resume(&pid).unwrap();
+        assert_eq!(lm.get(&pid).unwrap().state, ProcessState::Ready);
 
-        // Should be back in ready queue
         let next = lm.get_next_runnable().unwrap();
-        assert_eq!(next.pid, "pid1");
+        assert_eq!(next.pid.as_str(), "pid1");
     }
 
     #[test]
     fn test_process_not_found_errors() {
         let mut lm = LifecycleManager::default();
+        let nonexistent = ProcessId::must("nonexistent");
 
-        // Operations on non-existent PID should fail
-        assert!(lm.schedule("nonexistent").is_err());
-        assert!(lm.start("nonexistent").is_err());
-        assert!(lm.wait("nonexistent", crate::envelope::InterruptKind::Clarification).is_err());
-        assert!(lm.block("nonexistent", "reason".to_string()).is_err());
-        assert!(lm.resume("nonexistent").is_err());
-        assert!(lm.terminate("nonexistent").is_err());
-        assert!(lm.cleanup("nonexistent").is_err());
-        assert!(lm.remove("nonexistent").is_err());
+        assert!(lm.schedule(&nonexistent).is_err());
+        assert!(lm.start(&nonexistent).is_err());
+        assert!(lm.wait(&nonexistent, crate::envelope::InterruptKind::Clarification).is_err());
+        assert!(lm.block(&nonexistent, "reason".to_string()).is_err());
+        assert!(lm.resume(&nonexistent).is_err());
+        assert!(lm.terminate(&nonexistent).is_err());
+        assert!(lm.cleanup(&nonexistent).is_err());
+        assert!(lm.remove(&nonexistent).is_err());
 
-        // Get returns None
-        assert!(lm.get("nonexistent").is_none());
+        assert!(lm.get(&nonexistent).is_none());
     }
 
     #[test]
     fn test_cleanup_and_remove() {
         let mut lm = LifecycleManager::default();
+        let pid = ProcessId::must("pid1");
 
-        lm.submit(
-            "pid1".to_string(),
-            "req1".to_string(),
-            "user1".to_string(),
-            "sess1".to_string(),
-            SchedulingPriority::Normal,
-            None,
-        )
-        .unwrap();
-        lm.schedule("pid1").unwrap();
-        lm.start("pid1").unwrap();
-        lm.terminate("pid1").unwrap();
+        lm.submit(pid.clone(), RequestId::must("req1"), UserId::must("user1"), SessionId::must("sess1"), SchedulingPriority::Normal, None).unwrap();
+        lm.schedule(&pid).unwrap();
+        lm.start(&pid).unwrap();
+        lm.terminate(&pid).unwrap();
 
-        assert_eq!(lm.get("pid1").unwrap().state, ProcessState::Terminated);
+        assert_eq!(lm.get(&pid).unwrap().state, ProcessState::Terminated);
         assert_eq!(lm.count(), 1);
 
-        // Cleanup to ZOMBIE
-        lm.cleanup("pid1").unwrap();
-        assert_eq!(lm.get("pid1").unwrap().state, ProcessState::Zombie);
-        assert_eq!(lm.count(), 1); // Still exists
+        lm.cleanup(&pid).unwrap();
+        assert_eq!(lm.get(&pid).unwrap().state, ProcessState::Zombie);
+        assert_eq!(lm.count(), 1);
 
-        // Remove completely
-        let removed = lm.remove("pid1").unwrap();
-        assert_eq!(removed.pid, "pid1");
+        let removed = lm.remove(&pid).unwrap();
+        assert_eq!(removed.pid.as_str(), "pid1");
         assert_eq!(lm.count(), 0);
-        assert!(lm.get("pid1").is_none());
+        assert!(lm.get(&pid).is_none());
     }
 
     #[test]
     fn test_schedule_wrong_state_fails() {
         let mut lm = LifecycleManager::default();
+        let pid = ProcessId::must("pid1");
 
-        lm.submit(
-            "pid1".to_string(),
-            "req1".to_string(),
-            "user1".to_string(),
-            "sess1".to_string(),
-            SchedulingPriority::Normal,
-            None,
-        )
-        .unwrap();
-        lm.schedule("pid1").unwrap();
+        lm.submit(pid.clone(), RequestId::must("req1"), UserId::must("user1"), SessionId::must("sess1"), SchedulingPriority::Normal, None).unwrap();
+        lm.schedule(&pid).unwrap();
 
-        // Try to schedule again (already READY)
-        assert!(lm.schedule("pid1").is_err());
+        assert!(lm.schedule(&pid).is_err());
     }
 
     #[test]
     fn test_list_by_state() {
         let mut lm = LifecycleManager::default();
 
-        lm.submit(
-            "pid1".to_string(),
-            "req1".to_string(),
-            "user1".to_string(),
-            "sess1".to_string(),
-            SchedulingPriority::Normal,
-            None,
-        )
-        .unwrap();
-        lm.submit(
-            "pid2".to_string(),
-            "req2".to_string(),
-            "user2".to_string(),
-            "sess2".to_string(),
-            SchedulingPriority::Normal,
-            None,
-        )
-        .unwrap();
-        lm.submit(
-            "pid3".to_string(),
-            "req3".to_string(),
-            "user3".to_string(),
-            "sess3".to_string(),
-            SchedulingPriority::Normal,
-            None,
-        )
-        .unwrap();
+        let pid1 = ProcessId::must("pid1");
+        let pid2 = ProcessId::must("pid2");
+        let pid3 = ProcessId::must("pid3");
 
-        // All in NEW
+        lm.submit(pid1.clone(), RequestId::must("req1"), UserId::must("user1"), SessionId::must("sess1"), SchedulingPriority::Normal, None).unwrap();
+        lm.submit(pid2.clone(), RequestId::must("req2"), UserId::must("user2"), SessionId::must("sess2"), SchedulingPriority::Normal, None).unwrap();
+        lm.submit(pid3.clone(), RequestId::must("req3"), UserId::must("user3"), SessionId::must("sess3"), SchedulingPriority::Normal, None).unwrap();
+
         let new_processes = lm.list_by_state(ProcessState::New);
         assert_eq!(new_processes.len(), 3);
 
-        // Schedule 2
-        lm.schedule("pid1").unwrap();
-        lm.schedule("pid2").unwrap();
+        lm.schedule(&pid1).unwrap();
+        lm.schedule(&pid2).unwrap();
 
         let ready_processes = lm.list_by_state(ProcessState::Ready);
         assert_eq!(ready_processes.len(), 2);
@@ -675,51 +535,32 @@ mod tests {
     #[test]
     fn test_remove_process() {
         let mut lm = LifecycleManager::default();
+        let pid = ProcessId::must("pid1");
 
-        lm.submit(
-            "pid1".to_string(),
-            "req1".to_string(),
-            "user1".to_string(),
-            "sess1".to_string(),
-            SchedulingPriority::Normal,
-            None,
-        )
-        .unwrap();
+        lm.submit(pid.clone(), RequestId::must("req1"), UserId::must("user1"), SessionId::must("sess1"), SchedulingPriority::Normal, None).unwrap();
 
         assert_eq!(lm.count(), 1);
 
-        // Remove returns the process
-        let removed = lm.remove("pid1").unwrap();
-        assert_eq!(removed.pid, "pid1");
+        let removed = lm.remove(&pid).unwrap();
+        assert_eq!(removed.pid.as_str(), "pid1");
 
-        // Process is gone
         assert_eq!(lm.count(), 0);
-        assert!(lm.get("pid1").is_none());
+        assert!(lm.get(&pid).is_none());
     }
 
     #[test]
     fn test_terminate_idempotent() {
         let mut lm = LifecycleManager::default();
+        let pid = ProcessId::must("pid1");
 
-        lm.submit(
-            "pid1".to_string(),
-            "req1".to_string(),
-            "user1".to_string(),
-            "sess1".to_string(),
-            SchedulingPriority::Normal,
-            None,
-        )
-        .unwrap();
-        lm.schedule("pid1").unwrap();
-        lm.start("pid1").unwrap();
+        lm.submit(pid.clone(), RequestId::must("req1"), UserId::must("user1"), SessionId::must("sess1"), SchedulingPriority::Normal, None).unwrap();
+        lm.schedule(&pid).unwrap();
+        lm.start(&pid).unwrap();
 
-        // Terminate
-        lm.terminate("pid1").unwrap();
-        assert_eq!(lm.get("pid1").unwrap().state, ProcessState::Terminated);
+        lm.terminate(&pid).unwrap();
+        assert_eq!(lm.get(&pid).unwrap().state, ProcessState::Terminated);
 
-        // Terminate again should succeed (idempotent)
-        assert!(lm.terminate("pid1").is_ok());
-        assert_eq!(lm.get("pid1").unwrap().state, ProcessState::Terminated);
+        assert!(lm.terminate(&pid).is_ok());
+        assert_eq!(lm.get(&pid).unwrap().state, ProcessState::Terminated);
     }
 }
-

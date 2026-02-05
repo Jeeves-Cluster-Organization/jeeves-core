@@ -31,11 +31,12 @@ pub use services::{
     ServiceStatus,
 };
 pub use types::{
-    ProcessControlBlock, ProcessState, ResourceQuota, ResourceUsage, SchedulingPriority,
+    ProcessControlBlock, ProcessState, QuotaViolation, ResourceQuota, ResourceUsage,
+    SchedulingPriority,
 };
 
 use crate::envelope::{Envelope, FlowInterrupt, InterruptResponse};
-use crate::types::{Error, Result};
+use crate::types::{Error, ProcessId, RequestId, Result, SessionId, UserId};
 
 /// Kernel - the main orchestrator.
 ///
@@ -64,7 +65,7 @@ pub struct Kernel {
     /// Communication bus (kernel-mediated IPC)
     pub commbus: crate::commbus::CommBus,
 
-    /// Envelope storage (pid -> envelope)
+    /// Envelope storage (envelope_id -> envelope)
     envelopes: HashMap<String, Envelope>,
 }
 
@@ -98,22 +99,22 @@ impl Kernel {
         }
     }
 
-    /// Create a new process for an envelope.
+    /// Create a new process.
     pub fn create_process(
         &mut self,
-        envelope_id: String,
-        request_id: String,
-        user_id: String,
-        session_id: String,
+        pid: ProcessId,
+        request_id: RequestId,
+        user_id: UserId,
+        session_id: SessionId,
         priority: SchedulingPriority,
         quota: Option<ResourceQuota>,
     ) -> Result<ProcessControlBlock> {
         // Check rate limit
-        self.rate_limiter.check_rate_limit(&user_id)?;
+        self.rate_limiter.check_rate_limit(user_id.as_str())?;
 
         // Submit process to lifecycle manager
         let pcb = self.lifecycle.submit(
-            envelope_id.clone(),
+            pid.clone(),
             request_id,
             user_id,
             session_id,
@@ -122,20 +123,20 @@ impl Kernel {
         )?;
 
         // Schedule it
-        self.lifecycle.schedule(&envelope_id)?;
+        self.lifecycle.schedule(&pid)?;
 
         Ok(pcb)
     }
 
     /// Get process by PID.
-    pub fn get_process(&self, pid: &str) -> Option<&ProcessControlBlock> {
+    pub fn get_process(&self, pid: &ProcessId) -> Option<&ProcessControlBlock> {
         self.lifecycle.get(pid)
     }
 
     /// Store envelope.
     pub fn store_envelope(&mut self, envelope: Envelope) {
         self.envelopes
-            .insert(envelope.envelope_id.clone(), envelope);
+            .insert(envelope.identity.envelope_id.clone(), envelope);
     }
 
     /// Get envelope by ID.
@@ -154,7 +155,7 @@ impl Kernel {
     }
 
     /// Check process quota.
-    pub fn check_quota(&self, pid: &str) -> Result<()> {
+    pub fn check_quota(&self, pid: &ProcessId) -> Result<()> {
         let pcb = self
             .lifecycle
             .get(pid)
@@ -181,50 +182,50 @@ impl Kernel {
     }
 
     /// Start a process.
-    pub fn start_process(&mut self, pid: &str) -> Result<()> {
+    pub fn start_process(&mut self, pid: &ProcessId) -> Result<()> {
         self.lifecycle.start(pid)
     }
 
     /// Block a process (e.g., resource exhausted).
-    pub fn block_process(&mut self, pid: &str, reason: String) -> Result<()> {
+    pub fn block_process(&mut self, pid: &ProcessId, reason: String) -> Result<()> {
         self.lifecycle.block(pid, reason)
     }
 
     /// Wait a process (e.g., awaiting interrupt response).
-    pub fn wait_process(&mut self, pid: &str, interrupt: FlowInterrupt) -> Result<()> {
+    pub fn wait_process(&mut self, pid: &ProcessId, interrupt: FlowInterrupt) -> Result<()> {
         self.lifecycle.wait(pid, interrupt.kind)?;
         // Also set interrupt on envelope
-        if let Some(env) = self.envelopes.get_mut(pid) {
+        if let Some(env) = self.envelopes.get_mut(pid.as_str()) {
             env.set_interrupt(interrupt);
         }
         Ok(())
     }
 
     /// Resume a process from waiting/blocked.
-    pub fn resume_process(&mut self, pid: &str) -> Result<()> {
+    pub fn resume_process(&mut self, pid: &ProcessId) -> Result<()> {
         self.lifecycle.resume(pid)?;
         // Clear interrupt on envelope
-        if let Some(env) = self.envelopes.get_mut(pid) {
+        if let Some(env) = self.envelopes.get_mut(pid.as_str()) {
             env.clear_interrupt();
         }
         Ok(())
     }
 
     /// Terminate a process.
-    pub fn terminate_process(&mut self, pid: &str) -> Result<()> {
+    pub fn terminate_process(&mut self, pid: &ProcessId) -> Result<()> {
         self.lifecycle.terminate(pid)?;
         // Terminate envelope
-        if let Some(env) = self.envelopes.get_mut(pid) {
+        if let Some(env) = self.envelopes.get_mut(pid.as_str()) {
             env.terminate("Process terminated");
         }
         Ok(())
     }
 
     /// Cleanup and remove a terminated process.
-    pub fn cleanup_process(&mut self, pid: &str) -> Result<()> {
+    pub fn cleanup_process(&mut self, pid: &ProcessId) -> Result<()> {
         self.lifecycle.cleanup(pid)?;
         self.lifecycle.remove(pid)?;
-        self.envelopes.remove(pid);
+        self.envelopes.remove(pid.as_str());
         Ok(())
     }
 
@@ -364,29 +365,29 @@ impl Kernel {
     // =============================================================================
 
     /// Record a tool call for a process.
-    pub fn record_tool_call(&mut self, pid: &str) -> Result<()> {
+    pub fn record_tool_call(&mut self, pid: &ProcessId) -> Result<()> {
         if let Some(pcb) = self.lifecycle.get_mut(pid) {
             pcb.usage.tool_calls += 1;
         }
-        if let Some(env) = self.envelopes.get_mut(pid) {
-            env.tool_call_count += 1;
+        if let Some(env) = self.envelopes.get_mut(pid.as_str()) {
+            env.bounds.tool_call_count += 1;
         }
         Ok(())
     }
 
     /// Record an agent hop for a process.
-    pub fn record_agent_hop(&mut self, pid: &str) -> Result<()> {
+    pub fn record_agent_hop(&mut self, pid: &ProcessId) -> Result<()> {
         if let Some(pcb) = self.lifecycle.get_mut(pid) {
             pcb.usage.agent_hops += 1;
         }
-        if let Some(env) = self.envelopes.get_mut(pid) {
-            env.agent_hop_count += 1;
+        if let Some(env) = self.envelopes.get_mut(pid.as_str()) {
+            env.bounds.agent_hop_count += 1;
         }
         Ok(())
     }
 
     /// Get remaining resource budget for a process.
-    pub fn get_remaining_budget(&self, pid: &str) -> Option<RemainingBudget> {
+    pub fn get_remaining_budget(&self, pid: &ProcessId) -> Option<RemainingBudget> {
         let pcb = self.lifecycle.get(pid)?;
         Some(RemainingBudget {
             llm_calls_remaining: (pcb.quota.max_llm_calls - pcb.usage.llm_calls).max(0),
