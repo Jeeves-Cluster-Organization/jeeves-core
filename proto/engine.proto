@@ -1,7 +1,7 @@
-// Engine gRPC Service - Python <-> Go runtime bridge
+// Engine gRPC Service - Python <-> Rust runtime bridge
 //
 // This is the primary IPC mechanism between Python orchestration
-// and Go execution engine. Replaces subprocess-based JSON IPC.
+// and Rust execution engine. Replaces subprocess-based JSON IPC.
 //
 // Compile Go:
 //   protoc --go_out=. --go-grpc_out=. coreengine/proto/engine.proto
@@ -38,7 +38,7 @@ service KernelService {
 }
 
 // =============================================================================
-// EngineService - Go runtime operations
+// EngineService - Rust runtime operations
 // =============================================================================
 service EngineService {
     // Envelope lifecycle
@@ -794,7 +794,7 @@ message CommBusEvent {
 // OrchestrationService - Kernel-driven pipeline execution
 // =============================================================================
 
-// OrchestrationService moves pipeline orchestration from Python to Go kernel.
+// OrchestrationService moves pipeline orchestration from Python to Rust kernel.
 // Python workers ask the kernel for instructions, execute agents, and report results.
 // The kernel owns: loop control, routing, bounds checking, state transitions.
 service OrchestrationService {
