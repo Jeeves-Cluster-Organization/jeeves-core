@@ -5,6 +5,7 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
 use crate::envelope::InterruptKind;
+use crate::types::{ProcessId, RequestId, SessionId, UserId};
 
 /// Process lifecycle state (Unix-like).
 ///
@@ -235,11 +236,11 @@ impl ResourceUsage {
 /// - Interrupt status
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct ProcessControlBlock {
-    // Identity
-    pub pid: String,
-    pub request_id: String,
-    pub user_id: String,
-    pub session_id: String,
+    // Identity (typed — validated at construction)
+    pub pid: ProcessId,
+    pub request_id: RequestId,
+    pub user_id: UserId,
+    pub session_id: SessionId,
 
     // State
     pub state: ProcessState,
@@ -277,13 +278,13 @@ pub struct ProcessControlBlock {
 
     // Parent/child relationships
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub parent_pid: Option<String>,
+    pub parent_pid: Option<ProcessId>,
 
-    pub child_pids: Vec<String>,
+    pub child_pids: Vec<ProcessId>,
 }
 
 impl ProcessControlBlock {
-    pub fn new(pid: String, request_id: String, user_id: String, session_id: String) -> Self {
+    pub fn new(pid: ProcessId, request_id: RequestId, user_id: UserId, session_id: SessionId) -> Self {
         Self {
             pid,
             request_id,

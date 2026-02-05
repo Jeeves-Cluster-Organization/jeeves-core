@@ -10,10 +10,16 @@ use crate::proto::{
     QuotaResult, RateLimitResult, RecordUsageRequest, ResourceUsage, ScheduleProcessRequest,
     TerminateProcessRequest, TransitionStateRequest,
 };
-use crate::types::Error;
+use crate::types::{Error, ProcessId, RequestId, SessionId, UserId};
 use std::sync::Arc;
 use tokio::sync::Mutex;
 use tonic::{Request, Response, Status};
+
+/// Parse a proto string into a ProcessId at the gRPC boundary.
+fn parse_pid(s: String) -> std::result::Result<ProcessId, Status> {
+    ProcessId::from_string(s)
+        .map_err(|e| Error::validation(e.to_string()).to_grpc_status())
+}
 
 /// KernelService implementation wrapping the Kernel actor.
 #[derive(Debug)]
@@ -35,13 +41,20 @@ impl KernelService for KernelServiceImpl {
     ) -> std::result::Result<Response<ProcessControlBlock>, Status> {
         let req = request.into_inner();
 
-        // Validate
-        if req.pid.is_empty() {
-            return Err(Error::validation("pid is required".to_string()).to_grpc_status());
-        }
-        if req.user_id.is_empty() {
-            return Err(Error::validation("user_id is required".to_string()).to_grpc_status());
-        }
+        // Validate and construct typed IDs at the boundary
+        let pid = parse_pid(req.pid)?;
+        let user_id = UserId::from_string(req.user_id)
+            .map_err(|e| Error::validation(e.to_string()).to_grpc_status())?;
+        let request_id = if req.request_id.is_empty() {
+            RequestId::new()
+        } else {
+            RequestId::must(req.request_id)
+        };
+        let session_id = if req.session_id.is_empty() {
+            SessionId::new()
+        } else {
+            SessionId::must(req.session_id)
+        };
 
         // Parse priority
         let priority = crate::kernel::SchedulingPriority::try_from(req.priority)
@@ -59,14 +72,7 @@ impl KernelService for KernelServiceImpl {
         // Call kernel
         let mut kernel = self.kernel.lock().await;
         let pcb = kernel
-            .create_process(
-                req.pid.clone(),
-                req.request_id,
-                req.user_id,
-                req.session_id,
-                priority,
-                quota,
-            )
+            .create_process(pid, request_id, user_id, session_id, priority, quota)
             .map_err(|e| e.to_grpc_status())?;
 
         Ok(Response::new(ProcessControlBlock::from(pcb)))
@@ -77,15 +83,12 @@ impl KernelService for KernelServiceImpl {
         request: Request<GetProcessRequest>,
     ) -> std::result::Result<Response<ProcessControlBlock>, Status> {
         let req = request.into_inner();
-
-        if req.pid.is_empty() {
-            return Err(Error::validation("pid is required".to_string()).to_grpc_status());
-        }
+        let pid = parse_pid(req.pid)?;
 
         let kernel = self.kernel.lock().await;
         let pcb = kernel
-            .get_process(&req.pid)
-            .ok_or_else(|| Error::not_found(format!("Process {} not found", req.pid)))?;
+            .get_process(&pid)
+            .ok_or_else(|| Error::not_found(format!("Process {} not found", pid)))?;
 
         Ok(Response::new(ProcessControlBlock::from(pcb.clone())))
     }
@@ -95,20 +98,17 @@ impl KernelService for KernelServiceImpl {
         request: Request<ScheduleProcessRequest>,
     ) -> std::result::Result<Response<ProcessControlBlock>, Status> {
         let req = request.into_inner();
-
-        if req.pid.is_empty() {
-            return Err(Error::validation("pid is required".to_string()).to_grpc_status());
-        }
+        let pid = parse_pid(req.pid)?;
 
         let mut kernel = self.kernel.lock().await;
         kernel
             .lifecycle
-            .schedule(&req.pid)
+            .schedule(&pid)
             .map_err(|e| e.to_grpc_status())?;
 
         let pcb = kernel
-            .get_process(&req.pid)
-            .ok_or_else(|| Error::not_found(format!("Process {} not found", req.pid)))?;
+            .get_process(&pid)
+            .ok_or_else(|| Error::not_found(format!("Process {} not found", pid)))?;
 
         Ok(Response::new(ProcessControlBlock::from(pcb.clone())))
     }
@@ -130,10 +130,7 @@ impl KernelService for KernelServiceImpl {
         request: Request<TransitionStateRequest>,
     ) -> std::result::Result<Response<ProcessControlBlock>, Status> {
         let req = request.into_inner();
-
-        if req.pid.is_empty() {
-            return Err(Error::validation("pid is required".to_string()).to_grpc_status());
-        }
+        let pid = parse_pid(req.pid)?;
 
         let new_state =
             crate::kernel::ProcessState::try_from(req.new_state).map_err(|e| e.to_grpc_status())?;
@@ -142,8 +139,8 @@ impl KernelService for KernelServiceImpl {
 
         // Get current PCB to check transition
         let pcb = kernel
-            .get_process(&req.pid)
-            .ok_or_else(|| Error::not_found(format!("Process {} not found", req.pid)))?;
+            .get_process(&pid)
+            .ok_or_else(|| Error::not_found(format!("Process {} not found", pid)))?;
 
         // Validate transition
         if !pcb.state.can_transition_to(new_state) {
@@ -159,33 +156,30 @@ impl KernelService for KernelServiceImpl {
             crate::kernel::ProcessState::Ready => {
                 kernel
                     .lifecycle
-                    .schedule(&req.pid)
+                    .schedule(&pid)
                     .map_err(|e| e.to_grpc_status())?;
             }
             crate::kernel::ProcessState::Running => {
                 kernel
-                    .start_process(&req.pid)
+                    .start_process(&pid)
                     .map_err(|e| e.to_grpc_status())?;
             }
             crate::kernel::ProcessState::Terminated => {
                 kernel
-                    .terminate_process(&req.pid)
+                    .terminate_process(&pid)
                     .map_err(|e| e.to_grpc_status())?;
             }
             crate::kernel::ProcessState::Blocked => {
                 kernel
-                    .block_process(&req.pid, req.reason.clone())
+                    .block_process(&pid, req.reason.clone())
                     .map_err(|e| e.to_grpc_status())?;
             }
-            _ => {
-                // For other states, just update via lifecycle manager
-                // (This is a simplified implementation - full version would handle all cases)
-            }
+            _ => {}
         }
 
         let pcb = kernel
-            .get_process(&req.pid)
-            .ok_or_else(|| Error::not_found(format!("Process {} not found", req.pid)))?;
+            .get_process(&pid)
+            .ok_or_else(|| Error::not_found(format!("Process {} not found", pid)))?;
 
         Ok(Response::new(ProcessControlBlock::from(pcb.clone())))
     }
@@ -195,19 +189,16 @@ impl KernelService for KernelServiceImpl {
         request: Request<TerminateProcessRequest>,
     ) -> std::result::Result<Response<ProcessControlBlock>, Status> {
         let req = request.into_inner();
-
-        if req.pid.is_empty() {
-            return Err(Error::validation("pid is required".to_string()).to_grpc_status());
-        }
+        let pid = parse_pid(req.pid)?;
 
         let mut kernel = self.kernel.lock().await;
         kernel
-            .terminate_process(&req.pid)
+            .terminate_process(&pid)
             .map_err(|e| e.to_grpc_status())?;
 
         let pcb = kernel
-            .get_process(&req.pid)
-            .ok_or_else(|| Error::not_found(format!("Process {} not found", req.pid)))?;
+            .get_process(&pid)
+            .ok_or_else(|| Error::not_found(format!("Process {} not found", pid)))?;
 
         Ok(Response::new(ProcessControlBlock::from(pcb.clone())))
     }
@@ -217,17 +208,14 @@ impl KernelService for KernelServiceImpl {
         request: Request<CheckQuotaRequest>,
     ) -> std::result::Result<Response<QuotaResult>, Status> {
         let req = request.into_inner();
-
-        if req.pid.is_empty() {
-            return Err(Error::validation("pid is required".to_string()).to_grpc_status());
-        }
+        let pid = parse_pid(req.pid)?;
 
         let kernel = self.kernel.lock().await;
         let pcb = kernel
-            .get_process(&req.pid)
-            .ok_or_else(|| Error::not_found(format!("Process {} not found", req.pid)))?;
+            .get_process(&pid)
+            .ok_or_else(|| Error::not_found(format!("Process {} not found", pid)))?;
 
-        let result = kernel.check_quota(&req.pid);
+        let result = kernel.check_quota(&pid);
         let within_bounds = result.is_ok();
         let exceeded_reason = result.err().map(|e| e.to_string()).unwrap_or_default();
 
@@ -244,23 +232,20 @@ impl KernelService for KernelServiceImpl {
         request: Request<RecordUsageRequest>,
     ) -> std::result::Result<Response<ResourceUsage>, Status> {
         let req = request.into_inner();
-
-        if req.pid.is_empty() {
-            return Err(Error::validation("pid is required".to_string()).to_grpc_status());
-        }
+        let pid = parse_pid(req.pid)?;
 
         let mut kernel = self.kernel.lock().await;
 
         // Get user_id from PCB
-        let user_id = {
+        let user_id_str = {
             let pcb = kernel
-                .get_process(&req.pid)
-                .ok_or_else(|| Error::not_found(format!("Process {} not found", req.pid)))?;
-            pcb.user_id.clone()
+                .get_process(&pid)
+                .ok_or_else(|| Error::not_found(format!("Process {} not found", pid)))?;
+            pcb.user_id.as_str().to_string()
         };
 
         kernel.record_usage(
-            &user_id,
+            &user_id_str,
             req.llm_calls,
             req.tool_calls,
             req.tokens_in as i64,
@@ -269,8 +254,8 @@ impl KernelService for KernelServiceImpl {
 
         // Get updated PCB
         let pcb = kernel
-            .get_process(&req.pid)
-            .ok_or_else(|| Error::not_found(format!("Process {} not found", req.pid)))?;
+            .get_process(&pid)
+            .ok_or_else(|| Error::not_found(format!("Process {} not found", pid)))?;
 
         Ok(Response::new(ResourceUsage::from(pcb.usage.clone())))
     }
@@ -342,7 +327,7 @@ impl KernelService for KernelServiceImpl {
         let filtered = if !req.user_id.is_empty() {
             filtered
                 .into_iter()
-                .filter(|p| p.user_id == req.user_id)
+                .filter(|p| p.user_id.as_str() == req.user_id)
                 .collect()
         } else {
             filtered

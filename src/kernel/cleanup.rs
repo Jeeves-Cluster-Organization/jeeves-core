@@ -184,6 +184,7 @@ impl CleanupService {
 mod tests {
     use super::*;
     use crate::kernel::{Kernel, SchedulingPriority};
+    use crate::types::{ProcessId, RequestId, SessionId, UserId};
 
     fn create_test_kernel() -> Kernel {
         Kernel::new()
@@ -204,10 +205,10 @@ mod tests {
         // Create a process and terminate it
         let pcb = kernel
             .create_process(
-                "test1".to_string(),
-                "req1".to_string(),
-                "user1".to_string(),
-                "sess1".to_string(),
+                ProcessId::must("test1"),
+                RequestId::must("req1"),
+                UserId::must("user1"),
+                SessionId::must("sess1"),
                 SchedulingPriority::Normal,
                 None,
             )
@@ -242,10 +243,10 @@ mod tests {
         // Create and terminate process
         let pcb = kernel
             .create_process(
-                "test1".to_string(),
-                "req1".to_string(),
-                "user1".to_string(),
-                "sess1".to_string(),
+                ProcessId::must("test1"),
+                RequestId::must("req1"),
+                UserId::must("user1"),
+                SessionId::must("sess1"),
                 SchedulingPriority::Normal,
                 None,
             )
@@ -271,10 +272,10 @@ mod tests {
         // Create old zombie
         let pcb = kernel
             .create_process(
-                "test1".to_string(),
-                "req1".to_string(),
-                "user1".to_string(),
-                "sess1".to_string(),
+                ProcessId::must("test1"),
+                RequestId::must("req1"),
+                UserId::must("user1"),
+                SessionId::must("sess1"),
                 SchedulingPriority::Normal,
                 None,
             )

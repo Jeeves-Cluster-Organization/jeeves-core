@@ -7,7 +7,7 @@ use std::fmt;
 
 /// Macro to define a strongly-typed ID newtype wrapper.
 ///
-/// Generates: struct, `from_string()`, `as_str()`, Display, Serialize, Deserialize.
+/// Generates: struct, `from_string()`, `must()`, `as_str()`, Display, Serialize, Deserialize.
 /// Optionally generates `new()` (UUID v4) and `Default` if `uuid` flag is passed.
 macro_rules! define_id {
     ($name:ident, uuid) => {
@@ -24,6 +24,13 @@ macro_rules! define_id {
                     return Err(concat!(stringify!($name), " cannot be empty"));
                 }
                 Ok(Self(s))
+            }
+
+            /// Construct from a known-good string. Panics if empty.
+            pub fn must(s: impl Into<String>) -> Self {
+                let s = s.into();
+                assert!(!s.is_empty(), concat!(stringify!($name), " cannot be empty"));
+                Self(s)
             }
 
             pub fn as_str(&self) -> &str {
@@ -53,6 +60,13 @@ macro_rules! define_id {
                     return Err(concat!(stringify!($name), " cannot be empty"));
                 }
                 Ok(Self(s))
+            }
+
+            /// Construct from a known-good string. Panics if empty.
+            pub fn must(s: impl Into<String>) -> Self {
+                let s = s.into();
+                assert!(!s.is_empty(), concat!(stringify!($name), " cannot be empty"));
+                Self(s)
             }
 
             pub fn as_str(&self) -> &str {

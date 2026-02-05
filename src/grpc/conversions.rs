@@ -10,7 +10,7 @@ use crate::kernel::{
     ProcessControlBlock, ProcessState, ResourceQuota, ResourceUsage, SchedulingPriority,
 };
 use crate::proto::{self, InterruptStatus};
-use crate::types::Error;
+use crate::types::{Error, ProcessId, RequestId, SessionId, UserId};
 use chrono::{DateTime, TimeZone, Utc};
 use std::collections::HashMap;
 
@@ -201,11 +201,32 @@ impl TryFrom<proto::ProcessControlBlock> for ProcessControlBlock {
             None
         };
 
+        let pid = ProcessId::from_string(proto.pid)
+            .map_err(|e| Error::validation(e.to_string()))?;
+        let request_id = RequestId::from_string(proto.request_id)
+            .map_err(|e| Error::validation(e.to_string()))?;
+        let user_id = UserId::from_string(proto.user_id)
+            .map_err(|e| Error::validation(e.to_string()))?;
+        let session_id = SessionId::from_string(proto.session_id)
+            .map_err(|e| Error::validation(e.to_string()))?;
+
+        let parent_pid = if proto.parent_pid.is_empty() {
+            None
+        } else {
+            Some(ProcessId::from_string(proto.parent_pid)
+                .map_err(|e| Error::validation(e.to_string()))?)
+        };
+
+        let child_pids: Vec<ProcessId> = proto.child_pids
+            .into_iter()
+            .map(|s| ProcessId::from_string(s).map_err(|e| Error::validation(e.to_string())))
+            .collect::<std::result::Result<_, _>>()?;
+
         Ok(ProcessControlBlock {
-            pid: proto.pid,
-            request_id: proto.request_id,
-            user_id: proto.user_id,
-            session_id: proto.session_id,
+            pid,
+            request_id,
+            user_id,
+            session_id,
             state,
             priority,
             quota,
@@ -226,12 +247,8 @@ impl TryFrom<proto::ProcessControlBlock> for ProcessControlBlock {
             },
             pending_interrupt,
             interrupt_data,
-            parent_pid: if proto.parent_pid.is_empty() {
-                None
-            } else {
-                Some(proto.parent_pid)
-            },
-            child_pids: proto.child_pids,
+            parent_pid,
+            child_pids,
         })
     }
 }
@@ -239,10 +256,10 @@ impl TryFrom<proto::ProcessControlBlock> for ProcessControlBlock {
 impl From<ProcessControlBlock> for proto::ProcessControlBlock {
     fn from(pcb: ProcessControlBlock) -> proto::ProcessControlBlock {
         proto::ProcessControlBlock {
-            pid: pcb.pid,
-            request_id: pcb.request_id,
-            user_id: pcb.user_id,
-            session_id: pcb.session_id,
+            pid: pcb.pid.to_string(),
+            request_id: pcb.request_id.to_string(),
+            user_id: pcb.user_id.to_string(),
+            session_id: pcb.session_id.to_string(),
             state: i32::from(pcb.state),
             priority: i32::from(pcb.priority),
             quota: Some(proto::ResourceQuota::from(pcb.quota)),
@@ -264,8 +281,8 @@ impl From<ProcessControlBlock> for proto::ProcessControlBlock {
                 .interrupt_data
                 .map(|d| serde_json::to_vec(&d).unwrap_or_default())
                 .unwrap_or_default(),
-            parent_pid: pcb.parent_pid.unwrap_or_default(),
-            child_pids: pcb.child_pids,
+            parent_pid: pcb.parent_pid.map(|p| p.to_string()).unwrap_or_default(),
+            child_pids: pcb.child_pids.into_iter().map(|p| p.to_string()).collect(),
         }
     }
 }
