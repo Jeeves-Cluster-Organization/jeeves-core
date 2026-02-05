@@ -25,10 +25,10 @@ impl ResourceTracker {
 
     /// Check if process quota is exceeded.
     pub fn check_quota(&self, pcb: &ProcessControlBlock) -> Result<()> {
-        if let Some(reason) = pcb.check_quota() {
+        if let Some(violation) = pcb.check_quota() {
             return Err(Error::quota_exceeded(format!(
                 "Process {} quota exceeded: {}",
-                pcb.pid, reason
+                pcb.pid, violation
             )));
         }
         Ok(())

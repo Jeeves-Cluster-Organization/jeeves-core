@@ -163,62 +163,65 @@ pub struct ResourceUsage {
     pub inference_input_chars: i64,
 }
 
+/// Which quota was exceeded and by how much.
+#[derive(Debug, Clone, PartialEq)]
+pub enum QuotaViolation {
+    LlmCalls { used: i32, limit: i32 },
+    ToolCalls { used: i32, limit: i32 },
+    AgentHops { used: i32, limit: i32 },
+    Iterations { used: i32, limit: i32 },
+    TokensIn { used: i64, limit: i64 },
+    TokensOut { used: i64, limit: i64 },
+    Timeout { elapsed: f64, limit: f64 },
+    InferenceRequests { used: i32, limit: i32 },
+    InferenceInputChars { used: i64, limit: i64 },
+}
+
+impl std::fmt::Display for QuotaViolation {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::LlmCalls { used, limit } => write!(f, "llm_calls {} > {}", used, limit),
+            Self::ToolCalls { used, limit } => write!(f, "tool_calls {} > {}", used, limit),
+            Self::AgentHops { used, limit } => write!(f, "agent_hops {} > {}", used, limit),
+            Self::Iterations { used, limit } => write!(f, "iterations {} > {}", used, limit),
+            Self::TokensIn { used, limit } => write!(f, "tokens_in {} > {}", used, limit),
+            Self::TokensOut { used, limit } => write!(f, "tokens_out {} > {}", used, limit),
+            Self::Timeout { elapsed, limit } => write!(f, "elapsed_seconds {} > {}", elapsed, limit),
+            Self::InferenceRequests { used, limit } => write!(f, "inference_requests {} > {}", used, limit),
+            Self::InferenceInputChars { used, limit } => write!(f, "inference_input_chars {} > {}", used, limit),
+        }
+    }
+}
+
 impl ResourceUsage {
     /// Check if any quota is exceeded.
-    pub fn exceeds_quota(&self, quota: &ResourceQuota) -> Option<String> {
+    pub fn exceeds_quota(&self, quota: &ResourceQuota) -> Option<QuotaViolation> {
         if self.llm_calls > quota.max_llm_calls {
-            return Some(format!(
-                "llm_calls {} > {}",
-                self.llm_calls, quota.max_llm_calls
-            ));
+            return Some(QuotaViolation::LlmCalls { used: self.llm_calls, limit: quota.max_llm_calls });
         }
         if self.tool_calls > quota.max_tool_calls {
-            return Some(format!(
-                "tool_calls {} > {}",
-                self.tool_calls, quota.max_tool_calls
-            ));
+            return Some(QuotaViolation::ToolCalls { used: self.tool_calls, limit: quota.max_tool_calls });
         }
         if self.agent_hops > quota.max_agent_hops {
-            return Some(format!(
-                "agent_hops {} > {}",
-                self.agent_hops, quota.max_agent_hops
-            ));
+            return Some(QuotaViolation::AgentHops { used: self.agent_hops, limit: quota.max_agent_hops });
         }
         if self.iterations > quota.max_iterations {
-            return Some(format!(
-                "iterations {} > {}",
-                self.iterations, quota.max_iterations
-            ));
+            return Some(QuotaViolation::Iterations { used: self.iterations, limit: quota.max_iterations });
         }
         if self.tokens_in > quota.max_input_tokens as i64 {
-            return Some(format!(
-                "tokens_in {} > {}",
-                self.tokens_in, quota.max_input_tokens
-            ));
+            return Some(QuotaViolation::TokensIn { used: self.tokens_in, limit: quota.max_input_tokens as i64 });
         }
         if self.tokens_out > quota.max_output_tokens as i64 {
-            return Some(format!(
-                "tokens_out {} > {}",
-                self.tokens_out, quota.max_output_tokens
-            ));
+            return Some(QuotaViolation::TokensOut { used: self.tokens_out, limit: quota.max_output_tokens as i64 });
         }
         if self.elapsed_seconds > quota.timeout_seconds as f64 {
-            return Some(format!(
-                "elapsed_seconds {} > {}",
-                self.elapsed_seconds, quota.timeout_seconds
-            ));
+            return Some(QuotaViolation::Timeout { elapsed: self.elapsed_seconds, limit: quota.timeout_seconds as f64 });
         }
         if self.inference_requests > quota.max_inference_requests {
-            return Some(format!(
-                "inference_requests {} > {}",
-                self.inference_requests, quota.max_inference_requests
-            ));
+            return Some(QuotaViolation::InferenceRequests { used: self.inference_requests, limit: quota.max_inference_requests });
         }
         if self.inference_input_chars > quota.max_inference_input_chars as i64 {
-            return Some(format!(
-                "inference_input_chars {} > {}",
-                self.inference_input_chars, quota.max_inference_input_chars
-            ));
+            return Some(QuotaViolation::InferenceInputChars { used: self.inference_input_chars, limit: quota.max_inference_input_chars as i64 });
         }
         None
     }
@@ -350,7 +353,7 @@ impl ProcessControlBlock {
     }
 
     /// Check if any quota exceeded.
-    pub fn check_quota(&self) -> Option<String> {
+    pub fn check_quota(&self) -> Option<QuotaViolation> {
         self.usage.exceeds_quota(&self.quota)
     }
 

@@ -31,7 +31,8 @@ pub use services::{
     ServiceStatus,
 };
 pub use types::{
-    ProcessControlBlock, ProcessState, ResourceQuota, ResourceUsage, SchedulingPriority,
+    ProcessControlBlock, ProcessState, QuotaViolation, ResourceQuota, ResourceUsage,
+    SchedulingPriority,
 };
 
 use crate::envelope::{Envelope, FlowInterrupt, InterruptResponse};
