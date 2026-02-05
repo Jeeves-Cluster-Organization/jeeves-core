@@ -136,7 +136,7 @@ impl Kernel {
     /// Store envelope.
     pub fn store_envelope(&mut self, envelope: Envelope) {
         self.envelopes
-            .insert(envelope.identity.envelope_id.clone(), envelope);
+            .insert(envelope.identity.envelope_id.to_string(), envelope);
     }
 
     /// Get envelope by ID.
@@ -321,67 +321,57 @@ impl Kernel {
     /// Initialize an orchestration session.
     pub fn initialize_orchestration(
         &mut self,
-        process_id: String,
+        process_id: ProcessId,
         pipeline_config: orchestrator::PipelineConfig,
         envelope: Envelope,
         force: bool,
     ) -> Result<orchestrator::SessionState> {
         self.orchestrator
             .initialize_session(process_id, pipeline_config, envelope, force)
-            .map_err(|e| Error::internal(e))
     }
 
     /// Get the next instruction for a process.
     pub fn get_next_instruction(
         &mut self,
-        process_id: &str,
+        process_id: &ProcessId,
     ) -> Result<orchestrator::Instruction> {
         self.orchestrator
             .get_next_instruction(process_id)
-            .map_err(|e| Error::internal(e))
     }
 
     /// Report agent execution result.
     pub fn report_agent_result(
         &mut self,
-        process_id: &str,
+        process_id: &ProcessId,
         metrics: orchestrator::AgentExecutionMetrics,
         updated_envelope: Envelope,
     ) -> Result<()> {
         self.orchestrator
             .report_agent_result(process_id, metrics, updated_envelope)
-            .map_err(|e| Error::internal(e))
     }
 
     /// Get orchestration session state.
-    pub fn get_orchestration_state(&self, process_id: &str) -> Result<orchestrator::SessionState> {
+    pub fn get_orchestration_state(&self, process_id: &ProcessId) -> Result<orchestrator::SessionState> {
         self.orchestrator
             .get_session_state(process_id)
-            .map_err(|e| Error::internal(e))
     }
 
     // =============================================================================
     // Resource Tracking (Additional Methods)
     // =============================================================================
 
-    /// Record a tool call for a process.
+    /// Record a tool call for a process (PCB is the single source of truth).
     pub fn record_tool_call(&mut self, pid: &ProcessId) -> Result<()> {
         if let Some(pcb) = self.lifecycle.get_mut(pid) {
             pcb.usage.tool_calls += 1;
         }
-        if let Some(env) = self.envelopes.get_mut(pid.as_str()) {
-            env.bounds.tool_call_count += 1;
-        }
         Ok(())
     }
 
-    /// Record an agent hop for a process.
+    /// Record an agent hop for a process (PCB is the single source of truth).
     pub fn record_agent_hop(&mut self, pid: &ProcessId) -> Result<()> {
         if let Some(pcb) = self.lifecycle.get_mut(pid) {
             pcb.usage.agent_hops += 1;
-        }
-        if let Some(env) = self.envelopes.get_mut(pid.as_str()) {
-            env.bounds.agent_hop_count += 1;
         }
         Ok(())
     }

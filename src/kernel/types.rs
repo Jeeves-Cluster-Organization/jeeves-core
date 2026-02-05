@@ -262,13 +262,6 @@ pub struct ProcessControlBlock {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub last_scheduled_at: Option<DateTime<Utc>>,
 
-    // Current execution
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub current_stage: Option<String>,
-
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub current_service: Option<String>,
-
     // Interrupt handling
     #[serde(skip_serializing_if = "Option::is_none")]
     pub pending_interrupt: Option<InterruptKind>,
@@ -298,8 +291,6 @@ impl ProcessControlBlock {
             started_at: None,
             completed_at: None,
             last_scheduled_at: None,
-            current_stage: None,
-            current_service: None,
             pending_interrupt: None,
             interrupt_data: None,
             parent_pid: None,

@@ -13,6 +13,7 @@ use tonic::{Request, Response, Status};
 use crate::envelope::Envelope;
 use crate::kernel::orchestrator::{AgentExecutionMetrics, PipelineConfig};
 use crate::kernel::Kernel;
+use crate::types::ProcessId;
 
 // Import generated proto types
 use crate::proto::orchestration_service_server::OrchestrationService as OrchestrationServiceTrait;
@@ -20,6 +21,12 @@ use crate::proto::{
     GetNextInstructionRequest, GetSessionStateRequest, InitializeSessionRequest, Instruction,
     ReportAgentResultRequest, SessionState,
 };
+
+/// Parse a process_id string from proto into a typed ProcessId.
+fn parse_pid(s: String) -> std::result::Result<ProcessId, Status> {
+    ProcessId::from_string(s)
+        .map_err(|e| Status::invalid_argument(e.to_string()))
+}
 
 /// OrchestrationService implementation.
 #[derive(Debug, Clone)]
@@ -42,6 +49,7 @@ impl OrchestrationServiceTrait for OrchestrationService {
         request: Request<InitializeSessionRequest>,
     ) -> Result<Response<SessionState>, Status> {
         let req = request.into_inner();
+        let process_id = parse_pid(req.process_id)?;
 
         // Parse pipeline config from bytes
         let pipeline_config: PipelineConfig =
@@ -57,12 +65,12 @@ impl OrchestrationServiceTrait for OrchestrationService {
         let mut kernel = self.kernel.lock().await;
         let session_state = kernel
             .initialize_orchestration(
-                req.process_id.clone(),
+                process_id,
                 pipeline_config,
                 envelope,
                 req.force,
             )
-            .map_err(|e| Status::internal(format!("Failed to initialize orchestration: {}", e)))?;
+            .map_err(|e| e.to_grpc_status())?;
 
         // Convert to proto
         let proto_state: SessionState = session_state.into();
@@ -76,12 +84,13 @@ impl OrchestrationServiceTrait for OrchestrationService {
         request: Request<GetNextInstructionRequest>,
     ) -> Result<Response<Instruction>, Status> {
         let req = request.into_inner();
+        let process_id = parse_pid(req.process_id)?;
 
         // Get next instruction from kernel
         let mut kernel = self.kernel.lock().await;
         let instruction = kernel
-            .get_next_instruction(&req.process_id)
-            .map_err(|e| Status::internal(format!("Failed to get next instruction: {}", e)))?;
+            .get_next_instruction(&process_id)
+            .map_err(|e| e.to_grpc_status())?;
 
         // Convert to proto
         let proto_instruction: Instruction = instruction.into();
@@ -95,6 +104,7 @@ impl OrchestrationServiceTrait for OrchestrationService {
         request: Request<ReportAgentResultRequest>,
     ) -> Result<Response<Instruction>, Status> {
         let req = request.into_inner();
+        let process_id = parse_pid(req.process_id)?;
 
         // Parse agent output
         let output: serde_json::Value = serde_json::from_slice(&req.output)
@@ -109,16 +119,14 @@ impl OrchestrationServiceTrait for OrchestrationService {
             .try_into()
             .map_err(|e| Status::internal(format!("Failed to convert metrics: {}", e)))?;
 
-        // Parse envelope from bytes (updated after agent execution)
-        // Note: In the proto, envelope is part of the output, but we need to reconstruct
-        // For now, get it from kernel's stored state
+        // Get current envelope from kernel's stored state
         let mut kernel = self.kernel.lock().await;
 
         let mut envelope = kernel
             .orchestrator
-            .get_envelope_for_process(&req.process_id)
+            .get_envelope_for_process(&process_id)
             .ok_or_else(|| {
-                Status::not_found(format!("Envelope not found: {}", req.process_id))
+                Status::not_found(format!("Envelope not found: {}", process_id))
             })?
             .clone();
 
@@ -133,13 +141,13 @@ impl OrchestrationServiceTrait for OrchestrationService {
 
         // Report result
         kernel
-            .report_agent_result(&req.process_id, metrics, envelope)
-            .map_err(|e| Status::internal(format!("Failed to report agent result: {}", e)))?;
+            .report_agent_result(&process_id, metrics, envelope)
+            .map_err(|e| e.to_grpc_status())?;
 
         // Get next instruction
         let instruction = kernel
-            .get_next_instruction(&req.process_id)
-            .map_err(|e| Status::internal(format!("Failed to get next instruction: {}", e)))?;
+            .get_next_instruction(&process_id)
+            .map_err(|e| e.to_grpc_status())?;
 
         // Convert to proto
         let proto_instruction: Instruction = instruction.into();
@@ -153,12 +161,13 @@ impl OrchestrationServiceTrait for OrchestrationService {
         request: Request<GetSessionStateRequest>,
     ) -> Result<Response<SessionState>, Status> {
         let req = request.into_inner();
+        let process_id = parse_pid(req.process_id)?;
 
         // Get session state from kernel
         let kernel = self.kernel.lock().await;
         let session_state = kernel
-            .get_orchestration_state(&req.process_id)
-            .map_err(|e| Status::internal(format!("Failed to get session state: {}", e)))?;
+            .get_orchestration_state(&process_id)
+            .map_err(|e| e.to_grpc_status())?;
 
         // Convert to proto
         let proto_state: SessionState = session_state.into();

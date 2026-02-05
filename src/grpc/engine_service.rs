@@ -15,6 +15,7 @@ use tonic::{Request, Response, Status};
 
 use crate::envelope::Envelope;
 use crate::kernel::Kernel;
+use crate::types::{EnvelopeId, ProcessId, RequestId, SessionId, UserId};
 
 // Import generated proto types
 use crate::proto::engine_service_server::EngineService as EngineServiceTrait;
@@ -56,12 +57,17 @@ impl EngineServiceTrait for EngineService {
         let req = request.into_inner();
 
         // Generate envelope ID and request ID if not provided
-        let envelope_id = format!("env_{}", uuid::Uuid::new_v4().simple());
+        let envelope_id = EnvelopeId::must(format!("env_{}", uuid::Uuid::new_v4().simple()));
         let request_id = if req.request_id.is_empty() {
-            format!("req_{}", uuid::Uuid::new_v4().simple())
+            RequestId::must(format!("req_{}", uuid::Uuid::new_v4().simple()))
         } else {
-            req.request_id
+            RequestId::from_string(req.request_id)
+                .map_err(|e| Status::invalid_argument(e.to_string()))?
         };
+        let user_id = UserId::from_string(req.user_id)
+            .map_err(|e| Status::invalid_argument(e.to_string()))?;
+        let session_id = SessionId::from_string(req.session_id)
+            .map_err(|e| Status::invalid_argument(e.to_string()))?;
 
         // Create envelope with defaults
         let mut envelope = Envelope::new();
@@ -69,8 +75,8 @@ impl EngineServiceTrait for EngineService {
         // Override with request values
         envelope.identity.envelope_id = envelope_id;
         envelope.identity.request_id = request_id;
-        envelope.identity.user_id = req.user_id;
-        envelope.identity.session_id = req.session_id;
+        envelope.identity.user_id = user_id;
+        envelope.identity.session_id = session_id;
         envelope.raw_input = req.raw_input;
 
         // Set stage order if provided
@@ -107,7 +113,7 @@ impl EngineServiceTrait for EngineService {
 
         // Update envelope in kernel
         let mut kernel = self.kernel.lock().await;
-        let envelope_id = envelope.identity.envelope_id.clone();
+        let envelope_id = envelope.identity.envelope_id.to_string();
 
         if kernel.get_envelope(&envelope_id).is_none() {
             return Err(Status::not_found(format!(
@@ -197,7 +203,7 @@ impl EngineServiceTrait for EngineService {
             })?;
 
         // Initialize orchestration session
-        let process_id = envelope.identity.envelope_id.clone();
+        let process_id = ProcessId::must(envelope.identity.envelope_id.to_string());
         let mut kernel = self.kernel.lock().await;
 
         let _session_state = kernel
@@ -300,7 +306,7 @@ impl EngineServiceTrait for EngineService {
 
         // Clone envelope with new ID
         let mut cloned = envelope.clone();
-        cloned.identity.envelope_id = format!("env_{}", uuid::Uuid::new_v4().simple());
+        cloned.identity.envelope_id = EnvelopeId::must(format!("env_{}", uuid::Uuid::new_v4().simple()));
 
         // Store cloned envelope in kernel
         let mut kernel = self.kernel.lock().await;
