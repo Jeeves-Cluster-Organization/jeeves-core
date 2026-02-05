@@ -8,7 +8,7 @@
 
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 pub mod enums;
 pub mod export;
@@ -145,11 +145,11 @@ pub struct Envelope {
     pub max_iterations: i32,
 
     // ===== Parallel Execution State =====
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub active_stages: Option<HashMap<String, bool>>,
+    #[serde(default, skip_serializing_if = "HashSet::is_empty")]
+    pub active_stages: HashSet<String>,
 
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub completed_stage_set: Option<HashMap<String, bool>>,
+    #[serde(default, skip_serializing_if = "HashSet::is_empty")]
+    pub completed_stage_set: HashSet<String>,
 
     #[serde(skip_serializing_if = "Option::is_none")]
     pub failed_stages: Option<HashMap<String, String>>,
@@ -234,8 +234,8 @@ impl Envelope {
             max_iterations: 3,
 
             // Parallel execution
-            active_stages: Some(HashMap::new()),
-            completed_stage_set: Some(HashMap::new()),
+            active_stages: HashSet::new(),
+            completed_stage_set: HashSet::new(),
             failed_stages: Some(HashMap::new()),
             parallel_mode: Some(false),
 
@@ -284,25 +284,13 @@ impl Envelope {
 
     /// Start a stage (mark as actively executing).
     pub fn start_stage(&mut self, stage_name: impl Into<String>) {
-        if self.active_stages.is_none() {
-            self.active_stages = Some(HashMap::new());
-        }
-        if let Some(ref mut stages) = self.active_stages {
-            stages.insert(stage_name.into(), true);
-        }
+        self.active_stages.insert(stage_name.into());
     }
 
     /// Complete a stage successfully.
     pub fn complete_stage(&mut self, stage_name: &str) {
-        if self.completed_stage_set.is_none() {
-            self.completed_stage_set = Some(HashMap::new());
-        }
-        if let Some(ref mut completed) = self.completed_stage_set {
-            completed.insert(stage_name.to_string(), true);
-        }
-        if let Some(ref mut active) = self.active_stages {
-            active.remove(stage_name);
-        }
+        self.completed_stage_set.insert(stage_name.to_string());
+        self.active_stages.remove(stage_name);
     }
 
     /// Mark a stage as failed.
@@ -314,18 +302,12 @@ impl Envelope {
         if let Some(ref mut failed) = self.failed_stages {
             failed.insert(stage_name_str.clone(), error_msg.into());
         }
-        if let Some(ref mut active) = self.active_stages {
-            active.remove(&stage_name_str);
-        }
+        self.active_stages.remove(&stage_name_str);
     }
 
     /// Check if a stage is completed.
     pub fn is_stage_completed(&self, stage_name: &str) -> bool {
-        self.completed_stage_set
-            .as_ref()
-            .and_then(|s| s.get(stage_name))
-            .copied()
-            .unwrap_or(false)
+        self.completed_stage_set.contains(stage_name)
     }
 
     /// Check if a stage failed.
