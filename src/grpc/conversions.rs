@@ -15,160 +15,53 @@ use chrono::{DateTime, TimeZone, Utc};
 use std::collections::HashMap;
 
 // =============================================================================
-// ProcessState conversions
+// Enum conversion macro — generates TryFrom<i32> and From<X> for i32
+// via the proto enum as intermediary (handles UNSPECIFIED = 0 as error).
 // =============================================================================
 
-impl TryFrom<i32> for ProcessState {
-    type Error = Error;
+macro_rules! proto_enum_conv {
+    ($domain:ty, $proto:ty, $label:expr, [$( $variant:ident ),+ $(,)?]) => {
+        impl TryFrom<i32> for $domain {
+            type Error = Error;
 
-    fn try_from(value: i32) -> Result<Self, Self::Error> {
-        match proto::ProcessState::try_from(value) {
-            Ok(proto::ProcessState::New) => Ok(ProcessState::New),
-            Ok(proto::ProcessState::Ready) => Ok(ProcessState::Ready),
-            Ok(proto::ProcessState::Running) => Ok(ProcessState::Running),
-            Ok(proto::ProcessState::Waiting) => Ok(ProcessState::Waiting),
-            Ok(proto::ProcessState::Blocked) => Ok(ProcessState::Blocked),
-            Ok(proto::ProcessState::Terminated) => Ok(ProcessState::Terminated),
-            Ok(proto::ProcessState::Zombie) => Ok(ProcessState::Zombie),
-            _ => Err(Error::validation(format!("Invalid ProcessState: {}", value))),
-        }
-    }
-}
-
-impl From<ProcessState> for i32 {
-    fn from(state: ProcessState) -> i32 {
-        match state {
-            ProcessState::New => proto::ProcessState::New as i32,
-            ProcessState::Ready => proto::ProcessState::Ready as i32,
-            ProcessState::Running => proto::ProcessState::Running as i32,
-            ProcessState::Waiting => proto::ProcessState::Waiting as i32,
-            ProcessState::Blocked => proto::ProcessState::Blocked as i32,
-            ProcessState::Terminated => proto::ProcessState::Terminated as i32,
-            ProcessState::Zombie => proto::ProcessState::Zombie as i32,
-        }
-    }
-}
-
-// =============================================================================
-// SchedulingPriority conversions
-// =============================================================================
-
-impl TryFrom<i32> for SchedulingPriority {
-    type Error = Error;
-
-    fn try_from(value: i32) -> Result<Self, Self::Error> {
-        match proto::SchedulingPriority::try_from(value) {
-            Ok(proto::SchedulingPriority::Realtime) => Ok(SchedulingPriority::Realtime),
-            Ok(proto::SchedulingPriority::High) => Ok(SchedulingPriority::High),
-            Ok(proto::SchedulingPriority::Normal) => Ok(SchedulingPriority::Normal),
-            Ok(proto::SchedulingPriority::Low) => Ok(SchedulingPriority::Low),
-            Ok(proto::SchedulingPriority::Idle) => Ok(SchedulingPriority::Idle),
-            _ => Err(Error::validation(format!(
-                "Invalid SchedulingPriority: {}",
-                value
-            ))),
-        }
-    }
-}
-
-impl From<SchedulingPriority> for i32 {
-    fn from(priority: SchedulingPriority) -> i32 {
-        match priority {
-            SchedulingPriority::Realtime => proto::SchedulingPriority::Realtime as i32,
-            SchedulingPriority::High => proto::SchedulingPriority::High as i32,
-            SchedulingPriority::Normal => proto::SchedulingPriority::Normal as i32,
-            SchedulingPriority::Low => proto::SchedulingPriority::Low as i32,
-            SchedulingPriority::Idle => proto::SchedulingPriority::Idle as i32,
-        }
-    }
-}
-
-// =============================================================================
-// InterruptKind conversions
-// =============================================================================
-
-impl TryFrom<i32> for InterruptKind {
-    type Error = Error;
-
-    fn try_from(value: i32) -> Result<Self, Self::Error> {
-        match proto::InterruptKind::try_from(value) {
-            Ok(proto::InterruptKind::Clarification) => Ok(InterruptKind::Clarification),
-            Ok(proto::InterruptKind::Confirmation) => Ok(InterruptKind::Confirmation),
-            Ok(proto::InterruptKind::Checkpoint) => Ok(InterruptKind::Checkpoint),
-            Ok(proto::InterruptKind::ResourceExhausted) => Ok(InterruptKind::ResourceExhausted),
-            Ok(proto::InterruptKind::Timeout) => Ok(InterruptKind::Timeout),
-            Ok(proto::InterruptKind::SystemError) => Ok(InterruptKind::SystemError),
-            Ok(proto::InterruptKind::AgentReview) => Ok(InterruptKind::AgentReview),
-            _ => Err(Error::validation(format!("Invalid InterruptKind: {}", value))),
-        }
-    }
-}
-
-impl From<InterruptKind> for i32 {
-    fn from(kind: InterruptKind) -> i32 {
-        match kind {
-            InterruptKind::Clarification => proto::InterruptKind::Clarification as i32,
-            InterruptKind::Confirmation => proto::InterruptKind::Confirmation as i32,
-            InterruptKind::Checkpoint => proto::InterruptKind::Checkpoint as i32,
-            InterruptKind::ResourceExhausted => proto::InterruptKind::ResourceExhausted as i32,
-            InterruptKind::Timeout => proto::InterruptKind::Timeout as i32,
-            InterruptKind::SystemError => proto::InterruptKind::SystemError as i32,
-            InterruptKind::AgentReview => proto::InterruptKind::AgentReview as i32,
-        }
-    }
-}
-
-// =============================================================================
-// TerminalReason conversions
-// =============================================================================
-
-impl TryFrom<i32> for TerminalReason {
-    type Error = Error;
-
-    fn try_from(value: i32) -> Result<Self, Self::Error> {
-        match proto::TerminalReason::try_from(value) {
-            Ok(proto::TerminalReason::Completed) => Ok(TerminalReason::Completed),
-            Ok(proto::TerminalReason::MaxIterationsExceeded) => {
-                Ok(TerminalReason::MaxIterationsExceeded)
+            fn try_from(value: i32) -> Result<Self, Self::Error> {
+                match <$proto>::try_from(value) {
+                    $( Ok(<$proto>::$variant) => Ok(<$domain>::$variant), )+
+                    _ => Err(Error::validation(format!(concat!("Invalid ", $label, ": {}"), value))),
+                }
             }
-            Ok(proto::TerminalReason::MaxLlmCallsExceeded) => {
-                Ok(TerminalReason::MaxLlmCallsExceeded)
-            }
-            Ok(proto::TerminalReason::MaxAgentHopsExceeded) => {
-                Ok(TerminalReason::MaxAgentHopsExceeded)
-            }
-            Ok(proto::TerminalReason::UserCancelled) => Ok(TerminalReason::UserCancelled),
-            Ok(proto::TerminalReason::ToolFailedFatally) => Ok(TerminalReason::ToolFailedFatally),
-            Ok(proto::TerminalReason::LlmFailedFatally) => Ok(TerminalReason::LlmFailedFatally),
-            Ok(proto::TerminalReason::PolicyViolation) => Ok(TerminalReason::PolicyViolation),
-            _ => Err(Error::validation(format!(
-                "Invalid TerminalReason: {}",
-                value
-            ))),
         }
-    }
+
+        impl From<$domain> for i32 {
+            fn from(val: $domain) -> i32 {
+                match val {
+                    $( <$domain>::$variant => <$proto>::$variant as i32, )+
+                }
+            }
+        }
+    };
 }
 
-impl From<TerminalReason> for i32 {
-    fn from(reason: TerminalReason) -> i32 {
-        match reason {
-            TerminalReason::Completed => proto::TerminalReason::Completed as i32,
-            TerminalReason::MaxIterationsExceeded => {
-                proto::TerminalReason::MaxIterationsExceeded as i32
-            }
-            TerminalReason::MaxLlmCallsExceeded => {
-                proto::TerminalReason::MaxLlmCallsExceeded as i32
-            }
-            TerminalReason::MaxAgentHopsExceeded => {
-                proto::TerminalReason::MaxAgentHopsExceeded as i32
-            }
-            TerminalReason::UserCancelled => proto::TerminalReason::UserCancelled as i32,
-            TerminalReason::ToolFailedFatally => proto::TerminalReason::ToolFailedFatally as i32,
-            TerminalReason::LlmFailedFatally => proto::TerminalReason::LlmFailedFatally as i32,
-            TerminalReason::PolicyViolation => proto::TerminalReason::PolicyViolation as i32,
-        }
-    }
-}
+// =============================================================================
+// Enum conversions (all 5 enums)
+// =============================================================================
+
+proto_enum_conv!(ProcessState, proto::ProcessState, "ProcessState", [
+    New, Ready, Running, Waiting, Blocked, Terminated, Zombie,
+]);
+
+proto_enum_conv!(SchedulingPriority, proto::SchedulingPriority, "SchedulingPriority", [
+    Realtime, High, Normal, Low, Idle,
+]);
+
+proto_enum_conv!(InterruptKind, proto::InterruptKind, "InterruptKind", [
+    Clarification, Confirmation, Checkpoint, ResourceExhausted, Timeout, SystemError, AgentReview,
+]);
+
+proto_enum_conv!(TerminalReason, proto::TerminalReason, "TerminalReason", [
+    Completed, MaxIterationsExceeded, MaxLlmCallsExceeded, MaxAgentHopsExceeded,
+    UserCancelled, ToolFailedFatally, LlmFailedFatally, PolicyViolation,
+]);
 
 // =============================================================================
 // ResourceQuota conversions
@@ -662,32 +555,9 @@ use crate::kernel::orchestrator::{
     AgentExecutionMetrics, Instruction, InstructionKind, SessionState,
 };
 
-// InstructionKind conversions
-impl From<InstructionKind> for i32 {
-    fn from(kind: InstructionKind) -> i32 {
-        match kind {
-            InstructionKind::RunAgent => proto::InstructionKind::RunAgent as i32,
-            InstructionKind::Terminate => proto::InstructionKind::Terminate as i32,
-            InstructionKind::WaitInterrupt => proto::InstructionKind::WaitInterrupt as i32,
-        }
-    }
-}
-
-impl TryFrom<i32> for InstructionKind {
-    type Error = Error;
-
-    fn try_from(value: i32) -> Result<Self, Self::Error> {
-        match proto::InstructionKind::try_from(value) {
-            Ok(proto::InstructionKind::RunAgent) => Ok(InstructionKind::RunAgent),
-            Ok(proto::InstructionKind::Terminate) => Ok(InstructionKind::Terminate),
-            Ok(proto::InstructionKind::WaitInterrupt) => Ok(InstructionKind::WaitInterrupt),
-            _ => Err(Error::validation(format!(
-                "Invalid InstructionKind: {}",
-                value
-            ))),
-        }
-    }
-}
+proto_enum_conv!(InstructionKind, proto::InstructionKind, "InstructionKind", [
+    RunAgent, Terminate, WaitInterrupt,
+]);
 
 // Instruction conversions
 impl From<Instruction> for proto::Instruction {
