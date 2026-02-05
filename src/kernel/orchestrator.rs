@@ -468,7 +468,7 @@ mod tests {
     fn create_test_pipeline() -> PipelineConfig {
         PipelineConfig {
             name: "test_pipeline".to_string(),
-            stages: vec![
+            agents: vec![
                 PipelineStage {
                     name: "stage1".to_string(),
                     agent: "agent1".to_string(),
@@ -657,7 +657,7 @@ mod tests {
         let pipeline = create_test_pipeline();
         let envelope = create_test_envelope();
 
-        orch.initialize_session("proc1".to_string(), pipeline, envelope.clone(), false)
+        orch.initialize_session("proc1".to_string(), pipeline, envelope, false)
             .unwrap();
 
         let metrics = AgentExecutionMetrics {
@@ -668,7 +668,9 @@ mod tests {
             duration_ms: 1500,
         };
 
-        orch.report_agent_result("proc1", metrics, envelope)
+        // Use the initialized envelope (with stage_order set) for the report
+        let initialized_envelope = orch.sessions.get("proc1").unwrap().envelope.clone();
+        orch.report_agent_result("proc1", metrics, initialized_envelope)
             .unwrap();
 
         // Check metrics were updated
