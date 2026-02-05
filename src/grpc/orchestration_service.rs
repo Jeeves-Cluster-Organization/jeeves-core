@@ -97,7 +97,7 @@ impl OrchestrationServiceTrait for OrchestrationService {
         let req = request.into_inner();
 
         // Parse agent output
-        let _output: serde_json::Value = serde_json::from_slice(&req.output)
+        let output: serde_json::Value = serde_json::from_slice(&req.output)
             .map_err(|e| Status::invalid_argument(format!("Invalid agent output: {}", e)))?;
 
         // Convert proto metrics to domain
@@ -114,12 +114,22 @@ impl OrchestrationServiceTrait for OrchestrationService {
         // For now, get it from kernel's stored state
         let mut kernel = self.kernel.lock().await;
 
-        let envelope = kernel
-            .get_envelope(&req.process_id)
+        let mut envelope = kernel
+            .orchestrator
+            .get_envelope_for_process(&req.process_id)
             .ok_or_else(|| {
                 Status::not_found(format!("Envelope not found: {}", req.process_id))
             })?
             .clone();
+
+        // Update envelope with agent output
+        if let serde_json::Value::Object(output_map) = output {
+            let mut agent_output = std::collections::HashMap::new();
+            for (key, value) in output_map {
+                agent_output.insert(key, value);
+            }
+            envelope.outputs.insert(req.agent_name.clone(), agent_output);
+        }
 
         // Report result
         kernel

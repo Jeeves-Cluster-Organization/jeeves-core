@@ -71,7 +71,7 @@ pub struct AgentExecutionMetrics {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PipelineConfig {
     pub name: String,
-    pub stages: Vec<PipelineStage>,
+    pub agents: Vec<PipelineStage>,
     pub max_iterations: i32,
     pub max_llm_calls: i32,
     pub max_agent_hops: i32,
@@ -80,7 +80,7 @@ pub struct PipelineConfig {
 impl PipelineConfig {
     /// Get stage order from pipeline.
     pub fn get_stage_order(&self) -> Vec<String> {
-        self.stages.iter().map(|s| s.name.clone()).collect()
+        self.agents.iter().map(|s| s.name.clone()).collect()
     }
 
     /// Validate pipeline configuration.
@@ -88,7 +88,7 @@ impl PipelineConfig {
         if self.name.is_empty() {
             return Err("Pipeline name is required".to_string());
         }
-        if self.stages.is_empty() {
+        if self.agents.is_empty() {
             return Err("Pipeline must have at least one stage".to_string());
         }
         Ok(())
@@ -311,8 +311,50 @@ impl Orchestrator {
         // Increment iteration
         session.envelope.iteration += 1;
 
-        // Update activity timestamp
-        session.last_activity_at = Utc::now();
+        // ===== STAGE ADVANCEMENT LOGIC =====
+        // Find current stage index in stage_order
+        let stage_order = session.envelope.stage_order.clone();
+        let current_stage_idx = stage_order
+            .iter()
+            .position(|s| s == &session.envelope.current_stage);
+
+        match current_stage_idx {
+            Some(idx) => {
+                // Clone current_stage to avoid borrow checker issues
+                let current_stage = session.envelope.current_stage.clone();
+
+                // Mark current stage as completed
+                session.envelope.complete_stage(&current_stage);
+
+                // Check if there's a next stage
+                if idx + 1 < stage_order.len() {
+                    // Advance to next stage
+                    session.envelope.current_stage = stage_order[idx + 1].clone();
+
+                    // Increment agent_hop_count to track stage progression
+                    session.envelope.agent_hop_count += 1;
+
+                    // Update activity timestamp
+                    session.last_activity_at = Utc::now();
+                } else {
+                    // Last stage completed - mark pipeline as complete
+                    session.terminated = true;
+                    session.terminal_reason = Some(TerminalReason::Completed);
+                    session.envelope.terminated = true;
+                    session.envelope.terminal_reason = Some(TerminalReason::Completed);
+
+                    // Update activity timestamp
+                    session.last_activity_at = Utc::now();
+                }
+            }
+            None => {
+                // Current stage not found in stage_order - error
+                return Err(format!(
+                    "Current stage '{}' not found in stage_order: {:?}",
+                    session.envelope.current_stage, stage_order
+                ));
+            }
+        }
 
         Ok(())
     }
@@ -354,6 +396,14 @@ impl Orchestrator {
         }
 
         count
+    }
+
+    /// Get the current envelope for a process.
+    /// Returns None if the process does not exist.
+    pub fn get_envelope_for_process(&self, process_id: &str) -> Option<&Envelope> {
+        self.sessions
+            .get(process_id)
+            .map(|session| &session.envelope)
     }
 
     // =============================================================================
@@ -404,7 +454,7 @@ fn get_agent_for_stage(
     stage_name: &str,
 ) -> Result<String, String> {
     pipeline_config
-        .stages
+        .agents
         .iter()
         .find(|s| s.name == stage_name)
         .map(|s| s.agent.clone())
@@ -688,7 +738,7 @@ mod tests {
 
         // Empty stages
         let mut pipeline2 = create_test_pipeline();
-        pipeline2.stages = vec![];
+        pipeline2.agents = vec![];
         assert!(pipeline2.validate().is_err());
     }
 }
