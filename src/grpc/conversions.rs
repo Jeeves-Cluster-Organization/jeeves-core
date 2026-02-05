@@ -10,7 +10,7 @@ use crate::kernel::{
     ProcessControlBlock, ProcessState, ResourceQuota, ResourceUsage, SchedulingPriority,
 };
 use crate::proto::{self, InterruptStatus};
-use crate::types::{Error, ProcessId, RequestId, SessionId, UserId};
+use crate::types::{EnvelopeId, Error, ProcessId, RequestId, SessionId, UserId};
 use chrono::{DateTime, TimeZone, Utc};
 use std::collections::HashMap;
 
@@ -235,16 +235,6 @@ impl TryFrom<proto::ProcessControlBlock> for ProcessControlBlock {
             started_at,
             completed_at,
             last_scheduled_at,
-            current_stage: if proto.current_stage.is_empty() {
-                None
-            } else {
-                Some(proto.current_stage)
-            },
-            current_service: if proto.current_service.is_empty() {
-                None
-            } else {
-                Some(proto.current_service)
-            },
             pending_interrupt,
             interrupt_data,
             parent_pid,
@@ -271,8 +261,8 @@ impl From<ProcessControlBlock> for proto::ProcessControlBlock {
                 .last_scheduled_at
                 .map(|t| datetime_to_ms(&t))
                 .unwrap_or(0),
-            current_stage: pcb.current_stage.unwrap_or_default(),
-            current_service: pcb.current_service.unwrap_or_default(),
+            current_stage: String::new(),
+            current_service: String::new(),
             pending_interrupt: pcb
                 .pending_interrupt
                 .map(|k| i32::from(k))
@@ -324,12 +314,21 @@ impl TryFrom<proto::Envelope> for Envelope {
             .map(|i| FlowInterrupt::try_from(i))
             .transpose()?;
 
+        let envelope_id = EnvelopeId::from_string(proto.envelope_id)
+            .map_err(|e| Error::validation(e.to_string()))?;
+        let env_request_id = RequestId::from_string(proto.request_id)
+            .map_err(|e| Error::validation(e.to_string()))?;
+        let env_user_id = UserId::from_string(proto.user_id)
+            .map_err(|e| Error::validation(e.to_string()))?;
+        let env_session_id = SessionId::from_string(proto.session_id)
+            .map_err(|e| Error::validation(e.to_string()))?;
+
         Ok(Envelope {
             identity: crate::envelope::Identity {
-                envelope_id: proto.envelope_id,
-                request_id: proto.request_id,
-                user_id: proto.user_id,
-                session_id: proto.session_id,
+                envelope_id,
+                request_id: env_request_id,
+                user_id: env_user_id,
+                session_id: env_session_id,
             },
             raw_input: proto.raw_input,
             received_at,
@@ -341,8 +340,8 @@ impl TryFrom<proto::Envelope> for Envelope {
                 max_iterations: proto.max_iterations,
                 active_stages: proto.active_stages.into_keys().collect(),
                 completed_stage_set: proto.completed_stage_set.into_keys().collect(),
-                failed_stages: Some(proto.failed_stages),
-                parallel_mode: Some(false),
+                failed_stages: proto.failed_stages,
+                parallel_mode: false,
             },
             bounds: crate::envelope::Bounds {
                 llm_call_count: proto.llm_call_count,
@@ -396,10 +395,10 @@ impl From<Envelope> for proto::Envelope {
         }
 
         proto::Envelope {
-            envelope_id: env.identity.envelope_id,
-            request_id: env.identity.request_id,
-            user_id: env.identity.user_id,
-            session_id: env.identity.session_id,
+            envelope_id: env.identity.envelope_id.to_string(),
+            request_id: env.identity.request_id.to_string(),
+            user_id: env.identity.user_id.to_string(),
+            session_id: env.identity.session_id.to_string(),
             raw_input: env.raw_input,
             received_at_ms: datetime_to_ms(&env.received_at),
             current_stage: env.pipeline.current_stage,
@@ -419,7 +418,7 @@ impl From<Envelope> for proto::Envelope {
             outputs,
             active_stages: env.pipeline.active_stages.into_iter().map(|s| (s, true)).collect(),
             completed_stage_set: env.pipeline.completed_stage_set.into_iter().map(|s| (s, true)).collect(),
-            failed_stages: env.pipeline.failed_stages.unwrap_or_default(),
+            failed_stages: env.pipeline.failed_stages,
             current_stage_number: env.execution.current_stage_number,
             max_stages: env.execution.max_stages,
             all_goals: env.execution.all_goals,
@@ -644,7 +643,7 @@ impl From<AgentExecutionMetrics> for proto::AgentExecutionMetrics {
 impl From<SessionState> for proto::SessionState {
     fn from(state: SessionState) -> proto::SessionState {
         proto::SessionState {
-            process_id: state.process_id,
+            process_id: state.process_id.to_string(),
             current_stage: state.current_stage,
             stage_order: state.stage_order,
             envelope: serde_json::to_vec(&state.envelope)

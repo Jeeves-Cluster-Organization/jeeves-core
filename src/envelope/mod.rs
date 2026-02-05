@@ -15,6 +15,8 @@ use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
 
+use crate::types::{EnvelopeId, RequestId, SessionId, UserId};
+
 pub mod enums;
 pub mod export;
 pub mod import;
@@ -98,6 +100,16 @@ impl FlowInterrupt {
     }
 }
 
+/// Status of a processing record.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Hash)]
+#[serde(rename_all = "lowercase")]
+pub enum ProcessingStatus {
+    Running,
+    Success,
+    Error,
+    Skipped,
+}
+
 /// Processing record for audit trail.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct ProcessingRecord {
@@ -109,7 +121,7 @@ pub struct ProcessingRecord {
     pub completed_at: Option<DateTime<Utc>>,
 
     pub duration_ms: i32,
-    pub status: String, // "running", "success", "error", "skipped"
+    pub status: ProcessingStatus,
 
     #[serde(skip_serializing_if = "Option::is_none")]
     pub error: Option<String>,
@@ -124,10 +136,10 @@ pub struct ProcessingRecord {
 /// Envelope identity fields.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct Identity {
-    pub envelope_id: String,
-    pub request_id: String,
-    pub user_id: String,
-    pub session_id: String,
+    pub envelope_id: EnvelopeId,
+    pub request_id: RequestId,
+    pub user_id: UserId,
+    pub session_id: SessionId,
 }
 
 /// Pipeline sequencing and parallel execution state.
@@ -144,11 +156,11 @@ pub struct Pipeline {
     #[serde(default, skip_serializing_if = "HashSet::is_empty")]
     pub completed_stage_set: HashSet<String>,
 
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub failed_stages: Option<HashMap<String, String>>,
+    #[serde(default, skip_serializing_if = "HashMap::is_empty")]
+    pub failed_stages: HashMap<String, String>,
 
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub parallel_mode: Option<bool>,
+    #[serde(default)]
+    pub parallel_mode: bool,
 }
 
 /// Resource limits and usage counters.
@@ -244,10 +256,10 @@ impl Envelope {
 
         Self {
             identity: Identity {
-                envelope_id: format!("env_{}", uuid_short()),
-                request_id: format!("req_{}", uuid_short()),
-                user_id: "anonymous".to_string(),
-                session_id: format!("sess_{}", uuid_short()),
+                envelope_id: EnvelopeId::must(format!("env_{}", uuid_short())),
+                request_id: RequestId::must(format!("req_{}", uuid_short())),
+                user_id: UserId::must("anonymous"),
+                session_id: SessionId::must(format!("sess_{}", uuid_short())),
             },
 
             raw_input: String::new(),
@@ -261,8 +273,8 @@ impl Envelope {
                 max_iterations: 3,
                 active_stages: HashSet::new(),
                 completed_stage_set: HashSet::new(),
-                failed_stages: Some(HashMap::new()),
-                parallel_mode: Some(false),
+                failed_stages: HashMap::new(),
+                parallel_mode: false,
             },
 
             bounds: Bounds {
@@ -318,12 +330,7 @@ impl Envelope {
     /// Mark a stage as failed.
     pub fn fail_stage(&mut self, stage_name: impl Into<String>, error_msg: impl Into<String>) {
         let stage_name_str = stage_name.into();
-        if self.pipeline.failed_stages.is_none() {
-            self.pipeline.failed_stages = Some(HashMap::new());
-        }
-        if let Some(ref mut failed) = self.pipeline.failed_stages {
-            failed.insert(stage_name_str.clone(), error_msg.into());
-        }
+        self.pipeline.failed_stages.insert(stage_name_str.clone(), error_msg.into());
         self.pipeline.active_stages.remove(&stage_name_str);
     }
 
@@ -334,11 +341,7 @@ impl Envelope {
 
     /// Check if a stage failed.
     pub fn is_stage_failed(&self, stage_name: &str) -> bool {
-        self.pipeline
-            .failed_stages
-            .as_ref()
-            .and_then(|s| s.get(stage_name))
-            .is_some()
+        self.pipeline.failed_stages.contains_key(stage_name)
     }
 
     /// Check if at any bound limit.

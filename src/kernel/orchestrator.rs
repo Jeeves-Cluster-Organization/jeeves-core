@@ -13,6 +13,7 @@
 //!   - Have NO control over what runs next
 
 use crate::envelope::{Envelope, FlowInterrupt, TerminalReason};
+use crate::types::{Error, ProcessId, Result};
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
@@ -84,12 +85,12 @@ impl PipelineConfig {
     }
 
     /// Validate pipeline configuration.
-    pub fn validate(&self) -> Result<(), String> {
+    pub fn validate(&self) -> Result<()> {
         if self.name.is_empty() {
-            return Err("Pipeline name is required".to_string());
+            return Err(Error::validation("Pipeline name is required"));
         }
         if self.agents.is_empty() {
-            return Err("Pipeline must have at least one stage".to_string());
+            return Err(Error::validation("Pipeline must have at least one stage"));
         }
         Ok(())
     }
@@ -118,7 +119,7 @@ pub struct RoutingRule {
 /// OrchestrationSession represents an active pipeline execution session.
 #[derive(Debug, Clone)]
 pub struct OrchestrationSession {
-    pub process_id: String,
+    pub process_id: ProcessId,
     pub pipeline_config: PipelineConfig,
     pub envelope: Envelope,
     pub edge_traversals: HashMap<String, i32>, // "from->to" -> count
@@ -131,7 +132,7 @@ pub struct OrchestrationSession {
 /// SessionState is the external representation of session state.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SessionState {
-    pub process_id: String,
+    pub process_id: ProcessId,
     pub current_stage: String,
     pub stage_order: Vec<String>,
     pub envelope: HashMap<String, serde_json::Value>, // Simplified envelope representation
@@ -148,7 +149,7 @@ pub struct SessionState {
 /// Orchestrator manages kernel-side pipeline execution.
 #[derive(Debug)]
 pub struct Orchestrator {
-    sessions: HashMap<String, OrchestrationSession>,
+    sessions: HashMap<ProcessId, OrchestrationSession>,
 }
 
 impl Orchestrator {
@@ -168,17 +169,17 @@ impl Orchestrator {
     /// If force is true, replaces any existing session.
     pub fn initialize_session(
         &mut self,
-        process_id: String,
+        process_id: ProcessId,
         pipeline_config: PipelineConfig,
         mut envelope: Envelope,
         force: bool,
-    ) -> Result<SessionState, String> {
+    ) -> Result<SessionState> {
         // Check for duplicate processID
         if self.sessions.contains_key(&process_id) && !force {
-            return Err(format!(
+            return Err(Error::validation(format!(
                 "Session already exists for process: {} (use force=true to replace)",
                 process_id
-            ));
+            )));
         }
 
         // Validate pipeline config
@@ -214,11 +215,11 @@ impl Orchestrator {
     }
 
     /// Get the next instruction for a process.
-    pub fn get_next_instruction(&mut self, process_id: &str) -> Result<Instruction, String> {
+    pub fn get_next_instruction(&mut self, process_id: &ProcessId) -> Result<Instruction> {
         let session = self
             .sessions
             .get_mut(process_id)
-            .ok_or_else(|| format!("Unknown process: {}", process_id))?;
+            .ok_or_else(|| Error::not_found(format!("Unknown process: {}", process_id)))?;
 
         // Update activity timestamp
         session.last_activity_at = Utc::now();
@@ -255,6 +256,8 @@ impl Orchestrator {
         if let Some(reason) = check_bounds(&session.envelope) {
             session.terminated = true;
             session.terminal_reason = Some(reason);
+            session.envelope.bounds.terminated = true;
+            session.envelope.bounds.terminal_reason = Some(reason);
             return Ok(Instruction {
                 kind: InstructionKind::Terminate,
                 agent_name: None,
@@ -270,7 +273,7 @@ impl Orchestrator {
         // Determine next agent to run
         let current_stage = &session.envelope.pipeline.current_stage;
         if current_stage.is_empty() {
-            return Err("No current stage set".to_string());
+            return Err(Error::state_transition("No current stage set"));
         }
 
         let agent_name = get_agent_for_stage(&session.pipeline_config, current_stage)?;
@@ -290,14 +293,14 @@ impl Orchestrator {
     /// Process agent execution result.
     pub fn report_agent_result(
         &mut self,
-        process_id: &str,
+        process_id: &ProcessId,
         metrics: AgentExecutionMetrics,
         updated_envelope: Envelope,
-    ) -> Result<(), String> {
+    ) -> Result<()> {
         let session = self
             .sessions
             .get_mut(process_id)
-            .ok_or_else(|| format!("Unknown process: {}", process_id))?;
+            .ok_or_else(|| Error::not_found(format!("Unknown process: {}", process_id)))?;
 
         // Update envelope
         session.envelope = updated_envelope;
@@ -349,10 +352,10 @@ impl Orchestrator {
             }
             None => {
                 // Current stage not found in stage_order - error
-                return Err(format!(
+                return Err(Error::state_transition(format!(
                     "Current stage '{}' not found in stage_order: {:?}",
                     session.envelope.pipeline.current_stage, stage_order
-                ));
+                )));
             }
         }
 
@@ -360,17 +363,17 @@ impl Orchestrator {
     }
 
     /// Get session state for external queries.
-    pub fn get_session_state(&self, process_id: &str) -> Result<SessionState, String> {
+    pub fn get_session_state(&self, process_id: &ProcessId) -> Result<SessionState> {
         let session = self
             .sessions
             .get(process_id)
-            .ok_or_else(|| format!("Unknown process: {}", process_id))?;
+            .ok_or_else(|| Error::not_found(format!("Unknown process: {}", process_id)))?;
 
         Ok(self.build_session_state(session))
     }
 
     /// Cleanup a session.
-    pub fn cleanup_session(&mut self, process_id: &str) -> bool {
+    pub fn cleanup_session(&mut self, process_id: &ProcessId) -> bool {
         self.sessions.remove(process_id).is_some()
     }
 
@@ -400,7 +403,7 @@ impl Orchestrator {
 
     /// Get the current envelope for a process.
     /// Returns None if the process does not exist.
-    pub fn get_envelope_for_process(&self, process_id: &str) -> Option<&Envelope> {
+    pub fn get_envelope_for_process(&self, process_id: &ProcessId) -> Option<&Envelope> {
         self.sessions
             .get(process_id)
             .map(|session| &session.envelope)
@@ -452,18 +455,19 @@ fn check_bounds(envelope: &Envelope) -> Option<TerminalReason> {
 fn get_agent_for_stage(
     pipeline_config: &PipelineConfig,
     stage_name: &str,
-) -> Result<String, String> {
+) -> Result<String> {
     pipeline_config
         .agents
         .iter()
         .find(|s| s.name == stage_name)
         .map(|s| s.agent.clone())
-        .ok_or_else(|| format!("Stage not found in pipeline: {}", stage_name))
+        .ok_or_else(|| Error::not_found(format!("Stage not found in pipeline: {}", stage_name)))
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::types::ProcessId;
 
     fn create_test_pipeline() -> PipelineConfig {
         PipelineConfig {
@@ -499,10 +503,10 @@ mod tests {
         let envelope = create_test_envelope();
 
         let state = orch
-            .initialize_session("proc1".to_string(), pipeline.clone(), envelope, false)
+            .initialize_session(ProcessId::must("proc1"), pipeline.clone(), envelope, false)
             .unwrap();
 
-        assert_eq!(state.process_id, "proc1");
+        assert_eq!(state.process_id.as_str(), "proc1");
         assert_eq!(state.current_stage, "stage1"); // First stage
         assert_eq!(state.stage_order, vec!["stage1", "stage2"]);
         assert!(!state.terminated);
@@ -515,15 +519,15 @@ mod tests {
         let envelope = create_test_envelope();
 
         // Initialize first time
-        orch.initialize_session("proc1".to_string(), pipeline.clone(), envelope.clone(), false)
+        orch.initialize_session(ProcessId::must("proc1"), pipeline.clone(), envelope.clone(), false)
             .unwrap();
 
         // Try to initialize again without force
         let result =
-            orch.initialize_session("proc1".to_string(), pipeline, envelope, false);
+            orch.initialize_session(ProcessId::must("proc1"), pipeline, envelope, false);
 
         assert!(result.is_err());
-        assert!(result.unwrap_err().contains("already exists"));
+        assert!(result.unwrap_err().to_string().contains("already exists"));
     }
 
     #[test]
@@ -533,12 +537,12 @@ mod tests {
         let envelope = create_test_envelope();
 
         // Initialize first time
-        orch.initialize_session("proc1".to_string(), pipeline.clone(), envelope.clone(), false)
+        orch.initialize_session(ProcessId::must("proc1"), pipeline.clone(), envelope.clone(), false)
             .unwrap();
 
         // Initialize again with force=true should succeed
         let result =
-            orch.initialize_session("proc1".to_string(), pipeline, envelope, true);
+            orch.initialize_session(ProcessId::must("proc1"), pipeline, envelope, true);
 
         assert!(result.is_ok());
     }
@@ -549,10 +553,10 @@ mod tests {
         let pipeline = create_test_pipeline();
         let envelope = create_test_envelope();
 
-        orch.initialize_session("proc1".to_string(), pipeline, envelope, false)
+        orch.initialize_session(ProcessId::must("proc1"), pipeline, envelope, false)
             .unwrap();
 
-        let instruction = orch.get_next_instruction("proc1").unwrap();
+        let instruction = orch.get_next_instruction(&ProcessId::must("proc1")).unwrap();
 
         assert_eq!(instruction.kind, InstructionKind::RunAgent);
         assert_eq!(instruction.agent_name, Some("agent1".to_string()));
@@ -565,15 +569,15 @@ mod tests {
         let pipeline = create_test_pipeline();
         let envelope = create_test_envelope();
 
-        orch.initialize_session("proc1".to_string(), pipeline, envelope, false)
+        orch.initialize_session(ProcessId::must("proc1"), pipeline, envelope, false)
             .unwrap();
 
         // Manually terminate session
-        let session = orch.sessions.get_mut("proc1").unwrap();
+        let session = orch.sessions.get_mut(&ProcessId::must("proc1")).unwrap();
         session.terminated = true;
         session.terminal_reason = Some(TerminalReason::MaxIterationsExceeded);
 
-        let instruction = orch.get_next_instruction("proc1").unwrap();
+        let instruction = orch.get_next_instruction(&ProcessId::must("proc1")).unwrap();
 
         assert_eq!(instruction.kind, InstructionKind::Terminate);
         assert_eq!(
@@ -595,10 +599,10 @@ mod tests {
                 .with_message("Need clarification".to_string())
         );
 
-        orch.initialize_session("proc1".to_string(), pipeline, envelope, false)
+        orch.initialize_session(ProcessId::must("proc1"), pipeline, envelope, false)
             .unwrap();
 
-        let instruction = orch.get_next_instruction("proc1").unwrap();
+        let instruction = orch.get_next_instruction(&ProcessId::must("proc1")).unwrap();
 
         assert_eq!(instruction.kind, InstructionKind::WaitInterrupt);
         assert!(instruction.interrupt_pending);
@@ -611,15 +615,15 @@ mod tests {
         let pipeline = create_test_pipeline();
         let envelope = create_test_envelope();
 
-        orch.initialize_session("proc1".to_string(), pipeline, envelope, false)
+        orch.initialize_session(ProcessId::must("proc1"), pipeline, envelope, false)
             .unwrap();
 
         // Manually exceed LLM calls
-        let session = orch.sessions.get_mut("proc1").unwrap();
+        let session = orch.sessions.get_mut(&ProcessId::must("proc1")).unwrap();
         session.envelope.bounds.llm_call_count = 50; // At limit
         session.envelope.bounds.max_llm_calls = 50;
 
-        let instruction = orch.get_next_instruction("proc1").unwrap();
+        let instruction = orch.get_next_instruction(&ProcessId::must("proc1")).unwrap();
 
         assert_eq!(instruction.kind, InstructionKind::Terminate);
         assert_eq!(
@@ -634,15 +638,15 @@ mod tests {
         let pipeline = create_test_pipeline();
         let envelope = create_test_envelope();
 
-        orch.initialize_session("proc1".to_string(), pipeline, envelope, false)
+        orch.initialize_session(ProcessId::must("proc1"), pipeline, envelope, false)
             .unwrap();
 
         // Manually exceed iterations
-        let session = orch.sessions.get_mut("proc1").unwrap();
+        let session = orch.sessions.get_mut(&ProcessId::must("proc1")).unwrap();
         session.envelope.pipeline.iteration = 10; // At limit
         session.envelope.pipeline.max_iterations = 10;
 
-        let instruction = orch.get_next_instruction("proc1").unwrap();
+        let instruction = orch.get_next_instruction(&ProcessId::must("proc1")).unwrap();
 
         assert_eq!(instruction.kind, InstructionKind::Terminate);
         assert_eq!(
@@ -657,7 +661,7 @@ mod tests {
         let pipeline = create_test_pipeline();
         let envelope = create_test_envelope();
 
-        orch.initialize_session("proc1".to_string(), pipeline, envelope, false)
+        orch.initialize_session(ProcessId::must("proc1"), pipeline, envelope, false)
             .unwrap();
 
         let metrics = AgentExecutionMetrics {
@@ -669,12 +673,12 @@ mod tests {
         };
 
         // Use the initialized envelope (with stage_order set) for the report
-        let initialized_envelope = orch.sessions.get("proc1").unwrap().envelope.clone();
-        orch.report_agent_result("proc1", metrics, initialized_envelope)
+        let initialized_envelope = orch.sessions.get(&ProcessId::must("proc1")).unwrap().envelope.clone();
+        orch.report_agent_result(&ProcessId::must("proc1"), metrics, initialized_envelope)
             .unwrap();
 
         // Check metrics were updated
-        let session = orch.sessions.get("proc1").unwrap();
+        let session = orch.sessions.get(&ProcessId::must("proc1")).unwrap();
         assert_eq!(session.envelope.bounds.llm_call_count, 2);
         assert_eq!(session.envelope.bounds.tool_call_count, 5);
         assert_eq!(session.envelope.bounds.tokens_in, 1000);
@@ -688,12 +692,12 @@ mod tests {
         let pipeline = create_test_pipeline();
         let envelope = create_test_envelope();
 
-        orch.initialize_session("proc1".to_string(), pipeline, envelope, false)
+        orch.initialize_session(ProcessId::must("proc1"), pipeline, envelope, false)
             .unwrap();
 
-        let state = orch.get_session_state("proc1").unwrap();
+        let state = orch.get_session_state(&ProcessId::must("proc1")).unwrap();
 
-        assert_eq!(state.process_id, "proc1");
+        assert_eq!(state.process_id.as_str(), "proc1");
         assert_eq!(state.current_stage, "stage1");
         assert!(!state.terminated);
     }
@@ -704,17 +708,17 @@ mod tests {
         let pipeline = create_test_pipeline();
         let envelope = create_test_envelope();
 
-        orch.initialize_session("proc1".to_string(), pipeline, envelope, false)
+        orch.initialize_session(ProcessId::must("proc1"), pipeline, envelope, false)
             .unwrap();
 
         assert_eq!(orch.get_session_count(), 1);
 
-        let removed = orch.cleanup_session("proc1");
+        let removed = orch.cleanup_session(&ProcessId::must("proc1"));
         assert!(removed);
         assert_eq!(orch.get_session_count(), 0);
 
         // Second cleanup should return false
-        let removed = orch.cleanup_session("proc1");
+        let removed = orch.cleanup_session(&ProcessId::must("proc1"));
         assert!(!removed);
     }
 
@@ -722,9 +726,8 @@ mod tests {
     fn test_get_session_state_not_found() {
         let orch = Orchestrator::new();
 
-        let result = orch.get_session_state("nonexistent");
+        let result = orch.get_session_state(&ProcessId::must("nonexistent"));
         assert!(result.is_err());
-        assert!(result.unwrap_err().contains("Unknown process"));
     }
 
     #[test]
