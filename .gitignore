@@ -4,6 +4,9 @@ Cargo.lock
 **/*.rs.bk
 *.pdb
 
+# Build artifacts
+*.exe
+
 # IDE
 .idea/
 .vscode/
