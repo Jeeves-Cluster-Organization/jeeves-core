@@ -7,8 +7,9 @@ use serde::Deserialize;
 
 /// Import envelope from JSON bytes (checkpoint 2 - stub for now).
 pub fn from_json(_bytes: &[u8]) -> crate::types::Result<super::Envelope> {
-    // TODO: Implement in checkpoint 2
-    unimplemented!("from_json will be implemented in checkpoint 2")
+    Err(crate::types::Error::internal(
+        "from_json not yet implemented (checkpoint 2)",
+    ))
 }
 
 /// Custom deserializer for int fields encoded as floats in JSON.

@@ -56,6 +56,7 @@ pub struct CleanupStats {
 }
 
 /// CleanupService handles background garbage collection.
+#[derive(Debug)]
 pub struct CleanupService {
     kernel: Arc<Mutex<crate::kernel::Kernel>>,
     config: CleanupConfig,
@@ -120,35 +121,35 @@ impl CleanupService {
         kernel: &mut crate::kernel::Kernel,
         config: &CleanupConfig,
     ) -> Result<CleanupStats> {
-        let mut stats = CleanupStats::default();
-
         // Clean up zombie processes
-        stats.zombies_removed = Self::cleanup_zombies(kernel, config.process_retention_seconds)?;
+        let zombies_removed = Self::cleanup_zombies(kernel, config.process_retention_seconds)?;
 
         // Clean up stale sessions
-        stats.sessions_removed =
-            kernel
-                .orchestrator
-                .cleanup_stale_sessions(config.session_retention_seconds);
+        let sessions_removed = kernel
+            .orchestrator
+            .cleanup_stale_sessions(config.session_retention_seconds);
 
         // Clean up resolved interrupts
         let interrupt_duration = Duration::seconds(config.interrupt_retention_seconds);
-        stats.interrupts_removed = kernel.interrupts.cleanup_resolved(interrupt_duration);
+        let interrupts_removed = kernel.interrupts.cleanup_resolved(interrupt_duration);
 
         // Clean up rate limit windows
         kernel.rate_limiter.cleanup_expired();
-        stats.rate_windows_cleaned = 0; // RateLimiter doesn't report count
-
-        stats.completed_at = Some(Utc::now());
 
         tracing::debug!(
             "cleanup_cycle_completed: zombies={}, sessions={}, interrupts={}",
-            stats.zombies_removed,
-            stats.sessions_removed,
-            stats.interrupts_removed
+            zombies_removed,
+            sessions_removed,
+            interrupts_removed
         );
 
-        Ok(stats)
+        Ok(CleanupStats {
+            zombies_removed,
+            sessions_removed,
+            interrupts_removed,
+            rate_windows_cleaned: 0, // RateLimiter doesn't report count
+            completed_at: Some(Utc::now()),
+        })
     }
 
     /// Clean up zombie processes older than retention threshold.
@@ -315,7 +316,7 @@ mod tests {
         service.stop();
 
         // Wait for task to complete
-        tokio::time::timeout(TokioDuration::from_secs(2), handle)
+        let _ = tokio::time::timeout(TokioDuration::from_secs(2), handle)
             .await
             .expect("cleanup service should stop");
     }

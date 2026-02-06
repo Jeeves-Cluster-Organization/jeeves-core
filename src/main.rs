@@ -26,7 +26,7 @@ use jeeves_core::proto::orchestration_service_server::OrchestrationServiceServer
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Load configuration
-    let _config = Config::default();
+    let config = Config::default();
 
     // Initialize observability
     jeeves_core::observability::init_tracing();
@@ -40,8 +40,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let orchestration_service = OrchestrationService::new(kernel.clone());
     let commbus_service = CommBusService::new(kernel.clone());
 
-    // Bind address
-    let addr = "[::1]:50051".parse()?;
+    // Bind address from config
+    let addr = config.server.grpc_addr.parse()?;
 
     tracing::info!("🚀 Jeeves Kernel gRPC server starting on {}", addr);
     tracing::info!("  ✓ KernelService: Process lifecycle and resources");
