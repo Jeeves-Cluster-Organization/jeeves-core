@@ -7,7 +7,7 @@
 //! the entire agentic OS kernel.
 
 use crate::types::{Error, Result};
-use std::panic::{catch_unwind, AssertUnwindSafe, UnwindSafe};
+use std::panic::{catch_unwind, AssertUnwindSafe};
 
 /// Execute a function with panic recovery.
 ///

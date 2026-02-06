@@ -40,6 +40,5 @@ pub mod types;
 
 // Internal utilities
 pub mod observability;
-mod validation;
 
 pub use types::{Config, Error, Result};

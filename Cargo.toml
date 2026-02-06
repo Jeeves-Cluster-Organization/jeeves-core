@@ -5,7 +5,7 @@ edition = "2021"
 rust-version = "1.75"
 authors = ["Jeeves Team"]
 description = "Rust implementation of Jeeves kernel - multi-agent orchestration runtime"
-license = "MIT"
+license = "Apache-2.0"
 
 [[bin]]
 name = "jeeves-kernel"
@@ -99,8 +99,8 @@ opt-level = 1
 
 # Linting configuration
 [lints.clippy]
-# Enforce strict safety
-unwrap_used = "deny"
+# Enforce strict safety (deny enforced in lib.rs; warn here so tests can use unwrap)
+unwrap_used = "warn"
 expect_used = "warn"
 panic = "warn"
 # unwrap_in_result = "deny"

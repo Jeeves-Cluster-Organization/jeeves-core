@@ -80,6 +80,9 @@ pub struct Subscription {
 // CommBus - In-Memory Message Bus
 // =============================================================================
 
+/// Sender type for query handler channels (query + response oneshot).
+type QueryHandlerSender = mpsc::UnboundedSender<(Query, oneshot::Sender<QueryResponse>)>;
+
 /// In-memory communication bus for kernel-mediated IPC.
 ///
 /// This bus provides:
@@ -97,7 +100,7 @@ pub struct CommBus {
     command_handlers: Arc<RwLock<HashMap<String, mpsc::UnboundedSender<Command>>>>,
 
     /// Query handlers: query_type -> handler channel
-    query_handlers: Arc<RwLock<HashMap<String, mpsc::UnboundedSender<(Query, oneshot::Sender<QueryResponse>)>>>>,
+    query_handlers: Arc<RwLock<HashMap<String, QueryHandlerSender>>>,
 
     /// Statistics
     stats: Arc<RwLock<BusStats>>,

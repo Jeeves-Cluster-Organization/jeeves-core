@@ -265,7 +265,7 @@ impl From<ProcessControlBlock> for proto::ProcessControlBlock {
             current_service: String::new(),
             pending_interrupt: pcb
                 .pending_interrupt
-                .map(|k| i32::from(k))
+                .map(i32::from)
                 .unwrap_or(0),
             interrupt_data: pcb
                 .interrupt_data
@@ -311,7 +311,7 @@ impl TryFrom<proto::Envelope> for Envelope {
 
         let interrupt = proto
             .interrupt
-            .map(|i| FlowInterrupt::try_from(i))
+            .map(FlowInterrupt::try_from)
             .transpose()?;
 
         let envelope_id = EnvelopeId::from_string(proto.envelope_id)
@@ -411,10 +411,10 @@ impl From<Envelope> for proto::Envelope {
             max_agent_hops: env.bounds.max_agent_hops,
             terminated: env.bounds.terminated,
             termination_reason: env.bounds.termination_reason.unwrap_or_default(),
-            terminal_reason: env.bounds.terminal_reason.map(|r| i32::from(r)).unwrap_or(0),
+            terminal_reason: env.bounds.terminal_reason.map(i32::from).unwrap_or(0),
             completed_at_ms: env.audit.completed_at.map(|t| datetime_to_ms(&t)).unwrap_or(0),
             interrupt_pending: env.interrupts.interrupt_pending,
-            interrupt: env.interrupts.interrupt.map(|i| proto::FlowInterrupt::from(i)),
+            interrupt: env.interrupts.interrupt.map(proto::FlowInterrupt::from),
             outputs,
             active_stages: env.pipeline.active_stages.into_iter().map(|s| (s, true)).collect(),
             completed_stage_set: env.pipeline.completed_stage_set.into_iter().map(|s| (s, true)).collect(),
@@ -456,7 +456,7 @@ impl TryFrom<proto::FlowInterrupt> for FlowInterrupt {
 
         let response = proto
             .response
-            .map(|r| InterruptResponse::try_from(r))
+            .map(InterruptResponse::try_from)
             .transpose()?;
 
         Ok(FlowInterrupt {
@@ -497,7 +497,7 @@ impl From<FlowInterrupt> for proto::FlowInterrupt {
                 .unwrap_or_default(),
             response: interrupt
                 .response
-                .map(|r| proto::InterruptResponse::from(r)),
+                .map(proto::InterruptResponse::from),
             status: InterruptStatus::Unspecified as i32, // Not in domain
             created_at_ms: datetime_to_ms(&interrupt.created_at),
             expires_at_ms: interrupt
@@ -603,7 +603,7 @@ impl From<Instruction> for proto::Instruction {
                 .unwrap_or_default(),
             terminal_reason: instruction
                 .terminal_reason
-                .map(|r| i32::from(r))
+                .map(i32::from)
                 .unwrap_or(0),
             termination_message: instruction.termination_message.unwrap_or_default(),
             interrupt_pending: instruction.interrupt_pending,
@@ -651,7 +651,7 @@ impl From<SessionState> for proto::SessionState {
                 .unwrap_or_default(),
             edge_traversals: state.edge_traversals,
             terminated: state.terminated,
-            terminal_reason: state.terminal_reason.map(|r| i32::from(r)).unwrap_or(0),
+            terminal_reason: state.terminal_reason.map(i32::from).unwrap_or(0),
         }
     }
 }
