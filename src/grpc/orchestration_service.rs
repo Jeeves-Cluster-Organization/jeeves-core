@@ -23,9 +23,9 @@ use crate::proto::{
 };
 
 /// Parse a process_id string from proto into a typed ProcessId.
-fn parse_pid(s: String) -> std::result::Result<ProcessId, Status> {
+fn parse_pid(s: String) -> std::result::Result<ProcessId, crate::types::Error> {
     ProcessId::from_string(s)
-        .map_err(|e| Status::invalid_argument(e.to_string()))
+        .map_err(|e| crate::types::Error::validation(e.to_string()))
 }
 
 /// OrchestrationService implementation.

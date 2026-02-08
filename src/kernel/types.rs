@@ -74,11 +74,12 @@ impl ProcessState {
 }
 
 /// Scheduling priority.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Hash)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Hash, Default)]
 #[serde(rename_all = "lowercase")]
 pub enum SchedulingPriority {
     Realtime,
     High,
+    #[default]
     Normal,
     Low,
     Idle,
@@ -97,11 +98,7 @@ impl SchedulingPriority {
     }
 }
 
-impl Default for SchedulingPriority {
-    fn default() -> Self {
-        SchedulingPriority::Normal
-    }
-}
+// Default derived via #[default] attribute on Normal variant above.
 
 /// Resource quota (cgroup-style limits).
 /// Matches proto ResourceQuota exactly.
@@ -299,7 +296,7 @@ impl ProcessControlBlock {
     }
 
     /// Transition to RUNNING state.
-    pub fn start(&mut self) {
+    pub(crate) fn start(&mut self) {
         let now = Utc::now();
         self.state = ProcessState::Running;
         self.started_at = Some(now);
@@ -307,7 +304,7 @@ impl ProcessControlBlock {
     }
 
     /// Transition to TERMINATED state.
-    pub fn complete(&mut self) {
+    pub(crate) fn complete(&mut self) {
         let now = Utc::now();
         self.state = ProcessState::Terminated;
         self.completed_at = Some(now);
@@ -317,7 +314,7 @@ impl ProcessControlBlock {
     }
 
     /// Transition to BLOCKED state.
-    pub fn block(&mut self, reason: String) {
+    pub(crate) fn block(&mut self, reason: String) {
         self.state = ProcessState::Blocked;
         if self.interrupt_data.is_none() {
             self.interrupt_data = Some(HashMap::new());
@@ -331,13 +328,13 @@ impl ProcessControlBlock {
     }
 
     /// Transition to WAITING state.
-    pub fn wait(&mut self, interrupt_kind: InterruptKind) {
+    pub(crate) fn wait(&mut self, interrupt_kind: InterruptKind) {
         self.state = ProcessState::Waiting;
         self.pending_interrupt = Some(interrupt_kind);
     }
 
     /// Resume from WAITING/BLOCKED to READY.
-    pub fn resume(&mut self) {
+    pub(crate) fn resume(&mut self) {
         if matches!(self.state, ProcessState::Waiting | ProcessState::Blocked) {
             self.state = ProcessState::Ready;
             self.pending_interrupt = None;

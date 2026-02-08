@@ -133,7 +133,7 @@ impl KernelInterrupt {
         let expires_at = ttl.map(|d| now + d);
 
         // Generate interrupt ID
-        let id = format!("int_{}", uuid::Uuid::new_v4().simple().to_string()[..16].to_string());
+        let id = format!("int_{}", &uuid::Uuid::new_v4().simple().to_string()[..16]);
 
         Self {
             flow_interrupt: FlowInterrupt {
@@ -170,6 +170,25 @@ impl KernelInterrupt {
     pub fn is_pending(&self) -> bool {
         self.status == InterruptStatus::Pending
     }
+}
+
+// =============================================================================
+// Interrupt Params
+// =============================================================================
+
+/// Parameters for creating a new interrupt.
+#[derive(Debug, Clone)]
+pub struct CreateInterruptParams {
+    pub kind: InterruptKind,
+    pub request_id: String,
+    pub user_id: String,
+    pub session_id: String,
+    pub envelope_id: String,
+    pub question: Option<String>,
+    pub message: Option<String>,
+    pub data: Option<HashMap<String, serde_json::Value>>,
+    pub trace_id: Option<String>,
+    pub span_id: Option<String>,
 }
 
 // =============================================================================
@@ -244,41 +263,29 @@ impl InterruptService {
     // =============================================================================
 
     /// Create a new interrupt.
-    pub fn create_interrupt(
-        &mut self,
-        kind: InterruptKind,
-        request_id: String,
-        user_id: String,
-        session_id: String,
-        envelope_id: String,
-        question: Option<String>,
-        message: Option<String>,
-        data: Option<HashMap<String, serde_json::Value>>,
-        trace_id: Option<String>,
-        span_id: Option<String>,
-    ) -> KernelInterrupt {
-        let config = self.get_config(kind);
+    pub fn create_interrupt(&mut self, params: CreateInterruptParams) -> KernelInterrupt {
+        let config = self.get_config(params.kind);
         let mut interrupt = KernelInterrupt::new(
-            kind,
-            request_id.clone(),
-            user_id,
-            session_id.clone(),
-            envelope_id,
+            params.kind,
+            params.request_id.clone(),
+            params.user_id,
+            params.session_id.clone(),
+            params.envelope_id,
             config.default_ttl,
         );
 
         // Apply options
-        if let Some(q) = question {
+        if let Some(q) = params.question {
             interrupt.flow_interrupt.question = Some(q);
         }
-        if let Some(m) = message {
+        if let Some(m) = params.message {
             interrupt.flow_interrupt.message = Some(m);
         }
-        if let Some(d) = data {
+        if let Some(d) = params.data {
             interrupt.flow_interrupt.data = Some(d);
         }
-        interrupt.trace_id = trace_id;
-        interrupt.span_id = span_id;
+        interrupt.trace_id = params.trace_id;
+        interrupt.span_id = params.span_id;
 
         // Store interrupt
         let interrupt_id = interrupt.flow_interrupt.id.clone();
@@ -286,14 +293,14 @@ impl InterruptService {
 
         // Index by request
         self.by_request
-            .entry(request_id)
-            .or_insert_with(Vec::new)
+            .entry(params.request_id)
+            .or_default()
             .push(interrupt_id.clone());
 
         // Index by session
         self.by_session
-            .entry(session_id)
-            .or_insert_with(Vec::new)
+            .entry(params.session_id)
+            .or_default()
             .push(interrupt_id);
 
         interrupt
@@ -309,18 +316,18 @@ impl InterruptService {
         question: String,
         context: Option<HashMap<String, serde_json::Value>>,
     ) -> KernelInterrupt {
-        self.create_interrupt(
-            InterruptKind::Clarification,
+        self.create_interrupt(CreateInterruptParams {
+            kind: InterruptKind::Clarification,
             request_id,
             user_id,
             session_id,
             envelope_id,
-            Some(question),
-            None,
-            context,
-            None,
-            None,
-        )
+            question: Some(question),
+            message: None,
+            data: context,
+            trace_id: None,
+            span_id: None,
+        })
     }
 
     /// Convenience method to create a confirmation interrupt.
@@ -333,18 +340,18 @@ impl InterruptService {
         message: String,
         action_data: Option<HashMap<String, serde_json::Value>>,
     ) -> KernelInterrupt {
-        self.create_interrupt(
-            InterruptKind::Confirmation,
+        self.create_interrupt(CreateInterruptParams {
+            kind: InterruptKind::Confirmation,
             request_id,
             user_id,
             session_id,
             envelope_id,
-            None,
-            Some(message),
-            action_data,
-            None,
-            None,
-        )
+            question: None,
+            message: Some(message),
+            data: action_data,
+            trace_id: None,
+            span_id: None,
+        })
     }
 
     /// Convenience method to create a resource exhausted interrupt.
@@ -367,18 +374,18 @@ impl InterruptService {
             serde_json::json!(retry_after_seconds),
         );
 
-        self.create_interrupt(
-            InterruptKind::ResourceExhausted,
+        self.create_interrupt(CreateInterruptParams {
+            kind: InterruptKind::ResourceExhausted,
             request_id,
             user_id,
             session_id,
             envelope_id,
-            None,
-            Some(format!("Resource exhausted: {}", resource_type)),
-            Some(data),
-            None,
-            None,
-        )
+            question: None,
+            message: Some(format!("Resource exhausted: {}", resource_type)),
+            data: Some(data),
+            trace_id: None,
+            span_id: None,
+        })
     }
 
     // =============================================================================
@@ -570,7 +577,9 @@ impl InterruptService {
                 InterruptStatus::Expired => "expired",
                 InterruptStatus::Cancelled => "cancelled",
             };
-            *stats.get_mut(key).unwrap() += 1;
+            if let Some(count) = stats.get_mut(key) {
+                *count += 1;
+            }
         }
 
         stats
@@ -721,18 +730,18 @@ mod tests {
         let mut service = InterruptService::new();
 
         // Create interrupt with very short TTL (1 second)
-        let interrupt = service.create_interrupt(
-            InterruptKind::Confirmation,
-            "req1".to_string(),
-            "user1".to_string(),
-            "sess1".to_string(),
-            "env1".to_string(),
-            Some("Quick question?".to_string()),
-            None,
-            None,
-            None,
-            None,
-        );
+        let interrupt = service.create_interrupt(CreateInterruptParams {
+            kind: InterruptKind::Confirmation,
+            request_id: "req1".to_string(),
+            user_id: "user1".to_string(),
+            session_id: "sess1".to_string(),
+            envelope_id: "env1".to_string(),
+            question: Some("Quick question?".to_string()),
+            message: None,
+            data: None,
+            trace_id: None,
+            span_id: None,
+        });
 
         // Manually set expiry to past
         let interrupt_id = interrupt.flow_interrupt.id.clone();

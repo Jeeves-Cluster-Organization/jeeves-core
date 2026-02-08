@@ -251,27 +251,9 @@ impl Kernel {
     /// Create a new interrupt for a process.
     pub fn create_interrupt(
         &mut self,
-        kind: crate::envelope::InterruptKind,
-        request_id: String,
-        user_id: String,
-        session_id: String,
-        envelope_id: String,
-        question: Option<String>,
-        message: Option<String>,
-        data: Option<HashMap<String, serde_json::Value>>,
+        params: interrupts::CreateInterruptParams,
     ) -> interrupts::KernelInterrupt {
-        self.interrupts.create_interrupt(
-            kind,
-            request_id,
-            user_id,
-            session_id,
-            envelope_id,
-            question,
-            message,
-            data,
-            None, // trace_id
-            None, // span_id
-        )
+        self.interrupts.create_interrupt(params)
     }
 
     /// Resolve an interrupt with a response.
@@ -311,7 +293,7 @@ impl Kernel {
     ) -> Result<services::DispatchResult> {
         self.services
             .dispatch(target, data)
-            .map_err(|e| Error::internal(e))
+            .map_err(Error::internal)
     }
 
     // =============================================================================

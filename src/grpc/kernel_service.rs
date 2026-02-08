@@ -16,9 +16,9 @@ use tokio::sync::Mutex;
 use tonic::{Request, Response, Status};
 
 /// Parse a proto string into a ProcessId at the gRPC boundary.
-fn parse_pid(s: String) -> std::result::Result<ProcessId, Status> {
+fn parse_pid(s: String) -> std::result::Result<ProcessId, Error> {
     ProcessId::from_string(s)
-        .map_err(|e| Error::validation(e.to_string()).to_grpc_status())
+        .map_err(|e| Error::validation(e.to_string()))
 }
 
 /// KernelService implementation wrapping the Kernel actor.

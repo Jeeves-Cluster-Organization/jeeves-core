@@ -69,7 +69,7 @@ impl FlowInterrupt {
     pub fn new(kind: InterruptKind) -> Self {
         Self {
             kind,
-            id: format!("int_{}", uuid::Uuid::new_v4().simple().to_string()[..16].to_string()),
+            id: format!("int_{}", &uuid::Uuid::new_v4().simple().to_string()[..16]),
             question: None,
             message: None,
             data: None,
