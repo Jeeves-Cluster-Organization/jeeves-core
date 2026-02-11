@@ -9,6 +9,6 @@ mod config;
 mod errors;
 mod ids;
 
-pub use config::Config;
+pub use config::{Config, IpcConfig};
 pub use errors::{Error, Result};
 pub use ids::{EnvelopeId, ProcessId, RequestId, SessionId, UserId};

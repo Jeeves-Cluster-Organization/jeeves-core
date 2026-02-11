@@ -5,7 +5,7 @@
 //! - Resource quota enforcement (LLM calls, tokens, hops, iterations)
 //! - Rate limiting with configurable windows
 //! - Flow interrupts for human-in-the-loop patterns
-//! - gRPC service layer for external clients
+//! - TCP+msgpack IPC service layer for external clients
 //! - Message bus for pub/sub and request/response patterns
 //!
 //! ## Architecture
@@ -13,7 +13,7 @@
 //! The kernel follows a single-actor model where the `Kernel` owns all mutable state:
 //! ```text
 //!                    ┌─────────────────────────────────┐
-//!   gRPC requests →  │         Kernel Actor            │
+//!   IPC requests  →  │         Kernel Actor            │
 //!                    │  ┌─────────┐ ┌─────────┐        │
 //!                    │  │Resources│ │Lifecycle│        │
 //!                    │  │ Tracker │ │ Manager │        │
@@ -33,12 +33,11 @@
 // Re-export public API
 pub mod commbus;
 pub mod envelope;
-pub mod grpc;
+pub mod ipc;
 pub mod kernel;
-pub mod proto;
 pub mod types;
 
 // Internal utilities
 pub mod observability;
 
-pub use types::{Config, Error, Result};
+pub use types::{Config, Error, IpcConfig, Result};

@@ -19,13 +19,17 @@ pub struct Config {
     /// Default resource limits.
     #[serde(default)]
     pub defaults: DefaultLimits,
+
+    /// IPC transport configuration.
+    #[serde(default)]
+    pub ipc: IpcConfig,
 }
 
 /// Server configuration.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ServerConfig {
-    /// gRPC server bind address.
-    pub grpc_addr: String,
+    /// IPC server bind address (TCP).
+    pub listen_addr: String,
 
     /// Metrics endpoint bind address.
     pub metrics_addr: String,
@@ -37,7 +41,7 @@ pub struct ServerConfig {
 impl Default for ServerConfig {
     fn default() -> Self {
         Self {
-            grpc_addr: "127.0.0.1:50051".to_string(),
+            listen_addr: "127.0.0.1:50051".to_string(),
             metrics_addr: "127.0.0.1:9090".to_string(),
             max_connections: 1000,
         }
@@ -95,6 +99,33 @@ impl Default for DefaultLimits {
             max_agent_hops: 10,
             max_iterations: 20,
             process_timeout: Duration::from_secs(300),
+        }
+    }
+}
+
+/// IPC transport configuration.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct IpcConfig {
+    /// Maximum frame payload size in bytes.
+    pub max_frame_bytes: u32,
+
+    /// Maximum CommBus query timeout in milliseconds (caps client-requested timeouts).
+    pub max_query_timeout_ms: u64,
+
+    /// Default CommBus query timeout in milliseconds (when client omits timeout_ms).
+    pub default_query_timeout_ms: u64,
+
+    /// Bounded channel capacity for streaming responses (Subscribe).
+    pub stream_channel_capacity: usize,
+}
+
+impl Default for IpcConfig {
+    fn default() -> Self {
+        Self {
+            max_frame_bytes: 50 * 1024 * 1024,
+            max_query_timeout_ms: 30_000,
+            default_query_timeout_ms: 5_000,
+            stream_channel_capacity: 64,
         }
     }
 }
