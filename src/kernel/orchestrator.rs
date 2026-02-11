@@ -24,7 +24,7 @@ use std::collections::HashMap;
 
 /// InstructionKind indicates what the Python worker should do next.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case")]
+#[serde(rename_all = "SCREAMING_SNAKE_CASE")]
 pub enum InstructionKind {
     /// Execute specified agent
     RunAgent,

@@ -235,8 +235,12 @@ pub async fn handle(
                 ProcessState::Zombie,
             ] {
                 let count = kernel.process_count_by_state(*state) as i32;
+                let state_key = serde_json::to_value(state)
+                    .ok()
+                    .and_then(|v| v.as_str().map(|s| s.to_string()))
+                    .unwrap_or_else(|| format!("{:?}", state));
                 counts_by_state.insert(
-                    format!("{:?}", state).to_lowercase(),
+                    state_key,
                     Value::Number(count.into()),
                 );
             }
@@ -320,8 +324,8 @@ pub fn pcb_to_value(pcb: &crate::kernel::ProcessControlBlock) -> Value {
         "request_id": pcb.request_id.as_str(),
         "user_id": pcb.user_id.as_str(),
         "session_id": pcb.session_id.as_str(),
-        "state": format!("{:?}", pcb.state).to_uppercase(),
-        "priority": format!("{:?}", pcb.priority).to_uppercase(),
+        "state": serde_json::to_value(&pcb.state).unwrap_or(Value::String("UNKNOWN".to_string())),
+        "priority": serde_json::to_value(&pcb.priority).unwrap_or(Value::String("NORMAL".to_string())),
         "usage": {
             "llm_calls": pcb.usage.llm_calls,
             "tool_calls": pcb.usage.tool_calls,

@@ -121,13 +121,15 @@ pub async fn handle(
 
 /// Convert Instruction to the dict shape expected by `kernel_client.py._dict_to_instruction`.
 pub fn instruction_to_value(instr: &crate::kernel::orchestrator::Instruction) -> Value {
-    let kind_str = match instr.kind {
-        crate::kernel::orchestrator::InstructionKind::RunAgent => "RUN_AGENT",
-        crate::kernel::orchestrator::InstructionKind::Terminate => "TERMINATE",
-        crate::kernel::orchestrator::InstructionKind::WaitInterrupt => "WAIT_INTERRUPT",
-    };
+    let kind_str = serde_json::to_value(&instr.kind)
+        .ok()
+        .and_then(|v| v.as_str().map(|s| s.to_string()))
+        .unwrap_or_else(|| "UNKNOWN".to_string());
 
-    let terminal_reason_str = instr.terminal_reason.as_ref().map(|r| format!("{:?}", r)).unwrap_or_default();
+    let terminal_reason_str = instr.terminal_reason.as_ref()
+        .and_then(|r| serde_json::to_value(r).ok())
+        .and_then(|v| v.as_str().map(|s| s.to_string()))
+        .unwrap_or_default();
 
     let agent_config = instr.agent_config.as_ref().map(|v| v.to_string());
     let envelope = instr
@@ -150,7 +152,10 @@ pub fn instruction_to_value(instr: &crate::kernel::orchestrator::Instruction) ->
 /// Convert SessionState to the dict shape expected by `kernel_client.py._dict_to_session_state`.
 pub fn session_state_to_value(state: &crate::kernel::orchestrator::SessionState) -> Value {
     let envelope_str = serde_json::to_string(&state.envelope).ok();
-    let terminal_reason_str = state.terminal_reason.as_ref().map(|r| format!("{:?}", r)).unwrap_or_default();
+    let terminal_reason_str = state.terminal_reason.as_ref()
+        .and_then(|r| serde_json::to_value(r).ok())
+        .and_then(|v| v.as_str().map(|s| s.to_string()))
+        .unwrap_or_default();
 
     serde_json::json!({
         "process_id": state.process_id.as_str(),

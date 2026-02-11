@@ -16,7 +16,7 @@ use crate::types::{ProcessId, RequestId, SessionId, UserId};
 ///                  READY     ZOMBIE
 /// ```
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Hash)]
-#[serde(rename_all = "lowercase")]
+#[serde(rename_all = "SCREAMING_SNAKE_CASE")]
 pub enum ProcessState {
     New,
     Ready,
@@ -75,7 +75,7 @@ impl ProcessState {
 
 /// Scheduling priority.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Hash, Default)]
-#[serde(rename_all = "lowercase")]
+#[serde(rename_all = "SCREAMING_SNAKE_CASE")]
 pub enum SchedulingPriority {
     Realtime,
     High,
