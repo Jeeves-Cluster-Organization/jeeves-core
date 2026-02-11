@@ -67,8 +67,11 @@ pub struct AgentExecutionMetrics {
 // Pipeline Config (Simplified)
 // =============================================================================
 
-/// Simplified PipelineConfig for orchestration.
-/// Full implementation would come from config module.
+/// Pipeline configuration for orchestration.
+///
+/// The kernel is a pure evaluator — it iterates routing rules, first match wins.
+/// All pipeline shape (linear, branching, cycles) is defined by the capability
+/// layer via routing rules on each stage.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PipelineConfig {
     pub name: String,
@@ -76,6 +79,7 @@ pub struct PipelineConfig {
     pub max_iterations: i32,
     pub max_llm_calls: i32,
     pub max_agent_hops: i32,
+    pub edge_limits: Vec<EdgeLimit>,
 }
 
 impl PipelineConfig {
@@ -92,11 +96,43 @@ impl PipelineConfig {
         if self.agents.is_empty() {
             return Err(Error::validation("Pipeline must have at least one stage"));
         }
+
+        // Validate all routing targets reference existing stages
+        let stage_names: std::collections::HashSet<&str> =
+            self.agents.iter().map(|s| s.name.as_str()).collect();
+        for stage in &self.agents {
+            for rule in &stage.routing {
+                if !stage_names.contains(rule.target.as_str()) {
+                    return Err(Error::validation(format!(
+                        "Stage '{}' has routing target '{}' which does not exist in pipeline. Valid stages: {:?}",
+                        stage.name, rule.target, stage_names
+                    )));
+                }
+            }
+        }
+
+        // Validate edge limits reference existing stages
+        for limit in &self.edge_limits {
+            if !stage_names.contains(limit.from_stage.as_str()) {
+                return Err(Error::validation(format!(
+                    "Edge limit from_stage '{}' does not exist", limit.from_stage
+                )));
+            }
+            if !stage_names.contains(limit.to_stage.as_str()) {
+                return Err(Error::validation(format!(
+                    "Edge limit to_stage '{}' does not exist", limit.to_stage
+                )));
+            }
+        }
+
         Ok(())
     }
 }
 
-/// Simplified PipelineStage.
+/// Pipeline stage with routing rules.
+///
+/// Routing rules are the only advancement mechanism. Linear pipelines use
+/// unconditional rules (condition: None) as catch-alls.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PipelineStage {
     pub name: String,
@@ -104,12 +140,24 @@ pub struct PipelineStage {
     pub routing: Vec<RoutingRule>,
 }
 
-/// Simplified RoutingRule.
+/// Routing rule for conditional stage transitions.
+///
+/// Rules are evaluated in order (first match wins):
+/// - `condition: None` → unconditional (catch-all)
+/// - `condition: Some(key)` → match if `output[key] == value`
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct RoutingRule {
-    pub condition: String, // Simplified - full impl would parse this
+    pub condition: Option<String>,
+    pub value: serde_json::Value,
     pub target: String,
-    pub priority: i32,
+}
+
+/// Per-edge transition limit.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct EdgeLimit {
+    pub from_stage: String,
+    pub to_stage: String,
+    pub max_count: i32,
 }
 
 // =============================================================================
@@ -314,48 +362,75 @@ impl Orchestrator {
         // Increment iteration
         session.envelope.pipeline.iteration += 1;
 
-        // ===== STAGE ADVANCEMENT LOGIC =====
-        // Find current stage index in stage_order
-        let stage_order = session.envelope.pipeline.stage_order.clone();
-        let current_stage_idx = stage_order
+        // Check bounds after iteration increment (terminates cycles)
+        if let Some(reason) = check_bounds(&session.envelope) {
+            session.terminated = true;
+            session.terminal_reason = Some(reason);
+            session.envelope.bounds.terminated = true;
+            session.envelope.bounds.terminal_reason = Some(reason);
+            return Ok(());
+        }
+
+        // ===== ROUTING-BASED STAGE ADVANCEMENT =====
+        let current_stage = session.envelope.pipeline.current_stage.clone();
+
+        // Look up the PipelineStage config for the current stage
+        let pipeline_stage = session.pipeline_config.agents
             .iter()
-            .position(|s| s == &session.envelope.pipeline.current_stage);
+            .find(|s| s.name == current_stage)
+            .ok_or_else(|| Error::state_transition(format!(
+                "Current stage '{}' not found in pipeline config",
+                current_stage
+            )))?
+            .clone();
 
-        match current_stage_idx {
-            Some(idx) => {
-                // Clone current_stage to avoid borrow checker issues
-                let current_stage = session.envelope.pipeline.current_stage.clone();
+        // Mark current stage as completed
+        session.envelope.complete_stage(&current_stage);
 
-                // Mark current stage as completed
-                session.envelope.complete_stage(&current_stage);
+        // Get agent name for output lookup
+        let agent_name = pipeline_stage.agent.clone();
 
-                // Check if there's a next stage
-                if idx + 1 < stage_order.len() {
-                    // Advance to next stage
-                    session.envelope.pipeline.current_stage = stage_order[idx + 1].clone();
+        // Evaluate routing rules (first match wins)
+        let next_target = evaluate_routing(
+            &pipeline_stage,
+            &session.envelope.outputs,
+            &agent_name,
+        );
 
-                    // Increment agent_hop_count to track stage progression
-                    session.envelope.bounds.agent_hop_count += 1;
-
-                    // Update activity timestamp
-                    session.last_activity_at = Utc::now();
-                } else {
-                    // Last stage completed - mark pipeline as complete
+        match next_target {
+            Some(target) => {
+                // Check edge limit
+                if !check_edge_limit(
+                    &session.pipeline_config,
+                    &session.edge_traversals,
+                    &current_stage,
+                    &target,
+                ) {
                     session.terminated = true;
-                    session.terminal_reason = Some(TerminalReason::Completed);
+                    session.terminal_reason = Some(TerminalReason::MaxAgentHopsExceeded);
                     session.envelope.bounds.terminated = true;
-                    session.envelope.bounds.terminal_reason = Some(TerminalReason::Completed);
+                    session.envelope.bounds.terminal_reason = Some(TerminalReason::MaxAgentHopsExceeded);
+                    session.envelope.bounds.termination_reason = Some(format!(
+                        "Edge limit exceeded: {} -> {}", current_stage, target
+                    ));
+                } else {
+                    // Record edge traversal
+                    let edge_key = format!("{}->{}", current_stage, target);
+                    *session.edge_traversals.entry(edge_key).or_insert(0) += 1;
 
-                    // Update activity timestamp
-                    session.last_activity_at = Utc::now();
+                    // Advance to target stage
+                    session.envelope.pipeline.current_stage = target;
+                    session.envelope.bounds.agent_hop_count += 1;
                 }
+                session.last_activity_at = Utc::now();
             }
             None => {
-                // Current stage not found in stage_order - error
-                return Err(Error::state_transition(format!(
-                    "Current stage '{}' not found in stage_order: {:?}",
-                    session.envelope.pipeline.current_stage, stage_order
-                )));
+                // No routing rules matched — pipeline complete
+                session.terminated = true;
+                session.terminal_reason = Some(TerminalReason::Completed);
+                session.envelope.bounds.terminated = true;
+                session.envelope.bounds.terminal_reason = Some(TerminalReason::Completed);
+                session.last_activity_at = Utc::now();
             }
         }
 
@@ -464,11 +539,68 @@ fn get_agent_for_stage(
         .ok_or_else(|| Error::not_found(format!("Stage not found in pipeline: {}", stage_name)))
 }
 
+/// Evaluate routing rules for a stage against agent outputs.
+///
+/// Rules are evaluated in order (first match wins):
+/// - `condition: None` → unconditional match (catch-all)
+/// - `condition: Some(key)` → match if `output[key] == rule.value`
+///
+/// Returns `Ok(Some(target))` if a rule matched, `Ok(None)` if no rules matched
+/// (pipeline complete). Target validity is checked by the caller at init time.
+fn evaluate_routing(
+    stage: &PipelineStage,
+    agent_outputs: &HashMap<String, HashMap<String, serde_json::Value>>,
+    agent_name: &str,
+) -> Option<String> {
+    let output = agent_outputs.get(agent_name);
+
+    for rule in &stage.routing {
+        match &rule.condition {
+            None => {
+                // Unconditional — always matches
+                return Some(rule.target.clone());
+            }
+            Some(key) => {
+                if let Some(out) = output {
+                    if let Some(actual_value) = out.get(key) {
+                        if *actual_value == rule.value {
+                            return Some(rule.target.clone());
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    // No rules matched — pipeline complete
+    None
+}
+
+/// Check if an edge transition is within its limit.
+/// Returns true if the transition is allowed.
+fn check_edge_limit(
+    config: &PipelineConfig,
+    edge_traversals: &HashMap<String, i32>,
+    from_stage: &str,
+    to_stage: &str,
+) -> bool {
+    for limit in &config.edge_limits {
+        if limit.from_stage == from_stage && limit.to_stage == to_stage {
+            let edge_key = format!("{}->{}", from_stage, to_stage);
+            let count = edge_traversals.get(&edge_key).copied().unwrap_or(0);
+            return count < limit.max_count;
+        }
+    }
+    // No limit configured — allowed
+    true
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::types::ProcessId;
 
+    /// Create a linear 2-stage pipeline using unconditional routing rules.
     fn create_test_pipeline() -> PipelineConfig {
         PipelineConfig {
             name: "test_pipeline".to_string(),
@@ -476,17 +608,22 @@ mod tests {
                 PipelineStage {
                     name: "stage1".to_string(),
                     agent: "agent1".to_string(),
-                    routing: vec![],
+                    routing: vec![RoutingRule {
+                        condition: None,
+                        value: serde_json::Value::Null,
+                        target: "stage2".to_string(),
+                    }],
                 },
                 PipelineStage {
                     name: "stage2".to_string(),
                     agent: "agent2".to_string(),
-                    routing: vec![],
+                    routing: vec![], // No routing → terminates after stage2
                 },
             ],
             max_iterations: 10,
             max_llm_calls: 50,
             max_agent_hops: 5,
+            edge_limits: vec![],
         }
     }
 
@@ -745,5 +882,343 @@ mod tests {
         let mut pipeline2 = create_test_pipeline();
         pipeline2.agents = vec![];
         assert!(pipeline2.validate().is_err());
+    }
+
+    // =========================================================================
+    // Routing Tests
+    // =========================================================================
+
+    #[test]
+    fn test_routing_conditional_match() {
+        let mut orch = Orchestrator::new();
+        let pipeline = PipelineConfig {
+            name: "test".to_string(),
+            agents: vec![
+                PipelineStage {
+                    name: "s1".to_string(),
+                    agent: "a1".to_string(),
+                    routing: vec![
+                        RoutingRule {
+                            condition: Some("intent".to_string()),
+                            value: serde_json::json!("skip"),
+                            target: "s3".to_string(),
+                        },
+                        RoutingRule {
+                            condition: None,
+                            value: serde_json::Value::Null,
+                            target: "s2".to_string(),
+                        },
+                    ],
+                },
+                PipelineStage { name: "s2".to_string(), agent: "a2".to_string(), routing: vec![] },
+                PipelineStage { name: "s3".to_string(), agent: "a3".to_string(), routing: vec![] },
+            ],
+            max_iterations: 10,
+            max_llm_calls: 10,
+            max_agent_hops: 10,
+            edge_limits: vec![],
+        };
+        let envelope = create_test_envelope();
+        orch.initialize_session(ProcessId::must("p1"), pipeline, envelope, false).unwrap();
+
+        // Report result with output that matches the conditional rule
+        let mut env = orch.sessions.get(&ProcessId::must("p1")).unwrap().envelope.clone();
+        let mut output = HashMap::new();
+        output.insert("intent".to_string(), serde_json::json!("skip"));
+        env.outputs.insert("a1".to_string(), output);
+
+        let metrics = AgentExecutionMetrics { llm_calls: 0, tool_calls: 0, tokens_in: 0, tokens_out: 0, duration_ms: 0 };
+        orch.report_agent_result(&ProcessId::must("p1"), metrics, env).unwrap();
+
+        // Should route to s3 (conditional match), not s2 (catch-all)
+        let session = orch.sessions.get(&ProcessId::must("p1")).unwrap();
+        assert_eq!(session.envelope.pipeline.current_stage, "s3");
+        assert!(!session.terminated);
+    }
+
+    #[test]
+    fn test_routing_unconditional() {
+        let mut orch = Orchestrator::new();
+        let pipeline = PipelineConfig {
+            name: "test".to_string(),
+            agents: vec![
+                PipelineStage {
+                    name: "s1".to_string(),
+                    agent: "a1".to_string(),
+                    routing: vec![RoutingRule {
+                        condition: None,
+                        value: serde_json::Value::Null,
+                        target: "s2".to_string(),
+                    }],
+                },
+                PipelineStage { name: "s2".to_string(), agent: "a2".to_string(), routing: vec![] },
+            ],
+            max_iterations: 10,
+            max_llm_calls: 10,
+            max_agent_hops: 10,
+            edge_limits: vec![],
+        };
+        let envelope = create_test_envelope();
+        orch.initialize_session(ProcessId::must("p1"), pipeline, envelope, false).unwrap();
+
+        let env = orch.sessions.get(&ProcessId::must("p1")).unwrap().envelope.clone();
+        let metrics = AgentExecutionMetrics { llm_calls: 0, tool_calls: 0, tokens_in: 0, tokens_out: 0, duration_ms: 0 };
+        orch.report_agent_result(&ProcessId::must("p1"), metrics, env).unwrap();
+
+        let session = orch.sessions.get(&ProcessId::must("p1")).unwrap();
+        assert_eq!(session.envelope.pipeline.current_stage, "s2");
+        assert!(!session.terminated);
+    }
+
+    #[test]
+    fn test_routing_first_match_wins() {
+        let mut orch = Orchestrator::new();
+        let pipeline = PipelineConfig {
+            name: "test".to_string(),
+            agents: vec![
+                PipelineStage {
+                    name: "s1".to_string(),
+                    agent: "a1".to_string(),
+                    routing: vec![
+                        RoutingRule {
+                            condition: Some("intent".to_string()),
+                            value: serde_json::json!("greet"),
+                            target: "s2".to_string(),
+                        },
+                        RoutingRule {
+                            condition: Some("intent".to_string()),
+                            value: serde_json::json!("greet"),
+                            target: "s3".to_string(),
+                        },
+                    ],
+                },
+                PipelineStage { name: "s2".to_string(), agent: "a2".to_string(), routing: vec![] },
+                PipelineStage { name: "s3".to_string(), agent: "a3".to_string(), routing: vec![] },
+            ],
+            max_iterations: 10,
+            max_llm_calls: 10,
+            max_agent_hops: 10,
+            edge_limits: vec![],
+        };
+        let envelope = create_test_envelope();
+        orch.initialize_session(ProcessId::must("p1"), pipeline, envelope, false).unwrap();
+
+        let mut env = orch.sessions.get(&ProcessId::must("p1")).unwrap().envelope.clone();
+        let mut output = HashMap::new();
+        output.insert("intent".to_string(), serde_json::json!("greet"));
+        env.outputs.insert("a1".to_string(), output);
+
+        let metrics = AgentExecutionMetrics { llm_calls: 0, tool_calls: 0, tokens_in: 0, tokens_out: 0, duration_ms: 0 };
+        orch.report_agent_result(&ProcessId::must("p1"), metrics, env).unwrap();
+
+        // First rule wins → s2, not s3
+        let session = orch.sessions.get(&ProcessId::must("p1")).unwrap();
+        assert_eq!(session.envelope.pipeline.current_stage, "s2");
+    }
+
+    #[test]
+    fn test_routing_linear_chain() {
+        // Linear pipeline: s1 → s2 → s3 → terminate, all via unconditional routing
+        let mut orch = Orchestrator::new();
+        let pipeline = PipelineConfig {
+            name: "test".to_string(),
+            agents: vec![
+                PipelineStage {
+                    name: "s1".to_string(),
+                    agent: "a1".to_string(),
+                    routing: vec![RoutingRule { condition: None, value: serde_json::Value::Null, target: "s2".to_string() }],
+                },
+                PipelineStage {
+                    name: "s2".to_string(),
+                    agent: "a2".to_string(),
+                    routing: vec![RoutingRule { condition: None, value: serde_json::Value::Null, target: "s3".to_string() }],
+                },
+                PipelineStage {
+                    name: "s3".to_string(),
+                    agent: "a3".to_string(),
+                    routing: vec![], // No routing → terminates
+                },
+            ],
+            max_iterations: 10,
+            max_llm_calls: 10,
+            max_agent_hops: 10,
+            edge_limits: vec![],
+        };
+        let envelope = create_test_envelope();
+        orch.initialize_session(ProcessId::must("p1"), pipeline, envelope, false).unwrap();
+        let metrics = AgentExecutionMetrics { llm_calls: 0, tool_calls: 0, tokens_in: 0, tokens_out: 0, duration_ms: 0 };
+
+        // s1 → s2
+        let env = orch.sessions.get(&ProcessId::must("p1")).unwrap().envelope.clone();
+        orch.report_agent_result(&ProcessId::must("p1"), metrics.clone(), env).unwrap();
+        assert_eq!(orch.sessions.get(&ProcessId::must("p1")).unwrap().envelope.pipeline.current_stage, "s2");
+
+        // s2 → s3
+        let env = orch.sessions.get(&ProcessId::must("p1")).unwrap().envelope.clone();
+        orch.report_agent_result(&ProcessId::must("p1"), metrics.clone(), env).unwrap();
+        assert_eq!(orch.sessions.get(&ProcessId::must("p1")).unwrap().envelope.pipeline.current_stage, "s3");
+
+        // s3 → terminate (no routing rules)
+        let env = orch.sessions.get(&ProcessId::must("p1")).unwrap().envelope.clone();
+        orch.report_agent_result(&ProcessId::must("p1"), metrics, env).unwrap();
+        let session = orch.sessions.get(&ProcessId::must("p1")).unwrap();
+        assert!(session.terminated);
+        assert_eq!(session.terminal_reason, Some(TerminalReason::Completed));
+    }
+
+    #[test]
+    fn test_routing_backward_cycle() {
+        // s1 → s2 → s1 (cycle), terminated by max_iterations
+        let mut orch = Orchestrator::new();
+        let pipeline = PipelineConfig {
+            name: "test".to_string(),
+            agents: vec![
+                PipelineStage {
+                    name: "s1".to_string(),
+                    agent: "a1".to_string(),
+                    routing: vec![RoutingRule { condition: None, value: serde_json::Value::Null, target: "s2".to_string() }],
+                },
+                PipelineStage {
+                    name: "s2".to_string(),
+                    agent: "a2".to_string(),
+                    routing: vec![RoutingRule { condition: None, value: serde_json::Value::Null, target: "s1".to_string() }],
+                },
+            ],
+            max_iterations: 4,
+            max_llm_calls: 50,
+            max_agent_hops: 50,
+            edge_limits: vec![],
+        };
+        let envelope = create_test_envelope();
+        orch.initialize_session(ProcessId::must("p1"), pipeline, envelope, false).unwrap();
+        let metrics = AgentExecutionMetrics { llm_calls: 0, tool_calls: 0, tokens_in: 0, tokens_out: 0, duration_ms: 0 };
+
+        // Run the loop until bounds terminate it
+        let mut terminated = false;
+        for _ in 0..20 {
+            let env = orch.sessions.get(&ProcessId::must("p1")).unwrap().envelope.clone();
+            orch.report_agent_result(&ProcessId::must("p1"), metrics.clone(), env).unwrap();
+
+            let session = orch.sessions.get(&ProcessId::must("p1")).unwrap();
+            if session.terminated {
+                terminated = true;
+                assert_eq!(session.terminal_reason, Some(TerminalReason::MaxIterationsExceeded));
+                break;
+            }
+        }
+        assert!(terminated, "Cycle should have been terminated by bounds");
+    }
+
+    #[test]
+    fn test_routing_no_rules_terminates() {
+        let mut orch = Orchestrator::new();
+        let pipeline = PipelineConfig {
+            name: "test".to_string(),
+            agents: vec![
+                PipelineStage {
+                    name: "s1".to_string(),
+                    agent: "a1".to_string(),
+                    routing: vec![], // No routing rules
+                },
+            ],
+            max_iterations: 10,
+            max_llm_calls: 10,
+            max_agent_hops: 10,
+            edge_limits: vec![],
+        };
+        let envelope = create_test_envelope();
+        orch.initialize_session(ProcessId::must("p1"), pipeline, envelope, false).unwrap();
+
+        let env = orch.sessions.get(&ProcessId::must("p1")).unwrap().envelope.clone();
+        let metrics = AgentExecutionMetrics { llm_calls: 0, tool_calls: 0, tokens_in: 0, tokens_out: 0, duration_ms: 0 };
+        orch.report_agent_result(&ProcessId::must("p1"), metrics, env).unwrap();
+
+        let session = orch.sessions.get(&ProcessId::must("p1")).unwrap();
+        assert!(session.terminated);
+        assert_eq!(session.terminal_reason, Some(TerminalReason::Completed));
+    }
+
+    #[test]
+    fn test_routing_invalid_target() {
+        let pipeline = PipelineConfig {
+            name: "test".to_string(),
+            agents: vec![
+                PipelineStage {
+                    name: "s1".to_string(),
+                    agent: "a1".to_string(),
+                    routing: vec![RoutingRule {
+                        condition: None,
+                        value: serde_json::Value::Null,
+                        target: "nonexistent".to_string(),
+                    }],
+                },
+            ],
+            max_iterations: 10,
+            max_llm_calls: 10,
+            max_agent_hops: 10,
+            edge_limits: vec![],
+        };
+        // Validation should catch the invalid target at init time
+        assert!(pipeline.validate().is_err());
+    }
+
+    #[test]
+    fn test_edge_limit_enforcement() {
+        let mut orch = Orchestrator::new();
+        let pipeline = PipelineConfig {
+            name: "test".to_string(),
+            agents: vec![
+                PipelineStage {
+                    name: "s1".to_string(),
+                    agent: "a1".to_string(),
+                    routing: vec![RoutingRule { condition: None, value: serde_json::Value::Null, target: "s2".to_string() }],
+                },
+                PipelineStage {
+                    name: "s2".to_string(),
+                    agent: "a2".to_string(),
+                    routing: vec![RoutingRule { condition: None, value: serde_json::Value::Null, target: "s1".to_string() }],
+                },
+            ],
+            max_iterations: 100,
+            max_llm_calls: 100,
+            max_agent_hops: 100,
+            edge_limits: vec![EdgeLimit {
+                from_stage: "s2".to_string(),
+                to_stage: "s1".to_string(),
+                max_count: 2,
+            }],
+        };
+        let envelope = create_test_envelope();
+        orch.initialize_session(ProcessId::must("p1"), pipeline, envelope, false).unwrap();
+        let metrics = AgentExecutionMetrics { llm_calls: 0, tool_calls: 0, tokens_in: 0, tokens_out: 0, duration_ms: 0 };
+
+        // Run cycle: s1→s2→s1→s2→s1→s2→(edge limit s2→s1)
+        let mut terminated = false;
+        for _ in 0..20 {
+            let session = orch.sessions.get(&ProcessId::must("p1")).unwrap();
+            if session.terminated {
+                terminated = true;
+                assert_eq!(session.terminal_reason, Some(TerminalReason::MaxAgentHopsExceeded));
+                break;
+            }
+            let env = session.envelope.clone();
+            orch.report_agent_result(&ProcessId::must("p1"), metrics.clone(), env).unwrap();
+        }
+        assert!(terminated, "Edge limit should have terminated the cycle");
+    }
+
+    #[test]
+    fn test_edge_traversal_tracking() {
+        let mut orch = Orchestrator::new();
+        let pipeline = create_test_pipeline(); // s1 → s2 (unconditional)
+        let envelope = create_test_envelope();
+        orch.initialize_session(ProcessId::must("p1"), pipeline, envelope, false).unwrap();
+
+        let env = orch.sessions.get(&ProcessId::must("p1")).unwrap().envelope.clone();
+        let metrics = AgentExecutionMetrics { llm_calls: 0, tool_calls: 0, tokens_in: 0, tokens_out: 0, duration_ms: 0 };
+        orch.report_agent_result(&ProcessId::must("p1"), metrics, env).unwrap();
+
+        let session = orch.sessions.get(&ProcessId::must("p1")).unwrap();
+        assert_eq!(session.edge_traversals.get("stage1->stage2"), Some(&1));
     }
 }
