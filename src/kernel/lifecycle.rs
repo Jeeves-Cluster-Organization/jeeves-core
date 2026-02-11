@@ -275,6 +275,30 @@ impl LifecycleManager {
             .filter(|pcb| pcb.state == state)
             .count()
     }
+
+    /// Get the current default quota.
+    pub fn get_default_quota(&self) -> &ResourceQuota {
+        &self.default_quota
+    }
+
+    /// Set (merge) default quota. Only non-zero fields overwrite.
+    pub fn set_default_quota(&mut self, overrides: &ResourceQuota) {
+        let q = &mut self.default_quota;
+        if overrides.max_llm_calls > 0 { q.max_llm_calls = overrides.max_llm_calls; }
+        if overrides.max_tool_calls > 0 { q.max_tool_calls = overrides.max_tool_calls; }
+        if overrides.max_agent_hops > 0 { q.max_agent_hops = overrides.max_agent_hops; }
+        if overrides.max_iterations > 0 { q.max_iterations = overrides.max_iterations; }
+        if overrides.timeout_seconds > 0 { q.timeout_seconds = overrides.timeout_seconds; }
+        if overrides.soft_timeout_seconds > 0 { q.soft_timeout_seconds = overrides.soft_timeout_seconds; }
+        if overrides.max_input_tokens > 0 { q.max_input_tokens = overrides.max_input_tokens; }
+        if overrides.max_output_tokens > 0 { q.max_output_tokens = overrides.max_output_tokens; }
+        if overrides.max_context_tokens > 0 { q.max_context_tokens = overrides.max_context_tokens; }
+        if overrides.rate_limit_rpm > 0 { q.rate_limit_rpm = overrides.rate_limit_rpm; }
+        if overrides.rate_limit_rph > 0 { q.rate_limit_rph = overrides.rate_limit_rph; }
+        if overrides.rate_limit_burst > 0 { q.rate_limit_burst = overrides.rate_limit_burst; }
+        if overrides.max_inference_requests > 0 { q.max_inference_requests = overrides.max_inference_requests; }
+        if overrides.max_inference_input_chars > 0 { q.max_inference_input_chars = overrides.max_inference_input_chars; }
+    }
 }
 
 impl Default for LifecycleManager {
@@ -562,5 +586,68 @@ mod tests {
 
         assert!(lm.terminate(&pid).is_ok());
         assert_eq!(lm.get(&pid).unwrap().state, ProcessState::Terminated);
+    }
+
+    #[test]
+    fn test_get_default_quota_returns_resource_quota_default() {
+        let lm = LifecycleManager::default();
+        let got = lm.get_default_quota();
+        let expected = ResourceQuota::default_quota();
+        assert_eq!(*got, expected);
+    }
+
+    #[test]
+    fn test_set_default_quota_merges_nonzero_fields() {
+        let mut lm = LifecycleManager::default();
+
+        let overrides = ResourceQuota {
+            max_llm_calls: 200,
+            max_tool_calls: 0,
+            max_agent_hops: 0,
+            max_iterations: 0,
+            timeout_seconds: 0,
+            soft_timeout_seconds: 0,
+            max_input_tokens: 0,
+            max_output_tokens: 0,
+            max_context_tokens: 0,
+            rate_limit_rpm: 0,
+            rate_limit_rph: 0,
+            rate_limit_burst: 0,
+            max_inference_requests: 0,
+            max_inference_input_chars: 0,
+        };
+
+        lm.set_default_quota(&overrides);
+
+        let q = lm.get_default_quota();
+        assert_eq!(q.max_llm_calls, 200);
+        assert_eq!(q.max_tool_calls, 50); // unchanged default
+    }
+
+    #[test]
+    fn test_set_default_quota_skips_zero_fields() {
+        let mut lm = LifecycleManager::default();
+        let expected = ResourceQuota::default_quota();
+
+        let all_zeros = ResourceQuota {
+            max_llm_calls: 0,
+            max_tool_calls: 0,
+            max_agent_hops: 0,
+            max_iterations: 0,
+            timeout_seconds: 0,
+            soft_timeout_seconds: 0,
+            max_input_tokens: 0,
+            max_output_tokens: 0,
+            max_context_tokens: 0,
+            rate_limit_rpm: 0,
+            rate_limit_rph: 0,
+            rate_limit_burst: 0,
+            max_inference_requests: 0,
+            max_inference_input_chars: 0,
+        };
+
+        lm.set_default_quota(&all_zeros);
+
+        assert_eq!(*lm.get_default_quota(), expected);
     }
 }

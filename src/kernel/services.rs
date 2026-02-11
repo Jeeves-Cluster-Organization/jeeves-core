@@ -38,7 +38,6 @@ pub enum ServiceStatus {
 /// Service type constants for classifying services.
 pub const SERVICE_TYPE_FLOW: &str = "flow";
 pub const SERVICE_TYPE_WORKER: &str = "worker";
-pub const SERVICE_TYPE_VERTICAL: &str = "vertical";
 pub const SERVICE_TYPE_INFERENCE: &str = "inference";
 
 // =============================================================================
@@ -50,7 +49,7 @@ pub const SERVICE_TYPE_INFERENCE: &str = "inference";
 pub struct ServiceInfo {
     // Identity
     pub name: String,
-    pub service_type: String, // "flow", "worker", "vertical", "inference"
+    pub service_type: String, // "flow", "worker", "inference"
     pub version: String,
 
     // Capabilities

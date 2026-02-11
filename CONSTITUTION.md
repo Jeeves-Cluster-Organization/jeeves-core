@@ -15,7 +15,7 @@ The kernel provides only:
 - **Resource Quotas** - Defense-in-depth bounds enforcement
 - **Interrupt Handling** - Human-in-the-loop patterns
 - **Inter-Process Communication** - Kernel-mediated message bus (CommBus)
-- **gRPC Services** - Cross-language communication interface
+- **IPC Services** - Cross-language communication interface
 
 The kernel does NOT provide:
 - LLM integrations (infrastructure layer)
@@ -78,11 +78,11 @@ The Rust type system provides compile-time guarantees:
 Capabilities  ─────────────────────────────
      ↑ (cannot import kernel internals)
 Infrastructure ────────────────────────────
-     ↑ gRPC
+     ↑ IPC
 Kernel ────────────────────────────────────
 \`\`\`
 
-- Kernel exports public API via gRPC
+- Kernel exports public API via IPC
 - Internal modules are not exposed
 - Breaking changes require major version bump
 
@@ -106,7 +106,7 @@ Changes to jeeves-core must demonstrate:
 
 ### Requires Discussion
 
-- New gRPC services
+- New IPC services
 - Changes to bounds enforcement
 - New required dependencies
 - Breaking API changes
@@ -124,7 +124,7 @@ Changes to jeeves-core must demonstrate:
 All changes must include:
 
 - **Unit tests** for new functionality
-- **Integration tests** for gRPC changes
+- **Integration tests** for IPC changes
 - **No decrease in coverage** for core packages
 - **All clippy warnings addressed**
 - **Code formatted with \`cargo fmt\`**

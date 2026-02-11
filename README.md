@@ -1,6 +1,6 @@
 # Jeeves Core
 
-Rust micro-kernel for AI agent orchestration. Provides process lifecycle, IPC, interrupt handling, and resource quotas via gRPC.
+Rust micro-kernel for AI agent orchestration. Provides process lifecycle, IPC, interrupt handling, and resource quotas via IPC (TCP+msgpack).
 
 ## Quick Start
 
@@ -8,7 +8,7 @@ Rust micro-kernel for AI agent orchestration. Provides process lifecycle, IPC, i
 # Build
 cargo build --release
 
-# Run (gRPC on :50051)
+# Run (IPC on :50051)
 cargo run --release
 
 # Custom port
@@ -18,7 +18,7 @@ JEEVES_GRPC_PORT=50052 cargo run --release
 cargo test
 ```
 
-## gRPC Services
+## IPC Methods
 
 | Service | RPCs | Purpose |
 |---------|------|---------|

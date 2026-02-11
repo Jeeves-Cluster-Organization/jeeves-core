@@ -252,6 +252,54 @@ pub async fn handle(
             })))
         }
 
+        "SetQuotaDefaults" => {
+            let overrides = parse_quota(&body)?.unwrap_or_default();
+            kernel.set_default_quota(&overrides);
+            let q = kernel.get_default_quota();
+            Ok(DispatchResponse::Single(quota_to_value(q)))
+        }
+
+        "GetQuotaDefaults" => {
+            let q = kernel.get_default_quota();
+            Ok(DispatchResponse::Single(quota_to_value(q)))
+        }
+
+        "GetSystemStatus" => {
+            let status = kernel.get_system_status();
+            let mut by_state = serde_json::Map::new();
+            for (state, count) in &status.processes_by_state {
+                let key = serde_json::to_value(state)
+                    .ok()
+                    .and_then(|v| v.as_str().map(|s| s.to_string()))
+                    .unwrap_or_else(|| format!("{:?}", state));
+                by_state.insert(key, Value::Number((*count as i64).into()));
+            }
+
+            // Gather commbus stats (async)
+            let commbus_stats = kernel.commbus.get_stats().await;
+
+            Ok(DispatchResponse::Single(serde_json::json!({
+                "processes": {
+                    "total": status.processes_total,
+                    "by_state": by_state,
+                },
+                "services": {
+                    "healthy": status.services_healthy,
+                    "degraded": status.services_degraded,
+                    "unhealthy": status.services_unhealthy,
+                },
+                "orchestration": {
+                    "active_sessions": status.active_orchestration_sessions,
+                },
+                "commbus": {
+                    "events_published": commbus_stats.events_published,
+                    "commands_sent": commbus_stats.commands_sent,
+                    "queries_executed": commbus_stats.queries_executed,
+                    "active_subscribers": commbus_stats.active_subscribers,
+                },
+            })))
+        }
+
         _ => Err(Error::not_found(format!("Unknown kernel method: {}", method))),
     }
 }
@@ -301,9 +349,9 @@ fn parse_quota(body: &Value) -> Result<Option<ResourceQuota>> {
 
     Ok(Some(ResourceQuota {
         max_llm_calls: q.get("max_llm_calls").and_then(|v| v.as_i64()).unwrap_or(100) as i32,
-        max_tool_calls: q.get("max_tool_calls").and_then(|v| v.as_i64()).unwrap_or(200) as i32,
-        max_agent_hops: q.get("max_agent_hops").and_then(|v| v.as_i64()).unwrap_or(200) as i32,
-        max_iterations: q.get("max_iterations").and_then(|v| v.as_i64()).unwrap_or(50) as i32,
+        max_tool_calls: q.get("max_tool_calls").and_then(|v| v.as_i64()).unwrap_or(50) as i32,
+        max_agent_hops: q.get("max_agent_hops").and_then(|v| v.as_i64()).unwrap_or(10) as i32,
+        max_iterations: q.get("max_iterations").and_then(|v| v.as_i64()).unwrap_or(20) as i32,
         timeout_seconds: q.get("timeout_seconds").and_then(|v| v.as_i64()).unwrap_or(300) as i32,
         max_input_tokens: q.get("max_input_tokens").and_then(|v| v.as_i64()).unwrap_or(100_000) as i32,
         max_output_tokens: q.get("max_output_tokens").and_then(|v| v.as_i64()).unwrap_or(50_000) as i32,
@@ -334,5 +382,25 @@ pub fn pcb_to_value(pcb: &crate::kernel::ProcessControlBlock) -> Value {
             "tokens_out": pcb.usage.tokens_out,
         },
         "current_stage": "",
+    })
+}
+
+/// Convert ResourceQuota to JSON value.
+fn quota_to_value(q: &ResourceQuota) -> Value {
+    serde_json::json!({
+        "max_llm_calls": q.max_llm_calls,
+        "max_tool_calls": q.max_tool_calls,
+        "max_agent_hops": q.max_agent_hops,
+        "max_iterations": q.max_iterations,
+        "timeout_seconds": q.timeout_seconds,
+        "soft_timeout_seconds": q.soft_timeout_seconds,
+        "max_input_tokens": q.max_input_tokens,
+        "max_output_tokens": q.max_output_tokens,
+        "max_context_tokens": q.max_context_tokens,
+        "rate_limit_rpm": q.rate_limit_rpm,
+        "rate_limit_rph": q.rate_limit_rph,
+        "rate_limit_burst": q.rate_limit_burst,
+        "max_inference_requests": q.max_inference_requests,
+        "max_inference_input_chars": q.max_inference_input_chars,
     })
 }

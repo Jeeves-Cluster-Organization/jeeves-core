@@ -111,13 +111,6 @@ cd jeeves-core
 # Install Rust (if not already installed)
 curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
 
-# Install protobuf compiler
-# macOS
-brew install protobuf
-
-# Ubuntu/Debian
-sudo apt-get install protobuf-compiler
-
 # Run tests
 cargo test
 

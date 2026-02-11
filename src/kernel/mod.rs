@@ -1,6 +1,6 @@
 //! Kernel - the main orchestration actor.
 //!
-//! The Kernel owns all mutable state and processes gRPC commands via a single
+//! The Kernel owns all mutable state and processes IPC commands via a single
 //! message channel. Subsystems (lifecycle, resources, interrupts, rate limiter)
 //! are plain structs owned by the Kernel, not separate actors.
 
@@ -358,6 +358,54 @@ impl Kernel {
         Ok(())
     }
 
+    // =============================================================================
+    // Quota Defaults (Single Source of Truth)
+    // =============================================================================
+
+    /// Get the kernel's default quota.
+    pub fn get_default_quota(&self) -> &ResourceQuota {
+        self.lifecycle.get_default_quota()
+    }
+
+    /// Merge overrides into the default quota (non-zero fields overwrite).
+    pub fn set_default_quota(&mut self, overrides: &ResourceQuota) {
+        self.lifecycle.set_default_quota(overrides);
+    }
+
+    // =============================================================================
+    // System Status Aggregation
+    // =============================================================================
+
+    /// Get a full system status snapshot (sync parts).
+    /// CommBus stats are gathered separately in the IPC handler (async).
+    pub fn get_system_status(&self) -> SystemStatus {
+        let total = self.lifecycle.count();
+        let mut by_state = HashMap::new();
+        for state in &[
+            ProcessState::New,
+            ProcessState::Ready,
+            ProcessState::Running,
+            ProcessState::Waiting,
+            ProcessState::Blocked,
+            ProcessState::Terminated,
+            ProcessState::Zombie,
+        ] {
+            by_state.insert(*state, self.lifecycle.count_by_state(*state));
+        }
+
+        let service_stats = self.services.get_stats();
+        let orchestrator_sessions = self.orchestrator.get_session_count();
+
+        SystemStatus {
+            processes_total: total,
+            processes_by_state: by_state,
+            services_healthy: service_stats.healthy_services,
+            services_degraded: service_stats.degraded_services,
+            services_unhealthy: service_stats.unhealthy_services,
+            active_orchestration_sessions: orchestrator_sessions,
+        }
+    }
+
     /// Get remaining resource budget for a process.
     pub fn get_remaining_budget(&self, pid: &ProcessId) -> Option<RemainingBudget> {
         let pcb = self.lifecycle.get(pid)?;
@@ -388,8 +436,89 @@ pub struct RemainingBudget {
     pub time_remaining_seconds: f64,
 }
 
+/// Full system status snapshot returned by `Kernel::get_system_status()`.
+#[derive(Debug, Clone)]
+pub struct SystemStatus {
+    pub processes_total: usize,
+    pub processes_by_state: HashMap<ProcessState, usize>,
+    pub services_healthy: usize,
+    pub services_degraded: usize,
+    pub services_unhealthy: usize,
+    pub active_orchestration_sessions: usize,
+}
+
 impl Default for Kernel {
     fn default() -> Self {
         Self::new()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_get_system_status_empty_kernel() {
+        let kernel = Kernel::new();
+        let status = kernel.get_system_status();
+
+        assert_eq!(status.processes_total, 0);
+        assert_eq!(status.services_healthy, 0);
+        assert_eq!(status.services_degraded, 0);
+        assert_eq!(status.services_unhealthy, 0);
+        assert_eq!(status.active_orchestration_sessions, 0);
+
+        for (_state, count) in &status.processes_by_state {
+            assert_eq!(*count, 0);
+        }
+    }
+
+    #[test]
+    fn test_get_system_status_with_processes() {
+        let mut kernel = Kernel::new();
+
+        // Submit 3 processes (all start in New)
+        let pid1 = ProcessId::must("pid1");
+        let pid2 = ProcessId::must("pid2");
+        let pid3 = ProcessId::must("pid3");
+
+        kernel.lifecycle.submit(
+            pid1.clone(),
+            RequestId::must("req1"),
+            UserId::must("user1"),
+            SessionId::must("sess1"),
+            SchedulingPriority::Normal,
+            None,
+        ).unwrap();
+        kernel.lifecycle.submit(
+            pid2.clone(),
+            RequestId::must("req2"),
+            UserId::must("user2"),
+            SessionId::must("sess2"),
+            SchedulingPriority::Normal,
+            None,
+        ).unwrap();
+        kernel.lifecycle.submit(
+            pid3.clone(),
+            RequestId::must("req3"),
+            UserId::must("user3"),
+            SessionId::must("sess3"),
+            SchedulingPriority::Normal,
+            None,
+        ).unwrap();
+
+        // Schedule 2 of them (New → Ready)
+        kernel.lifecycle.schedule(&pid1).unwrap();
+        kernel.lifecycle.schedule(&pid2).unwrap();
+
+        // Transition 1 to Running (Ready → Running)
+        kernel.lifecycle.start(&pid1).unwrap();
+
+        let status = kernel.get_system_status();
+
+        assert_eq!(status.processes_total, 3);
+        assert_eq!(*status.processes_by_state.get(&ProcessState::New).unwrap(), 1);
+        assert_eq!(*status.processes_by_state.get(&ProcessState::Ready).unwrap(), 1);
+        assert_eq!(*status.processes_by_state.get(&ProcessState::Running).unwrap(), 1);
     }
 }

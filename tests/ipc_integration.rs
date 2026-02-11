@@ -422,3 +422,125 @@ async fn test_commbus_subscribe_stream() {
     // but since we're closing from the client side, we just verify the chunks arrived.
     drop(sub_stream);
 }
+
+// =============================================================================
+// Phase 2 IPC tests — quota defaults and system status
+// =============================================================================
+
+#[tokio::test]
+async fn test_set_and_get_quota_defaults() {
+    let (addr, _handle) = start_test_server().await;
+    let mut stream = TcpStream::connect(addr).await.unwrap();
+
+    // SetQuotaDefaults with max_llm_calls=200
+    let (msg_type, response) = round_trip(
+        &mut stream,
+        "kernel",
+        "SetQuotaDefaults",
+        serde_json::json!({
+            "quota": {
+                "max_llm_calls": 200,
+            },
+        }),
+    )
+    .await;
+    assert_eq!(msg_type, MSG_RESPONSE);
+    let body = response.get("body").unwrap();
+    assert_eq!(body.get("max_llm_calls").unwrap().as_i64().unwrap(), 200);
+
+    // GetQuotaDefaults → same merged result
+    let (msg_type, response) = round_trip(
+        &mut stream,
+        "kernel",
+        "GetQuotaDefaults",
+        serde_json::json!({}),
+    )
+    .await;
+    assert_eq!(msg_type, MSG_RESPONSE);
+    let body = response.get("body").unwrap();
+    assert_eq!(body.get("max_llm_calls").unwrap().as_i64().unwrap(), 200);
+}
+
+#[tokio::test]
+async fn test_get_system_status_round_trip() {
+    let (addr, _handle) = start_test_server().await;
+    let mut stream = TcpStream::connect(addr).await.unwrap();
+
+    // CreateProcess (submit + schedule → Ready)
+    let (msg_type, _) = round_trip(
+        &mut stream,
+        "kernel",
+        "CreateProcess",
+        serde_json::json!({
+            "pid": "status-proc-1",
+            "request_id": "req-st1",
+            "user_id": "user-st1",
+            "session_id": "sess-st1",
+            "priority": "NORMAL",
+        }),
+    )
+    .await;
+    assert_eq!(msg_type, MSG_RESPONSE);
+
+    // GetSystemStatus → total=1, by_state has READY=1
+    let (msg_type, response) = round_trip(
+        &mut stream,
+        "kernel",
+        "GetSystemStatus",
+        serde_json::json!({}),
+    )
+    .await;
+    assert_eq!(msg_type, MSG_RESPONSE);
+    let body = response.get("body").unwrap();
+    let processes = body.get("processes").unwrap();
+    assert_eq!(processes.get("total").unwrap().as_i64().unwrap(), 1);
+    let by_state = processes.get("by_state").unwrap();
+    assert_eq!(by_state.get("READY").unwrap().as_i64().unwrap(), 1);
+}
+
+#[tokio::test]
+async fn test_quota_defaults_merge_semantics() {
+    let (addr, _handle) = start_test_server().await;
+    let mut stream = TcpStream::connect(addr).await.unwrap();
+
+    // GetQuotaDefaults → note original max_tool_calls (50)
+    let (msg_type, response) = round_trip(
+        &mut stream,
+        "kernel",
+        "GetQuotaDefaults",
+        serde_json::json!({}),
+    )
+    .await;
+    assert_eq!(msg_type, MSG_RESPONSE);
+    let body = response.get("body").unwrap();
+    assert_eq!(body.get("max_tool_calls").unwrap().as_i64().unwrap(), 50);
+
+    // SetQuotaDefaults with only max_llm_calls=999
+    let (msg_type, response) = round_trip(
+        &mut stream,
+        "kernel",
+        "SetQuotaDefaults",
+        serde_json::json!({
+            "quota": {
+                "max_llm_calls": 999,
+            },
+        }),
+    )
+    .await;
+    assert_eq!(msg_type, MSG_RESPONSE);
+    let body = response.get("body").unwrap();
+    assert_eq!(body.get("max_llm_calls").unwrap().as_i64().unwrap(), 999);
+
+    // GetQuotaDefaults → max_tool_calls still 50
+    let (msg_type, response) = round_trip(
+        &mut stream,
+        "kernel",
+        "GetQuotaDefaults",
+        serde_json::json!({}),
+    )
+    .await;
+    assert_eq!(msg_type, MSG_RESPONSE);
+    let body = response.get("body").unwrap();
+    assert_eq!(body.get("max_tool_calls").unwrap().as_i64().unwrap(), 50);
+    assert_eq!(body.get("max_llm_calls").unwrap().as_i64().unwrap(), 999);
+}

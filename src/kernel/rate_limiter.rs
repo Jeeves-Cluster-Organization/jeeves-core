@@ -144,6 +144,17 @@ impl RateLimiter {
         self.user_windows.remove(user_id);
     }
 
+    /// Get the current default config.
+    pub fn get_default_config(&self) -> &RateLimitConfig {
+        &self.default_config
+    }
+
+    /// Set the default rate limit config. Clears existing windows.
+    pub fn set_default_config(&mut self, config: RateLimitConfig) {
+        self.default_config = config;
+        self.user_windows.clear();
+    }
+
     /// Clean up expired rate limit windows.
     ///
     /// Removes windows that have no recent requests (older than window duration).
