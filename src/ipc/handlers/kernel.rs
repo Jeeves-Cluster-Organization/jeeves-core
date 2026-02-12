@@ -1,5 +1,9 @@
 //! Kernel service handler — process lifecycle, quota, rate limiting.
+//!
+//! Lifecycle IPC methods publish events to CommBus after state changes,
+//! enabling downstream consumers (EventBridge → WebSocket → Frontend).
 
+use crate::commbus::Event;
 use crate::ipc::dispatch::{str_field, DispatchResponse};
 use crate::kernel::{Kernel, ProcessState, ResourceQuota, SchedulingPriority};
 use crate::types::{Error, ProcessId, RequestId, Result, SessionId, UserId};
@@ -43,6 +47,13 @@ pub async fn handle(
             let quota = parse_quota(&body)?;
 
             let pcb = kernel.create_process(pid, request_id, user_id, session_id, priority, quota)?;
+
+            emit_lifecycle_event(kernel, "process.created", serde_json::json!({
+                "pid": pcb.pid.as_str(),
+                "request_id": pcb.request_id.as_str(),
+                "user_id": pcb.user_id.as_str(),
+            })).await;
+
             Ok(DispatchResponse::Single(pcb_to_value(&pcb)))
         }
 
@@ -79,10 +90,11 @@ pub async fn handle(
             let pcb = kernel
                 .get_process(&pid)
                 .ok_or_else(|| Error::not_found(format!("Process {} not found", pid)))?;
-            if !pcb.state.can_transition_to(new_state) {
+            let old_state = pcb.state;
+            if !old_state.can_transition_to(new_state) {
                 return Err(Error::state_transition(format!(
                     "Invalid transition from {:?} to {:?}",
-                    pcb.state, new_state
+                    old_state, new_state
                 )));
             }
 
@@ -90,9 +102,21 @@ pub async fn handle(
                 ProcessState::Ready => kernel.lifecycle.schedule(&pid)?,
                 ProcessState::Running => kernel.start_process(&pid)?,
                 ProcessState::Terminated => kernel.terminate_process(&pid)?,
-                ProcessState::Blocked => kernel.block_process(&pid, reason)?,
+                ProcessState::Blocked => kernel.block_process(&pid, reason.clone())?,
                 _ => {}
             }
+
+            let old_state_str = serde_json::to_value(&old_state)
+                .ok()
+                .and_then(|v| v.as_str().map(|s| s.to_string()))
+                .unwrap_or_else(|| format!("{:?}", old_state));
+
+            emit_lifecycle_event(kernel, "process.state_changed", serde_json::json!({
+                "pid": pid.as_str(),
+                "old_state": old_state_str,
+                "new_state": new_state_str,
+                "reason": reason,
+            })).await;
 
             let pcb = kernel
                 .get_process(&pid)
@@ -103,6 +127,11 @@ pub async fn handle(
         "TerminateProcess" => {
             let pid = parse_pid(&body)?;
             kernel.terminate_process(&pid)?;
+
+            emit_lifecycle_event(kernel, "process.terminated", serde_json::json!({
+                "pid": pid.as_str(),
+            })).await;
+
             let pcb = kernel
                 .get_process(&pid)
                 .ok_or_else(|| Error::not_found(format!("Process {} not found", pid)))?;
@@ -118,6 +147,20 @@ pub async fn handle(
             let result = kernel.check_quota(&pid);
             let within_bounds = result.is_ok();
             let exceeded_reason = result.err().map(|e| e.to_string()).unwrap_or_default();
+
+            if !within_bounds {
+                emit_lifecycle_event(kernel, "resource.exhausted", serde_json::json!({
+                    "pid": pid.as_str(),
+                    "reason": exceeded_reason,
+                    "usage": {
+                        "llm_calls": pcb.usage.llm_calls,
+                        "tool_calls": pcb.usage.tool_calls,
+                        "agent_hops": pcb.usage.agent_hops,
+                        "tokens_in": pcb.usage.tokens_in,
+                        "tokens_out": pcb.usage.tokens_out,
+                    },
+                })).await;
+            }
 
             Ok(DispatchResponse::Single(serde_json::json!({
                 "within_bounds": within_bounds,
@@ -302,6 +345,23 @@ pub async fn handle(
 
         _ => Err(Error::not_found(format!("Unknown kernel method: {}", method))),
     }
+}
+
+// =============================================================================
+// CommBus lifecycle event emission
+// =============================================================================
+
+/// Publish a lifecycle event to CommBus (fire-and-forget).
+/// Delivery failure does NOT block the lifecycle operation.
+async fn emit_lifecycle_event(kernel: &Kernel, event_type: &str, payload: Value) {
+    let payload_bytes = serde_json::to_vec(&payload).unwrap_or_default();
+    let event = Event {
+        event_type: event_type.to_string(),
+        payload: payload_bytes,
+        timestamp_ms: chrono::Utc::now().timestamp_millis(),
+        source: "kernel".to_string(),
+    };
+    let _ = kernel.commbus.publish(event).await;
 }
 
 // =============================================================================
