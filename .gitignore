@@ -6,6 +6,20 @@
 # Build artifacts
 *.exe
 
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.egg-info/
+.venv/
+venv/
+
+# Test / coverage
+coverage.out
+.coverage
+htmlcov/
+.pytest_cache/
+
 # IDE
 .idea/
 .vscode/
