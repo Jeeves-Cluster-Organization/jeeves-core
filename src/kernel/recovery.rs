@@ -48,10 +48,7 @@ where
 /// Execute an async function with panic recovery.
 ///
 /// Similar to `with_recovery` but for async operations.
-pub async fn with_recovery_async<F, Fut, T>(
-    operation: F,
-    operation_name: &str,
-) -> Result<T>
+pub async fn with_recovery_async<F, Fut, T>(operation: F, operation_name: &str) -> Result<T>
 where
     F: FnOnce() -> Fut,
     Fut: std::future::Future<Output = Result<T>>,

@@ -15,7 +15,7 @@ pub use super::types::{ProcessControlBlock, ProcessState, ResourceQuota, Schedul
 #[derive(Debug, Clone, PartialEq, Eq)]
 struct PriorityItem {
     pid: ProcessId,
-    priority: i32,      // Lower = higher priority
+    priority: i32,             // Lower = higher priority
     created_at: DateTime<Utc>, // FIFO within same priority
 }
 
@@ -138,7 +138,11 @@ impl LifecycleManager {
     }
 
     /// Transition process to WAITING state (e.g., awaiting clarification).
-    pub fn wait(&mut self, pid: &ProcessId, interrupt_kind: crate::envelope::InterruptKind) -> Result<()> {
+    pub fn wait(
+        &mut self,
+        pid: &ProcessId,
+        interrupt_kind: crate::envelope::InterruptKind,
+    ) -> Result<()> {
         let pcb = self
             .processes
             .get_mut(pid)
@@ -284,20 +288,48 @@ impl LifecycleManager {
     /// Set (merge) default quota. Only non-zero fields overwrite.
     pub fn set_default_quota(&mut self, overrides: &ResourceQuota) {
         let q = &mut self.default_quota;
-        if overrides.max_llm_calls > 0 { q.max_llm_calls = overrides.max_llm_calls; }
-        if overrides.max_tool_calls > 0 { q.max_tool_calls = overrides.max_tool_calls; }
-        if overrides.max_agent_hops > 0 { q.max_agent_hops = overrides.max_agent_hops; }
-        if overrides.max_iterations > 0 { q.max_iterations = overrides.max_iterations; }
-        if overrides.timeout_seconds > 0 { q.timeout_seconds = overrides.timeout_seconds; }
-        if overrides.soft_timeout_seconds > 0 { q.soft_timeout_seconds = overrides.soft_timeout_seconds; }
-        if overrides.max_input_tokens > 0 { q.max_input_tokens = overrides.max_input_tokens; }
-        if overrides.max_output_tokens > 0 { q.max_output_tokens = overrides.max_output_tokens; }
-        if overrides.max_context_tokens > 0 { q.max_context_tokens = overrides.max_context_tokens; }
-        if overrides.rate_limit_rpm > 0 { q.rate_limit_rpm = overrides.rate_limit_rpm; }
-        if overrides.rate_limit_rph > 0 { q.rate_limit_rph = overrides.rate_limit_rph; }
-        if overrides.rate_limit_burst > 0 { q.rate_limit_burst = overrides.rate_limit_burst; }
-        if overrides.max_inference_requests > 0 { q.max_inference_requests = overrides.max_inference_requests; }
-        if overrides.max_inference_input_chars > 0 { q.max_inference_input_chars = overrides.max_inference_input_chars; }
+        if overrides.max_llm_calls > 0 {
+            q.max_llm_calls = overrides.max_llm_calls;
+        }
+        if overrides.max_tool_calls > 0 {
+            q.max_tool_calls = overrides.max_tool_calls;
+        }
+        if overrides.max_agent_hops > 0 {
+            q.max_agent_hops = overrides.max_agent_hops;
+        }
+        if overrides.max_iterations > 0 {
+            q.max_iterations = overrides.max_iterations;
+        }
+        if overrides.timeout_seconds > 0 {
+            q.timeout_seconds = overrides.timeout_seconds;
+        }
+        if overrides.soft_timeout_seconds > 0 {
+            q.soft_timeout_seconds = overrides.soft_timeout_seconds;
+        }
+        if overrides.max_input_tokens > 0 {
+            q.max_input_tokens = overrides.max_input_tokens;
+        }
+        if overrides.max_output_tokens > 0 {
+            q.max_output_tokens = overrides.max_output_tokens;
+        }
+        if overrides.max_context_tokens > 0 {
+            q.max_context_tokens = overrides.max_context_tokens;
+        }
+        if overrides.rate_limit_rpm > 0 {
+            q.rate_limit_rpm = overrides.rate_limit_rpm;
+        }
+        if overrides.rate_limit_rph > 0 {
+            q.rate_limit_rph = overrides.rate_limit_rph;
+        }
+        if overrides.rate_limit_burst > 0 {
+            q.rate_limit_burst = overrides.rate_limit_burst;
+        }
+        if overrides.max_inference_requests > 0 {
+            q.max_inference_requests = overrides.max_inference_requests;
+        }
+        if overrides.max_inference_input_chars > 0 {
+            q.max_inference_input_chars = overrides.max_inference_input_chars;
+        }
     }
 }
 
@@ -349,9 +381,33 @@ mod tests {
         let pid_high = ProcessId::must("high");
         let pid_normal = ProcessId::must("normal");
 
-        lm.submit(pid_low.clone(), RequestId::must("r1"), UserId::must("u1"), SessionId::must("s1"), SchedulingPriority::Low, None).unwrap();
-        lm.submit(pid_high.clone(), RequestId::must("r2"), UserId::must("u2"), SessionId::must("s2"), SchedulingPriority::High, None).unwrap();
-        lm.submit(pid_normal.clone(), RequestId::must("r3"), UserId::must("u3"), SessionId::must("s3"), SchedulingPriority::Normal, None).unwrap();
+        lm.submit(
+            pid_low.clone(),
+            RequestId::must("r1"),
+            UserId::must("u1"),
+            SessionId::must("s1"),
+            SchedulingPriority::Low,
+            None,
+        )
+        .unwrap();
+        lm.submit(
+            pid_high.clone(),
+            RequestId::must("r2"),
+            UserId::must("u2"),
+            SessionId::must("s2"),
+            SchedulingPriority::High,
+            None,
+        )
+        .unwrap();
+        lm.submit(
+            pid_normal.clone(),
+            RequestId::must("r3"),
+            UserId::must("u3"),
+            SessionId::must("s3"),
+            SchedulingPriority::Normal,
+            None,
+        )
+        .unwrap();
 
         lm.schedule(&pid_low).unwrap();
         lm.schedule(&pid_high).unwrap();
@@ -389,11 +445,25 @@ mod tests {
         let pid = ProcessId::must("pid1");
 
         let pcb1 = lm
-            .submit(pid.clone(), RequestId::must("req1"), UserId::must("user1"), SessionId::must("sess1"), SchedulingPriority::Normal, None)
+            .submit(
+                pid.clone(),
+                RequestId::must("req1"),
+                UserId::must("user1"),
+                SessionId::must("sess1"),
+                SchedulingPriority::Normal,
+                None,
+            )
             .unwrap();
 
         let pcb2 = lm
-            .submit(pid, RequestId::must("req2"), UserId::must("user2"), SessionId::must("sess2"), SchedulingPriority::High, None)
+            .submit(
+                pid,
+                RequestId::must("req2"),
+                UserId::must("user2"),
+                SessionId::must("sess2"),
+                SchedulingPriority::High,
+                None,
+            )
             .unwrap();
 
         assert_eq!(pcb1.pid, pcb2.pid);
@@ -405,13 +475,23 @@ mod tests {
         let mut lm = LifecycleManager::default();
         let pid = ProcessId::must("pid1");
 
-        lm.submit(pid.clone(), RequestId::must("req1"), UserId::must("user1"), SessionId::must("sess1"), SchedulingPriority::Normal, None).unwrap();
+        lm.submit(
+            pid.clone(),
+            RequestId::must("req1"),
+            UserId::must("user1"),
+            SessionId::must("sess1"),
+            SchedulingPriority::Normal,
+            None,
+        )
+        .unwrap();
 
         assert!(lm.start(&pid).is_err());
 
         lm.schedule(&pid).unwrap();
 
-        assert!(lm.wait(&pid, crate::envelope::InterruptKind::Clarification).is_err());
+        assert!(lm
+            .wait(&pid, crate::envelope::InterruptKind::Clarification)
+            .is_err());
     }
 
     #[test]
@@ -428,9 +508,33 @@ mod tests {
         let pid2 = ProcessId::must("pid2");
         let pid3 = ProcessId::must("pid3");
 
-        lm.submit(pid1.clone(), RequestId::must("req1"), UserId::must("user1"), SessionId::must("sess1"), SchedulingPriority::Normal, None).unwrap();
-        lm.submit(pid2.clone(), RequestId::must("req2"), UserId::must("user2"), SessionId::must("sess2"), SchedulingPriority::Normal, None).unwrap();
-        lm.submit(pid3.clone(), RequestId::must("req3"), UserId::must("user3"), SessionId::must("sess3"), SchedulingPriority::Normal, None).unwrap();
+        lm.submit(
+            pid1.clone(),
+            RequestId::must("req1"),
+            UserId::must("user1"),
+            SessionId::must("sess1"),
+            SchedulingPriority::Normal,
+            None,
+        )
+        .unwrap();
+        lm.submit(
+            pid2.clone(),
+            RequestId::must("req2"),
+            UserId::must("user2"),
+            SessionId::must("sess2"),
+            SchedulingPriority::Normal,
+            None,
+        )
+        .unwrap();
+        lm.submit(
+            pid3.clone(),
+            RequestId::must("req3"),
+            UserId::must("user3"),
+            SessionId::must("sess3"),
+            SchedulingPriority::Normal,
+            None,
+        )
+        .unwrap();
 
         assert_eq!(lm.count_by_state(ProcessState::New), 3);
         assert_eq!(lm.count_by_state(ProcessState::Ready), 0);
@@ -447,11 +551,20 @@ mod tests {
         let mut lm = LifecycleManager::default();
         let pid = ProcessId::must("pid1");
 
-        lm.submit(pid.clone(), RequestId::must("req1"), UserId::must("user1"), SessionId::must("sess1"), SchedulingPriority::Normal, None).unwrap();
+        lm.submit(
+            pid.clone(),
+            RequestId::must("req1"),
+            UserId::must("user1"),
+            SessionId::must("sess1"),
+            SchedulingPriority::Normal,
+            None,
+        )
+        .unwrap();
         lm.schedule(&pid).unwrap();
         lm.start(&pid).unwrap();
 
-        lm.wait(&pid, crate::envelope::InterruptKind::Clarification).unwrap();
+        lm.wait(&pid, crate::envelope::InterruptKind::Clarification)
+            .unwrap();
         assert_eq!(lm.get(&pid).unwrap().state, ProcessState::Waiting);
 
         lm.resume(&pid).unwrap();
@@ -466,7 +579,15 @@ mod tests {
         let mut lm = LifecycleManager::default();
         let pid = ProcessId::must("pid1");
 
-        lm.submit(pid.clone(), RequestId::must("req1"), UserId::must("user1"), SessionId::must("sess1"), SchedulingPriority::Normal, None).unwrap();
+        lm.submit(
+            pid.clone(),
+            RequestId::must("req1"),
+            UserId::must("user1"),
+            SessionId::must("sess1"),
+            SchedulingPriority::Normal,
+            None,
+        )
+        .unwrap();
         lm.schedule(&pid).unwrap();
         lm.start(&pid).unwrap();
 
@@ -487,7 +608,9 @@ mod tests {
 
         assert!(lm.schedule(&nonexistent).is_err());
         assert!(lm.start(&nonexistent).is_err());
-        assert!(lm.wait(&nonexistent, crate::envelope::InterruptKind::Clarification).is_err());
+        assert!(lm
+            .wait(&nonexistent, crate::envelope::InterruptKind::Clarification)
+            .is_err());
         assert!(lm.block(&nonexistent, "reason".to_string()).is_err());
         assert!(lm.resume(&nonexistent).is_err());
         assert!(lm.terminate(&nonexistent).is_err());
@@ -502,7 +625,15 @@ mod tests {
         let mut lm = LifecycleManager::default();
         let pid = ProcessId::must("pid1");
 
-        lm.submit(pid.clone(), RequestId::must("req1"), UserId::must("user1"), SessionId::must("sess1"), SchedulingPriority::Normal, None).unwrap();
+        lm.submit(
+            pid.clone(),
+            RequestId::must("req1"),
+            UserId::must("user1"),
+            SessionId::must("sess1"),
+            SchedulingPriority::Normal,
+            None,
+        )
+        .unwrap();
         lm.schedule(&pid).unwrap();
         lm.start(&pid).unwrap();
         lm.terminate(&pid).unwrap();
@@ -525,7 +656,15 @@ mod tests {
         let mut lm = LifecycleManager::default();
         let pid = ProcessId::must("pid1");
 
-        lm.submit(pid.clone(), RequestId::must("req1"), UserId::must("user1"), SessionId::must("sess1"), SchedulingPriority::Normal, None).unwrap();
+        lm.submit(
+            pid.clone(),
+            RequestId::must("req1"),
+            UserId::must("user1"),
+            SessionId::must("sess1"),
+            SchedulingPriority::Normal,
+            None,
+        )
+        .unwrap();
         lm.schedule(&pid).unwrap();
 
         assert!(lm.schedule(&pid).is_err());
@@ -539,9 +678,33 @@ mod tests {
         let pid2 = ProcessId::must("pid2");
         let pid3 = ProcessId::must("pid3");
 
-        lm.submit(pid1.clone(), RequestId::must("req1"), UserId::must("user1"), SessionId::must("sess1"), SchedulingPriority::Normal, None).unwrap();
-        lm.submit(pid2.clone(), RequestId::must("req2"), UserId::must("user2"), SessionId::must("sess2"), SchedulingPriority::Normal, None).unwrap();
-        lm.submit(pid3.clone(), RequestId::must("req3"), UserId::must("user3"), SessionId::must("sess3"), SchedulingPriority::Normal, None).unwrap();
+        lm.submit(
+            pid1.clone(),
+            RequestId::must("req1"),
+            UserId::must("user1"),
+            SessionId::must("sess1"),
+            SchedulingPriority::Normal,
+            None,
+        )
+        .unwrap();
+        lm.submit(
+            pid2.clone(),
+            RequestId::must("req2"),
+            UserId::must("user2"),
+            SessionId::must("sess2"),
+            SchedulingPriority::Normal,
+            None,
+        )
+        .unwrap();
+        lm.submit(
+            pid3.clone(),
+            RequestId::must("req3"),
+            UserId::must("user3"),
+            SessionId::must("sess3"),
+            SchedulingPriority::Normal,
+            None,
+        )
+        .unwrap();
 
         let new_processes = lm.list_by_state(ProcessState::New);
         assert_eq!(new_processes.len(), 3);
@@ -561,7 +724,15 @@ mod tests {
         let mut lm = LifecycleManager::default();
         let pid = ProcessId::must("pid1");
 
-        lm.submit(pid.clone(), RequestId::must("req1"), UserId::must("user1"), SessionId::must("sess1"), SchedulingPriority::Normal, None).unwrap();
+        lm.submit(
+            pid.clone(),
+            RequestId::must("req1"),
+            UserId::must("user1"),
+            SessionId::must("sess1"),
+            SchedulingPriority::Normal,
+            None,
+        )
+        .unwrap();
 
         assert_eq!(lm.count(), 1);
 
@@ -577,7 +748,15 @@ mod tests {
         let mut lm = LifecycleManager::default();
         let pid = ProcessId::must("pid1");
 
-        lm.submit(pid.clone(), RequestId::must("req1"), UserId::must("user1"), SessionId::must("sess1"), SchedulingPriority::Normal, None).unwrap();
+        lm.submit(
+            pid.clone(),
+            RequestId::must("req1"),
+            UserId::must("user1"),
+            SessionId::must("sess1"),
+            SchedulingPriority::Normal,
+            None,
+        )
+        .unwrap();
         lm.schedule(&pid).unwrap();
         lm.start(&pid).unwrap();
 

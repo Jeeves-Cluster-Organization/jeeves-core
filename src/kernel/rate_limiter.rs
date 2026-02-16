@@ -206,13 +206,20 @@ mod tests {
 
         // First 3 requests should succeed
         for i in 0..3 {
-            assert!(limiter.check_rate_limit("user1").is_ok(), "Request {} should succeed", i);
+            assert!(
+                limiter.check_rate_limit("user1").is_ok(),
+                "Request {} should succeed",
+                i
+            );
         }
 
         // 4th request should fail (exceeds per-minute limit)
         let result = limiter.check_rate_limit("user1");
         assert!(result.is_err());
-        assert!(result.unwrap_err().to_string().contains("requests per minute"));
+        assert!(result
+            .unwrap_err()
+            .to_string()
+            .contains("requests per minute"));
     }
 
     #[test]
@@ -226,13 +233,20 @@ mod tests {
 
         // First 5 requests should succeed
         for i in 0..5 {
-            assert!(limiter.check_rate_limit("user1").is_ok(), "Request {} should succeed", i);
+            assert!(
+                limiter.check_rate_limit("user1").is_ok(),
+                "Request {} should succeed",
+                i
+            );
         }
 
         // 6th request should fail (exceeds per-hour limit)
         let result = limiter.check_rate_limit("user1");
         assert!(result.is_err());
-        assert!(result.unwrap_err().to_string().contains("requests per hour"));
+        assert!(result
+            .unwrap_err()
+            .to_string()
+            .contains("requests per hour"));
     }
 
     #[test]
@@ -246,7 +260,11 @@ mod tests {
 
         // First 5 requests (burst) should succeed
         for i in 0..5 {
-            assert!(limiter.check_rate_limit("user1").is_ok(), "Request {} failed", i);
+            assert!(
+                limiter.check_rate_limit("user1").is_ok(),
+                "Request {} failed",
+                i
+            );
         }
     }
 
@@ -261,13 +279,20 @@ mod tests {
 
         // First 3 requests (burst size) should succeed
         for i in 0..3 {
-            assert!(limiter.check_rate_limit("user1").is_ok(), "Request {} should succeed", i);
+            assert!(
+                limiter.check_rate_limit("user1").is_ok(),
+                "Request {} should succeed",
+                i
+            );
         }
 
         // 4th should fail (burst exhausted)
         let result = limiter.check_rate_limit("user1");
         assert!(result.is_err());
-        assert!(result.unwrap_err().to_string().contains("Burst limit exceeded"));
+        assert!(result
+            .unwrap_err()
+            .to_string()
+            .contains("Burst limit exceeded"));
     }
 
     #[test]
@@ -356,4 +381,3 @@ mod tests {
         assert!(limiter.check_rate_limit("user3").is_ok());
     }
 }
-

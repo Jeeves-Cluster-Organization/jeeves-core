@@ -29,7 +29,10 @@ macro_rules! define_id {
             /// Construct from a known-good string. Panics if empty.
             pub fn must(s: impl Into<String>) -> Self {
                 let s = s.into();
-                assert!(!s.is_empty(), concat!(stringify!($name), " cannot be empty"));
+                assert!(
+                    !s.is_empty(),
+                    concat!(stringify!($name), " cannot be empty")
+                );
                 Self(s)
             }
 
@@ -65,7 +68,10 @@ macro_rules! define_id {
             /// Construct from a known-good string. Panics if empty.
             pub fn must(s: impl Into<String>) -> Self {
                 let s = s.into();
-                assert!(!s.is_empty(), concat!(stringify!($name), " cannot be empty"));
+                assert!(
+                    !s.is_empty(),
+                    concat!(stringify!($name), " cannot be empty")
+                );
                 Self(s)
             }
 

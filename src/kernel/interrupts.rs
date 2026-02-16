@@ -587,10 +587,7 @@ impl InterruptService {
 
     /// Get the number of pending interrupts.
     pub fn get_pending_count(&self) -> usize {
-        self.store
-            .values()
-            .filter(|i| i.is_pending())
-            .count()
+        self.store.values().filter(|i| i.is_pending()).count()
     }
 }
 
@@ -670,7 +667,10 @@ mod tests {
         let resolved = service.get_interrupt(&interrupt_id).unwrap();
         assert_eq!(resolved.status, InterruptStatus::Resolved);
         assert!(resolved.flow_interrupt.response.is_some());
-        assert_eq!(resolved.flow_interrupt.response.as_ref().unwrap().approved, Some(true));
+        assert_eq!(
+            resolved.flow_interrupt.response.as_ref().unwrap().approved,
+            Some(true)
+        );
     }
 
     #[test]
@@ -722,7 +722,12 @@ mod tests {
         let cancelled = service.get_interrupt(&interrupt_id).unwrap();
         assert_eq!(cancelled.status, InterruptStatus::Cancelled);
         assert!(cancelled.flow_interrupt.data.is_some());
-        assert!(cancelled.flow_interrupt.data.as_ref().unwrap().contains_key("cancel_reason"));
+        assert!(cancelled
+            .flow_interrupt
+            .data
+            .as_ref()
+            .unwrap()
+            .contains_key("cancel_reason"));
     }
 
     #[test]
@@ -822,17 +827,13 @@ mod tests {
         assert_eq!(all_pending.len(), 3);
 
         // Filter by clarification kind only
-        let clarifications = service.get_pending_for_session(
-            "sess1",
-            Some(&[InterruptKind::Clarification]),
-        );
+        let clarifications =
+            service.get_pending_for_session("sess1", Some(&[InterruptKind::Clarification]));
         assert_eq!(clarifications.len(), 2);
 
         // Filter by confirmation kind only
-        let confirmations = service.get_pending_for_session(
-            "sess1",
-            Some(&[InterruptKind::Confirmation]),
-        );
+        let confirmations =
+            service.get_pending_for_session("sess1", Some(&[InterruptKind::Confirmation]));
         assert_eq!(confirmations.len(), 1);
     }
 
@@ -961,7 +962,10 @@ mod tests {
             60.0,
         );
 
-        assert_eq!(interrupt.flow_interrupt.kind, InterruptKind::ResourceExhausted);
+        assert_eq!(
+            interrupt.flow_interrupt.kind,
+            InterruptKind::ResourceExhausted
+        );
         assert!(interrupt.flow_interrupt.message.is_some());
         assert!(interrupt.flow_interrupt.data.is_some());
 

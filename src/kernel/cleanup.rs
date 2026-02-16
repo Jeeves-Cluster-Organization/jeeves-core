@@ -230,8 +230,8 @@ mod tests {
 
         // Run cleanup with 24h retention
         let config = CleanupConfig::default();
-        let removed = CleanupService::cleanup_zombies(&mut kernel, config.process_retention_seconds)
-            .unwrap();
+        let removed =
+            CleanupService::cleanup_zombies(&mut kernel, config.process_retention_seconds).unwrap();
 
         assert_eq!(removed, 1);
         assert!(kernel.get_process(&pcb.pid).is_none());
@@ -258,8 +258,8 @@ mod tests {
 
         // Recent zombie (just created) - should NOT be removed
         let config = CleanupConfig::default();
-        let removed = CleanupService::cleanup_zombies(&mut kernel, config.process_retention_seconds)
-            .unwrap();
+        let removed =
+            CleanupService::cleanup_zombies(&mut kernel, config.process_retention_seconds).unwrap();
 
         assert_eq!(removed, 0);
         assert!(kernel.get_process(&pcb.pid).is_some());

@@ -283,4 +283,3 @@ mod tests {
         assert_eq!(total.llm_calls, 0);
     }
 }
-

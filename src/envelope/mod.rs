@@ -95,7 +95,8 @@ impl FlowInterrupt {
     }
 
     pub fn with_expiry(mut self, duration: std::time::Duration) -> Self {
-        self.expires_at = Some(Utc::now() + chrono::Duration::from_std(duration).unwrap_or_default());
+        self.expires_at =
+            Some(Utc::now() + chrono::Duration::from_std(duration).unwrap_or_default());
         self
     }
 }
@@ -323,14 +324,18 @@ impl Envelope {
 
     /// Complete a stage successfully.
     pub fn complete_stage(&mut self, stage_name: &str) {
-        self.pipeline.completed_stage_set.insert(stage_name.to_string());
+        self.pipeline
+            .completed_stage_set
+            .insert(stage_name.to_string());
         self.pipeline.active_stages.remove(stage_name);
     }
 
     /// Mark a stage as failed.
     pub fn fail_stage(&mut self, stage_name: impl Into<String>, error_msg: impl Into<String>) {
         let stage_name_str = stage_name.into();
-        self.pipeline.failed_stages.insert(stage_name_str.clone(), error_msg.into());
+        self.pipeline
+            .failed_stages
+            .insert(stage_name_str.clone(), error_msg.into());
         self.pipeline.active_stages.remove(&stage_name_str);
     }
 

@@ -85,7 +85,10 @@ async fn test_create_process_round_trip() {
     assert_eq!(msg_type, MSG_RESPONSE);
     assert_eq!(response.get("ok").unwrap().as_bool().unwrap(), true);
     let resp_body = response.get("body").unwrap();
-    assert_eq!(resp_body.get("pid").unwrap().as_str().unwrap(), "test-proc-1");
+    assert_eq!(
+        resp_body.get("pid").unwrap().as_str().unwrap(),
+        "test-proc-1"
+    );
     // create_process returns the PCB from submit() — state is NEW
     // (schedule runs after, but the returned clone is from before scheduling)
     assert_eq!(resp_body.get("state").unwrap().as_str().unwrap(), "NEW");
@@ -131,7 +134,10 @@ async fn test_kernel_shared_state() {
     .await;
     assert_eq!(msg_type, MSG_RESPONSE);
     let resp_body = response.get("body").unwrap();
-    assert_eq!(resp_body.get("pid").unwrap().as_str().unwrap(), "shared-test");
+    assert_eq!(
+        resp_body.get("pid").unwrap().as_str().unwrap(),
+        "shared-test"
+    );
 }
 
 // =============================================================================
@@ -160,12 +166,20 @@ async fn test_update_envelope() {
 
     // Create envelope
     let envelope = create_test_envelope(&mut stream).await;
-    let env_id = envelope.get("identity").unwrap()
-        .get("envelope_id").unwrap().as_str().unwrap().to_string();
+    let env_id = envelope
+        .get("identity")
+        .unwrap()
+        .get("envelope_id")
+        .unwrap()
+        .as_str()
+        .unwrap()
+        .to_string();
 
     // Update it (change raw_input)
     let mut updated = envelope.clone();
-    updated.as_object_mut().unwrap()
+    updated
+        .as_object_mut()
+        .unwrap()
         .insert("raw_input".to_string(), serde_json::json!("updated input"));
 
     let (msg_type, response) = round_trip(
@@ -173,14 +187,23 @@ async fn test_update_envelope() {
         "engine",
         "UpdateEnvelope",
         serde_json::json!({ "envelope": updated }),
-    ).await;
+    )
+    .await;
 
     assert_eq!(msg_type, MSG_RESPONSE);
     assert_eq!(response.get("ok").unwrap().as_bool().unwrap(), true);
     let body = response.get("body").unwrap();
-    assert_eq!(body.get("raw_input").unwrap().as_str().unwrap(), "updated input");
     assert_eq!(
-        body.get("identity").unwrap().get("envelope_id").unwrap().as_str().unwrap(),
+        body.get("raw_input").unwrap().as_str().unwrap(),
+        "updated input"
+    );
+    assert_eq!(
+        body.get("identity")
+            .unwrap()
+            .get("envelope_id")
+            .unwrap()
+            .as_str()
+            .unwrap(),
         env_id,
     );
 }
@@ -193,17 +216,24 @@ async fn test_update_envelope_not_found() {
     // Create an envelope, tweak its ID to a non-existent one, try to update
     let envelope = create_test_envelope(&mut stream).await;
     let mut fake = envelope.clone();
-    fake.as_object_mut().unwrap()
-        .get_mut("identity").unwrap()
-        .as_object_mut().unwrap()
-        .insert("envelope_id".to_string(), serde_json::json!("env_does_not_exist"));
+    fake.as_object_mut()
+        .unwrap()
+        .get_mut("identity")
+        .unwrap()
+        .as_object_mut()
+        .unwrap()
+        .insert(
+            "envelope_id".to_string(),
+            serde_json::json!("env_does_not_exist"),
+        );
 
     let (msg_type, response) = round_trip(
         &mut stream,
         "engine",
         "UpdateEnvelope",
         serde_json::json!({ "envelope": fake }),
-    ).await;
+    )
+    .await;
 
     assert_eq!(msg_type, MSG_ERROR);
     let error = response.get("error").unwrap();
@@ -250,14 +280,18 @@ async fn test_execute_pipeline() {
             "envelope": envelope_str,
             "pipeline_config": pipeline_config_str,
         }),
-    ).await;
+    )
+    .await;
 
     assert_eq!(msg_type, MSG_RESPONSE);
     assert_eq!(response.get("ok").unwrap().as_bool().unwrap(), true);
     let body = response.get("body").unwrap();
     // First instruction should be RUN_AGENT for the entry stage
     assert_eq!(body.get("kind").unwrap().as_str().unwrap(), "RUN_AGENT");
-    assert_eq!(body.get("agent_name").unwrap().as_str().unwrap(), "classifier");
+    assert_eq!(
+        body.get("agent_name").unwrap().as_str().unwrap(),
+        "classifier"
+    );
 }
 
 #[tokio::test]
@@ -266,25 +300,40 @@ async fn test_clone_envelope() {
     let mut stream = TcpStream::connect(addr).await.unwrap();
 
     let envelope = create_test_envelope(&mut stream).await;
-    let original_id = envelope.get("identity").unwrap()
-        .get("envelope_id").unwrap().as_str().unwrap().to_string();
+    let original_id = envelope
+        .get("identity")
+        .unwrap()
+        .get("envelope_id")
+        .unwrap()
+        .as_str()
+        .unwrap()
+        .to_string();
 
     let (msg_type, response) = round_trip(
         &mut stream,
         "engine",
         "CloneEnvelope",
         serde_json::json!({ "envelope": envelope }),
-    ).await;
+    )
+    .await;
 
     assert_eq!(msg_type, MSG_RESPONSE);
     assert_eq!(response.get("ok").unwrap().as_bool().unwrap(), true);
     let body = response.get("body").unwrap();
-    let cloned_id = body.get("identity").unwrap()
-        .get("envelope_id").unwrap().as_str().unwrap();
+    let cloned_id = body
+        .get("identity")
+        .unwrap()
+        .get("envelope_id")
+        .unwrap()
+        .as_str()
+        .unwrap();
     // Clone gets a new ID
     assert_ne!(cloned_id, original_id);
     // Content preserved
-    assert_eq!(body.get("raw_input").unwrap().as_str().unwrap(), "test input");
+    assert_eq!(
+        body.get("raw_input").unwrap().as_str().unwrap(),
+        "test input"
+    );
 }
 
 // =============================================================================
@@ -305,7 +354,8 @@ async fn test_commbus_publish() {
             "payload": "{}",
             "source": "integration-test",
         }),
-    ).await;
+    )
+    .await;
 
     assert_eq!(msg_type, MSG_RESPONSE);
     assert_eq!(response.get("ok").unwrap().as_bool().unwrap(), true);
@@ -327,7 +377,8 @@ async fn test_commbus_send() {
             "payload": "{\"key\": \"value\"}",
             "source": "integration-test",
         }),
-    ).await;
+    )
+    .await;
 
     // Send with no registered handler returns an error
     assert_eq!(msg_type, MSG_ERROR);
@@ -348,7 +399,8 @@ async fn test_commbus_query_no_handler() {
             "source": "integration-test",
             "timeout_ms": 500,
         }),
-    ).await;
+    )
+    .await;
 
     // Query with no registered handler returns an error
     assert_eq!(msg_type, MSG_ERROR);
@@ -370,7 +422,9 @@ async fn test_commbus_subscribe_stream() {
         },
     });
     let payload = rmp_serde::to_vec_named(&sub_request).unwrap();
-    write_frame(&mut sub_stream, MSG_REQUEST, &payload).await.unwrap();
+    write_frame(&mut sub_stream, MSG_REQUEST, &payload)
+        .await
+        .unwrap();
 
     // Give subscription time to register
     tokio::time::sleep(std::time::Duration::from_millis(100)).await;
@@ -387,7 +441,8 @@ async fn test_commbus_subscribe_stream() {
                 "payload": format!("{{\"seq\": {}}}", i),
                 "source": "stream-test",
             }),
-        ).await;
+        )
+        .await;
         assert_eq!(msg_type, MSG_RESPONSE);
         assert_eq!(response.get("ok").unwrap().as_bool().unwrap(), true);
     }
@@ -399,7 +454,10 @@ async fn test_commbus_subscribe_stream() {
         tokio::time::timeout(
             std::time::Duration::from_secs(2),
             sub_stream.read_exact(&mut len_buf),
-        ).await.expect("Timed out waiting for stream chunk").unwrap();
+        )
+        .await
+        .expect("Timed out waiting for stream chunk")
+        .unwrap();
 
         let frame_len = u32::from_be_bytes(len_buf) as usize;
         let mut frame_data = vec![0u8; frame_len];
@@ -414,7 +472,10 @@ async fn test_commbus_subscribe_stream() {
     // Each chunk should have the event_type in the body
     for chunk in &chunks {
         let body = chunk.get("body").unwrap();
-        assert_eq!(body.get("event_type").unwrap().as_str().unwrap(), "test.stream");
+        assert_eq!(
+            body.get("event_type").unwrap().as_str().unwrap(),
+            "test.stream"
+        );
         assert_eq!(body.get("source").unwrap().as_str().unwrap(), "stream-test");
     }
 

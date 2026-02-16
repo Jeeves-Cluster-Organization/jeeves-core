@@ -1,0 +1,21 @@
+#!/usr/bin/env sh
+#
+# Git pre-push hook — runs local CI checks before allowing a push.
+# Bypass with: git push --no-verify
+#
+
+set -e
+
+echo "=== pre-push: running local CI checks ==="
+echo ""
+
+if ! make -C "$(git rev-parse --show-toplevel)" check; then
+    echo ""
+    echo "=== pre-push: checks FAILED ==="
+    echo "Fix the issues above, then try pushing again."
+    echo "To bypass (not recommended): git push --no-verify"
+    exit 1
+fi
+
+echo ""
+echo "=== pre-push: all checks passed ==="

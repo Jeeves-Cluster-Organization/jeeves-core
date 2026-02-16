@@ -111,7 +111,13 @@ cd jeeves-core
 # Install Rust (if not already installed)
 curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
 
-# Run tests
+# Install local CI hooks (one-time setup)
+make setup
+
+# Run all checks (formatting, linting, tests)
+make check
+
+# Run tests only
 cargo test
 
 # Run with coverage
@@ -120,6 +126,21 @@ cargo tarpaulin --lib --out Stdout
 # Build release
 cargo build --release
 \`\`\`
+
+### Local CI Checks
+
+A \`Makefile\` provides convenient targets for all quality gates:
+
+| Command | What it does |
+|---------|-------------|
+| \`make check\` | Run all checks (fmt, lint, test) |
+| \`make fmt-check\` | Verify formatting without modifying files |
+| \`make lint\` | Run clippy with warnings as errors |
+| \`make test\` | Run all tests |
+| \`make fmt\` | Auto-format code |
+| \`make setup\` | Install git pre-push hook |
+
+After running \`make setup\`, these checks run automatically before every \`git push\`. If any check fails the push is blocked. You can bypass with \`git push --no-verify\` if needed.
 
 ## Code Style
 

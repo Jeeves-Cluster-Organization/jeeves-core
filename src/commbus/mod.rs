@@ -242,14 +242,12 @@ impl CommBus {
     pub async fn send_command(&self, command: Command) -> Result<()> {
         let handlers = self.command_handlers.read().await;
 
-        let handler = handlers
-            .get(&command.command_type)
-            .ok_or_else(|| {
-                Error::validation(format!(
-                    "No handler registered for command type: {}",
-                    command.command_type
-                ))
-            })?;
+        let handler = handlers.get(&command.command_type).ok_or_else(|| {
+            Error::validation(format!(
+                "No handler registered for command type: {}",
+                command.command_type
+            ))
+        })?;
 
         // Fire-and-forget send
         handler.send(command.clone()).map_err(|_| {
@@ -319,14 +317,12 @@ impl CommBus {
     pub async fn query(&self, query: Query) -> Result<QueryResponse> {
         let handlers = self.query_handlers.read().await;
 
-        let handler = handlers
-            .get(&query.query_type)
-            .ok_or_else(|| {
-                Error::validation(format!(
-                    "No handler registered for query type: {}",
-                    query.query_type
-                ))
-            })?;
+        let handler = handlers.get(&query.query_type).ok_or_else(|| {
+            Error::validation(format!(
+                "No handler registered for query type: {}",
+                query.query_type
+            ))
+        })?;
 
         // Create oneshot channel for response
         let (response_tx, response_rx) = oneshot::channel();
@@ -350,7 +346,10 @@ impl CommBus {
                 ))
             })?
             .map_err(|_| {
-                Error::internal(format!("Query response channel closed: {}", query.query_type))
+                Error::internal(format!(
+                    "Query response channel closed: {}",
+                    query.query_type
+                ))
             })?;
 
         // Update stats
@@ -468,10 +467,7 @@ mod tests {
 
         // Subscribe to event
         let (subscription, mut rx) = bus
-            .subscribe(
-                "subscriber1".to_string(),
-                vec!["test.event".to_string()],
-            )
+            .subscribe("subscriber1".to_string(), vec!["test.event".to_string()])
             .await
             .unwrap();
 
@@ -612,7 +608,10 @@ mod tests {
 
         let result = bus.send_command(command).await;
         assert!(result.is_err());
-        assert!(result.unwrap_err().to_string().contains("No handler registered"));
+        assert!(result
+            .unwrap_err()
+            .to_string()
+            .contains("No handler registered"));
     }
 
     #[tokio::test]
@@ -661,7 +660,10 @@ mod tests {
             .await;
 
         assert!(result.is_err());
-        assert!(result.unwrap_err().to_string().contains("already registered"));
+        assert!(result
+            .unwrap_err()
+            .to_string()
+            .contains("already registered"));
     }
 
     #[tokio::test]
@@ -674,7 +676,9 @@ mod tests {
             .unwrap();
 
         // Unregister
-        bus.unregister_command_handler("test.command").await.unwrap();
+        bus.unregister_command_handler("test.command")
+            .await
+            .unwrap();
 
         // Sending command now fails
         let command = Command {
@@ -704,7 +708,10 @@ mod tests {
 
         let result = bus.query(query).await;
         assert!(result.is_err());
-        assert!(result.unwrap_err().to_string().contains("No handler registered"));
+        assert!(result
+            .unwrap_err()
+            .to_string()
+            .contains("No handler registered"));
     }
 
     #[tokio::test]

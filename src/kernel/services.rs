@@ -91,7 +91,10 @@ impl ServiceInfo {
 
     /// Check if the service is healthy.
     pub fn is_healthy(&self) -> bool {
-        matches!(self.status, ServiceStatus::Healthy | ServiceStatus::Degraded)
+        matches!(
+            self.status,
+            ServiceStatus::Healthy | ServiceStatus::Degraded
+        )
     }
 }
 
@@ -217,7 +220,11 @@ impl ServiceRegistry {
     }
 
     /// List all registered services matching criteria.
-    pub fn list_services(&self, service_type: Option<&str>, healthy_only: bool) -> Vec<ServiceInfo> {
+    pub fn list_services(
+        &self,
+        service_type: Option<&str>,
+        healthy_only: bool,
+    ) -> Vec<ServiceInfo> {
         self.services
             .values()
             .filter(|svc| {
@@ -299,10 +306,7 @@ impl ServiceRegistry {
 
     /// Get count of healthy services.
     pub fn get_healthy_count(&self) -> usize {
-        self.services
-            .values()
-            .filter(|s| s.is_healthy())
-            .count()
+        self.services.values().filter(|s| s.is_healthy()).count()
     }
 
     // =============================================================================
@@ -585,11 +589,17 @@ mod tests {
         // Update to degraded
         let success = registry.update_health("worker1", ServiceStatus::Degraded);
         assert!(success);
-        assert_eq!(registry.get_service("worker1").unwrap().status, ServiceStatus::Degraded);
+        assert_eq!(
+            registry.get_service("worker1").unwrap().status,
+            ServiceStatus::Degraded
+        );
 
         // Update to unhealthy
         registry.update_health("worker1", ServiceStatus::Unhealthy);
-        assert_eq!(registry.get_service("worker1").unwrap().status, ServiceStatus::Unhealthy);
+        assert_eq!(
+            registry.get_service("worker1").unwrap().status,
+            ServiceStatus::Unhealthy
+        );
 
         // Try to update non-existent service
         let not_found = registry.update_health("nonexistent", ServiceStatus::Healthy);
