@@ -2,6 +2,7 @@
 
 use crate::envelope::Envelope;
 use crate::ipc::dispatch::{str_field, DispatchResponse};
+use crate::ipc::handlers::validation::{parse_non_negative_i32, require_non_negative_i64};
 use crate::kernel::orchestrator::{AgentExecutionMetrics, PipelineConfig};
 use crate::kernel::Kernel;
 use crate::types::{Error, ProcessId, Result};
@@ -66,11 +67,26 @@ pub async fn handle(
             let metrics_val = body.get("metrics");
             let metrics = if let Some(m) = metrics_val {
                 AgentExecutionMetrics {
-                    llm_calls: m.get("llm_calls").and_then(|v| v.as_i64()).unwrap_or(0) as i32,
-                    tool_calls: m.get("tool_calls").and_then(|v| v.as_i64()).unwrap_or(0) as i32,
-                    tokens_in: m.get("tokens_in").and_then(|v| v.as_i64()).unwrap_or(0),
-                    tokens_out: m.get("tokens_out").and_then(|v| v.as_i64()).unwrap_or(0),
-                    duration_ms: m.get("duration_ms").and_then(|v| v.as_i64()).unwrap_or(0),
+                    llm_calls: parse_non_negative_i32(
+                        m.get("llm_calls").and_then(|v| v.as_i64()).unwrap_or(0),
+                        "metrics.llm_calls",
+                    )?,
+                    tool_calls: parse_non_negative_i32(
+                        m.get("tool_calls").and_then(|v| v.as_i64()).unwrap_or(0),
+                        "metrics.tool_calls",
+                    )?,
+                    tokens_in: require_non_negative_i64(
+                        m.get("tokens_in").and_then(|v| v.as_i64()).unwrap_or(0),
+                        "metrics.tokens_in",
+                    )?,
+                    tokens_out: require_non_negative_i64(
+                        m.get("tokens_out").and_then(|v| v.as_i64()).unwrap_or(0),
+                        "metrics.tokens_out",
+                    )?,
+                    duration_ms: require_non_negative_i64(
+                        m.get("duration_ms").and_then(|v| v.as_i64()).unwrap_or(0),
+                        "metrics.duration_ms",
+                    )?,
                 }
             } else {
                 AgentExecutionMetrics {

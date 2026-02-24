@@ -2,8 +2,9 @@
 
 use std::net::SocketAddr;
 use std::sync::Arc;
+use std::time::Duration;
 use tokio::net::TcpListener;
-use tokio::sync::Mutex;
+use tokio::sync::{Mutex, Semaphore, OwnedSemaphorePermit};
 use tokio_util::sync::CancellationToken;
 
 use crate::ipc::codec::{
@@ -12,6 +13,15 @@ use crate::ipc::codec::{
 use crate::ipc::dispatch::{self, DispatchResponse};
 use crate::kernel::Kernel;
 use crate::types::IpcConfig;
+
+/// Encode a JSON value to msgpack. Logs and returns an error on failure
+/// instead of silently producing an empty vec.
+fn encode_msgpack(value: &serde_json::Value) -> std::io::Result<Vec<u8>> {
+    rmp_serde::to_vec_named(value).map_err(|e| {
+        tracing::error!("Msgpack encoding failed: {}", e);
+        std::io::Error::new(std::io::ErrorKind::InvalidData, e.to_string())
+    })
+}
 
 /// IPC server wrapping the kernel.
 #[derive(Debug)]
@@ -35,7 +45,12 @@ impl IpcServer {
     /// Run the server until cancelled or a fatal error occurs.
     pub async fn serve(&self) -> std::io::Result<()> {
         let listener = TcpListener::bind(self.addr).await?;
-        tracing::info!("IPC server listening on {}", self.addr);
+        let conn_semaphore = Arc::new(Semaphore::new(self.ipc_config.max_connections));
+        tracing::info!(
+            "IPC server listening on {} (max_connections={})",
+            self.addr,
+            self.ipc_config.max_connections,
+        );
 
         loop {
             tokio::select! {
@@ -45,14 +60,33 @@ impl IpcServer {
                 }
                 accept = listener.accept() => {
                     let (stream, peer) = accept?;
-                    tracing::debug!("IPC connection from {}", peer);
+
+                    // Acquire connection permit (backpressure when at capacity).
+                    let permit = match conn_semaphore.clone().try_acquire_owned() {
+                        Ok(permit) => permit,
+                        Err(_) => {
+                            tracing::warn!(
+                                "Connection from {} rejected: at max_connections ({})",
+                                peer,
+                                self.ipc_config.max_connections,
+                            );
+                            drop(stream);
+                            continue;
+                        }
+                    };
+
+                    tracing::debug!("IPC connection from {} (active={})",
+                        peer,
+                        self.ipc_config.max_connections - conn_semaphore.available_permits(),
+                    );
                     let kernel = self.kernel.clone();
                     let cancel = self.cancel.clone();
                     let ipc_config = self.ipc_config.clone();
                     tokio::spawn(async move {
-                        if let Err(e) = handle_connection(stream, kernel, cancel, ipc_config).await {
+                        if let Err(e) = handle_connection(stream, kernel, cancel, ipc_config, permit).await {
                             tracing::warn!("Connection from {} error: {}", peer, e);
                         }
+                        // permit is dropped here, releasing the connection slot
                     });
                 }
             }
@@ -61,7 +95,6 @@ impl IpcServer {
     }
 
     /// Request graceful shutdown.
-    #[allow(dead_code)]
     pub fn shutdown(&self) {
         self.cancel.cancel();
     }
@@ -73,16 +106,25 @@ async fn handle_connection(
     kernel: Arc<Mutex<Kernel>>,
     cancel: CancellationToken,
     ipc_config: IpcConfig,
+    _permit: OwnedSemaphorePermit, // held for connection lifetime
 ) -> std::io::Result<()> {
     let (mut reader, mut writer) = stream.into_split();
+    let read_timeout = Duration::from_secs(ipc_config.read_timeout_secs);
+    let write_timeout = Duration::from_secs(ipc_config.write_timeout_secs);
 
     loop {
         tokio::select! {
             _ = cancel.cancelled() => break,
-            frame = read_frame(&mut reader, ipc_config.max_frame_bytes) => {
-                let frame = match frame? {
-                    Some(f) => f,
-                    None => break, // clean EOF
+            frame_result = tokio::time::timeout(read_timeout, read_frame(&mut reader, ipc_config.max_frame_bytes)) => {
+                let frame = match frame_result {
+                    Err(_elapsed) => {
+                        tracing::debug!("Read timeout ({}s), dropping connection", ipc_config.read_timeout_secs);
+                        break;
+                    }
+                    Ok(result) => match result? {
+                        Some(f) => f,
+                        None => break, // clean EOF
+                    },
                 };
 
                 let (msg_type, payload_bytes) = frame;
@@ -96,9 +138,8 @@ async fn handle_connection(
                             "message": format!("Unexpected message type: 0x{:02X}", msg_type),
                         }
                     });
-                    let encoded = rmp_serde::to_vec_named(&err_payload)
-                        .unwrap_or_default();
-                    write_frame(&mut writer, MSG_ERROR, &encoded).await?;
+                    let encoded = encode_msgpack(&err_payload)?;
+                    timed_write(&mut writer, MSG_ERROR, &encoded, write_timeout).await?;
                     continue;
                 }
 
@@ -114,9 +155,8 @@ async fn handle_connection(
                                 "message": format!("Invalid msgpack: {}", e),
                             }
                         });
-                        let encoded = rmp_serde::to_vec_named(&err_payload)
-                            .unwrap_or_default();
-                        write_frame(&mut writer, MSG_ERROR, &encoded).await?;
+                        let encoded = encode_msgpack(&err_payload)?;
+                        timed_write(&mut writer, MSG_ERROR, &encoded, write_timeout).await?;
                         continue;
                     }
                 };
@@ -147,9 +187,8 @@ async fn handle_connection(
                             "ok": true,
                             "body": response_body,
                         });
-                        let encoded = rmp_serde::to_vec_named(&response)
-                            .unwrap_or_default();
-                        write_frame(&mut writer, MSG_RESPONSE, &encoded).await?;
+                        let encoded = encode_msgpack(&response)?;
+                        timed_write(&mut writer, MSG_RESPONSE, &encoded, write_timeout).await?;
                     }
                     Ok(DispatchResponse::Stream(mut rx)) => {
                         // Stream chunks until the sender closes
@@ -158,15 +197,13 @@ async fn handle_connection(
                                 "id": request_id,
                                 "body": chunk,
                             });
-                            let encoded = rmp_serde::to_vec_named(&frame)
-                                .unwrap_or_default();
-                            write_frame(&mut writer, MSG_STREAM_CHUNK, &encoded).await?;
+                            let encoded = encode_msgpack(&frame)?;
+                            timed_write(&mut writer, MSG_STREAM_CHUNK, &encoded, write_timeout).await?;
                         }
                         // End-of-stream sentinel
                         let end = serde_json::json!({ "id": request_id });
-                        let encoded = rmp_serde::to_vec_named(&end)
-                            .unwrap_or_default();
-                        write_frame(&mut writer, MSG_STREAM_END, &encoded).await?;
+                        let encoded = encode_msgpack(&end)?;
+                        timed_write(&mut writer, MSG_STREAM_END, &encoded, write_timeout).await?;
                     }
                     Err(e) => {
                         let response = serde_json::json!({
@@ -177,9 +214,8 @@ async fn handle_connection(
                                 "message": e.to_string(),
                             }
                         });
-                        let encoded = rmp_serde::to_vec_named(&response)
-                            .unwrap_or_default();
-                        write_frame(&mut writer, MSG_ERROR, &encoded).await?;
+                        let encoded = encode_msgpack(&response)?;
+                        timed_write(&mut writer, MSG_ERROR, &encoded, write_timeout).await?;
                     }
                 }
             }
@@ -187,4 +223,20 @@ async fn handle_connection(
     }
 
     Ok(())
+}
+
+/// Write a frame with a timeout. Returns an error if the write takes too long
+/// (prevents slow consumers from holding connections indefinitely).
+async fn timed_write<W: tokio::io::AsyncWriteExt + Unpin>(
+    writer: &mut W,
+    msg_type: u8,
+    payload: &[u8],
+    timeout: Duration,
+) -> std::io::Result<()> {
+    tokio::time::timeout(timeout, write_frame(writer, msg_type, payload))
+        .await
+        .map_err(|_| {
+            tracing::warn!("Write timeout ({}s), dropping connection", timeout.as_secs());
+            std::io::Error::new(std::io::ErrorKind::TimedOut, "write timeout")
+        })?
 }

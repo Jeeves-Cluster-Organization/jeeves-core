@@ -544,3 +544,139 @@ async fn test_quota_defaults_merge_semantics() {
     assert_eq!(body.get("max_tool_calls").unwrap().as_i64().unwrap(), 50);
     assert_eq!(body.get("max_llm_calls").unwrap().as_i64().unwrap(), 999);
 }
+
+// =============================================================================
+// Phase 0B: Input validation — negative values, overflow
+// =============================================================================
+
+#[tokio::test]
+async fn test_record_usage_rejects_negative_llm_calls() {
+    let (addr, _handle) = start_test_server().await;
+    let mut stream = TcpStream::connect(addr).await.unwrap();
+
+    // Create a process first
+    let (msg_type, _) = round_trip(
+        &mut stream,
+        "kernel",
+        "CreateProcess",
+        serde_json::json!({
+            "pid": "neg-test-1",
+            "user_id": "user-neg",
+        }),
+    )
+    .await;
+    assert_eq!(msg_type, MSG_RESPONSE);
+
+    // RecordUsage with negative llm_calls
+    let (msg_type, response) = round_trip(
+        &mut stream,
+        "kernel",
+        "RecordUsage",
+        serde_json::json!({
+            "pid": "neg-test-1",
+            "llm_calls": -5,
+            "tool_calls": 0,
+            "tokens_in": 0,
+            "tokens_out": 0,
+        }),
+    )
+    .await;
+
+    assert_eq!(msg_type, MSG_ERROR);
+    let error = response.get("error").unwrap();
+    assert_eq!(error.get("code").unwrap().as_str().unwrap(), "INVALID_ARGUMENT");
+    let msg = error.get("message").unwrap().as_str().unwrap();
+    assert!(msg.contains("llm_calls"), "Error should mention field name: {}", msg);
+}
+
+#[tokio::test]
+async fn test_record_usage_rejects_negative_tokens() {
+    let (addr, _handle) = start_test_server().await;
+    let mut stream = TcpStream::connect(addr).await.unwrap();
+
+    let (msg_type, _) = round_trip(
+        &mut stream,
+        "kernel",
+        "CreateProcess",
+        serde_json::json!({
+            "pid": "neg-test-2",
+            "user_id": "user-neg2",
+        }),
+    )
+    .await;
+    assert_eq!(msg_type, MSG_RESPONSE);
+
+    let (msg_type, response) = round_trip(
+        &mut stream,
+        "kernel",
+        "RecordUsage",
+        serde_json::json!({
+            "pid": "neg-test-2",
+            "llm_calls": 1,
+            "tool_calls": 1,
+            "tokens_in": -100,
+            "tokens_out": 0,
+        }),
+    )
+    .await;
+
+    assert_eq!(msg_type, MSG_ERROR);
+    let error = response.get("error").unwrap();
+    assert_eq!(error.get("code").unwrap().as_str().unwrap(), "INVALID_ARGUMENT");
+    let msg = error.get("message").unwrap().as_str().unwrap();
+    assert!(msg.contains("tokens_in"), "Error should mention field name: {}", msg);
+}
+
+#[tokio::test]
+async fn test_create_process_quota_rejects_overflow() {
+    let (addr, _handle) = start_test_server().await;
+    let mut stream = TcpStream::connect(addr).await.unwrap();
+
+    // Quota value exceeding i32::MAX
+    let (msg_type, response) = round_trip(
+        &mut stream,
+        "kernel",
+        "CreateProcess",
+        serde_json::json!({
+            "pid": "overflow-test",
+            "user_id": "user-of",
+            "quota": {
+                "max_llm_calls": 3_000_000_000_i64,
+            },
+        }),
+    )
+    .await;
+
+    assert_eq!(msg_type, MSG_ERROR);
+    let error = response.get("error").unwrap();
+    assert_eq!(error.get("code").unwrap().as_str().unwrap(), "INVALID_ARGUMENT");
+    let msg = error.get("message").unwrap().as_str().unwrap();
+    assert!(msg.contains("max_llm_calls"), "Error should mention field name: {}", msg);
+}
+
+#[tokio::test]
+async fn test_create_process_quota_rejects_negative() {
+    let (addr, _handle) = start_test_server().await;
+    let mut stream = TcpStream::connect(addr).await.unwrap();
+
+    let (msg_type, response) = round_trip(
+        &mut stream,
+        "kernel",
+        "CreateProcess",
+        serde_json::json!({
+            "pid": "neg-quota-test",
+            "user_id": "user-nq",
+            "quota": {
+                "max_llm_calls": 100,
+                "timeout_seconds": -1,
+            },
+        }),
+    )
+    .await;
+
+    assert_eq!(msg_type, MSG_ERROR);
+    let error = response.get("error").unwrap();
+    assert_eq!(error.get("code").unwrap().as_str().unwrap(), "INVALID_ARGUMENT");
+    let msg = error.get("message").unwrap().as_str().unwrap();
+    assert!(msg.contains("timeout_seconds"), "Error should mention field name: {}", msg);
+}

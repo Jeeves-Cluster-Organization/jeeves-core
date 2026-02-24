@@ -33,9 +33,6 @@ pub struct ServerConfig {
 
     /// Metrics endpoint bind address.
     pub metrics_addr: String,
-
-    /// Maximum concurrent connections.
-    pub max_connections: usize,
 }
 
 impl Default for ServerConfig {
@@ -43,7 +40,6 @@ impl Default for ServerConfig {
         Self {
             listen_addr: "127.0.0.1:50051".to_string(),
             metrics_addr: "127.0.0.1:9090".to_string(),
-            max_connections: 1000,
         }
     }
 }
@@ -117,15 +113,30 @@ pub struct IpcConfig {
 
     /// Bounded channel capacity for streaming responses (Subscribe).
     pub stream_channel_capacity: usize,
+
+    /// Maximum concurrent TCP connections. New connections beyond this limit
+    /// are held until a slot opens (backpressure via semaphore).
+    pub max_connections: usize,
+
+    /// Read timeout in seconds per frame. Connections idle beyond this
+    /// duration are dropped (prevents slowloris-style resource exhaustion).
+    pub read_timeout_secs: u64,
+
+    /// Write timeout in seconds per frame. Slow consumers that cannot
+    /// accept a response within this window are dropped.
+    pub write_timeout_secs: u64,
 }
 
 impl Default for IpcConfig {
     fn default() -> Self {
         Self {
-            max_frame_bytes: 50 * 1024 * 1024,
+            max_frame_bytes: 5 * 1024 * 1024,
             max_query_timeout_ms: 30_000,
             default_query_timeout_ms: 5_000,
             stream_channel_capacity: 64,
+            max_connections: 1000,
+            read_timeout_secs: 30,
+            write_timeout_secs: 10,
         }
     }
 }

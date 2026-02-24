@@ -2,7 +2,7 @@
 //!
 //! Tracks resource usage across processes and enforces quotas.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 use super::types::{ProcessControlBlock, ResourceUsage};
 use crate::types::{Error, Result};
@@ -58,6 +58,30 @@ impl ResourceTracker {
     /// Clear usage for a user (e.g., on quota reset).
     pub fn clear_user_usage(&mut self, user_id: &str) {
         self.user_usage.remove(user_id);
+    }
+
+    /// Remove user_usage entries for users with no active processes.
+    /// Also enforces `max_entries` cap. Returns number of entries removed.
+    pub fn cleanup_stale_users(
+        &mut self,
+        active_user_ids: &HashSet<String>,
+        max_entries: usize,
+    ) -> usize {
+        let before = self.user_usage.len();
+
+        // Remove entries for users with no active processes
+        self.user_usage.retain(|uid, _| active_user_ids.contains(uid));
+
+        // If still over cap after removing inactive, remove oldest (arbitrary order)
+        if self.user_usage.len() > max_entries {
+            let excess = self.user_usage.len() - max_entries;
+            let to_remove: Vec<String> = self.user_usage.keys().take(excess).cloned().collect();
+            for uid in to_remove {
+                self.user_usage.remove(&uid);
+            }
+        }
+
+        before - self.user_usage.len()
     }
 
     /// Get total usage across all users.

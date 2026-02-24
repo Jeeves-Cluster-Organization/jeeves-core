@@ -100,6 +100,10 @@ impl Kernel {
     }
 
     /// Create a new process.
+    ///
+    /// # Errors
+    ///
+    /// Returns error if rate limit exceeded or process submission/scheduling fails.
     pub fn create_process(
         &mut self,
         pid: ProcessId,
@@ -155,6 +159,10 @@ impl Kernel {
     }
 
     /// Check process quota.
+    ///
+    /// # Errors
+    ///
+    /// Returns error if process not found or quota exceeded.
     pub fn check_quota(&self, pid: &ProcessId) -> Result<()> {
         let pcb = self
             .lifecycle
@@ -182,16 +190,28 @@ impl Kernel {
     }
 
     /// Start a process.
+    ///
+    /// # Errors
+    ///
+    /// Returns error if process not found or invalid state transition.
     pub fn start_process(&mut self, pid: &ProcessId) -> Result<()> {
         self.lifecycle.start(pid)
     }
 
     /// Block a process (e.g., resource exhausted).
+    ///
+    /// # Errors
+    ///
+    /// Returns error if process not found or invalid state transition.
     pub fn block_process(&mut self, pid: &ProcessId, reason: String) -> Result<()> {
         self.lifecycle.block(pid, reason)
     }
 
     /// Wait a process (e.g., awaiting interrupt response).
+    ///
+    /// # Errors
+    ///
+    /// Returns error if process not found or invalid state transition.
     pub fn wait_process(&mut self, pid: &ProcessId, interrupt: FlowInterrupt) -> Result<()> {
         self.lifecycle.wait(pid, interrupt.kind)?;
         // Also set interrupt on envelope
@@ -202,6 +222,10 @@ impl Kernel {
     }
 
     /// Resume a process from waiting/blocked.
+    ///
+    /// # Errors
+    ///
+    /// Returns error if process not found or invalid state transition.
     pub fn resume_process(&mut self, pid: &ProcessId) -> Result<()> {
         self.lifecycle.resume(pid)?;
         // Clear interrupt on envelope
@@ -212,6 +236,10 @@ impl Kernel {
     }
 
     /// Terminate a process.
+    ///
+    /// # Errors
+    ///
+    /// Returns error if process not found or invalid state transition.
     pub fn terminate_process(&mut self, pid: &ProcessId) -> Result<()> {
         self.lifecycle.terminate(pid)?;
         // Terminate envelope
@@ -222,6 +250,10 @@ impl Kernel {
     }
 
     /// Cleanup and remove a terminated process.
+    ///
+    /// # Errors
+    ///
+    /// Returns error if process not found or not in terminal state.
     pub fn cleanup_process(&mut self, pid: &ProcessId) -> Result<()> {
         self.lifecycle.cleanup(pid)?;
         self.lifecycle.remove(pid)?;
@@ -286,6 +318,10 @@ impl Kernel {
     }
 
     /// Dispatch a request to a service.
+    ///
+    /// # Errors
+    ///
+    /// Returns error if target service is not registered or dispatch fails.
     pub fn dispatch(
         &mut self,
         target: &services::DispatchTarget,
@@ -301,6 +337,10 @@ impl Kernel {
     // =============================================================================
 
     /// Initialize an orchestration session.
+    ///
+    /// # Errors
+    ///
+    /// Returns error if session already exists (unless `force`) or config is invalid.
     pub fn initialize_orchestration(
         &mut self,
         process_id: ProcessId,
@@ -313,6 +353,10 @@ impl Kernel {
     }
 
     /// Get the next instruction for a process.
+    ///
+    /// # Errors
+    ///
+    /// Returns error if no orchestration session exists for this process.
     pub fn get_next_instruction(
         &mut self,
         process_id: &ProcessId,
@@ -322,6 +366,10 @@ impl Kernel {
     }
 
     /// Report agent execution result.
+    ///
+    /// # Errors
+    ///
+    /// Returns error if no orchestration session exists for this process.
     pub fn report_agent_result(
         &mut self,
         process_id: &ProcessId,
@@ -333,6 +381,10 @@ impl Kernel {
     }
 
     /// Get orchestration session state.
+    ///
+    /// # Errors
+    ///
+    /// Returns error if no orchestration session exists for this process.
     pub fn get_orchestration_state(&self, process_id: &ProcessId) -> Result<orchestrator::SessionState> {
         self.orchestrator
             .get_session_state(process_id)

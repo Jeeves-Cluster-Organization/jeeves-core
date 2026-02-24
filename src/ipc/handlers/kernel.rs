@@ -5,6 +5,7 @@
 
 use crate::commbus::Event;
 use crate::ipc::dispatch::{str_field, DispatchResponse};
+use crate::ipc::handlers::validation::{parse_non_negative_i32, require_non_negative_i64};
 use crate::kernel::{Kernel, ProcessState, ResourceQuota, SchedulingPriority};
 use crate::types::{Error, ProcessId, RequestId, Result, SessionId, UserId};
 use serde_json::Value;
@@ -52,6 +53,7 @@ pub async fn handle(
                 "pid": pcb.pid.as_str(),
                 "request_id": pcb.request_id.as_str(),
                 "user_id": pcb.user_id.as_str(),
+                "session_id": pcb.session_id.as_str(),
             })).await;
 
             Ok(DispatchResponse::Single(pcb_to_value(&pcb)))
@@ -91,6 +93,7 @@ pub async fn handle(
                 .get_process(&pid)
                 .ok_or_else(|| Error::not_found(format!("Process {} not found", pid)))?;
             let old_state = pcb.state;
+            let session_id_str = pcb.session_id.as_str().to_string();
             if !old_state.can_transition_to(new_state) {
                 return Err(Error::state_transition(format!(
                     "Invalid transition from {:?} to {:?}",
@@ -116,6 +119,7 @@ pub async fn handle(
                 "old_state": old_state_str,
                 "new_state": new_state_str,
                 "reason": reason,
+                "session_id": session_id_str,
             })).await;
 
             let pcb = kernel
@@ -128,13 +132,15 @@ pub async fn handle(
             let pid = parse_pid(&body)?;
             kernel.terminate_process(&pid)?;
 
-            emit_lifecycle_event(kernel, "process.terminated", serde_json::json!({
-                "pid": pid.as_str(),
-            })).await;
-
             let pcb = kernel
                 .get_process(&pid)
                 .ok_or_else(|| Error::not_found(format!("Process {} not found", pid)))?;
+
+            emit_lifecycle_event(kernel, "process.terminated", serde_json::json!({
+                "pid": pid.as_str(),
+                "session_id": pcb.session_id.as_str(),
+            })).await;
+
             Ok(DispatchResponse::Single(pcb_to_value(pcb)))
         }
 
@@ -151,6 +157,7 @@ pub async fn handle(
             if !within_bounds {
                 emit_lifecycle_event(kernel, "resource.exhausted", serde_json::json!({
                     "pid": pid.as_str(),
+                    "session_id": pcb.session_id.as_str(),
                     "reason": exceeded_reason,
                     "usage": {
                         "llm_calls": pcb.usage.llm_calls,
@@ -183,10 +190,22 @@ pub async fn handle(
                 pcb.user_id.as_str().to_string()
             };
 
-            let llm_calls = body.get("llm_calls").and_then(|v| v.as_i64()).unwrap_or(0) as i32;
-            let tool_calls = body.get("tool_calls").and_then(|v| v.as_i64()).unwrap_or(0) as i32;
-            let tokens_in = body.get("tokens_in").and_then(|v| v.as_i64()).unwrap_or(0);
-            let tokens_out = body.get("tokens_out").and_then(|v| v.as_i64()).unwrap_or(0);
+            let llm_calls = parse_non_negative_i32(
+                body.get("llm_calls").and_then(|v| v.as_i64()).unwrap_or(0),
+                "llm_calls",
+            )?;
+            let tool_calls = parse_non_negative_i32(
+                body.get("tool_calls").and_then(|v| v.as_i64()).unwrap_or(0),
+                "tool_calls",
+            )?;
+            let tokens_in = require_non_negative_i64(
+                body.get("tokens_in").and_then(|v| v.as_i64()).unwrap_or(0),
+                "tokens_in",
+            )?;
+            let tokens_out = require_non_negative_i64(
+                body.get("tokens_out").and_then(|v| v.as_i64()).unwrap_or(0),
+                "tokens_out",
+            )?;
 
             kernel.record_usage(&user_id_str, llm_calls, tool_calls, tokens_in, tokens_out);
 
@@ -216,7 +235,8 @@ pub async fn handle(
                 Ok(())
             };
 
-            let current_count = kernel.rate_limiter.get_current_rate(&user_id) as i32;
+            // Lossless: usize fits in i64 on all supported platforms.
+            let current_count = kernel.rate_limiter.get_current_rate(&user_id) as i64;
             let allowed = result.is_ok();
             let reason = result.err().map(|e| e.to_string()).unwrap_or_default();
 
@@ -228,7 +248,7 @@ pub async fn handle(
                 "current_count": current_count,
                 "limit": 60,
                 "retry_after_seconds": if !allowed { 60.0 } else { 0.0 },
-                "remaining": if allowed { 60 - current_count } else { 0 },
+                "remaining": if allowed { 60_i64 - current_count } else { 0 },
             })))
         }
 
@@ -266,7 +286,8 @@ pub async fn handle(
         }
 
         "GetProcessCounts" => {
-            let total = kernel.process_count() as i32;
+            // Lossless: usize fits in i64 on all supported platforms.
+            let total = kernel.process_count() as i64;
             let mut counts_by_state = serde_json::Map::new();
             for state in &[
                 ProcessState::New,
@@ -277,7 +298,7 @@ pub async fn handle(
                 ProcessState::Terminated,
                 ProcessState::Zombie,
             ] {
-                let count = kernel.process_count_by_state(*state) as i32;
+                let count = kernel.process_count_by_state(*state) as i64;
                 let state_key = serde_json::to_value(state)
                     .ok()
                     .and_then(|v| v.as_str().map(|s| s.to_string()))
@@ -407,21 +428,26 @@ fn parse_quota(body: &Value) -> Result<Option<ResourceQuota>> {
         _ => return Ok(None),
     };
 
+    let field = |name: &str, default: i64| -> Result<i32> {
+        let raw = q.get(name).and_then(|v| v.as_i64()).unwrap_or(default);
+        parse_non_negative_i32(raw, name)
+    };
+
     Ok(Some(ResourceQuota {
-        max_llm_calls: q.get("max_llm_calls").and_then(|v| v.as_i64()).unwrap_or(100) as i32,
-        max_tool_calls: q.get("max_tool_calls").and_then(|v| v.as_i64()).unwrap_or(50) as i32,
-        max_agent_hops: q.get("max_agent_hops").and_then(|v| v.as_i64()).unwrap_or(10) as i32,
-        max_iterations: q.get("max_iterations").and_then(|v| v.as_i64()).unwrap_or(20) as i32,
-        timeout_seconds: q.get("timeout_seconds").and_then(|v| v.as_i64()).unwrap_or(300) as i32,
-        max_input_tokens: q.get("max_input_tokens").and_then(|v| v.as_i64()).unwrap_or(100_000) as i32,
-        max_output_tokens: q.get("max_output_tokens").and_then(|v| v.as_i64()).unwrap_or(50_000) as i32,
-        max_context_tokens: q.get("max_context_tokens").and_then(|v| v.as_i64()).unwrap_or(150_000) as i32,
-        soft_timeout_seconds: q.get("soft_timeout_seconds").and_then(|v| v.as_i64()).unwrap_or(240) as i32,
-        rate_limit_rpm: q.get("rate_limit_rpm").and_then(|v| v.as_i64()).unwrap_or(60) as i32,
-        rate_limit_rph: q.get("rate_limit_rph").and_then(|v| v.as_i64()).unwrap_or(1000) as i32,
-        rate_limit_burst: q.get("rate_limit_burst").and_then(|v| v.as_i64()).unwrap_or(10) as i32,
-        max_inference_requests: q.get("max_inference_requests").and_then(|v| v.as_i64()).unwrap_or(50) as i32,
-        max_inference_input_chars: q.get("max_inference_input_chars").and_then(|v| v.as_i64()).unwrap_or(500_000) as i32,
+        max_llm_calls: field("max_llm_calls", 100)?,
+        max_tool_calls: field("max_tool_calls", 50)?,
+        max_agent_hops: field("max_agent_hops", 10)?,
+        max_iterations: field("max_iterations", 20)?,
+        timeout_seconds: field("timeout_seconds", 300)?,
+        max_input_tokens: field("max_input_tokens", 100_000)?,
+        max_output_tokens: field("max_output_tokens", 50_000)?,
+        max_context_tokens: field("max_context_tokens", 150_000)?,
+        soft_timeout_seconds: field("soft_timeout_seconds", 240)?,
+        rate_limit_rpm: field("rate_limit_rpm", 60)?,
+        rate_limit_rph: field("rate_limit_rph", 1000)?,
+        rate_limit_burst: field("rate_limit_burst", 10)?,
+        max_inference_requests: field("max_inference_requests", 50)?,
+        max_inference_input_chars: field("max_inference_input_chars", 500_000)?,
     }))
 }
 

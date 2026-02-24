@@ -136,6 +136,10 @@ impl CommBus {
     ///
     /// This is a fan-out operation - the event is delivered to ALL subscribers
     /// that have registered interest in this event_type.
+    ///
+    /// # Errors
+    ///
+    /// Returns error if serialization fails.
     pub async fn publish(&self, event: Event) -> Result<usize> {
         let subscribers = self.subscribers.read().await;
 
@@ -170,6 +174,10 @@ impl CommBus {
     /// Subscribe to event types.
     ///
     /// Returns (subscription handle, receiver channel) for receiving events.
+    ///
+    /// # Errors
+    ///
+    /// Returns error if `event_types` is empty.
     pub async fn subscribe(
         &self,
         subscriber_id: String,
@@ -216,6 +224,10 @@ impl CommBus {
     }
 
     /// Unsubscribe from events.
+    ///
+    /// # Errors
+    ///
+    /// Returns error if subscription not found.
     pub async fn unsubscribe(&self, subscription: &Subscription) -> Result<()> {
         let mut subscribers = self.subscribers.write().await;
 
@@ -239,6 +251,10 @@ impl CommBus {
     // =========================================================================
 
     /// Send a command to a registered handler (fire-and-forget).
+    ///
+    /// # Errors
+    ///
+    /// Returns error if no handler registered for this command type.
     pub async fn send_command(&self, command: Command) -> Result<()> {
         let handlers = self.command_handlers.read().await;
 
@@ -271,6 +287,10 @@ impl CommBus {
     /// Register a command handler.
     ///
     /// Returns receiver channel for receiving commands.
+    ///
+    /// # Errors
+    ///
+    /// Returns error if handler already registered for this command type.
     pub async fn register_command_handler(
         &self,
         command_type: String,
@@ -298,6 +318,10 @@ impl CommBus {
     }
 
     /// Unregister a command handler.
+    ///
+    /// # Errors
+    ///
+    /// Returns error if no handler registered for this command type.
     pub async fn unregister_command_handler(&self, command_type: &str) -> Result<()> {
         let mut handlers = self.command_handlers.write().await;
         handlers.remove(command_type);
@@ -316,6 +340,10 @@ impl CommBus {
     // =========================================================================
 
     /// Execute a query and wait for response (with timeout).
+    ///
+    /// # Errors
+    ///
+    /// Returns error if no handler registered or query times out.
     pub async fn query(&self, query: Query) -> Result<QueryResponse> {
         let handlers = self.query_handlers.read().await;
 
@@ -366,6 +394,10 @@ impl CommBus {
     ///
     /// Returns receiver channel for receiving queries.
     /// Handler must send response via the oneshot channel provided with each query.
+    ///
+    /// # Errors
+    ///
+    /// Returns error if handler already registered for this query type.
     pub async fn register_query_handler(
         &self,
         query_type: String,
@@ -393,6 +425,10 @@ impl CommBus {
     }
 
     /// Unregister a query handler.
+    ///
+    /// # Errors
+    ///
+    /// Returns error if no handler registered for this query type.
     pub async fn unregister_query_handler(&self, query_type: &str) -> Result<()> {
         let mut handlers = self.query_handlers.write().await;
         handlers.remove(query_type);

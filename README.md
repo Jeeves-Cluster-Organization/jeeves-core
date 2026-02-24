@@ -11,8 +11,8 @@ cargo build --release
 # Run (IPC on :50051)
 cargo run --release
 
-# Custom port
-JEEVES_GRPC_PORT=50052 cargo run --release
+# Custom address
+JEEVES_LISTEN_ADDR=127.0.0.1:50052 cargo run --release
 
 # Tests
 cargo test
@@ -22,12 +22,10 @@ cargo test
 
 | Service | RPCs | Purpose |
 |---------|------|---------|
-| KernelService | 12 | Process lifecycle (create, schedule, terminate) |
-| EngineService | 6 | Envelope and pipeline management |
+| KernelService | 14 | Process lifecycle, quotas, rate limiting |
+| EngineService | 5 | Envelope and pipeline management |
 | OrchestrationService | 4 | Session and instruction flow |
-| CommBusService | 4 | IPC (pub/sub/query) |
-
-See `proto/` for service definitions.
+| CommBusService | 4 | Message bus (pub/sub/query) |
 
 ## Module Structure
 
@@ -68,8 +66,7 @@ ResourceQuota {
 
 ## Prerequisites
 
-- Rust 1.70+
-- Protocol Buffers compiler (`protoc`)
+- Rust 1.75+
 
 ## License
 
