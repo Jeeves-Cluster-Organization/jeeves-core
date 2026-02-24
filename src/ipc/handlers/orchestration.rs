@@ -20,12 +20,14 @@ pub async fn handle(
             let process_id = ProcessId::from_string(process_id_str)
                 .map_err(|e| Error::validation(e.to_string()))?;
 
-            let pipeline_config_str = str_field(&body, "pipeline_config")?;
-            let pipeline_config: PipelineConfig = serde_json::from_str(&pipeline_config_str)
+            let pipeline_config_val = body.get("pipeline_config")
+                .ok_or_else(|| Error::validation("Missing field: pipeline_config"))?;
+            let pipeline_config: PipelineConfig = serde_json::from_value(pipeline_config_val.clone())
                 .map_err(|e| Error::validation(format!("Invalid pipeline_config: {}", e)))?;
 
-            let envelope_str = str_field(&body, "envelope")?;
-            let envelope: Envelope = serde_json::from_str(&envelope_str)
+            let envelope_val = body.get("envelope")
+                .ok_or_else(|| Error::validation("Missing field: envelope"))?;
+            let envelope: Envelope = serde_json::from_value(envelope_val.clone())
                 .map_err(|e| Error::validation(format!("Invalid envelope: {}", e)))?;
 
             let force = body.get("force").and_then(|v| v.as_bool()).unwrap_or(false);
@@ -56,13 +58,9 @@ pub async fn handle(
 
             let agent_name = str_field(&body, "agent_name")?;
 
-            let output_str = body.get("output").and_then(|v| v.as_str()).unwrap_or("{}");
-            let output: Value = if output_str.is_empty() {
-                Value::Object(serde_json::Map::new())
-            } else {
-                serde_json::from_str(output_str)
-                    .map_err(|e| Error::validation(format!("Invalid output: {}", e)))?
-            };
+            let output: Value = body.get("output")
+                .cloned()
+                .unwrap_or_else(|| Value::Object(serde_json::Map::new()));
 
             let metrics_val = body.get("metrics");
             let metrics = if let Some(m) = metrics_val {

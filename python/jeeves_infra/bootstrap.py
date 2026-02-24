@@ -180,6 +180,14 @@ def create_app_context(
     if feature_flags is None:
         feature_flags = get_feature_flags()
 
+    # Validate feature flag dependencies (fail fast on invalid combinations)
+    validation_errors = feature_flags.validate_dependencies()
+    if validation_errors:
+        raise ValueError(
+            "Feature flag dependency errors:\n"
+            + "\n".join(f"  - {e}" for e in validation_errors)
+        )
+
     # Build core config from environment
     if core_config is None:
         core_config = create_core_config_from_env()

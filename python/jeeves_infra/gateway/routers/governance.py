@@ -17,7 +17,7 @@ from typing import Any, Dict
 
 from jeeves_infra.memory.tool_health_service import ToolHealthService
 
-router = APIRouter(prefix="/api/v1/governance", tags=["governance"])
+router = APIRouter(tags=["governance"])
 
 
 def get_tool_health_service() -> ToolHealthService:

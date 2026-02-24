@@ -28,8 +28,8 @@ LENGTH_PREFIX_SIZE: int = 4
 TYPE_BYTE_SIZE: int = 1
 HEADER_SIZE: int = LENGTH_PREFIX_SIZE + TYPE_BYTE_SIZE
 
-# Max frame size (50MB, IPC frame size limit)
-MAX_FRAME_SIZE: int = 50 * 1024 * 1024
+# Max frame size (5MB, must match Rust IpcConfig.max_frame_bytes default)
+MAX_FRAME_SIZE: int = 5 * 1024 * 1024
 
 
 class IpcError(Exception):

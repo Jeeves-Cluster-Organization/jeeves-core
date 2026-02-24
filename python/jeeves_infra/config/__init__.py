@@ -1,6 +1,13 @@
 """Configuration package for jeeves_infra.
 
-Generic configuration types are defined here.
+Config ownership map:
+  settings.py       — environment-specific settings from env vars (host, port, adapter)
+  feature_flags.py  — runtime feature toggles from env vars (tracing, distributed mode)
+  constants.py      — static operational constants (timeouts, limits, fuzzy weights)
+  thresholds.py     — governance thresholds (risk levels, token budgets, rate limits)
+  agent_profiles.py — generic agent LLM/threshold/latency profiles
+  registry.py       — ConfigRegistry for runtime config lookup
+
 Capability-specific agent profiles have been moved to capability layer.
 """
 

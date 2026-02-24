@@ -86,7 +86,7 @@ source = ["jeeves_infra"]
 omit = ["jeeves_infra/**/test_*", "jeeves_infra/**/*_test.py"]
 
 [tool.coverage.report]
-fail_under = 40
+fail_under = 50
 exclude_lines = [
     "pragma: no cover",
     "if TYPE_CHECKING:",
@@ -99,3 +99,7 @@ exclude_lines = [
 asyncio_mode = "auto"
 testpaths = ["tests"]
 pythonpath = ["."]
+markers = [
+    "integration: integration tests requiring a running kernel",
+    "protocol: cross-language protocol parity tests",
+]

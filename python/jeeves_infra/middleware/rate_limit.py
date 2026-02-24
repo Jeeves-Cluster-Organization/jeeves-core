@@ -7,6 +7,8 @@ and returns HTTP 429 with Retry-After when the kernel says "exceeded".
 import time
 from typing import Any, Callable, Dict, Optional
 
+from starlette.responses import JSONResponse
+
 from jeeves_infra.protocols import LoggerProtocol
 
 
@@ -54,28 +56,22 @@ class RateLimitMiddleware:
         except Exception as exc:
             if self._logger:
                 self._logger.error("rate_limit_check_failed", user_id=user_id, endpoint=endpoint, error=str(exc))
-            try:
-                from starlette.responses import JSONResponse
-                return JSONResponse(
-                    status_code=503,
-                    content={"error": "rate_limit_unavailable", "detail": "Rate limiting service is unavailable"},
-                )
-            except ImportError:
-                return {"status_code": 503, "error": "rate_limit_unavailable"}
+            # Fail closed: deny request when rate limiter is unreachable
+            return JSONResponse(
+                status_code=503,
+                content={"error": "rate_limit_unavailable", "detail": "Rate limiting service is unavailable"},
+                headers={"Retry-After": "5"},
+            )
 
         if result.get("exceeded", False):
             if self._logger:
                 self._logger.warning("rate_limit_exceeded", user_id=user_id, endpoint=endpoint)
             error = RateLimitError(user_id, endpoint, result)
-            try:
-                from starlette.responses import JSONResponse
-                return JSONResponse(
-                    status_code=429,
-                    content={"error": "rate_limit_exceeded", "retry_after_seconds": result.get("retry_after_seconds", 0)},
-                    headers=error.to_response_headers(),
-                )
-            except ImportError:
-                return {"status_code": 429, "error": "rate_limit_exceeded", "headers": error.to_response_headers()}
+            return JSONResponse(
+                status_code=429,
+                content={"error": "rate_limit_exceeded", "retry_after_seconds": result.get("retry_after_seconds", 0)},
+                headers=error.to_response_headers(),
+            )
 
         return await call_next(request)
 

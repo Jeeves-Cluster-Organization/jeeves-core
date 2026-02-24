@@ -90,7 +90,7 @@ class LoopVerdict(str, Enum):
     """Loop control verdict."""
     UNSPECIFIED = "unspecified"
     PROCEED = "proceed"
-    BACK = "back"
+    LOOP_BACK = "loop_back"
     ADVANCE = "advance"
     ESCALATE = "escalate"
 

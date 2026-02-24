@@ -53,6 +53,10 @@ class QuotaCheckResult:
     tokens_out: int = 0
 
 
+VALID_PROCESS_STATES = {"NEW", "READY", "RUNNING", "WAITING", "BLOCKED", "TERMINATED", "ZOMBIE"}
+VALID_PRIORITIES = {"REALTIME", "HIGH", "NORMAL", "LOW", "IDLE"}
+
+
 @dataclass
 class ProcessInfo:
     """Simplified process information."""
@@ -69,6 +73,13 @@ class ProcessInfo:
     tokens_out: int = 0
     current_stage: str = ""
 
+    def __post_init__(self):
+        if self.state not in VALID_PROCESS_STATES:
+            raise ValueError(
+                f"Invalid process state: {self.state!r}. "
+                f"Valid: {sorted(VALID_PROCESS_STATES)}"
+            )
+
 
 @dataclass
 class AgentExecutionMetrics:
@@ -78,6 +89,9 @@ class AgentExecutionMetrics:
     tokens_in: int = 0
     tokens_out: int = 0
     duration_ms: int = 0
+
+
+VALID_INSTRUCTION_KINDS = {"RUN_AGENT", "TERMINATE", "WAIT_INTERRUPT"}
 
 
 @dataclass
@@ -91,6 +105,13 @@ class OrchestratorInstruction:
     termination_message: str = ""
     interrupt_pending: bool = False
     interrupt: Optional[Dict[str, Any]] = None
+
+    def __post_init__(self):
+        if self.kind not in VALID_INSTRUCTION_KINDS:
+            raise ValueError(
+                f"Invalid instruction kind: {self.kind!r}. "
+                f"Valid: {sorted(VALID_INSTRUCTION_KINDS)}"
+            )
 
 
 @dataclass
@@ -536,8 +557,8 @@ class KernelClient:
         """Initialize a new orchestration session."""
         body = {
             "process_id": process_id,
-            "pipeline_config": json.dumps(pipeline_config),
-            "envelope": json.dumps(envelope),
+            "pipeline_config": pipeline_config,
+            "envelope": envelope,
             "force": force,
         }
         try:
@@ -583,7 +604,7 @@ class KernelClient:
         body: Dict[str, Any] = {
             "process_id": process_id,
             "agent_name": agent_name,
-            "output": json.dumps(output) if output else "",
+            "output": output or {},
             "success": success,
             "error": error,
         }

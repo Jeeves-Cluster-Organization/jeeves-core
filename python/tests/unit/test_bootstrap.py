@@ -319,6 +319,7 @@ class TestCreateAppContext:
         mock_flags.enable_tracing = False
         mock_flags.use_redis_state = False
         mock_flags.enable_distributed_mode = False
+        mock_flags.validate_dependencies.return_value = []
 
         mock_registry = MagicMock()
         mock_registry.get_default_service.return_value = "test"
@@ -356,6 +357,7 @@ class TestCreateAppContext:
         mock_ff.enable_tracing = False
         mock_ff.use_redis_state = False
         mock_ff.enable_distributed_mode = False
+        mock_ff.validate_dependencies.return_value = []
 
         mock_registry = MagicMock()
         mock_registry.get_default_service.return_value = "test"
@@ -391,6 +393,7 @@ class TestCreateAppContext:
         mock_ff.enable_tracing = True
         mock_ff.use_redis_state = False
         mock_ff.enable_distributed_mode = False
+        mock_ff.validate_dependencies.return_value = []
 
         mock_registry = MagicMock()
         mock_registry.get_default_service.return_value = "test"
@@ -432,6 +435,7 @@ class TestCreateAppContext:
         mock_ff.enable_tracing = False
         mock_ff.use_redis_state = False
         mock_ff.enable_distributed_mode = False
+        mock_ff.validate_dependencies.return_value = []
 
         mock_registry = MagicMock()
         mock_registry.get_default_service.return_value = "test"
