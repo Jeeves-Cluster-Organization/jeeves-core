@@ -1,6 +1,6 @@
-# Jeeves Core Constitution
+# Jeeves Constitution
 
-Architectural principles for the Rust micro-kernel.
+Architectural principles for the Rust micro-kernel and Python infrastructure layer.
 
 ## Purpose
 
@@ -206,3 +206,61 @@ If you're unsure whether a change belongs in the kernel layer:
 3. Does this require kernel primitives? → Maybe kernel (discuss first)
 
 Open an issue for architectural discussions before implementing large changes.
+
+---
+
+## Python Infrastructure Layer (`python/jeeves_infra`)
+
+### Purpose
+
+`jeeves_infra` is the **unified infrastructure and orchestration framework** sitting between the Rust kernel and the capability layer. It provides LLM providers, pipeline execution, gateway, orchestration, memory handling, configuration, and bootstrap.
+
+### Ownership Boundaries
+
+**jeeves_infra MUST own:**
+
+| Domain | Description |
+|--------|-------------|
+| **Protocols & Types** | Interfaces, type definitions, capability registration |
+| **LLM Infrastructure** | Providers, factory, gateway, cost calculator |
+| **Gateway** | FastAPI HTTP/WS/SSE server, routers, lifespan |
+| **Kernel Client** | IPC bridge to Rust kernel via TCP+msgpack |
+| **Pipeline Runner** | Kernel-driven agent execution |
+| **Bootstrap** | AppContext creation, composition root |
+| **Capability Wiring** | Registration, discovery, router mounting |
+| **Config** | Agent profiles, registry, constants |
+| **Orchestrator** | Event context, emitter, governance, flow |
+
+**jeeves_infra MUST NOT own:**
+
+| Concern | Belongs To |
+|---------|------------|
+| Agent logic, prompts, tools | Capability |
+| Domain-specific database backends | Capability |
+| Pipeline configuration (AgentConfig lists) | Capability |
+| Tool catalogs and tool implementations | Capability |
+
+### Dependency Direction
+
+```
+Capability Layer (agents, prompts, tools, domain DB)
+       | imports from
+       v
+jeeves_infra (python/)
+       | IPC (TCP+msgpack)
+       v
+Rust kernel (src/)
+```
+
+- `jeeves_infra` MUST NOT import from any capability
+- Capabilities import from `jeeves_infra` public modules only
+
+### Acceptance Criteria
+
+A change to `jeeves_infra` is acceptable only if:
+
+- No capability-specific logic embedded
+- No tool implementations (only tool executor framework)
+- No database backend implementations (only factory/registry)
+- Stream/error semantics preserved
+- Dependency direction maintained (no capability imports)

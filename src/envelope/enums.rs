@@ -1,10 +1,10 @@
 //! Core enumerations for envelope and kernel.
 //!
-//! These are the source of truth, matching Go's envelope/enums.go.
+//! Canonical definitions for the Jeeves IPC protocol.
 
 use serde::{Deserialize, Serialize};
 
-/// Why processing terminated (matches proto TerminalReason exactly).
+/// Why processing terminated.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "SCREAMING_SNAKE_CASE")]
 pub enum TerminalReason {
