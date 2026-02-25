@@ -75,3 +75,159 @@ pub async fn write_frame<W: AsyncWriteExt + Unpin>(
     writer.flush().await?;
     Ok(())
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use proptest::prelude::*;
+    use std::io::Cursor;
+
+    const MAX_FRAME: u32 = 5 * 1024 * 1024; // 5 MB, matches production default
+
+    // Helper: build a raw frame from parts
+    fn build_raw_frame(len: u32, body: &[u8]) -> Vec<u8> {
+        let mut buf = Vec::new();
+        buf.extend_from_slice(&len.to_be_bytes());
+        buf.extend_from_slice(body);
+        buf
+    }
+
+    #[tokio::test]
+    async fn test_read_frame_valid() {
+        let payload = b"hello";
+        let mut buf = Vec::new();
+        let frame_len = 1u32 + payload.len() as u32;
+        buf.extend_from_slice(&frame_len.to_be_bytes());
+        buf.push(MSG_REQUEST);
+        buf.extend_from_slice(payload);
+
+        let mut cursor = Cursor::new(buf);
+        let result = read_frame(&mut cursor, MAX_FRAME).await.unwrap().unwrap();
+        assert_eq!(result.0, MSG_REQUEST);
+        assert_eq!(result.1, payload);
+    }
+
+    #[tokio::test]
+    async fn test_read_frame_empty_payload() {
+        let mut buf = Vec::new();
+        buf.extend_from_slice(&1u32.to_be_bytes()); // frame_len = 1 (type only)
+        buf.push(MSG_RESPONSE);
+
+        let mut cursor = Cursor::new(buf);
+        let result = read_frame(&mut cursor, MAX_FRAME).await.unwrap().unwrap();
+        assert_eq!(result.0, MSG_RESPONSE);
+        assert!(result.1.is_empty());
+    }
+
+    #[tokio::test]
+    async fn test_read_frame_clean_eof() {
+        let mut cursor = Cursor::new(Vec::<u8>::new());
+        let result = read_frame(&mut cursor, MAX_FRAME).await.unwrap();
+        assert!(result.is_none());
+    }
+
+    #[tokio::test]
+    async fn test_read_frame_oversized_rejected() {
+        let buf = build_raw_frame(MAX_FRAME + 1, &[MSG_REQUEST]);
+        let mut cursor = Cursor::new(buf);
+        let err = read_frame(&mut cursor, MAX_FRAME).await.unwrap_err();
+        assert_eq!(err.kind(), std::io::ErrorKind::InvalidData);
+        assert!(err.to_string().contains("too large"));
+    }
+
+    #[tokio::test]
+    async fn test_read_frame_zero_length_rejected() {
+        let buf = build_raw_frame(0, &[]);
+        let mut cursor = Cursor::new(buf);
+        let err = read_frame(&mut cursor, MAX_FRAME).await.unwrap_err();
+        assert_eq!(err.kind(), std::io::ErrorKind::InvalidData);
+        assert!(err.to_string().contains("too short"));
+    }
+
+    #[tokio::test]
+    async fn test_read_frame_truncated_body() {
+        // Declare frame_len=100 but only provide 5 bytes of body
+        let mut buf = Vec::new();
+        buf.extend_from_slice(&100u32.to_be_bytes());
+        buf.extend_from_slice(&[MSG_REQUEST, 1, 2, 3, 4]);
+        let mut cursor = Cursor::new(buf);
+        let err = read_frame(&mut cursor, MAX_FRAME).await.unwrap_err();
+        assert_eq!(err.kind(), std::io::ErrorKind::UnexpectedEof);
+    }
+
+    #[tokio::test]
+    async fn test_write_read_round_trip() {
+        let payload = b"round-trip test payload";
+        let mut buf = Vec::new();
+        write_frame(&mut buf, MSG_REQUEST, payload).await.unwrap();
+
+        let mut cursor = Cursor::new(buf);
+        let (msg_type, data) = read_frame(&mut cursor, MAX_FRAME).await.unwrap().unwrap();
+        assert_eq!(msg_type, MSG_REQUEST);
+        assert_eq!(data, payload);
+    }
+
+    #[tokio::test]
+    async fn test_write_read_all_message_types() {
+        for &msg_type in &[MSG_REQUEST, MSG_RESPONSE, MSG_STREAM_CHUNK, MSG_STREAM_END, MSG_ERROR] {
+            let mut buf = Vec::new();
+            write_frame(&mut buf, msg_type, b"test").await.unwrap();
+            let mut cursor = Cursor::new(buf);
+            let (rt, _) = read_frame(&mut cursor, MAX_FRAME).await.unwrap().unwrap();
+            assert_eq!(rt, msg_type);
+        }
+    }
+
+    // Property-based fuzz tests
+    proptest! {
+        #[test]
+        fn fuzz_read_arbitrary_bytes(data in proptest::collection::vec(any::<u8>(), 0..1024)) {
+            // read_frame must never panic on arbitrary input
+            let rt = tokio::runtime::Runtime::new().unwrap();
+            rt.block_on(async {
+                let mut cursor = Cursor::new(data);
+                let _ = read_frame(&mut cursor, MAX_FRAME).await;
+            });
+        }
+
+        #[test]
+        fn fuzz_read_with_valid_length_prefix(
+            frame_len in 0u32..=10_000u32,
+            body in proptest::collection::vec(any::<u8>(), 0..256)
+        ) {
+            let rt = tokio::runtime::Runtime::new().unwrap();
+            rt.block_on(async {
+                let raw = build_raw_frame(frame_len, &body);
+                let mut cursor = Cursor::new(raw);
+                let _ = read_frame(&mut cursor, MAX_FRAME).await;
+            });
+        }
+
+        #[test]
+        fn fuzz_write_read_round_trip(
+            msg_type in any::<u8>(),
+            payload in proptest::collection::vec(any::<u8>(), 0..4096)
+        ) {
+            let rt = tokio::runtime::Runtime::new().unwrap();
+            rt.block_on(async {
+                let mut buf = Vec::new();
+                write_frame(&mut buf, msg_type, &payload).await.unwrap();
+                let mut cursor = Cursor::new(buf);
+                let (rt, data) = read_frame(&mut cursor, MAX_FRAME).await.unwrap().unwrap();
+                assert_eq!(rt, msg_type);
+                assert_eq!(data, payload);
+            });
+        }
+
+        #[test]
+        fn fuzz_oversized_length_always_rejected(frame_len in (MAX_FRAME + 1)..=u32::MAX) {
+            let rt = tokio::runtime::Runtime::new().unwrap();
+            rt.block_on(async {
+                let raw = build_raw_frame(frame_len, &[0x01]); // type byte only
+                let mut cursor = Cursor::new(raw);
+                let result = read_frame(&mut cursor, MAX_FRAME).await;
+                assert!(result.is_err());
+            });
+        }
+    }
+}

@@ -27,6 +27,12 @@ pub struct CleanupConfig {
     pub session_retention_seconds: i64,
     /// How long to keep resolved interrupts (default: 24 hours)
     pub interrupt_retention_seconds: i64,
+    /// Maximum envelopes to retain (default: 10,000).
+    /// Terminated envelopes are evicted oldest-first when exceeded.
+    pub max_envelopes: usize,
+    /// Maximum user_usage entries to retain (default: 10,000).
+    /// Entries for users with no active processes are evicted first.
+    pub max_user_usage_entries: usize,
 }
 
 impl Default for CleanupConfig {
@@ -36,6 +42,8 @@ impl Default for CleanupConfig {
             process_retention_seconds: 86400,   // 24 hours
             session_retention_seconds: 3600,    // 1 hour
             interrupt_retention_seconds: 86400, // 24 hours
+            max_envelopes: 10_000,
+            max_user_usage_entries: 10_000,
         }
     }
 }
@@ -51,6 +59,10 @@ pub struct CleanupStats {
     pub interrupts_removed: usize,
     /// Number of rate limit windows cleaned
     pub rate_windows_cleaned: usize,
+    /// Number of stale envelopes evicted
+    pub envelopes_evicted: usize,
+    /// Number of stale user_usage entries evicted
+    pub user_usage_evicted: usize,
     /// When cleanup cycle completed
     pub completed_at: Option<DateTime<Utc>>,
 }
@@ -108,12 +120,65 @@ impl CleanupService {
     }
 
     /// Run a single cleanup cycle (async version for background task).
+    ///
+    /// Releases the kernel mutex between phases so IPC handlers aren't
+    /// blocked for the entire cleanup duration.
     async fn run_cleanup_cycle_async(
         kernel: &Arc<Mutex<crate::kernel::Kernel>>,
         config: &CleanupConfig,
     ) -> Result<CleanupStats> {
-        let mut k = kernel.lock().await;
-        Self::run_cleanup_cycle_sync(&mut k, config)
+        let mut stats = CleanupStats::default();
+
+        // Phase 1: Zombie processes
+        {
+            let mut k = kernel.lock().await;
+            stats.zombies_removed = Self::cleanup_zombies(&mut k, config.process_retention_seconds)?;
+        }
+
+        // Phase 2: Stale sessions
+        {
+            let mut k = kernel.lock().await;
+            stats.sessions_removed = k
+                .orchestrator
+                .cleanup_stale_sessions(config.session_retention_seconds);
+        }
+
+        // Phase 3: Resolved interrupts
+        {
+            let mut k = kernel.lock().await;
+            let interrupt_duration = Duration::seconds(config.interrupt_retention_seconds);
+            stats.interrupts_removed = k.interrupts.cleanup_resolved(interrupt_duration);
+        }
+
+        // Phase 4: Rate limit windows + envelope eviction + user usage
+        {
+            let mut k = kernel.lock().await;
+            k.rate_limiter.cleanup_expired();
+            stats.envelopes_evicted = Self::evict_stale_envelopes(&mut k, config.max_envelopes);
+
+            let active_user_ids: std::collections::HashSet<String> = k
+                .lifecycle
+                .processes
+                .values()
+                .filter(|pcb| !matches!(pcb.state, ProcessState::Terminated | ProcessState::Zombie))
+                .map(|pcb| pcb.user_id.to_string())
+                .collect();
+            stats.user_usage_evicted = k
+                .resources
+                .cleanup_stale_users(&active_user_ids, config.max_user_usage_entries);
+        }
+
+        tracing::debug!(
+            "cleanup_cycle_completed: zombies={}, sessions={}, interrupts={}, envelopes={}, user_usage={}",
+            stats.zombies_removed,
+            stats.sessions_removed,
+            stats.interrupts_removed,
+            stats.envelopes_evicted,
+            stats.user_usage_evicted,
+        );
+
+        stats.completed_at = Some(Utc::now());
+        Ok(stats)
     }
 
     /// Run a single cleanup cycle (synchronous version).
@@ -136,11 +201,28 @@ impl CleanupService {
         // Clean up rate limit windows
         kernel.rate_limiter.cleanup_expired();
 
+        // Evict stale envelopes (terminated, over capacity)
+        let envelopes_evicted = Self::evict_stale_envelopes(kernel, config.max_envelopes);
+
+        // Evict stale user_usage entries (users with no active processes)
+        let active_user_ids: std::collections::HashSet<String> = kernel
+            .lifecycle
+            .processes
+            .values()
+            .filter(|pcb| !matches!(pcb.state, ProcessState::Terminated | ProcessState::Zombie))
+            .map(|pcb| pcb.user_id.to_string())
+            .collect();
+        let user_usage_evicted = kernel
+            .resources
+            .cleanup_stale_users(&active_user_ids, config.max_user_usage_entries);
+
         tracing::debug!(
-            "cleanup_cycle_completed: zombies={}, sessions={}, interrupts={}",
+            "cleanup_cycle_completed: zombies={}, sessions={}, interrupts={}, envelopes={}, user_usage={}",
             zombies_removed,
             sessions_removed,
-            interrupts_removed
+            interrupts_removed,
+            envelopes_evicted,
+            user_usage_evicted,
         );
 
         Ok(CleanupStats {
@@ -148,8 +230,41 @@ impl CleanupService {
             sessions_removed,
             interrupts_removed,
             rate_windows_cleaned: 0, // RateLimiter doesn't report count
+            envelopes_evicted,
+            user_usage_evicted,
             completed_at: Some(Utc::now()),
         })
+    }
+
+    /// Evict terminated envelopes when over capacity, oldest-first.
+    fn evict_stale_envelopes(kernel: &mut crate::kernel::Kernel, max_envelopes: usize) -> usize {
+        let current = kernel.envelopes.len();
+        if current <= max_envelopes {
+            return 0;
+        }
+
+        let to_evict = current - max_envelopes;
+
+        // Collect terminated envelope IDs, sorted by creation (envelope_id is uuid-based, so alphabetical ≈ chronological)
+        let mut terminated: Vec<String> = kernel
+            .envelopes
+            .iter()
+            .filter(|(_, env)| env.bounds.terminated)
+            .map(|(id, _)| id.clone())
+            .collect();
+        terminated.sort();
+
+        let mut evicted = 0;
+        for id in terminated.into_iter().take(to_evict) {
+            kernel.envelopes.remove(&id);
+            evicted += 1;
+        }
+
+        if evicted > 0 {
+            tracing::info!("envelopes_evicted: count={}, remaining={}", evicted, kernel.envelopes.len());
+        }
+
+        evicted
     }
 
     /// Clean up zombie processes older than retention threshold.

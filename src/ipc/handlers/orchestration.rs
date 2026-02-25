@@ -1,42 +1,44 @@
 //! Orchestration service handler — session management, instruction pipeline.
 
 use crate::envelope::Envelope;
-use crate::ipc::dispatch::{str_field, DispatchResponse};
+use crate::ipc::handlers::validation::{
+    parse_non_negative_i32, parse_optional_non_negative_i64, require_non_negative_i64,
+};
+use crate::ipc::router::{str_field, DispatchResponse};
 use crate::kernel::orchestrator::{AgentExecutionMetrics, PipelineConfig};
 use crate::kernel::Kernel;
 use crate::types::{Error, ProcessId, Result};
 use serde_json::Value;
 use std::collections::HashMap;
 
-pub async fn handle(
-    kernel: &mut Kernel,
-    method: &str,
-    body: Value,
-) -> Result<DispatchResponse> {
+pub async fn handle(kernel: &mut Kernel, method: &str, body: Value) -> Result<DispatchResponse> {
     match method {
         "InitializeSession" => {
             let process_id_str = str_field(&body, "process_id")?;
             let process_id = ProcessId::from_string(process_id_str)
                 .map_err(|e| Error::validation(e.to_string()))?;
 
-            let pipeline_config_str = str_field(&body, "pipeline_config")?;
-            let pipeline_config: PipelineConfig = serde_json::from_str(&pipeline_config_str)
-                .map_err(|e| Error::validation(format!("Invalid pipeline_config: {}", e)))?;
+            let pipeline_config_val = body
+                .get("pipeline_config")
+                .ok_or_else(|| Error::validation("Missing field: pipeline_config"))?;
+            let pipeline_config: PipelineConfig =
+                serde_json::from_value(pipeline_config_val.clone())
+                    .map_err(|e| Error::validation(format!("Invalid pipeline_config: {}", e)))?;
 
-            let envelope_str = str_field(&body, "envelope")?;
-            let envelope: Envelope = serde_json::from_str(&envelope_str)
+            let envelope_val = body
+                .get("envelope")
+                .ok_or_else(|| Error::validation("Missing field: envelope"))?;
+            let envelope: Envelope = serde_json::from_value(envelope_val.clone())
                 .map_err(|e| Error::validation(format!("Invalid envelope: {}", e)))?;
 
             let force = body.get("force").and_then(|v| v.as_bool()).unwrap_or(false);
 
-            let session_state = kernel.initialize_orchestration(
-                process_id,
-                pipeline_config,
-                envelope,
-                force,
-            )?;
+            let session_state =
+                kernel.initialize_orchestration(process_id, pipeline_config, envelope, force)?;
 
-            Ok(DispatchResponse::Single(session_state_to_value(&session_state)))
+            Ok(DispatchResponse::Single(session_state_to_value(
+                &session_state,
+            )))
         }
 
         "GetNextInstruction" => {
@@ -53,48 +55,77 @@ pub async fn handle(
             let process_id = ProcessId::from_string(process_id_str)
                 .map_err(|e| Error::validation(e.to_string()))?;
 
-            let agent_name = str_field(&body, "agent_name")?;
+            let agent_name = str_field(&body, "agent_name")?.to_string();
+            let success = body.get("success").and_then(|v| v.as_bool()).unwrap_or(true);
+            let error_message = body
+                .get("error")
+                .and_then(|v| v.as_str())
+                .unwrap_or_default()
+                .to_string();
 
-            let output_str = body.get("output").and_then(|v| v.as_str()).unwrap_or("{}");
-            let output: Value = if output_str.is_empty() {
-                Value::Object(serde_json::Map::new())
-            } else {
-                serde_json::from_str(output_str)
-                    .map_err(|e| Error::validation(format!("Invalid output: {}", e)))?
-            };
+            let output: Value = body
+                .get("output")
+                .cloned()
+                .unwrap_or_else(|| Value::Object(serde_json::Map::new()));
 
             let metrics_val = body.get("metrics");
             let metrics = if let Some(m) = metrics_val {
                 AgentExecutionMetrics {
-                    llm_calls: m.get("llm_calls").and_then(|v| v.as_i64()).unwrap_or(0) as i32,
-                    tool_calls: m.get("tool_calls").and_then(|v| v.as_i64()).unwrap_or(0) as i32,
-                    tokens_in: m.get("tokens_in").and_then(|v| v.as_i64()).unwrap_or(0),
-                    tokens_out: m.get("tokens_out").and_then(|v| v.as_i64()).unwrap_or(0),
-                    duration_ms: m.get("duration_ms").and_then(|v| v.as_i64()).unwrap_or(0),
+                    llm_calls: parse_non_negative_i32(
+                        m.get("llm_calls").and_then(|v| v.as_i64()).unwrap_or(0),
+                        "metrics.llm_calls",
+                    )?,
+                    tool_calls: parse_non_negative_i32(
+                        m.get("tool_calls").and_then(|v| v.as_i64()).unwrap_or(0),
+                        "metrics.tool_calls",
+                    )?,
+                    tokens_in: parse_optional_non_negative_i64(
+                        m.get("tokens_in"),
+                        "metrics.tokens_in",
+                    )?,
+                    tokens_out: parse_optional_non_negative_i64(
+                        m.get("tokens_out"),
+                        "metrics.tokens_out",
+                    )?,
+                    duration_ms: require_non_negative_i64(
+                        m.get("duration_ms").and_then(|v| v.as_i64()).unwrap_or(0),
+                        "metrics.duration_ms",
+                    )?,
                 }
             } else {
                 AgentExecutionMetrics {
                     llm_calls: 0,
                     tool_calls: 0,
-                    tokens_in: 0,
-                    tokens_out: 0,
+                    tokens_in: None,
+                    tokens_out: None,
                     duration_ms: 0,
                 }
             };
 
             let mut envelope = kernel
-                .orchestrator
-                .get_envelope_for_process(&process_id)
-                .ok_or_else(|| Error::not_found(format!("Envelope not found: {}", process_id)))?
-                .clone();
+                .get_orchestration_envelope(&process_id)
+                .ok_or_else(|| Error::not_found(format!("Envelope not found: {}", process_id)))?;
 
+            let mut agent_output = HashMap::new();
             if let Value::Object(output_map) = output {
-                let mut agent_output = HashMap::new();
                 for (key, value) in output_map {
                     agent_output.insert(key, value);
                 }
-                envelope.outputs.insert(agent_name, agent_output);
             }
+            if !success {
+                agent_output.insert("success".to_string(), Value::Bool(false));
+                if !error_message.is_empty() {
+                    agent_output.insert("error".to_string(), Value::String(error_message.clone()));
+                }
+                envelope.audit.metadata.insert(
+                    "last_agent_failure".to_string(),
+                    serde_json::json!({
+                        "agent_name": agent_name,
+                        "error": error_message,
+                    }),
+                );
+            }
+            envelope.outputs.insert(agent_name.clone(), agent_output);
 
             kernel.report_agent_result(&process_id, metrics, envelope)?;
 
@@ -108,10 +139,15 @@ pub async fn handle(
                 .map_err(|e| Error::validation(e.to_string()))?;
 
             let session_state = kernel.get_orchestration_state(&process_id)?;
-            Ok(DispatchResponse::Single(session_state_to_value(&session_state)))
+            Ok(DispatchResponse::Single(session_state_to_value(
+                &session_state,
+            )))
         }
 
-        _ => Err(Error::not_found(format!("Unknown orchestration method: {}", method))),
+        _ => Err(Error::not_found(format!(
+            "Unknown orchestration method: {}",
+            method
+        ))),
     }
 }
 
@@ -126,21 +162,21 @@ pub fn instruction_to_value(instr: &crate::kernel::orchestrator::Instruction) ->
         .and_then(|v| v.as_str().map(|s| s.to_string()))
         .unwrap_or_else(|| "UNKNOWN".to_string());
 
-    let terminal_reason_str = instr.terminal_reason.as_ref()
+    let terminal_reason_str = instr
+        .terminal_reason
+        .as_ref()
         .and_then(|r| serde_json::to_value(r).ok())
         .and_then(|v| v.as_str().map(|s| s.to_string()))
         .unwrap_or_default();
 
-    let agent_config = instr.agent_config.as_ref().map(|v| v.to_string());
     let envelope = instr
         .envelope
         .as_ref()
-        .and_then(|e| serde_json::to_string(e).ok());
+        .and_then(|e| serde_json::to_value(e).ok());
 
     serde_json::json!({
         "kind": kind_str,
         "agent_name": instr.agent_name.as_deref().unwrap_or(""),
-        "agent_config": agent_config,
         "envelope": envelope,
         "terminal_reason": terminal_reason_str,
         "termination_message": instr.termination_message.as_deref().unwrap_or(""),
@@ -151,8 +187,9 @@ pub fn instruction_to_value(instr: &crate::kernel::orchestrator::Instruction) ->
 
 /// Convert SessionState to the dict shape expected by `kernel_client.py._dict_to_session_state`.
 pub fn session_state_to_value(state: &crate::kernel::orchestrator::SessionState) -> Value {
-    let envelope_str = serde_json::to_string(&state.envelope).ok();
-    let terminal_reason_str = state.terminal_reason.as_ref()
+    let terminal_reason_str = state
+        .terminal_reason
+        .as_ref()
         .and_then(|r| serde_json::to_value(r).ok())
         .and_then(|v| v.as_str().map(|s| s.to_string()))
         .unwrap_or_default();
@@ -161,7 +198,7 @@ pub fn session_state_to_value(state: &crate::kernel::orchestrator::SessionState)
         "process_id": state.process_id.as_str(),
         "current_stage": state.current_stage,
         "stage_order": state.stage_order,
-        "envelope": envelope_str,
+        "envelope": state.envelope.clone(),
         "edge_traversals": state.edge_traversals,
         "terminated": state.terminated,
         "terminal_reason": terminal_reason_str,

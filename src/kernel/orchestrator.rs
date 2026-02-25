@@ -41,8 +41,6 @@ pub struct Instruction {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub agent_name: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub agent_config: Option<serde_json::Value>, // Placeholder for AgentConfig
-    #[serde(skip_serializing_if = "Option::is_none")]
     pub envelope: Option<Envelope>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub terminal_reason: Option<TerminalReason>,
@@ -58,13 +56,13 @@ pub struct Instruction {
 pub struct AgentExecutionMetrics {
     pub llm_calls: i32,
     pub tool_calls: i32,
-    pub tokens_in: i64,
-    pub tokens_out: i64,
+    pub tokens_in: Option<i64>,
+    pub tokens_out: Option<i64>,
     pub duration_ms: i64,
 }
 
 // =============================================================================
-// Pipeline Config (Simplified)
+// Pipeline Config
 // =============================================================================
 
 /// Pipeline configuration for orchestration.
@@ -183,7 +181,7 @@ pub struct SessionState {
     pub process_id: ProcessId,
     pub current_stage: String,
     pub stage_order: Vec<String>,
-    pub envelope: HashMap<String, serde_json::Value>, // Simplified envelope representation
+    pub envelope: serde_json::Value,
     pub edge_traversals: HashMap<String, i32>,
     pub terminated: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -277,7 +275,6 @@ impl Orchestrator {
             return Ok(Instruction {
                 kind: InstructionKind::Terminate,
                 agent_name: None,
-                agent_config: None,
                 envelope: Some(session.envelope.clone()),
                 terminal_reason: session.terminal_reason,
                 termination_message: Some("Session already terminated".to_string()),
@@ -291,7 +288,6 @@ impl Orchestrator {
             return Ok(Instruction {
                 kind: InstructionKind::WaitInterrupt,
                 agent_name: None,
-                agent_config: None,
                 envelope: Some(session.envelope.clone()),
                 terminal_reason: None,
                 termination_message: None,
@@ -309,7 +305,6 @@ impl Orchestrator {
             return Ok(Instruction {
                 kind: InstructionKind::Terminate,
                 agent_name: None,
-                agent_config: None,
                 envelope: Some(session.envelope.clone()),
                 terminal_reason: Some(reason),
                 termination_message: Some(format!("Bounds exceeded: {:?}", reason)),
@@ -329,7 +324,6 @@ impl Orchestrator {
         Ok(Instruction {
             kind: InstructionKind::RunAgent,
             agent_name: Some(agent_name),
-            agent_config: None, // Placeholder
             envelope: Some(session.envelope.clone()),
             terminal_reason: None,
             termination_message: None,
@@ -356,8 +350,12 @@ impl Orchestrator {
         // Update metrics in envelope
         session.envelope.bounds.llm_call_count += metrics.llm_calls;
         session.envelope.bounds.tool_call_count += metrics.tool_calls;
-        session.envelope.bounds.tokens_in += metrics.tokens_in;
-        session.envelope.bounds.tokens_out += metrics.tokens_out;
+        if let Some(tokens_in) = metrics.tokens_in {
+            session.envelope.bounds.tokens_in += tokens_in;
+        }
+        if let Some(tokens_out) = metrics.tokens_out {
+            session.envelope.bounds.tokens_out += tokens_out;
+        }
 
         // Increment iteration
         session.envelope.pipeline.iteration += 1;
@@ -490,11 +488,14 @@ impl Orchestrator {
 
     /// Build external session state representation.
     fn build_session_state(&self, session: &OrchestrationSession) -> SessionState {
+        let envelope = serde_json::to_value(&session.envelope)
+            .unwrap_or_else(|_| serde_json::json!({}));
+
         SessionState {
             process_id: session.process_id.clone(),
             current_stage: session.envelope.pipeline.current_stage.clone(),
             stage_order: session.envelope.pipeline.stage_order.clone(),
-            envelope: HashMap::new(), // Simplified - full impl would serialize envelope
+            envelope,
             edge_traversals: session.edge_traversals.clone(),
             terminated: session.terminated,
             terminal_reason: session.terminal_reason,
@@ -804,8 +805,8 @@ mod tests {
         let metrics = AgentExecutionMetrics {
             llm_calls: 2,
             tool_calls: 5,
-            tokens_in: 1000,
-            tokens_out: 500,
+            tokens_in: Some(1000),
+            tokens_out: Some(500),
             duration_ms: 1500,
         };
 
@@ -824,6 +825,37 @@ mod tests {
     }
 
     #[test]
+    fn test_report_agent_result_with_unknown_tokens_keeps_token_counters() {
+        let mut orch = Orchestrator::new();
+        let pipeline = create_test_pipeline();
+        let envelope = create_test_envelope();
+
+        orch.initialize_session(ProcessId::must("proc1"), pipeline, envelope, false)
+            .unwrap();
+
+        let metrics = AgentExecutionMetrics {
+            llm_calls: 1,
+            tool_calls: 1,
+            tokens_in: None,
+            tokens_out: None,
+            duration_ms: 100,
+        };
+
+        let initialized_envelope = orch
+            .sessions
+            .get(&ProcessId::must("proc1"))
+            .unwrap()
+            .envelope
+            .clone();
+        orch.report_agent_result(&ProcessId::must("proc1"), metrics, initialized_envelope)
+            .unwrap();
+
+        let session = orch.sessions.get(&ProcessId::must("proc1")).unwrap();
+        assert_eq!(session.envelope.bounds.tokens_in, 0);
+        assert_eq!(session.envelope.bounds.tokens_out, 0);
+    }
+
+    #[test]
     fn test_get_session_state() {
         let mut orch = Orchestrator::new();
         let pipeline = create_test_pipeline();
@@ -836,6 +868,14 @@ mod tests {
 
         assert_eq!(state.process_id.as_str(), "proc1");
         assert_eq!(state.current_stage, "stage1");
+        assert!(state.envelope.is_object());
+        let request_id = state
+            .envelope
+            .get("identity")
+            .and_then(|v| v.get("request_id"))
+            .and_then(|v| v.as_str())
+            .unwrap_or("");
+        assert!(!request_id.is_empty());
         assert!(!state.terminated);
     }
 
@@ -927,7 +967,7 @@ mod tests {
         output.insert("intent".to_string(), serde_json::json!("skip"));
         env.outputs.insert("a1".to_string(), output);
 
-        let metrics = AgentExecutionMetrics { llm_calls: 0, tool_calls: 0, tokens_in: 0, tokens_out: 0, duration_ms: 0 };
+        let metrics = AgentExecutionMetrics { llm_calls: 0, tool_calls: 0, tokens_in: Some(0), tokens_out: Some(0), duration_ms: 0 };
         orch.report_agent_result(&ProcessId::must("p1"), metrics, env).unwrap();
 
         // Should route to s3 (conditional match), not s2 (catch-all)
@@ -962,7 +1002,7 @@ mod tests {
         orch.initialize_session(ProcessId::must("p1"), pipeline, envelope, false).unwrap();
 
         let env = orch.sessions.get(&ProcessId::must("p1")).unwrap().envelope.clone();
-        let metrics = AgentExecutionMetrics { llm_calls: 0, tool_calls: 0, tokens_in: 0, tokens_out: 0, duration_ms: 0 };
+        let metrics = AgentExecutionMetrics { llm_calls: 0, tool_calls: 0, tokens_in: Some(0), tokens_out: Some(0), duration_ms: 0 };
         orch.report_agent_result(&ProcessId::must("p1"), metrics, env).unwrap();
 
         let session = orch.sessions.get(&ProcessId::must("p1")).unwrap();
@@ -1008,7 +1048,7 @@ mod tests {
         output.insert("intent".to_string(), serde_json::json!("greet"));
         env.outputs.insert("a1".to_string(), output);
 
-        let metrics = AgentExecutionMetrics { llm_calls: 0, tool_calls: 0, tokens_in: 0, tokens_out: 0, duration_ms: 0 };
+        let metrics = AgentExecutionMetrics { llm_calls: 0, tool_calls: 0, tokens_in: Some(0), tokens_out: Some(0), duration_ms: 0 };
         orch.report_agent_result(&ProcessId::must("p1"), metrics, env).unwrap();
 
         // First rule wins → s2, not s3
@@ -1046,7 +1086,7 @@ mod tests {
         };
         let envelope = create_test_envelope();
         orch.initialize_session(ProcessId::must("p1"), pipeline, envelope, false).unwrap();
-        let metrics = AgentExecutionMetrics { llm_calls: 0, tool_calls: 0, tokens_in: 0, tokens_out: 0, duration_ms: 0 };
+        let metrics = AgentExecutionMetrics { llm_calls: 0, tool_calls: 0, tokens_in: Some(0), tokens_out: Some(0), duration_ms: 0 };
 
         // s1 → s2
         let env = orch.sessions.get(&ProcessId::must("p1")).unwrap().envelope.clone();
@@ -1091,7 +1131,7 @@ mod tests {
         };
         let envelope = create_test_envelope();
         orch.initialize_session(ProcessId::must("p1"), pipeline, envelope, false).unwrap();
-        let metrics = AgentExecutionMetrics { llm_calls: 0, tool_calls: 0, tokens_in: 0, tokens_out: 0, duration_ms: 0 };
+        let metrics = AgentExecutionMetrics { llm_calls: 0, tool_calls: 0, tokens_in: Some(0), tokens_out: Some(0), duration_ms: 0 };
 
         // Run the loop until bounds terminate it
         let mut terminated = false;
@@ -1130,7 +1170,7 @@ mod tests {
         orch.initialize_session(ProcessId::must("p1"), pipeline, envelope, false).unwrap();
 
         let env = orch.sessions.get(&ProcessId::must("p1")).unwrap().envelope.clone();
-        let metrics = AgentExecutionMetrics { llm_calls: 0, tool_calls: 0, tokens_in: 0, tokens_out: 0, duration_ms: 0 };
+        let metrics = AgentExecutionMetrics { llm_calls: 0, tool_calls: 0, tokens_in: Some(0), tokens_out: Some(0), duration_ms: 0 };
         orch.report_agent_result(&ProcessId::must("p1"), metrics, env).unwrap();
 
         let session = orch.sessions.get(&ProcessId::must("p1")).unwrap();
@@ -1190,7 +1230,7 @@ mod tests {
         };
         let envelope = create_test_envelope();
         orch.initialize_session(ProcessId::must("p1"), pipeline, envelope, false).unwrap();
-        let metrics = AgentExecutionMetrics { llm_calls: 0, tool_calls: 0, tokens_in: 0, tokens_out: 0, duration_ms: 0 };
+        let metrics = AgentExecutionMetrics { llm_calls: 0, tool_calls: 0, tokens_in: Some(0), tokens_out: Some(0), duration_ms: 0 };
 
         // Run cycle: s1→s2→s1→s2→s1→s2→(edge limit s2→s1)
         let mut terminated = false;
@@ -1215,10 +1255,11 @@ mod tests {
         orch.initialize_session(ProcessId::must("p1"), pipeline, envelope, false).unwrap();
 
         let env = orch.sessions.get(&ProcessId::must("p1")).unwrap().envelope.clone();
-        let metrics = AgentExecutionMetrics { llm_calls: 0, tool_calls: 0, tokens_in: 0, tokens_out: 0, duration_ms: 0 };
+        let metrics = AgentExecutionMetrics { llm_calls: 0, tool_calls: 0, tokens_in: Some(0), tokens_out: Some(0), duration_ms: 0 };
         orch.report_agent_result(&ProcessId::must("p1"), metrics, env).unwrap();
 
         let session = orch.sessions.get(&ProcessId::must("p1")).unwrap();
         assert_eq!(session.edge_traversals.get("stage1->stage2"), Some(&1));
     }
 }
+

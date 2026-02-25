@@ -27,8 +27,7 @@ pub use rate_limiter::{RateLimitConfig, RateLimiter};
 pub use recovery::with_recovery;
 pub use resources::ResourceTracker;
 pub use services::{
-    DispatchResult, DispatchTarget, RegistryStats, ServiceInfo, ServiceRegistry, ServiceStats,
-    ServiceStatus,
+    RegistryStats, ServiceInfo, ServiceRegistry, ServiceStats, ServiceStatus,
 };
 pub use types::{
     ProcessControlBlock, ProcessState, QuotaViolation, ResourceQuota, ResourceUsage,
@@ -45,25 +44,25 @@ use crate::types::{Error, ProcessId, RequestId, Result, SessionId, UserId};
 #[derive(Debug)]
 pub struct Kernel {
     /// Process lifecycle management
-    pub lifecycle: LifecycleManager,
+    lifecycle: LifecycleManager,
 
     /// Resource tracking and quota enforcement
-    pub resources: ResourceTracker,
+    resources: ResourceTracker,
 
     /// Rate limiting per user
-    pub rate_limiter: RateLimiter,
+    rate_limiter: RateLimiter,
 
     /// Interrupt handling (human-in-the-loop)
-    pub interrupts: interrupts::InterruptService,
+    interrupts: interrupts::InterruptService,
 
     /// Service registry (IPC and dispatch)
-    pub services: services::ServiceRegistry,
+    services: services::ServiceRegistry,
 
     /// Pipeline orchestration (kernel-driven execution)
-    pub orchestrator: orchestrator::Orchestrator,
+    orchestrator: orchestrator::Orchestrator,
 
     /// Communication bus (kernel-mediated IPC)
-    pub commbus: crate::commbus::CommBus,
+    commbus: crate::commbus::CommBus,
 
     /// Envelope storage (envelope_id -> envelope)
     envelopes: HashMap<String, Envelope>,
@@ -100,6 +99,10 @@ impl Kernel {
     }
 
     /// Create a new process.
+    ///
+    /// # Errors
+    ///
+    /// Returns error if rate limit exceeded or process submission/scheduling fails.
     pub fn create_process(
         &mut self,
         pid: ProcessId,
@@ -155,6 +158,10 @@ impl Kernel {
     }
 
     /// Check process quota.
+    ///
+    /// # Errors
+    ///
+    /// Returns error if process not found or quota exceeded.
     pub fn check_quota(&self, pid: &ProcessId) -> Result<()> {
         let pcb = self
             .lifecycle
@@ -181,17 +188,34 @@ impl Kernel {
         self.lifecycle.get_next_runnable()
     }
 
+    /// Schedule a process from NEW/WAITING/BLOCKED into READY.
+    pub fn schedule_process(&mut self, pid: &ProcessId) -> Result<()> {
+        self.lifecycle.schedule(pid)
+    }
+
     /// Start a process.
+    ///
+    /// # Errors
+    ///
+    /// Returns error if process not found or invalid state transition.
     pub fn start_process(&mut self, pid: &ProcessId) -> Result<()> {
         self.lifecycle.start(pid)
     }
 
     /// Block a process (e.g., resource exhausted).
+    ///
+    /// # Errors
+    ///
+    /// Returns error if process not found or invalid state transition.
     pub fn block_process(&mut self, pid: &ProcessId, reason: String) -> Result<()> {
         self.lifecycle.block(pid, reason)
     }
 
     /// Wait a process (e.g., awaiting interrupt response).
+    ///
+    /// # Errors
+    ///
+    /// Returns error if process not found or invalid state transition.
     pub fn wait_process(&mut self, pid: &ProcessId, interrupt: FlowInterrupt) -> Result<()> {
         self.lifecycle.wait(pid, interrupt.kind)?;
         // Also set interrupt on envelope
@@ -202,6 +226,10 @@ impl Kernel {
     }
 
     /// Resume a process from waiting/blocked.
+    ///
+    /// # Errors
+    ///
+    /// Returns error if process not found or invalid state transition.
     pub fn resume_process(&mut self, pid: &ProcessId) -> Result<()> {
         self.lifecycle.resume(pid)?;
         // Clear interrupt on envelope
@@ -212,6 +240,10 @@ impl Kernel {
     }
 
     /// Terminate a process.
+    ///
+    /// # Errors
+    ///
+    /// Returns error if process not found or invalid state transition.
     pub fn terminate_process(&mut self, pid: &ProcessId) -> Result<()> {
         self.lifecycle.terminate(pid)?;
         // Terminate envelope
@@ -222,6 +254,10 @@ impl Kernel {
     }
 
     /// Cleanup and remove a terminated process.
+    ///
+    /// # Errors
+    ///
+    /// Returns error if process not found or not in terminal state.
     pub fn cleanup_process(&mut self, pid: &ProcessId) -> Result<()> {
         self.lifecycle.cleanup(pid)?;
         self.lifecycle.remove(pid)?;
@@ -285,22 +321,15 @@ impl Kernel {
         self.services.unregister_service(service_name)
     }
 
-    /// Dispatch a request to a service.
-    pub fn dispatch(
-        &mut self,
-        target: &services::DispatchTarget,
-        data: &HashMap<String, serde_json::Value>,
-    ) -> Result<services::DispatchResult> {
-        self.services
-            .dispatch(target, data)
-            .map_err(Error::internal)
-    }
-
     // =============================================================================
     // Orchestrator Methods (Delegation to Orchestrator)
     // =============================================================================
 
     /// Initialize an orchestration session.
+    ///
+    /// # Errors
+    ///
+    /// Returns error if session already exists (unless `force`) or config is invalid.
     pub fn initialize_orchestration(
         &mut self,
         process_id: ProcessId,
@@ -313,15 +342,22 @@ impl Kernel {
     }
 
     /// Get the next instruction for a process.
+    ///
+    /// # Errors
+    ///
+    /// Returns error if no orchestration session exists for this process.
     pub fn get_next_instruction(
         &mut self,
         process_id: &ProcessId,
     ) -> Result<orchestrator::Instruction> {
-        self.orchestrator
-            .get_next_instruction(process_id)
+        self.orchestrator.get_next_instruction(process_id)
     }
 
     /// Report agent execution result.
+    ///
+    /// # Errors
+    ///
+    /// Returns error if no orchestration session exists for this process.
     pub fn report_agent_result(
         &mut self,
         process_id: &ProcessId,
@@ -333,9 +369,86 @@ impl Kernel {
     }
 
     /// Get orchestration session state.
-    pub fn get_orchestration_state(&self, process_id: &ProcessId) -> Result<orchestrator::SessionState> {
-        self.orchestrator
-            .get_session_state(process_id)
+    ///
+    /// # Errors
+    ///
+    /// Returns error if no orchestration session exists for this process.
+    pub fn get_orchestration_state(
+        &self,
+        process_id: &ProcessId,
+    ) -> Result<orchestrator::SessionState> {
+        self.orchestrator.get_session_state(process_id)
+    }
+
+    /// Get a cloned orchestration envelope for a process.
+    pub fn get_orchestration_envelope(&self, process_id: &ProcessId) -> Option<Envelope> {
+        self.orchestrator.get_envelope_for_process(process_id).cloned()
+    }
+
+    // =============================================================================
+    // Rate Limiting
+    // =============================================================================
+
+    /// Check and optionally record rate-limit usage for a user.
+    pub fn check_rate_limit(&mut self, user_id: &str) -> Result<()> {
+        self.rate_limiter.check_rate_limit(user_id)
+    }
+
+    /// Current request count in the minute window.
+    pub fn get_current_rate(&mut self, user_id: &str) -> usize {
+        self.rate_limiter.get_current_rate(user_id)
+    }
+
+    // =============================================================================
+    // CommBus Methods (Delegation to CommBus)
+    // =============================================================================
+
+    /// Publish an event to subscribers.
+    pub async fn publish_event(&self, event: crate::commbus::Event) -> Result<usize> {
+        self.commbus.publish(event).await
+    }
+
+    /// Send a command to a registered command handler.
+    pub async fn send_command(&self, command: crate::commbus::Command) -> Result<()> {
+        self.commbus.send_command(command).await
+    }
+
+    /// Execute a request/response query through CommBus.
+    pub async fn execute_query(
+        &self,
+        query: crate::commbus::Query,
+    ) -> Result<crate::commbus::QueryResponse> {
+        self.commbus.query(query).await
+    }
+
+    /// Subscribe to event types.
+    pub async fn subscribe_events(
+        &self,
+        subscriber_id: String,
+        event_types: Vec<String>,
+    ) -> Result<(
+        crate::commbus::Subscription,
+        tokio::sync::mpsc::UnboundedReceiver<crate::commbus::Event>,
+    )> {
+        self.commbus.subscribe(subscriber_id, event_types).await
+    }
+
+    /// Register a query handler (used by integration tests and service bootstrap).
+    pub async fn register_query_handler(
+        &self,
+        query_type: String,
+    ) -> Result<
+        tokio::sync::mpsc::UnboundedReceiver<(
+            crate::commbus::Query,
+            tokio::sync::oneshot::Sender<crate::commbus::QueryResponse>,
+        )>,
+    > {
+        self.commbus.register_query_handler(query_type).await
+    }
+
+    /// Snapshot CommBus statistics.
+    pub async fn get_commbus_stats(&self) -> crate::commbus::BusStats {
+        self.commbus.get_stats().await
     }
 
     // =============================================================================
@@ -482,30 +595,39 @@ mod tests {
         let pid2 = ProcessId::must("pid2");
         let pid3 = ProcessId::must("pid3");
 
-        kernel.lifecycle.submit(
-            pid1.clone(),
-            RequestId::must("req1"),
-            UserId::must("user1"),
-            SessionId::must("sess1"),
-            SchedulingPriority::Normal,
-            None,
-        ).unwrap();
-        kernel.lifecycle.submit(
-            pid2.clone(),
-            RequestId::must("req2"),
-            UserId::must("user2"),
-            SessionId::must("sess2"),
-            SchedulingPriority::Normal,
-            None,
-        ).unwrap();
-        kernel.lifecycle.submit(
-            pid3.clone(),
-            RequestId::must("req3"),
-            UserId::must("user3"),
-            SessionId::must("sess3"),
-            SchedulingPriority::Normal,
-            None,
-        ).unwrap();
+        kernel
+            .lifecycle
+            .submit(
+                pid1.clone(),
+                RequestId::must("req1"),
+                UserId::must("user1"),
+                SessionId::must("sess1"),
+                SchedulingPriority::Normal,
+                None,
+            )
+            .unwrap();
+        kernel
+            .lifecycle
+            .submit(
+                pid2.clone(),
+                RequestId::must("req2"),
+                UserId::must("user2"),
+                SessionId::must("sess2"),
+                SchedulingPriority::Normal,
+                None,
+            )
+            .unwrap();
+        kernel
+            .lifecycle
+            .submit(
+                pid3.clone(),
+                RequestId::must("req3"),
+                UserId::must("user3"),
+                SessionId::must("sess3"),
+                SchedulingPriority::Normal,
+                None,
+            )
+            .unwrap();
 
         // Schedule 2 of them (New → Ready)
         kernel.lifecycle.schedule(&pid1).unwrap();
@@ -517,8 +639,20 @@ mod tests {
         let status = kernel.get_system_status();
 
         assert_eq!(status.processes_total, 3);
-        assert_eq!(*status.processes_by_state.get(&ProcessState::New).unwrap(), 1);
-        assert_eq!(*status.processes_by_state.get(&ProcessState::Ready).unwrap(), 1);
-        assert_eq!(*status.processes_by_state.get(&ProcessState::Running).unwrap(), 1);
+        assert_eq!(
+            *status.processes_by_state.get(&ProcessState::New).unwrap(),
+            1
+        );
+        assert_eq!(
+            *status.processes_by_state.get(&ProcessState::Ready).unwrap(),
+            1
+        );
+        assert_eq!(
+            *status
+                .processes_by_state
+                .get(&ProcessState::Running)
+                .unwrap(),
+            1
+        );
     }
 }

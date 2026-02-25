@@ -1,24 +1,30 @@
 //! Engine service handler — envelope CRUD + pipeline execution.
 
 use crate::envelope::Envelope;
-use crate::ipc::dispatch::{str_field, DispatchResponse};
 use crate::ipc::handlers::orchestration::instruction_to_value;
+use crate::ipc::router::{str_field, DispatchResponse};
 use crate::kernel::orchestrator::PipelineConfig;
 use crate::kernel::Kernel;
 use crate::types::{EnvelopeId, Error, ProcessId, RequestId, Result, SessionId, UserId};
 use serde_json::Value;
 
-pub async fn handle(
-    kernel: &mut Kernel,
-    method: &str,
-    body: Value,
-) -> Result<DispatchResponse> {
+pub async fn handle(kernel: &mut Kernel, method: &str, body: Value) -> Result<DispatchResponse> {
     match method {
         "CreateEnvelope" => {
-            let raw_input = body.get("raw_input").and_then(|v| v.as_str()).unwrap_or("").to_string();
-            let request_id_str = body.get("request_id").and_then(|v| v.as_str()).unwrap_or("");
+            let raw_input = body
+                .get("raw_input")
+                .and_then(|v| v.as_str())
+                .unwrap_or("")
+                .to_string();
+            let request_id_str = body
+                .get("request_id")
+                .and_then(|v| v.as_str())
+                .unwrap_or("");
             let user_id_str = body.get("user_id").and_then(|v| v.as_str()).unwrap_or("");
-            let session_id_str = body.get("session_id").and_then(|v| v.as_str()).unwrap_or("");
+            let session_id_str = body
+                .get("session_id")
+                .and_then(|v| v.as_str())
+                .unwrap_or("");
 
             let envelope_id = EnvelopeId::must(format!("env_{}", uuid::Uuid::new_v4().simple()));
             let request_id = if request_id_str.is_empty() {
@@ -78,7 +84,8 @@ pub async fn handle(
                 && envelope.pipeline.iteration < envelope.pipeline.max_iterations
                 && envelope.bounds.agent_hop_count < envelope.bounds.max_agent_hops;
 
-            let terminal_reason = if envelope.bounds.llm_call_count >= envelope.bounds.max_llm_calls {
+            let terminal_reason = if envelope.bounds.llm_call_count >= envelope.bounds.max_llm_calls
+            {
                 "MAX_LLM_CALLS_EXCEEDED"
             } else if envelope.pipeline.iteration >= envelope.pipeline.max_iterations {
                 "MAX_ITERATIONS_EXCEEDED"
@@ -98,7 +105,8 @@ pub async fn handle(
         }
 
         "UpdateEnvelope" => {
-            let env_val = body.get("envelope")
+            let env_val = body
+                .get("envelope")
                 .ok_or_else(|| Error::validation("Missing required field: envelope"))?;
             let envelope: Envelope = serde_json::from_value(env_val.clone())
                 .map_err(|e| Error::validation(format!("Invalid envelope: {}", e)))?;
@@ -123,10 +131,8 @@ pub async fn handle(
             let pipeline_config: PipelineConfig = serde_json::from_str(&pipeline_config_str)
                 .map_err(|e| Error::validation(format!("Invalid pipeline_config: {}", e)))?;
 
-            let pid = ProcessId::from_string(
-                envelope.identity.envelope_id.as_str().to_string(),
-            )
-            .map_err(|e| Error::validation(e.to_string()))?;
+            let pid = ProcessId::from_string(envelope.identity.envelope_id.as_str().to_string())
+                .map_err(|e| Error::validation(e.to_string()))?;
 
             kernel.initialize_orchestration(pid.clone(), pipeline_config, envelope, false)?;
             let instruction = kernel.get_next_instruction(&pid)?;
@@ -134,7 +140,8 @@ pub async fn handle(
         }
 
         "CloneEnvelope" => {
-            let env_val = body.get("envelope")
+            let env_val = body
+                .get("envelope")
                 .ok_or_else(|| Error::validation("Missing required field: envelope"))?;
             let mut cloned: Envelope = serde_json::from_value(env_val.clone())
                 .map_err(|e| Error::validation(format!("Invalid envelope: {}", e)))?;
@@ -146,6 +153,9 @@ pub async fn handle(
             Ok(DispatchResponse::Single(v))
         }
 
-        _ => Err(Error::not_found(format!("Unknown engine method: {}", method))),
+        _ => Err(Error::not_found(format!(
+            "Unknown engine method: {}",
+            method
+        ))),
     }
 }

@@ -1,6 +1,6 @@
 [package]
 name = "jeeves-core"
-version = "0.1.0"
+version = "1.0.0"
 edition = "2021"
 rust-version = "1.75"
 authors = ["Jeeves Team"]
@@ -17,7 +17,7 @@ path = "src/lib.rs"
 
 [dependencies]
 # Async runtime
-tokio = { version = "1.41", features = ["full"] }
+tokio = { version = "1.41", features = ["rt-multi-thread", "macros", "net", "io-util", "sync", "time"] }
 tokio-util = "0.7"
 
 # IPC (TCP + msgpack)
@@ -42,10 +42,6 @@ opentelemetry-otlp = { version = "0.27", features = ["http-proto"] }
 
 # Metrics
 prometheus = "0.13"
-
-# Concurrency primitives
-parking_lot = "0.12"
-dashmap = "6.1"
 
 # Time handling
 chrono = { version = "0.4", features = ["serde"] }
@@ -76,6 +72,10 @@ tempfile = "3.14"
 # Golden test utilities
 pretty_assertions = "1.4"
 insta = { version = "1.41", features = ["json"] }
+
+[[bench]]
+name = "ipc_throughput"
+harness = false
 
 [profile.release]
 opt-level = 3

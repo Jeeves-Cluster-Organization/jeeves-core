@@ -342,8 +342,19 @@ impl ProcessControlBlock {
     }
 
     /// Check if any quota exceeded.
+    ///
+    /// Computes elapsed time from `started_at` on the fly so that timeout
+    /// enforcement works during execution, not only after completion.
     pub fn check_quota(&self) -> Option<QuotaViolation> {
-        self.usage.exceeds_quota(&self.quota)
+        let mut usage = self.usage.clone();
+        if let Some(started) = self.started_at {
+            if self.completed_at.is_none() {
+                // Process still running — compute live elapsed time
+                let now = Utc::now();
+                usage.elapsed_seconds = (now - started).num_milliseconds() as f64 / 1000.0;
+            }
+        }
+        usage.exceeds_quota(&self.quota)
     }
 
     /// Check if process can be scheduled.

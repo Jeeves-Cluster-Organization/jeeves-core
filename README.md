@@ -1,35 +1,53 @@
 # Jeeves Core
 
-Rust micro-kernel for AI agent orchestration. Provides process lifecycle, IPC, interrupt handling, and resource quotas via IPC (TCP+msgpack).
+Rust micro-kernel + Python infrastructure library for AI agent orchestration.
+
+The kernel provides process lifecycle, IPC, interrupt handling, and resource quotas via TCP+msgpack. The Python layer (`jeeves_infra`) provides LLM providers, gateway, pipeline execution, and bootstrap — consumed by capabilities as a library.
 
 ## Quick Start
 
 ```bash
-# Build
+# Build kernel
 cargo build --release
 
-# Run (IPC on :50051)
+# Run kernel (IPC on :50051)
 cargo run --release
 
-# Custom port
-JEEVES_GRPC_PORT=50052 cargo run --release
+# Install Python infrastructure
+cd python && pip install -e ".[dev,all]"
 
-# Tests
-cargo test
+# Run Python tests
+cd python && pytest
+
+# Docker (kernel + wheel)
+docker build -t jeeves-core .
+```
+
+## Repository Structure
+
+```
+jeeves-core/
+├── src/              # Rust kernel
+├── python/           # Python infrastructure (jeeves_infra)
+│   ├── jeeves_infra/ # The package
+│   ├── tests/        # Python tests
+│   └── pyproject.toml
+├── tests/            # Rust integration tests
+├── benches/          # Rust benchmarks
+├── docs/             # IPC protocol, deployment, API reference
+└── Dockerfile        # Multi-stage: kernel binary + Python wheel
 ```
 
 ## IPC Methods
 
 | Service | RPCs | Purpose |
 |---------|------|---------|
-| KernelService | 12 | Process lifecycle (create, schedule, terminate) |
-| EngineService | 6 | Envelope and pipeline management |
+| KernelService | 14 | Process lifecycle, quotas, rate limiting |
+| EngineService | 5 | Envelope and pipeline management |
 | OrchestrationService | 4 | Session and instruction flow |
-| CommBusService | 4 | IPC (pub/sub/query) |
+| CommBusService | 4 | Message bus (pub/sub/query) |
 
-See `proto/` for service definitions.
-
-## Module Structure
+## Kernel Modules (Rust)
 
 | Module | Description |
 |--------|-------------|
@@ -43,33 +61,34 @@ See `proto/` for service definitions.
 | `commbus` | Message bus (events, commands, queries) |
 | `envelope` | State container for pipeline execution |
 
-## Process Lifecycle
+## Infrastructure Modules (Python)
+
+| Module | Description |
+|--------|-------------|
+| `jeeves_infra.kernel_client` | IPC bridge to Rust kernel (TCP+msgpack) |
+| `jeeves_infra.gateway` | FastAPI HTTP/WS/SSE server |
+| `jeeves_infra.llm` | LLM provider abstraction (OpenAI, LiteLLM, mock) |
+| `jeeves_infra.bootstrap` | AppContext creation, composition root |
+| `jeeves_infra.orchestrator` | Event orchestration and governance |
+| `jeeves_infra.protocols` | Type definitions and interfaces |
+| `jeeves_infra.capability_wiring` | Capability registration and discovery |
+
+## Architecture
 
 ```
-New → Ready → Running → Blocked → Ready → ... → Terminated → Zombie
+Capability Layer (agents, prompts, tools)
+       | imports jeeves_infra
+       v
+Python Infrastructure (python/jeeves_infra)
+       | TCP+msgpack IPC
+       v
+Rust Kernel (src/)
 ```
-
-## Resource Quotas
-
-```rust
-ResourceQuota {
-    max_llm_calls: usize,       // Limit LLM API calls
-    max_output_tokens: usize,   // Limit token generation
-    max_agent_hops: usize,      // Limit pipeline depth
-    max_iterations: usize,      // Prevent infinite loops
-}
-```
-
-## Interrupt Types
-
-- **Clarification**: Agent requests user input
-- **Confirmation**: Agent seeks approval to proceed
-- **ResourceExhausted**: Quota exceeded, request extension
 
 ## Prerequisites
 
-- Rust 1.70+
-- Protocol Buffers compiler (`protoc`)
+- Rust 1.75+
+- Python 3.11+
 
 ## License
 

@@ -27,6 +27,41 @@ htmlcov/
 *.swo
 *~
 
+# Python packaging
+build/
+dist/
+*.egg
+.eggs/
+*.egg-info/
+MANIFEST
+
+# Python tools
+.mypy_cache/
+.pyre/
+.tox/
+.nox/
+.hypothesis/
+coverage.xml
+*.py,cover
+
+# Environment
+.env
+.env.local
+ENV/
+
+# Runtime artifacts
+*.log
+.local/
+.tmp/
+
+# Secrets
+*.key
+*.pem
+*.crt
+credentials.json
+secrets.toml
+secrets.yml
+
 # OS
 .DS_Store
 Thumbs.db

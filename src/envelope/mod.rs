@@ -18,8 +18,6 @@ use std::collections::{HashMap, HashSet};
 use crate::types::{EnvelopeId, RequestId, SessionId, UserId};
 
 pub mod enums;
-pub mod export;
-pub mod import;
 
 pub use enums::*;
 
@@ -388,5 +386,321 @@ impl Envelope {
 impl Default for Envelope {
     fn default() -> Self {
         Self::new()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // ── 1. new() defaults ───────────────────────────────────────────────
+
+    #[test]
+    fn test_new_envelope_defaults() {
+        let env = Envelope::new();
+
+        // Identity: generated UUIDs are prefixed
+        assert!(env.identity.envelope_id.as_str().starts_with("env_"));
+        assert!(env.identity.request_id.as_str().starts_with("req_"));
+        assert_eq!(env.identity.user_id.as_str(), "anonymous");
+        assert!(env.identity.session_id.as_str().starts_with("sess_"));
+
+        // Raw input is empty
+        assert!(env.raw_input.is_empty());
+
+        // Outputs map is empty
+        assert!(env.outputs.is_empty());
+
+        // Pipeline defaults
+        assert_eq!(env.pipeline.current_stage, "start");
+        assert!(env.pipeline.stage_order.is_empty());
+        assert_eq!(env.pipeline.iteration, 0);
+        assert_eq!(env.pipeline.max_iterations, 3);
+        assert!(env.pipeline.active_stages.is_empty());
+        assert!(env.pipeline.completed_stage_set.is_empty());
+        assert!(env.pipeline.failed_stages.is_empty());
+        assert!(!env.pipeline.parallel_mode);
+
+        // Bounds defaults
+        assert_eq!(env.bounds.llm_call_count, 0);
+        assert_eq!(env.bounds.max_llm_calls, 10);
+        assert_eq!(env.bounds.tool_call_count, 0);
+        assert_eq!(env.bounds.agent_hop_count, 0);
+        assert_eq!(env.bounds.max_agent_hops, 21);
+        assert_eq!(env.bounds.tokens_in, 0);
+        assert_eq!(env.bounds.tokens_out, 0);
+        assert!(env.bounds.terminal_reason.is_none());
+        assert!(!env.bounds.terminated);
+        assert!(env.bounds.termination_reason.is_none());
+
+        // Interrupts defaults
+        assert!(!env.interrupts.interrupt_pending);
+        assert!(env.interrupts.interrupt.is_none());
+
+        // Execution defaults
+        assert!(env.execution.completed_stages.is_empty());
+        assert_eq!(env.execution.current_stage_number, 1);
+        assert_eq!(env.execution.max_stages, 5);
+        assert!(env.execution.all_goals.is_empty());
+        assert!(env.execution.remaining_goals.is_empty());
+        assert!(env.execution.goal_completion_status.is_empty());
+        assert!(env.execution.prior_plans.is_empty());
+        assert!(env.execution.loop_feedback.is_empty());
+
+        // Audit defaults
+        assert!(env.audit.processing_history.is_empty());
+        assert!(env.audit.errors.is_empty());
+        assert!(env.audit.completed_at.is_none());
+        assert!(env.audit.metadata.is_empty());
+    }
+
+    // ── 2. Stage lifecycle ──────────────────────────────────────────────
+
+    #[test]
+    fn test_stage_lifecycle() {
+        let mut env = Envelope::new();
+
+        // Start a stage
+        env.start_stage("perception");
+        assert!(env.pipeline.active_stages.contains("perception"));
+        assert!(!env.is_stage_completed("perception"));
+
+        // Complete the stage
+        env.complete_stage("perception");
+        assert!(env.is_stage_completed("perception"));
+        assert!(!env.pipeline.active_stages.contains("perception"));
+    }
+
+    // ── 3. Stage failure ────────────────────────────────────────────────
+
+    #[test]
+    fn test_stage_failure() {
+        let mut env = Envelope::new();
+
+        env.start_stage("planning");
+        assert!(env.pipeline.active_stages.contains("planning"));
+
+        env.fail_stage("planning", "timeout after 30s");
+        assert!(env.is_stage_failed("planning"));
+        assert!(!env.pipeline.active_stages.contains("planning"));
+        assert_eq!(
+            env.pipeline.failed_stages.get("planning").unwrap(),
+            "timeout after 30s"
+        );
+        // A failed stage is NOT counted as completed
+        assert!(!env.is_stage_completed("planning"));
+    }
+
+    // ── 4. at_limit: LLM calls ─────────────────────────────────────────
+
+    #[test]
+    fn test_at_limit_llm_calls() {
+        let mut env = Envelope::new();
+        assert!(!env.at_limit());
+
+        // Increment to exactly the max (default 10)
+        env.increment_llm_calls(10);
+        assert_eq!(env.bounds.llm_call_count, 10);
+        assert!(env.at_limit());
+    }
+
+    // ── 5. at_limit: agent hops ─────────────────────────────────────────
+
+    #[test]
+    fn test_at_limit_agent_hops() {
+        let mut env = Envelope::new();
+        assert!(!env.at_limit());
+
+        // Increment agent hops to max (default 21)
+        for _ in 0..21 {
+            env.increment_agent_hops();
+        }
+        assert_eq!(env.bounds.agent_hop_count, 21);
+        assert!(env.at_limit());
+    }
+
+    // ── 6. not at limit when below max ──────────────────────────────────
+
+    #[test]
+    fn test_not_at_limit_below_max() {
+        let mut env = Envelope::new();
+        env.increment_llm_calls(5);
+        for _ in 0..10 {
+            env.increment_agent_hops();
+        }
+        assert_eq!(env.bounds.llm_call_count, 5);
+        assert_eq!(env.bounds.agent_hop_count, 10);
+        assert!(!env.at_limit());
+    }
+
+    // ── 7. terminate ────────────────────────────────────────────────────
+
+    #[test]
+    fn test_terminate() {
+        let mut env = Envelope::new();
+
+        assert!(!env.bounds.terminated);
+        assert!(env.bounds.termination_reason.is_none());
+        assert!(env.audit.completed_at.is_none());
+
+        env.terminate("user cancelled the request");
+
+        assert!(env.bounds.terminated);
+        assert_eq!(
+            env.bounds.termination_reason.as_deref(),
+            Some("user cancelled the request")
+        );
+        assert!(env.audit.completed_at.is_some());
+    }
+
+    // ── 8. interrupt flow ───────────────────────────────────────────────
+
+    #[test]
+    fn test_interrupt_flow() {
+        let mut env = Envelope::new();
+
+        assert!(!env.interrupts.interrupt_pending);
+        assert!(env.interrupts.interrupt.is_none());
+
+        // Set an interrupt
+        let interrupt = FlowInterrupt::new(InterruptKind::Clarification)
+            .with_question("Which database?".to_string());
+        env.set_interrupt(interrupt);
+
+        assert!(env.interrupts.interrupt_pending);
+        assert!(env.interrupts.interrupt.is_some());
+        let int = env.interrupts.interrupt.as_ref().unwrap();
+        assert_eq!(int.kind, InterruptKind::Clarification);
+        assert_eq!(int.question.as_deref(), Some("Which database?"));
+
+        // Clear the interrupt
+        env.clear_interrupt();
+        assert!(!env.interrupts.interrupt_pending);
+        assert!(env.interrupts.interrupt.is_none());
+    }
+
+    // ── 9. processing record ────────────────────────────────────────────
+
+    #[test]
+    fn test_processing_record() {
+        let mut env = Envelope::new();
+        assert!(env.audit.processing_history.is_empty());
+
+        let record = ProcessingRecord {
+            agent: "test-agent".to_string(),
+            stage_order: 1,
+            started_at: Utc::now(),
+            completed_at: Some(Utc::now()),
+            duration_ms: 100,
+            status: ProcessingStatus::Success,
+            error: None,
+            llm_calls: 1,
+        };
+
+        env.add_processing_record(record.clone());
+        assert_eq!(env.audit.processing_history.len(), 1);
+        assert_eq!(env.audit.processing_history[0].agent, "test-agent");
+        assert_eq!(env.audit.processing_history[0].status, ProcessingStatus::Success);
+        assert_eq!(env.audit.processing_history[0].llm_calls, 1);
+    }
+
+    // ── 10. serde: TerminalReason ───────────────────────────────────────
+
+    #[test]
+    fn test_serde_terminal_reason() {
+        // TerminalReason uses SCREAMING_SNAKE_CASE
+        let cases = vec![
+            (TerminalReason::Completed, "\"COMPLETED\""),
+            (TerminalReason::MaxIterationsExceeded, "\"MAX_ITERATIONS_EXCEEDED\""),
+            (TerminalReason::MaxLlmCallsExceeded, "\"MAX_LLM_CALLS_EXCEEDED\""),
+            (TerminalReason::MaxAgentHopsExceeded, "\"MAX_AGENT_HOPS_EXCEEDED\""),
+            (TerminalReason::UserCancelled, "\"USER_CANCELLED\""),
+            (TerminalReason::ToolFailedFatally, "\"TOOL_FAILED_FATALLY\""),
+            (TerminalReason::LlmFailedFatally, "\"LLM_FAILED_FATALLY\""),
+            (TerminalReason::PolicyViolation, "\"POLICY_VIOLATION\""),
+        ];
+
+        for (variant, expected_json) in cases {
+            let serialized = serde_json::to_string(&variant).unwrap();
+            assert_eq!(serialized, expected_json, "serialize {:?}", variant);
+            let deserialized: TerminalReason = serde_json::from_str(&serialized).unwrap();
+            assert_eq!(deserialized, variant, "round-trip {:?}", variant);
+        }
+    }
+
+    // ── 11. serde: InterruptKind ────────────────────────────────────────
+
+    #[test]
+    fn test_serde_interrupt_kind() {
+        // InterruptKind uses snake_case
+        let cases = vec![
+            (InterruptKind::Clarification, "\"clarification\""),
+            (InterruptKind::Confirmation, "\"confirmation\""),
+            (InterruptKind::AgentReview, "\"agent_review\""),
+            (InterruptKind::Checkpoint, "\"checkpoint\""),
+            (InterruptKind::ResourceExhausted, "\"resource_exhausted\""),
+            (InterruptKind::Timeout, "\"timeout\""),
+            (InterruptKind::SystemError, "\"system_error\""),
+        ];
+
+        for (variant, expected_json) in cases {
+            let serialized = serde_json::to_string(&variant).unwrap();
+            assert_eq!(serialized, expected_json, "serialize {:?}", variant);
+            let deserialized: InterruptKind = serde_json::from_str(&serialized).unwrap();
+            assert_eq!(deserialized, variant, "round-trip {:?}", variant);
+        }
+    }
+
+    // ── 12. serde: ProcessingStatus ─────────────────────────────────────
+
+    #[test]
+    fn test_serde_processing_status() {
+        // ProcessingStatus uses lowercase
+        let cases = vec![
+            (ProcessingStatus::Running, "\"running\""),
+            (ProcessingStatus::Success, "\"success\""),
+            (ProcessingStatus::Error, "\"error\""),
+            (ProcessingStatus::Skipped, "\"skipped\""),
+        ];
+
+        for (variant, expected_json) in cases {
+            let serialized = serde_json::to_string(&variant).unwrap();
+            assert_eq!(serialized, expected_json, "serialize {:?}", variant);
+            let deserialized: ProcessingStatus = serde_json::from_str(&serialized).unwrap();
+            assert_eq!(deserialized, variant, "round-trip {:?}", variant);
+        }
+    }
+
+    // ── 13. Default == new ──────────────────────────────────────────────
+
+    #[test]
+    fn test_default_equals_new() {
+        // Both produce the same structural defaults (UUIDs differ, but the
+        // shape is identical).  We verify by checking every non-UUID field.
+        let a = Envelope::new();
+        let b = Envelope::default();
+
+        // Pipeline
+        assert_eq!(a.pipeline.current_stage, b.pipeline.current_stage);
+        assert_eq!(a.pipeline.max_iterations, b.pipeline.max_iterations);
+        assert_eq!(a.pipeline.parallel_mode, b.pipeline.parallel_mode);
+
+        // Bounds
+        assert_eq!(a.bounds.max_llm_calls, b.bounds.max_llm_calls);
+        assert_eq!(a.bounds.max_agent_hops, b.bounds.max_agent_hops);
+        assert_eq!(a.bounds.terminated, b.bounds.terminated);
+
+        // Interrupts
+        assert_eq!(a.interrupts.interrupt_pending, b.interrupts.interrupt_pending);
+
+        // Execution
+        assert_eq!(a.execution.current_stage_number, b.execution.current_stage_number);
+        assert_eq!(a.execution.max_stages, b.execution.max_stages);
+
+        // Identity shape (prefixes match even if UUIDs differ)
+        assert!(b.identity.envelope_id.as_str().starts_with("env_"));
+        assert!(b.identity.request_id.as_str().starts_with("req_"));
+        assert_eq!(b.identity.user_id.as_str(), "anonymous");
+        assert!(b.identity.session_id.as_str().starts_with("sess_"));
     }
 }

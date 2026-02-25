@@ -1,10 +1,10 @@
 //! Core enumerations for envelope and kernel.
 //!
-//! These are the source of truth, matching Go's envelope/enums.go.
+//! Canonical definitions for the Jeeves IPC protocol.
 
 use serde::{Deserialize, Serialize};
 
-/// Why processing terminated (matches proto TerminalReason exactly).
+/// Why processing terminated.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "SCREAMING_SNAKE_CASE")]
 pub enum TerminalReason {
@@ -31,27 +31,28 @@ pub enum InterruptKind {
     SystemError,
 }
 
-/// Risk level for tool execution.
+/// Risk semantic for tool execution behavior.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
-pub enum RiskLevel {
-    // Semantic
+pub enum RiskSemantic {
     ReadOnly,
     Write,
     Destructive,
-    // Severity
+}
+
+/// Risk severity for tool execution impact.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum RiskSeverity {
     Low,
     Medium,
     High,
     Critical,
 }
 
-impl RiskLevel {
+impl RiskSeverity {
     pub fn requires_confirmation(self) -> bool {
-        matches!(
-            self,
-            RiskLevel::Destructive | RiskLevel::High | RiskLevel::Critical
-        )
+        matches!(self, RiskSeverity::High | RiskSeverity::Critical)
     }
 }
 
