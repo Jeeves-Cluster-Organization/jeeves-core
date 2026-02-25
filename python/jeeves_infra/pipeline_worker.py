@@ -1,50 +1,21 @@
 """Pipeline Worker - Kernel-Driven Agent Execution.
 
-This module provides PipelineWorker, which executes agents under kernel control.
-The kernel owns orchestration (loop, routing, bounds); Python just runs agents.
+PipelineWorker executes agents under kernel control. The kernel owns
+orchestration (loop, routing, bounds); Python just runs agents.
 
-Usage:
-    from jeeves_infra.pipeline_worker import PipelineWorker
-    from jeeves_infra.kernel_client import KernelClient
-
-    async with KernelClient.connect() as kernel:
-        worker = PipelineWorker(
-            kernel_client=kernel,
-            agents={"understand": agent1, "respond": agent2},
-            logger=logger,
-        )
-        result = await worker.execute(
-            process_id="req-123",
-            pipeline_config=config,
-            envelope=envelope,
-        )
-
-Architecture:
-    Kernel (Rust)                    Python Worker
-    ─────────────                    ─────────────
-    GetNextInstruction() ──────────► "Run agent X"
-
-                                     Execute agent (LLM, tools)
-
-    ReportAgentResult() ◄─────────── Output + metrics
-
-The worker has NO control over routing or bounds - it simply:
-1. Asks kernel for next instruction
-2. Executes the specified agent
-3. Reports result
-4. Repeats until TERMINATE or WAIT_INTERRUPT
-
-Constitutional Reference:
-- Kernel owns orchestration loop
-- Python is a worker, not a controller
+The kernel loop is extracted as `run_kernel_loop()` — a free function
+that any consumer can call with its own agent dispatch closure.
 """
 
 from __future__ import annotations
 
 import logging
 import time
-from dataclasses import dataclass
-from typing import Any, AsyncIterator, Callable, Dict, Optional, Protocol, Tuple, TYPE_CHECKING
+from dataclasses import dataclass, field
+from typing import (
+    Any, AsyncIterator, Awaitable, Callable, Dict, List, Optional,
+    Protocol, Tuple, TYPE_CHECKING,
+)
 
 from jeeves_infra.kernel_client import (
     KernelClient,
@@ -61,6 +32,10 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 
+# =============================================================================
+# Types
+# =============================================================================
+
 class AgentProtocol(Protocol):
     """Protocol for agents that can be executed by the worker."""
 
@@ -73,13 +48,66 @@ class AgentProtocol(Protocol):
 
 @dataclass
 class WorkerResult:
-    """Result from pipeline worker execution."""
+    """Result from typed Envelope pipeline execution."""
     envelope: Envelope
     terminated: bool
     terminal_reason: str = ""
     interrupted: bool = False
     interrupt_kind: str = ""
 
+
+# =============================================================================
+# Kernel Orchestration Loop
+# =============================================================================
+
+
+async def run_kernel_loop(
+    kernel: KernelClient,
+    process_id: str,
+    pipeline_config: Dict[str, Any],
+    initial_envelope: Dict[str, Any],
+    run_agent: Callable[
+        [OrchestratorInstruction],
+        Awaitable[Tuple[Optional[Dict[str, Any]], bool, str, AgentExecutionMetrics]],
+    ],
+) -> OrchestratorInstruction:
+    """Kernel orchestration loop — single source of truth.
+
+    Initializes a session, then loops: get instruction → run agent → report result.
+    Caller supplies ``run_agent`` closure containing all domain logic (validation,
+    dispatch, metrics). Returns the terminal instruction (TERMINATE or WAIT_INTERRUPT).
+
+    Args:
+        kernel: Connected KernelClient.
+        process_id: Unique process identifier.
+        pipeline_config: Pipeline configuration dict.
+        initial_envelope: Initial envelope dict (passed to kernel on init).
+        run_agent: async (instruction) → (output_dict, success, error, metrics).
+    """
+    await kernel.initialize_orchestration_session(
+        process_id=process_id,
+        pipeline_config=pipeline_config,
+        envelope=initial_envelope,
+    )
+    instruction = await kernel.get_next_instruction(process_id)
+
+    while instruction.kind == "RUN_AGENT":
+        output, success, error, metrics = await run_agent(instruction)
+        instruction = await kernel.report_agent_result(
+            process_id=process_id,
+            agent_name=instruction.agent_name,
+            output=output,
+            metrics=metrics,
+            success=success,
+            error=error,
+        )
+
+    return instruction
+
+
+# =============================================================================
+# Worker
+# =============================================================================
 
 class PipelineWorker:
     """Executes agents under kernel control.
@@ -133,185 +161,115 @@ class PipelineWorker:
             pipeline_config: Pipeline configuration dict
             envelope: Initial envelope
             thread_id: Optional thread ID for persistence
-            force: If True, replace existing session with same process_id.
-                   Default False means error if session already exists.
+            force: If True, terminate any existing session before starting.
 
         Returns:
             WorkerResult with final envelope and status
         """
-        # Initialize session with kernel
-        try:
-            session_state = await self._kernel.initialize_orchestration_session(
+        if force:
+            try:
+                await self._kernel.terminate_process(process_id, reason="force_replace")
+            except KernelClientError:
+                pass  # session might not exist
+
+        async def _run_agent_dispatch(
+            instruction: OrchestratorInstruction,
+        ) -> Tuple[Optional[Dict[str, Any]], bool, str, AgentExecutionMetrics]:
+            nonlocal envelope
+            agent_name = instruction.agent_name
+            agent = self._agents.get(agent_name)
+
+            if not agent:
+                self._logger.error(
+                    "worker_agent_not_found",
+                    process_id=process_id,
+                    agent_name=agent_name,
+                )
+                return (None, False, f"Agent not found: {agent_name}", AgentExecutionMetrics())
+
+            # Update envelope from kernel state before execution
+            if instruction.envelope:
+                envelope = self._merge_envelope(envelope, instruction.envelope)
+
+            # Execute agent
+            envelope, success, error, output, metrics = await self._run_agent(
+                envelope=envelope,
                 process_id=process_id,
-                pipeline_config=pipeline_config,
-                envelope=envelope.to_dict(),
-                force=force,
+                agent_name=agent_name,
+                agent=agent,
             )
-            self._logger.info(
-                "worker_session_initialized",
-                process_id=process_id,
-                current_stage=session_state.current_stage,
+
+            # Persist state if configured
+            if self._persistence and thread_id:
+                try:
+                    await self._persistence.save_state(thread_id, envelope.to_state_dict())
+                except Exception as e:
+                    self._logger.warning("worker_persistence_failed", error=str(e))
+
+            return (output, success, error, metrics)
+
+        try:
+            terminal = await run_kernel_loop(
+                self._kernel, process_id, pipeline_config,
+                envelope.to_dict(), _run_agent_dispatch,
             )
         except KernelClientError as e:
-            error_msg = str(e)
-            if "already exists" in error_msg.lower():
-                self._logger.error(
-                    "worker_session_already_exists",
-                    process_id=process_id,
-                    hint="Use force=True to replace existing session",
-                )
-            elif "deadline" in error_msg.lower():
-                self._logger.error(
-                    "worker_session_deadline_exceeded",
-                    process_id=process_id,
-                )
-            else:
-                self._logger.error("worker_session_init_failed", error=error_msg)
+            self._logger.error("worker_kernel_loop_failed", error=str(e))
             envelope.terminated = True
-            terminal_reason = f"Session init failed: {e}"
-            envelope.terminal_reason = terminal_reason
+            envelope.terminal_reason = str(e)
             return WorkerResult(
                 envelope=envelope,
                 terminated=True,
-                terminal_reason=terminal_reason,
+                terminal_reason=str(e),
             )
 
-        # Main execution loop - kernel controls everything
-        while True:
-            # Get next instruction from kernel
-            try:
-                instruction = await self._kernel.get_next_instruction(process_id)
-            except KernelClientError as e:
-                self._logger.error("worker_get_instruction_failed", error=str(e))
-                envelope.terminated = True
-                envelope.terminal_reason = f"Get instruction failed: {e}"
-                return WorkerResult(
-                    envelope=envelope,
-                    terminated=True,
-                    terminal_reason=str(e),
-                )
+        # Map terminal instruction to WorkerResult
+        if terminal.envelope:
+            envelope = self._merge_envelope(envelope, terminal.envelope)
 
-            self._logger.debug(
-                "worker_instruction_received",
+        if terminal.kind == "TERMINATE":
+            envelope.terminated = True
+            envelope.terminal_reason = terminal.terminal_reason
+            self._logger.info(
+                "worker_pipeline_terminated",
                 process_id=process_id,
-                kind=instruction.kind,
-                agent_name=instruction.agent_name,
+                reason=terminal.terminal_reason,
+            )
+            return WorkerResult(
+                envelope=envelope,
+                terminated=True,
+                terminal_reason=terminal.terminal_reason,
             )
 
-            # Handle instruction based on kind
-            if instruction.kind == "TERMINATE":
-                # Update envelope from kernel state
-                if instruction.envelope:
-                    envelope = self._merge_envelope(envelope, instruction.envelope)
-                envelope.terminated = True
-                envelope.terminal_reason = instruction.terminal_reason
+        elif terminal.kind == "WAIT_INTERRUPT":
+            interrupt_kind = ""
+            if terminal.interrupt:
+                interrupt_kind = terminal.interrupt.get("kind", "")
+            self._logger.info(
+                "worker_waiting_interrupt",
+                process_id=process_id,
+                interrupt_kind=interrupt_kind,
+            )
+            return WorkerResult(
+                envelope=envelope,
+                terminated=False,
+                interrupted=True,
+                interrupt_kind=interrupt_kind,
+            )
 
-                self._logger.info(
-                    "worker_pipeline_terminated",
-                    process_id=process_id,
-                    reason=instruction.terminal_reason,
-                )
-                return WorkerResult(
-                    envelope=envelope,
-                    terminated=True,
-                    terminal_reason=instruction.terminal_reason,
-                )
-
-            elif instruction.kind == "WAIT_INTERRUPT":
-                # Update envelope from kernel state
-                if instruction.envelope:
-                    envelope = self._merge_envelope(envelope, instruction.envelope)
-
-                interrupt_kind = ""
-                if instruction.interrupt:
-                    interrupt_kind = instruction.interrupt.get("kind", "")
-
-                self._logger.info(
-                    "worker_waiting_interrupt",
-                    process_id=process_id,
-                    interrupt_kind=interrupt_kind,
-                )
-                return WorkerResult(
-                    envelope=envelope,
-                    terminated=False,
-                    interrupted=True,
-                    interrupt_kind=interrupt_kind,
-                )
-
-            elif instruction.kind == "RUN_AGENT":
-                # Execute the specified agent
-                agent_name = instruction.agent_name
-                agent = self._agents.get(agent_name)
-
-                if not agent:
-                    self._logger.error(
-                        "worker_agent_not_found",
-                        process_id=process_id,
-                        agent_name=agent_name,
-                    )
-                    # Report error to kernel
-                    instruction = await self._kernel.report_agent_result(
-                        process_id=process_id,
-                        agent_name=agent_name,
-                        output=None,
-                        metrics=None,
-                        success=False,
-                        error=f"Agent not found: {agent_name}",
-                    )
-                    continue
-
-                # Update envelope from kernel state before execution
-                if instruction.envelope:
-                    envelope = self._merge_envelope(envelope, instruction.envelope)
-
-                # Execute agent
-                envelope, success, error, output, metrics = await self._run_agent(
-                    envelope=envelope,
-                    process_id=process_id,
-                    agent_name=agent_name,
-                    agent=agent,
-                )
-
-                # Report result to kernel and get next instruction
-                try:
-                    instruction = await self._kernel.report_agent_result(
-                        process_id=process_id,
-                        agent_name=agent_name,
-                        output=output,
-                        metrics=metrics,
-                        success=success,
-                        error=error,
-                    )
-                except KernelClientError as e:
-                    self._logger.error("worker_report_result_failed", error=str(e))
-                    envelope.terminated = True
-                    envelope.terminal_reason = f"Report result failed: {e}"
-                    return WorkerResult(
-                        envelope=envelope,
-                        terminated=True,
-                        terminal_reason=str(e),
-                    )
-
-                # Persist state if configured
-                if self._persistence and thread_id:
-                    try:
-                        await self._persistence.save_state(thread_id, envelope.to_state_dict())
-                    except Exception as e:
-                        self._logger.warning("worker_persistence_failed", error=str(e))
-
-            else:
-                self._logger.warning(
-                    "worker_unknown_instruction",
-                    process_id=process_id,
-                    kind=instruction.kind,
-                )
-                envelope.terminated = True
-                envelope.terminal_reason = f"Unknown instruction kind: {instruction.kind}"
-                return WorkerResult(
-                    envelope=envelope,
-                    terminated=True,
-                    terminal_reason=envelope.terminal_reason,
-                )
+        else:
+            self._logger.warning(
+                "worker_unknown_instruction",
+                process_id=process_id,
+                kind=terminal.kind,
+            )
+            envelope.terminated = True
+            envelope.terminal_reason = f"Unknown instruction kind: {terminal.kind}"
+            return WorkerResult(
+                envelope=envelope,
+                terminated=True,
+                terminal_reason=envelope.terminal_reason,
+            )
 
     async def execute_streaming(
         self,
@@ -567,6 +525,7 @@ class PipelineWorker:
 
 
 __all__ = [
+    "run_kernel_loop",
     "PipelineWorker",
     "WorkerResult",
     "AgentProtocol",

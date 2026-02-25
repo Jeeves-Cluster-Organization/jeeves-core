@@ -17,6 +17,7 @@ SERVICE_FILES = {
     "engine": HANDLER_DIR / "engine.rs",
     "orchestration": HANDLER_DIR / "orchestration.rs",
     "commbus": HANDLER_DIR / "commbus.rs",
+    "interrupt": HANDLER_DIR / "interrupt.rs",
 }
 
 

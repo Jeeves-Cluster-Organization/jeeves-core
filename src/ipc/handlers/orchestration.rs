@@ -5,8 +5,8 @@ use crate::ipc::handlers::validation::{
     parse_non_negative_i32, parse_optional_non_negative_i64, require_non_negative_i64,
 };
 use crate::ipc::router::{str_field, DispatchResponse};
-use crate::kernel::orchestrator::{AgentExecutionMetrics, PipelineConfig};
-use crate::kernel::Kernel;
+use crate::kernel::orchestrator::{AgentExecutionMetrics, InstructionKind, PipelineConfig};
+use crate::kernel::{Kernel, SchedulingPriority};
 use crate::types::{Error, ProcessId, Result};
 use serde_json::Value;
 use std::collections::HashMap;
@@ -33,6 +33,18 @@ pub async fn handle(kernel: &mut Kernel, method: &str, body: Value) -> Result<Di
 
             let force = body.get("force").and_then(|v| v.as_bool()).unwrap_or(false);
 
+            // Auto-create PCB if not already registered (Temporal-style: session init = workflow start)
+            if kernel.get_process(&process_id).is_none() {
+                kernel.create_process(
+                    process_id.clone(),
+                    envelope.identity.request_id.clone(),
+                    envelope.identity.user_id.clone(),
+                    envelope.identity.session_id.clone(),
+                    SchedulingPriority::Normal,
+                    None,
+                )?;
+            }
+
             let session_state =
                 kernel.initialize_orchestration(process_id, pipeline_config, envelope, force)?;
 
@@ -47,6 +59,12 @@ pub async fn handle(kernel: &mut Kernel, method: &str, body: Value) -> Result<Di
                 .map_err(|e| Error::validation(e.to_string()))?;
 
             let instruction = kernel.get_next_instruction(&process_id)?;
+
+            // Auto-terminate PCB when orchestrator says TERMINATE
+            if instruction.kind == InstructionKind::Terminate {
+                let _ = kernel.terminate_process(&process_id);
+            }
+
             Ok(DispatchResponse::Single(instruction_to_value(&instruction)))
         }
 

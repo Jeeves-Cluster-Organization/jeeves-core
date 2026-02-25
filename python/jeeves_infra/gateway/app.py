@@ -94,10 +94,6 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         # Note: flow_servicer, health_servicer, session_service are injected
         # by the composition root (jeeves_infra.bootstrap) via app.state.
         # If not set, endpoints will return 503.
-        if not hasattr(app.state, "interrupt_service"):
-            _logger.warning("interrupt_service_not_configured",
-                          hint="Interrupt endpoints will return 503 until service is injected")
-
         # Async init for state_backend (ConnectionManager.get_state_backend() is async)
         ctx = getattr(app.state, "context", None)
         if ctx is not None:
@@ -115,6 +111,16 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
             if ctx.kernel_client is not None:
                 await ctx.kernel_client._transport.connect()
                 _logger.info("kernel_transport_connected")
+
+            # Wire interrupt service (fail-loud: kernel must be connected)
+            if ctx.kernel_client is not None:
+                from jeeves_infra.services.interrupt_service import KernelInterruptService
+                app.state.interrupt_service = KernelInterruptService(ctx.kernel_client)
+                _logger.info("interrupt_service_wired")
+            else:
+                raise RuntimeError(
+                    "Interrupt service requires kernel_client — cannot start in degraded mode"
+                )
 
         _logger.info("gateway_startup_complete", status="READY")
         yield

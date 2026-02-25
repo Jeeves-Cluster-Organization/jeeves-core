@@ -104,6 +104,7 @@ class OrchestratorInstruction:
     termination_message: str = ""
     interrupt_pending: bool = False
     interrupt: Optional[Dict[str, Any]] = None
+    agent_config: Dict[str, Any] = field(default_factory=dict)
 
     def __post_init__(self):
         if self.kind not in VALID_INSTRUCTION_KINDS:
@@ -646,6 +647,97 @@ class KernelClient:
             raise KernelClientError(f"GetSessionState failed: {e}") from e
 
     # =========================================================================
+    # Interrupt Service (InterruptService)
+    # =========================================================================
+
+    async def create_interrupt(
+        self,
+        kind: str,
+        *,
+        request_id: str = "",
+        user_id: str = "",
+        session_id: str = "",
+        envelope_id: str = "",
+        question: str = "",
+        message: str = "",
+        data: Optional[Dict[str, Any]] = None,
+    ) -> Dict[str, Any]:
+        """Create a new interrupt via the kernel."""
+        body: Dict[str, Any] = {
+            "kind": kind,
+            "request_id": request_id,
+            "user_id": user_id,
+            "session_id": session_id,
+            "envelope_id": envelope_id,
+        }
+        if question:
+            body["question"] = question
+        if message:
+            body["message"] = message
+        if data:
+            body["data"] = data
+        try:
+            return await self._transport.request("interrupt", "CreateInterrupt", body)
+        except IpcError as e:
+            raise KernelClientError(f"CreateInterrupt failed: {e}") from e
+
+    async def resolve_interrupt(
+        self,
+        interrupt_id: str,
+        response: Dict[str, Any],
+        user_id: Optional[str] = None,
+    ) -> bool:
+        """Resolve an interrupt with a response."""
+        body: Dict[str, Any] = {
+            "interrupt_id": interrupt_id,
+            "response": response,
+        }
+        if user_id is not None:
+            body["user_id"] = user_id
+        try:
+            result = await self._transport.request("interrupt", "ResolveInterrupt", body)
+            return result.get("success", False)
+        except IpcError as e:
+            raise KernelClientError(f"ResolveInterrupt failed: {e}") from e
+
+    async def cancel_interrupt(
+        self,
+        interrupt_id: str,
+        reason: str = "cancelled",
+    ) -> bool:
+        """Cancel an interrupt."""
+        body = {"interrupt_id": interrupt_id, "reason": reason}
+        try:
+            result = await self._transport.request("interrupt", "CancelInterrupt", body)
+            return result.get("success", False)
+        except IpcError as e:
+            raise KernelClientError(f"CancelInterrupt failed: {e}") from e
+
+    async def get_interrupt(self, interrupt_id: str) -> Dict[str, Any]:
+        """Get an interrupt by ID."""
+        try:
+            return await self._transport.request(
+                "interrupt", "GetInterrupt", {"interrupt_id": interrupt_id},
+            )
+        except IpcError as e:
+            raise KernelClientError(f"GetInterrupt failed: {e}") from e
+
+    async def get_pending_interrupts_for_session(
+        self,
+        session_id: str,
+        kinds: Optional[List[str]] = None,
+    ) -> List[Dict[str, Any]]:
+        """Get pending interrupts for a session."""
+        body: Dict[str, Any] = {"session_id": session_id}
+        if kinds:
+            body["kinds"] = kinds
+        try:
+            result = await self._transport.request("interrupt", "GetPendingForSession", body)
+            return result.get("interrupts", [])
+        except IpcError as e:
+            raise KernelClientError(f"GetPendingForSession failed: {e}") from e
+
+    # =========================================================================
     # High-Level Convenience Methods
     # =========================================================================
 
@@ -794,6 +886,7 @@ class KernelClient:
             termination_message=d.get("termination_message", ""),
             interrupt_pending=d.get("interrupt_pending", False),
             interrupt=d.get("interrupt"),
+            agent_config=d.get("agent_config", {}),
         )
 
     def _dict_to_session_state(self, d: Dict[str, Any]) -> OrchestrationSessionState:

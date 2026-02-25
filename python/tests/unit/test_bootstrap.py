@@ -76,7 +76,6 @@ class TestCreateCoreConfigFromEnv:
         assert config.max_llm_calls == 10
         assert config.max_agent_hops == 21
         assert config.enable_telemetry is True
-        assert config.enable_checkpoints is False
         assert config.debug_mode is False
 
         assert isinstance(config.context_bounds, ContextBounds)
@@ -91,7 +90,6 @@ class TestCreateCoreConfigFromEnv:
             "CORE_MAX_LLM_CALLS": "20",
             "CORE_MAX_AGENT_HOPS": "10",
             "CORE_ENABLE_TELEMETRY": "false",
-            "CORE_ENABLE_CHECKPOINTS": "true",
             "CORE_DEBUG_MODE": "true",
             "CORE_MAX_INPUT_TOKENS": "8192",
             "CORE_MAX_OUTPUT_TOKENS": "4096",
@@ -105,7 +103,6 @@ class TestCreateCoreConfigFromEnv:
         assert config.max_llm_calls == 20
         assert config.max_agent_hops == 10
         assert config.enable_telemetry is False
-        assert config.enable_checkpoints is True
         assert config.debug_mode is True
         assert config.context_bounds.max_input_tokens == 8192
         assert config.context_bounds.max_output_tokens == 4096
@@ -157,12 +154,6 @@ class TestCreateCoreConfigFromEnv:
             config = create_core_config_from_env()
         assert config.enable_telemetry is True
 
-    def test_boolean_checkpoints_default_false(self):
-        """CORE_ENABLE_CHECKPOINTS defaults to false when not set."""
-        with patch.dict(os.environ, {}, clear=True):
-            config = create_core_config_from_env()
-        assert config.enable_checkpoints is False
-
     def test_boolean_debug_mode_default_false(self):
         """CORE_DEBUG_MODE defaults to false when not set."""
         with patch.dict(os.environ, {}, clear=True):
@@ -182,30 +173,24 @@ class TestCreateOrchestrationFlagsFromEnv:
 
         assert isinstance(flags, OrchestrationFlags)
         assert flags.enable_parallel_agents is False
-        assert flags.enable_checkpoints is False
         assert flags.enable_distributed is False
         assert flags.enable_telemetry is True
         assert flags.max_concurrent_agents == 4
-        assert flags.checkpoint_interval_seconds == 30
 
     def test_custom_env_vars(self):
         env = {
             "ORCH_ENABLE_PARALLEL_AGENTS": "true",
-            "ORCH_ENABLE_CHECKPOINTS": "true",
             "ORCH_ENABLE_DISTRIBUTED": "true",
             "ORCH_ENABLE_TELEMETRY": "false",
             "ORCH_MAX_CONCURRENT_AGENTS": "8",
-            "ORCH_CHECKPOINT_INTERVAL": "60",
         }
         with patch.dict(os.environ, env, clear=True):
             flags = create_orchestration_flags_from_env()
 
         assert flags.enable_parallel_agents is True
-        assert flags.enable_checkpoints is True
         assert flags.enable_distributed is True
         assert flags.enable_telemetry is False
         assert flags.max_concurrent_agents == 8
-        assert flags.checkpoint_interval_seconds == 60
 
     def test_partial_env_vars(self):
         env = {
@@ -218,8 +203,7 @@ class TestCreateOrchestrationFlagsFromEnv:
         assert flags.enable_parallel_agents is True
         assert flags.max_concurrent_agents == 16
         # Other fields use defaults
-        assert flags.enable_checkpoints is False
-        assert flags.checkpoint_interval_seconds == 30
+        assert flags.enable_distributed is False
 
     def test_invalid_integer_raises(self):
         env = {"ORCH_MAX_CONCURRENT_AGENTS": "not_a_number"}
@@ -491,7 +475,7 @@ class TestSyncQuotaDefaultsToKernel:
 
         mock_kernel_client.set_quota_defaults.assert_called_once_with(
             max_llm_calls=20,
-            max_iterations=8192,  # Note: code uses context_bounds.max_input_tokens
+            max_iterations=3,  # Uses cfg.max_iterations (default 3)
             max_input_tokens=8192,
             max_output_tokens=4096,
             max_context_tokens=32768,

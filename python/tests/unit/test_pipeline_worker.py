@@ -222,17 +222,18 @@ async def test_pipeline_worker_executes_agents(mock_kernel_client, mock_agents, 
         stage_order=["understand", "think", "respond"],
     )
 
-    # The worker calls get_next_instruction in a loop:
-    # 1st call → RUN_AGENT (understand)
-    # 2nd call → RUN_AGENT (think)
-    # 3rd call → RUN_AGENT (respond)
-    # 4th call → TERMINATE
-    instruction_sequence = [
-        OrchestratorInstruction(
-            kind="RUN_AGENT",
-            agent_name="understand",
-            envelope={"current_stage": "understand"},
-        ),
+    # run_kernel_loop calls get_next_instruction once, then uses
+    # report_agent_result return as next instruction:
+    # get_next_instruction → RUN_AGENT (understand)
+    # report_agent_result → RUN_AGENT (think)
+    # report_agent_result → RUN_AGENT (respond)
+    # report_agent_result → TERMINATE
+    mock_kernel_client.get_next_instruction.return_value = OrchestratorInstruction(
+        kind="RUN_AGENT",
+        agent_name="understand",
+        envelope={"current_stage": "understand"},
+    )
+    mock_kernel_client.report_agent_result.side_effect = [
         OrchestratorInstruction(
             kind="RUN_AGENT",
             agent_name="think",
@@ -249,13 +250,6 @@ async def test_pipeline_worker_executes_agents(mock_kernel_client, mock_agents, 
             envelope={"current_stage": "end"},
         ),
     ]
-
-    # report_agent_result returns are not used in the loop, but still called
-    mock_kernel_client.get_next_instruction.side_effect = instruction_sequence
-    mock_kernel_client.report_agent_result.return_value = OrchestratorInstruction(
-        kind="RUN_AGENT",  # Not actually used
-        agent_name="",
-    )
 
     worker = PipelineWorker(
         kernel_client=mock_kernel_client,
@@ -293,21 +287,15 @@ async def test_pipeline_worker_reports_agent_metrics(
         current_stage="understand",
         stage_order=["understand"],
     )
-    mock_kernel_client.get_next_instruction.side_effect = [
-        OrchestratorInstruction(
-            kind="RUN_AGENT",
-            agent_name="understand",
-            envelope={"current_stage": "understand"},
-        ),
-        OrchestratorInstruction(
-            kind="TERMINATE",
-            terminal_reason="COMPLETED",
-            envelope={"current_stage": "end"},
-        ),
-    ]
-    mock_kernel_client.report_agent_result.return_value = OrchestratorInstruction(
+    mock_kernel_client.get_next_instruction.return_value = OrchestratorInstruction(
         kind="RUN_AGENT",
-        agent_name="",
+        agent_name="understand",
+        envelope={"current_stage": "understand"},
+    )
+    mock_kernel_client.report_agent_result.return_value = OrchestratorInstruction(
+        kind="TERMINATE",
+        terminal_reason="COMPLETED",
+        envelope={"current_stage": "end"},
     )
 
     agent = MagicMock()
@@ -442,23 +430,16 @@ async def test_pipeline_worker_handles_agent_not_found(mock_kernel_client, mock_
         current_stage="unknown_agent",
         stage_order=["unknown_agent"],
     )
-    # First call returns RUN_AGENT, second call (after error) returns TERMINATE
-    mock_kernel_client.get_next_instruction.side_effect = [
-        OrchestratorInstruction(
-            kind="RUN_AGENT",
-            agent_name="unknown_agent",
-            envelope={"current_stage": "unknown_agent"},
-        ),
-        OrchestratorInstruction(
-            kind="TERMINATE",
-            terminal_reason="TOOL_FAILED_FATALLY",
-            envelope={"terminated": True},
-        ),
-    ]
-    # report_agent_result return value is not used in the loop
-    mock_kernel_client.report_agent_result.return_value = OrchestratorInstruction(
+    # get_next_instruction returns first instruction, report_agent_result returns next
+    mock_kernel_client.get_next_instruction.return_value = OrchestratorInstruction(
         kind="RUN_AGENT",
-        agent_name="",
+        agent_name="unknown_agent",
+        envelope={"current_stage": "unknown_agent"},
+    )
+    mock_kernel_client.report_agent_result.return_value = OrchestratorInstruction(
+        kind="TERMINATE",
+        terminal_reason="TOOL_FAILED_FATALLY",
+        envelope={"terminated": True},
     )
 
     # Empty agents dict - no agents registered
@@ -489,23 +470,16 @@ async def test_pipeline_worker_handles_agent_exception(mock_kernel_client, mock_
         current_stage="understand",
         stage_order=["understand"],
     )
-    # First call returns RUN_AGENT, second call (after error) returns TERMINATE
-    mock_kernel_client.get_next_instruction.side_effect = [
-        OrchestratorInstruction(
-            kind="RUN_AGENT",
-            agent_name="understand",
-            envelope={"current_stage": "understand"},
-        ),
-        OrchestratorInstruction(
-            kind="TERMINATE",
-            terminal_reason="TOOL_FAILED_FATALLY",
-            envelope={"terminated": True},
-        ),
-    ]
-    # report_agent_result return value is not used in the loop
-    mock_kernel_client.report_agent_result.return_value = OrchestratorInstruction(
+    # get_next_instruction returns first instruction, report_agent_result returns next
+    mock_kernel_client.get_next_instruction.return_value = OrchestratorInstruction(
         kind="RUN_AGENT",
-        agent_name="",
+        agent_name="understand",
+        envelope={"current_stage": "understand"},
+    )
+    mock_kernel_client.report_agent_result.return_value = OrchestratorInstruction(
+        kind="TERMINATE",
+        terminal_reason="TOOL_FAILED_FATALLY",
+        envelope={"terminated": True},
     )
 
     # Agent that raises an exception
@@ -553,7 +527,7 @@ async def test_pipeline_worker_handles_session_init_failure(mock_kernel_client, 
 
     # Verify termination due to error
     assert result.terminated is True
-    assert "Session init failed" in result.terminal_reason
+    assert "Connection failed" in result.terminal_reason
 
 
 # =============================================================================

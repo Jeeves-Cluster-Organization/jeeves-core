@@ -108,7 +108,6 @@ def create_core_config_from_env() -> ExecutionConfig:
         max_llm_calls=int(os.getenv("CORE_MAX_LLM_CALLS", "10")),
         max_agent_hops=int(os.getenv("CORE_MAX_AGENT_HOPS", "21")),
         enable_telemetry=_parse_bool(os.getenv("CORE_ENABLE_TELEMETRY", "true")),
-        enable_checkpoints=_parse_bool(os.getenv("CORE_ENABLE_CHECKPOINTS", "false"), default=False),
         debug_mode=_parse_bool(os.getenv("CORE_DEBUG_MODE", "false"), default=False),
         context_bounds=ContextBounds(
             max_input_tokens=int(os.getenv("CORE_MAX_INPUT_TOKENS", "4096")),
@@ -124,22 +123,18 @@ def create_orchestration_flags_from_env() -> OrchestrationFlags:
 
     Environment Variables:
         ORCH_ENABLE_PARALLEL_AGENTS: Enable parallel agent execution
-        ORCH_ENABLE_CHECKPOINTS: Enable checkpoint creation
         ORCH_ENABLE_DISTRIBUTED: Enable distributed mode
         ORCH_ENABLE_TELEMETRY: Enable telemetry
         ORCH_MAX_CONCURRENT_AGENTS: Max concurrent agents
-        ORCH_CHECKPOINT_INTERVAL: Checkpoint interval in seconds
 
     Returns:
         OrchestrationFlags with environment-parsed values
     """
     return OrchestrationFlags(
         enable_parallel_agents=_parse_bool(os.getenv("ORCH_ENABLE_PARALLEL_AGENTS", "false"), default=False),
-        enable_checkpoints=_parse_bool(os.getenv("ORCH_ENABLE_CHECKPOINTS", "false"), default=False),
         enable_distributed=_parse_bool(os.getenv("ORCH_ENABLE_DISTRIBUTED", "false"), default=False),
         enable_telemetry=_parse_bool(os.getenv("ORCH_ENABLE_TELEMETRY", "true")),
         max_concurrent_agents=int(os.getenv("ORCH_MAX_CONCURRENT_AGENTS", "4")),
-        checkpoint_interval_seconds=int(os.getenv("ORCH_CHECKPOINT_INTERVAL", "30")),
     )
 
 
@@ -308,13 +303,6 @@ def create_tool_executor_with_access(
     )
 
 
-def create_health_checker(db, app_context: AppContext):
-    """Create HealthChecker with provider-owned LLM health checks."""
-    from jeeves_infra.health import HealthChecker
-
-    llm_provider = app_context.llm_provider_factory("health_checker")
-    return HealthChecker(db=db, llm_provider=llm_provider)
-
 
 
 async def sync_quota_defaults_to_kernel(app_context: AppContext) -> None:
@@ -331,7 +319,7 @@ async def sync_quota_defaults_to_kernel(app_context: AppContext) -> None:
     try:
         await app_context.kernel_client.set_quota_defaults(
             max_llm_calls=cfg.max_llm_calls,
-            max_iterations=cfg.context_bounds.max_input_tokens,
+            max_iterations=cfg.max_iterations,
             max_input_tokens=cfg.context_bounds.max_input_tokens,
             max_output_tokens=cfg.context_bounds.max_output_tokens,
             max_context_tokens=cfg.context_bounds.max_context_tokens,
@@ -349,7 +337,6 @@ async def sync_quota_defaults_to_kernel(app_context: AppContext) -> None:
 __all__ = [
     "create_app_context",
     "create_tool_executor_with_access",
-    "create_health_checker",
     "create_core_config_from_env",
     "create_orchestration_flags_from_env",
     "sync_quota_defaults_to_kernel",

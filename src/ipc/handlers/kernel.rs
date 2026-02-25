@@ -234,7 +234,7 @@ pub async fn handle(kernel: &mut Kernel, method: &str, body: Value) -> Result<Di
                 "tokens_out",
             )?;
 
-            kernel.record_usage(&user_id_str, llm_calls, tool_calls, tokens_in, tokens_out);
+            kernel.record_usage(&pid, &user_id_str, llm_calls, tool_calls, tokens_in, tokens_out);
 
             let pcb = kernel
                 .get_process(&pid)
