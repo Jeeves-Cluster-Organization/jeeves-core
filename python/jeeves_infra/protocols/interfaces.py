@@ -1,10 +1,6 @@
 """Protocol definitions - interfaces for dependency injection.
 
 These are typing.Protocol classes for static type checking.
-Implementations are in Go or Python adapters.
-
-Moved from jeeves_core/protocols.py as part of Session 10
-(Complete Python Removal from jeeves-core).
 """
 
 from dataclasses import dataclass, field

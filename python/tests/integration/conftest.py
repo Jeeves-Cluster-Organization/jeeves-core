@@ -32,11 +32,11 @@ def kernel_port():
 @pytest.fixture
 async def kernel_client(kernel_host, kernel_port):
     """Live KernelClient connected to a running kernel."""
-    from jeeves_infra.kernel.client import KernelClient
-    from jeeves_infra.kernel.transport import IpcTransport
+    from jeeves_infra.kernel_client import KernelClient
+    from jeeves_infra.ipc.transport import IpcTransport
 
     transport = IpcTransport(host=kernel_host, port=kernel_port)
     await transport.connect()
     client = KernelClient(transport=transport)
     yield client
-    await transport.disconnect()
+    await transport.close()

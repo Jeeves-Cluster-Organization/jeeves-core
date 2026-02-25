@@ -129,7 +129,7 @@ def configure_logging(
     )
 
     # Silence noisy libraries
-    for noisy in ["httpx", "httpcore", "urllib3", "grpc", "asyncpg"]:
+    for noisy in ["httpx", "httpcore", "urllib3", "asyncpg"]:
         logging.getLogger(noisy).setLevel(logging.WARNING)
 
     # Apply component-level overrides

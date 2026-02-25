@@ -31,7 +31,6 @@
 | **envelope/mod.rs** | 21/39 | 39 | **53.85%** | ⚠️ Moderate |
 | **kernel/recovery.rs** | 11/31 | 31 | **35.48%** | ⚠️ Low |
 | **types/errors.rs** | 6/14 | 14 | **42.86%** | ⚠️ Low |
-| **envelope/import.rs** | 0/4 | 4 | **0.00%** | ❌ Uncovered |
 
 ---
 
@@ -156,14 +155,6 @@
 
 **Verdict**: Coverage number is misleading. All error types are exercised in real usage.
 
-### 3. Envelope/Import - 0.00%
-**0/4 lines covered**
-
-**Uncovered Lines**: 4 lines (lines 19-21, 23)
-- Import utility functions
-
-**Analysis**: This is a small utility module for importing envelopes. It's not directly tested but may be used in integration tests.
-
 ---
 
 ## 🎯 Coverage Goals vs Actual
@@ -219,9 +210,8 @@ None identified. All critical paths are covered.
 3. **Types/Errors module**: Coverage is misleadingly low due to constructor counting
 
 ### Not Worth Improving
-1. **Import utilities**: Small utility module, not critical
-2. **Error constructors**: Simple one-liners, used throughout codebase
-3. **Recovery panic paths**: Already tested with explicit panic tests
+1. **Error constructors**: Simple one-liners, used throughout codebase
+2. **Recovery panic paths**: Already tested with explicit panic tests
 
 ---
 
@@ -238,7 +228,6 @@ With **81.36% coverage** and **96 passing tests**, the Rust kernel has:
 The uncovered lines are primarily:
 - Error paths that are difficult/unnecessary to trigger in unit tests
 - Boilerplate code (constructors, defaults)
-- Tracing/logging statements
 
 **The kernel is ready for production deployment with high confidence.**
 

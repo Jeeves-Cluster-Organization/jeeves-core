@@ -20,8 +20,8 @@ Usage:
         )
 
 Architecture:
-    Kernel (Go)                      Python Worker
-    ───────────                      ─────────────
+    Kernel (Rust)                    Python Worker
+    ─────────────                    ─────────────
     GetNextInstruction() ──────────► "Run agent X"
 
                                      Execute agent (LLM, tools)

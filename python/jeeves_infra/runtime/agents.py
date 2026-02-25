@@ -1,9 +1,9 @@
-"""Agent PipelineRunner - Go-backed pipeline execution.
+"""Agent PipelineRunner - Kernel-backed pipeline execution.
 
 Architecture:
-    Go (coreengine/)     - Envelope state, bounds checking, pipeline graph
+    Rust kernel          - Envelope state, bounds checking, pipeline graph
     Python (this file)   - Agent execution, LLM calls, tool execution
-    Bridge (client.py)   - JSON-over-stdio communication
+    Bridge (client.py)   - TCP+msgpack communication
 """
 from __future__ import annotations
 
@@ -444,7 +444,7 @@ class Agent:
 class PipelineRunner:
     """Pipeline runtime - orchestrates agent execution.
 
-    Uses Go for envelope state/bounds when available.
+    Uses Rust kernel for envelope state/bounds when available.
     Uses Python for agent execution, LLM, tools.
     """
     config: PipelineConfig

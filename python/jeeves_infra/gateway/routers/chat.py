@@ -166,7 +166,7 @@ class MessageListResponse(BaseModel):
 
 
 # =============================================================================
-# Event Constants (replace proto enums)
+# Event Constants
 # =============================================================================
 
 # Internal events: broadcast to frontend via SSE/WebSocket for visibility

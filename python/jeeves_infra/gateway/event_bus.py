@@ -73,7 +73,7 @@ class GatewayEventBus(EventEmitterProtocol):
 
     def __init__(self):
         self._handlers: Dict[str, List[EventHandler]] = {}
-        self._subscriptions: Dict[str, str] = {}  # subscription_id -> pattern
+        self._subscriptions: Dict[str, tuple] = {}  # subscription_id -> (pattern, handler)
         self._logger = None
 
     @property
@@ -138,7 +138,7 @@ class GatewayEventBus(EventEmitterProtocol):
         self._handlers[pattern].append(handler)
 
         subscription_id = str(uuid.uuid4())
-        self._subscriptions[subscription_id] = pattern
+        self._subscriptions[subscription_id] = (pattern, handler)
 
         self.logger.debug("event_bus_subscribed", pattern=pattern, subscription_id=subscription_id)
         return subscription_id
@@ -151,10 +151,14 @@ class GatewayEventBus(EventEmitterProtocol):
             subscription_id: ID returned from subscribe()
         """
         if subscription_id in self._subscriptions:
-            pattern = self._subscriptions[subscription_id]
-            # Note: We don't remove handlers here because we don't track
-            # which handler corresponds to which subscription ID.
-            # This is a limitation of the current implementation.
+            pattern, handler = self._subscriptions[subscription_id]
+            if pattern in self._handlers:
+                try:
+                    self._handlers[pattern].remove(handler)
+                except ValueError:
+                    pass  # handler already removed
+                if not self._handlers[pattern]:
+                    del self._handlers[pattern]
             del self._subscriptions[subscription_id]
             self.logger.debug("event_bus_unsubscribed", subscription_id=subscription_id, pattern=pattern)
 

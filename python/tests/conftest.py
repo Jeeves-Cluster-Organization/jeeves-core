@@ -10,6 +10,7 @@ Key Principles:
 """
 
 import sys
+import warnings
 from pathlib import Path
 
 import pytest
@@ -38,9 +39,8 @@ try:
         create_test_prerequisites,
         create_session_only,
     )
-except ImportError:
-    # Database fixtures have external dependencies
-    pass
+except ImportError as e:
+    warnings.warn(f"Database fixtures unavailable: {e}", stacklevel=1)
 
 try:
     from fixtures.llm import (
@@ -48,9 +48,8 @@ try:
         mock_llm_provider_factory,
         MockLLMProvider,
     )
-except ImportError:
-    # LLM fixtures have external dependencies
-    pass
+except ImportError as e:
+    warnings.warn(f"LLM fixtures unavailable: {e}", stacklevel=1)
 
 try:
     from fixtures.mocks.core_mocks import (
@@ -58,20 +57,16 @@ try:
         mock_envelope_factory,
         mock_envelope,
     )
-except ImportError:
-    # Core mocks may have external dependencies
-    pass
+except ImportError as e:
+    warnings.warn(f"Core mock fixtures unavailable: {e}", stacklevel=1)
 
-# Kernel mocks are self-contained - no external dependencies
 try:
     from fixtures.mocks.kernel_mocks import (
-        mock_grpc_channel,
-        mock_kernel_stub,
-        mock_engine_stub,
+        mock_transport,
         mock_kernel_client,
     )
-except ImportError:
-    pass
+except ImportError as e:
+    warnings.warn(f"Kernel mock fixtures unavailable: {e}", stacklevel=1)
 
 
 # =============================================================================

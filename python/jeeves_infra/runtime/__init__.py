@@ -1,7 +1,7 @@
 """Jeeves Infrastructure Runtime - Agent and pipeline execution.
 
 This module contains the runtime components for executing agents
-and pipelines. Types are from jeeves_core (Python bindings to Go types).
+and pipelines.
 
 Usage:
     from jeeves_infra.runtime import Agent, PipelineRunner

@@ -6,95 +6,16 @@ across the phased implementation roadmap. Feature flags allow us to:
 - Test new features in production with gradual rollout
 - Quick rollback by toggling flags without code changes
 - A/B testing and canary deployments
+
+Orchestrator config (CyclicConfig, ContextBoundsConfig) lives in
+jeeves_infra.config.orchestrator — not here.
 """
 
 from pydantic_settings import BaseSettings, SettingsConfigDict
-from dataclasses import dataclass
-from typing import Literal, Optional, TYPE_CHECKING
+from typing import Optional, TYPE_CHECKING
 
 if TYPE_CHECKING:
     from jeeves_infra.protocols import LoggerProtocol
-
-
-# ============================================================
-# Cyclic Orchestrator Configuration (v0.13)
-# Per Amendment V: No modes. The cyclic flow is the only flow.
-# ============================================================
-
-@dataclass
-class CyclicConfig:
-    """Configuration for the cyclic orchestrator.
-
-    Per CYCLIC_MIGRATION_PLAN.md v2.1:
-    - max_llm_calls: Hard limit on LLM invocations per request
-    - max_iterations: Hard limit on plan-execute-draft-critique cycles
-    - critic_confidence_threshold: Minimum confidence for Critic to honor retry/clarify actions
-    - max_validator_retries: Max Critic → Validator retries per request
-    - max_planner_retries: Max Critic → Planner retries per request
-
-    No mode enum. The cyclic flow is the only flow.
-    """
-    max_llm_calls: int = 10
-    max_iterations: int = 3
-    critic_confidence_threshold: float = 0.6
-
-    # v0.14: Retry limits for micro-loop (moved from hardcoded values in CriticNode)
-    max_validator_retries: int = 1
-    max_planner_retries: int = 1
-
-
-# Global cyclic config instance
-cyclic_config = CyclicConfig()
-
-
-# ============================================================
-# Context Bounds Configuration
-# ============================================================
-
-@dataclass
-class ContextBoundsConfig:
-    """Configuration for context window bounds.
-
-    These bounds prevent context explosion by limiting how much
-    data from each memory layer can be included in LLM prompts.
-
-    Designed for local models with ~4K-16K context windows.
-    """
-    # L1: Task Context
-    max_task_context_chars: int = 2000
-
-    # L3: Semantic Memory
-    max_semantic_snippets: int = 5
-    max_semantic_chars_per_snippet: int = 400  # ~100 tokens each
-    max_semantic_chars_total: int = 1500
-
-    # L4: Working Memory (conversation history)
-    max_open_loops: int = 5
-    max_conversation_turns: int = 10
-    max_conversation_chars: int = 3000
-
-    # L5: Graph Context
-    max_graph_relationships: int = 4
-
-    # Execution History
-    max_prior_plans: int = 2
-    max_prior_tool_results: int = 10
-
-    # Total Budget
-    max_total_context_chars: int = 10000  # ~2500 tokens
-
-
-# Global context bounds instance
-context_bounds = ContextBoundsConfig()
-
-
-def get_context_bounds() -> ContextBoundsConfig:
-    """Get the global context bounds configuration.
-
-    Returns:
-        Global ContextBoundsConfig instance
-    """
-    return context_bounds
 
 
 class FeatureFlags(BaseSettings):
@@ -167,129 +88,7 @@ class FeatureFlags(BaseSettings):
     - Truncated to max 500 chars for streaming efficiency
     - Lives entirely in mission/infrastructure layer (no core changes)
 
-    Constitutional compliance: P2 (Code Context Priority)
-    - Provides visibility into agent decision-making
-    - Does not affect core data structures
-
     Rollback: Set to False to disable reasoning emission
-    """
-
-    # ============================================================
-    # V2 Memory Infrastructure Feature Flags
-    # v1.0 Hardening: All memory layers enabled by default
-    # ============================================================
-    # Phase M1: Event Sourcing & Agent Tracing (L2)
-    memory_event_sourcing_mode: Literal["disabled", "log_only", "log_and_project"] = "log_and_project"
-    """Enable event sourcing for state changes.
-
-    Modes:
-    - disabled: No event emission
-    - log_only: Emit events but don't use for projections
-    - log_and_project: Full event sourcing with replay capability (v1.0 default)
-
-    Rollback: Set to 'disabled' to stop event emission
-    """
-
-    memory_agent_tracing: bool = True
-    """Enable agent decision tracing.
-
-    When enabled:
-    - All agent decisions recorded in agent_traces table
-    - Full input/output capture for debugging
-    - Latency and token metrics per agent
-
-    v1.0 default: True (essential for observability)
-    Rollback: Set to False to disable trace recording
-    """
-
-    memory_trace_retention_days: int = 30
-    """Number of days to retain agent traces before archival."""
-
-    # Phase M2: Semantic Memory (L3)
-    memory_semantic_mode: Literal["disabled", "log_only", "log_and_use"] = "log_and_use"
-    """Enable semantic chunk management.
-
-    Modes:
-    - disabled: Use legacy embedding approach
-    - log_only: Create chunks but don't use in search
-    - log_and_use: Full semantic search with source binding (v1.0 default)
-
-    Rollback: Set to 'disabled' for legacy SQL keyword search
-    """
-
-    memory_embedding_model: str = "all-MiniLM-L6-v2"
-    """Sentence-transformers model for embeddings."""
-
-    # Phase M2: Working Memory (L4)
-    memory_working_memory: bool = True
-    """Enable working memory with session summarization.
-
-    When enabled:
-    - Sessions are summarized based on triggers
-    - Open loops are tracked and surfaced
-    - Context is bounded and compressed
-
-    v1.0 default: True (essential for context management)
-    Rollback: Set to False for unbounded context
-    """
-
-    memory_summarization_threshold_turns: int = 8
-    """Number of turns before triggering summarization."""
-
-    memory_summarization_threshold_tokens: int = 6000
-    """Estimated token count before triggering summarization."""
-
-    # Phase M3: State Graph (L5)
-    memory_graph_mode: Literal["disabled", "enabled"] = "enabled"
-    """Enable graph-based relationship tracking.
-
-    When enabled:
-    - Entities are tracked as graph nodes
-    - Relationships captured as typed edges
-    - Graph queries available for related items
-
-    v1.0 default: enabled
-    Rollback: Set to 'disabled' to use legacy memory_cross_refs
-    """
-
-    memory_auto_edge_extraction: bool = True
-    """Enable automatic edge extraction from content.
-
-    When enabled:
-    - LLM extracts relationships from text
-    - Edges created automatically with provenance
-
-    v1.0 default: True
-    Requires: memory_graph_mode='enabled'
-    """
-
-    # Phase M4: Meta-Governance (L7)
-    memory_governance_mode: Literal["disabled", "log_only", "log_and_enforce"] = "log_only"
-    """Enable meta-governance for tool and prompt management.
-
-    Modes:
-    - disabled: No governance tracking
-    - log_only: Track metrics but don't enforce policies (v1.0 default)
-    - log_and_enforce: Full governance with auto-quarantine
-
-    Rollback: Set to 'disabled' to stop governance
-    """
-
-    memory_tool_quarantine: bool = False
-    """Enable automatic tool quarantine on high error rates.
-
-    v1.0 default: False (monitor first, enforce later)
-    Requires: memory_governance_mode in ['log_only', 'log_and_enforce']
-    """
-
-    memory_prompt_versioning: bool = True
-    """Enable prompt version tracking.
-
-    When enabled:
-    - All prompt changes are versioned
-    - Domain events emitted on prompt updates
-
-    v1.0 default: True
     """
 
     model_config = SettingsConfigDict(
@@ -301,28 +100,14 @@ class FeatureFlags(BaseSettings):
     )
 
     def log_status(self, logger: "LoggerProtocol") -> None:
-        """Log current feature flag status using structured logging.
-
-        Args:
-            logger: Logger instance for structured output
-        """
+        """Log current feature flag status using structured logging."""
         logger.info(
             "feature_flags_status",
-            # Phase 1 - Redis State
             use_redis_state=self.use_redis_state,
-            # Phase 3 - Distributed Mode
             enable_distributed_mode=self.enable_distributed_mode,
-            # Phase 4 - Observability
             enable_tracing=self.enable_tracing,
-            # V2 Memory Infrastructure
-            memory_event_sourcing=self.memory_event_sourcing_mode,
-            memory_agent_tracing=self.memory_agent_tracing,
-            memory_semantic_mode=self.memory_semantic_mode,
-            memory_working_memory=self.memory_working_memory,
-            memory_graph_mode=self.memory_graph_mode,
-            memory_governance_mode=self.memory_governance_mode,
-            # Development
             enable_debug_logging=self.enable_debug_logging,
+            emit_agent_reasoning=self.emit_agent_reasoning,
         )
 
     def validate_dependencies(self) -> list[str]:
@@ -339,18 +124,6 @@ class FeatureFlags(BaseSettings):
                 "(Redis needed for node coordination)"
             )
 
-        # V2 Memory Infrastructure dependencies
-        if self.memory_auto_edge_extraction and self.memory_graph_mode == "disabled":
-            errors.append(
-                "memory_auto_edge_extraction requires memory_graph_mode='enabled'"
-            )
-
-        if self.memory_tool_quarantine and self.memory_governance_mode == "disabled":
-            errors.append(
-                "memory_tool_quarantine requires memory_governance_mode in "
-                "['log_only', 'log_and_enforce']"
-            )
-
         return errors
 
 
@@ -363,9 +136,6 @@ def get_feature_flags() -> FeatureFlags:
 
     Creates a new FeatureFlags instance lazily if none exists.
     Prefer dependency injection over this global getter for testability.
-
-    Returns:
-        Global FeatureFlags instance
     """
     global _feature_flags
     if _feature_flags is None:
@@ -377,10 +147,6 @@ def set_feature_flags(flags: FeatureFlags) -> None:
     """Set the global feature flags instance.
 
     Use at bootstrap time to inject pre-configured flags.
-    Primarily for testing purposes.
-
-    Args:
-        flags: FeatureFlags instance to use as global
     """
     global _feature_flags
     _feature_flags = flags
@@ -390,7 +156,6 @@ def reset_feature_flags() -> None:
     """Reset the global feature flags instance.
 
     Forces re-creation on next get_feature_flags() call.
-    Primarily for testing purposes.
     """
     global _feature_flags
     _feature_flags = None

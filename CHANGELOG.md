@@ -27,7 +27,7 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 - `max_request_body_bytes` field in `GatewayConfig`
 - Rate limiting middleware error handling — returns 503 on kernel failure instead of crashing
 - `redact_url()` utility in `utils/strings.py`
-- Coverage configuration in `pyproject.toml` (`fail_under = 40`)
+- Coverage configuration in `pyproject.toml` (`fail_under = 50`)
 - 16 gateway unit tests (health, ready, root, body limit, CORS)
 - 18 LLM provider unit tests (OpenAI HTTP, LiteLLM, factory)
 - 83 orchestrator event tests
