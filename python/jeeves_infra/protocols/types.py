@@ -50,12 +50,17 @@ class InterruptStatus(str, Enum):
     CANCELLED = "cancelled"
 
 
-class RiskLevel(str, Enum):
-    """Risk level for tool operations."""
+class RiskSemantic(str, Enum):
+    """Risk semantic for tool operations."""
     UNSPECIFIED = "unspecified"
     READ_ONLY = "read_only"
     WRITE = "write"
     DESTRUCTIVE = "destructive"
+
+
+class RiskSeverity(str, Enum):
+    """Risk severity for tool operations."""
+    UNSPECIFIED = "unspecified"
     LOW = "low"
     MEDIUM = "medium"
     HIGH = "high"
@@ -774,7 +779,8 @@ __all__ = [
     "TerminalReason",
     "InterruptKind",
     "InterruptStatus",
-    "RiskLevel",
+    "RiskSemantic",
+    "RiskSeverity",
     "ToolCategory",
     "HealthStatus",
     "LoopVerdict",

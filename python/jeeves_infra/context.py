@@ -29,10 +29,8 @@ from jeeves_infra.protocols import (
     ClockProtocol,
     ConfigRegistryProtocol,
     DatabaseClientProtocol,
-    FeatureFlagsProtocol,
     LLMProviderProtocol,
     LoggerProtocol,
-    SettingsProtocol,
 )
 from jeeves_infra.protocols import ExecutionConfig, ContextBounds, OrchestrationFlags
 
@@ -70,8 +68,8 @@ class AppContext:
     a single, explicit dependency container.
 
     Attributes:
-        settings: Application settings (implements SettingsProtocol)
-        feature_flags: Feature flags (implements FeatureFlagsProtocol)
+        settings: Application settings (pydantic BaseSettings)
+        feature_flags: Feature flags (pydantic BaseSettings)
         logger: Root logger (implements LoggerProtocol)
         clock: Time provider (implements ClockProtocol)
         config_registry: Configuration registry (implements ConfigRegistryProtocol)
@@ -95,8 +93,8 @@ class AppContext:
                 self._bounds = context.core_config.context_bounds
     """
 
-    settings: SettingsProtocol
-    feature_flags: FeatureFlagsProtocol
+    settings: Any  # Concrete: Settings (pydantic BaseSettings)
+    feature_flags: Any  # Concrete: FeatureFlags (pydantic BaseSettings)
     logger: LoggerProtocol
     clock: ClockProtocol = field(default_factory=SystemClock)
     config_registry: Optional[ConfigRegistryProtocol] = None

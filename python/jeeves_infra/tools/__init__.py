@@ -11,14 +11,16 @@ Usage:
         ToolCatalogEntry,
         ToolDefinition,
         ToolCategory,
-        RiskLevel,
+        RiskSemantic,
+        RiskSeverity,
     )
 """
 
 from jeeves_infra.tools.catalog import (
     # Classification (from protocols)
     ToolCategory,
-    RiskLevel,
+    RiskSemantic,
+    RiskSeverity,
     # Dataclasses
     ToolCatalogEntry,
     ToolDefinition,
@@ -30,7 +32,8 @@ from jeeves_infra.tools.catalog import (
 __all__ = [
     # Classification
     "ToolCategory",
-    "RiskLevel",
+    "RiskSemantic",
+    "RiskSeverity",
     # Dataclasses
     "ToolCatalogEntry",
     "ToolDefinition",

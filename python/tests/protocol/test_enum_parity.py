@@ -16,7 +16,8 @@ RUST_ENUMS_FILE = Path(__file__).resolve().parent.parent.parent.parent / "src" /
 ENUM_MAP = {
     "TerminalReason": ("TerminalReason", "SCREAMING_SNAKE_CASE"),
     "InterruptKind": ("InterruptKind", "snake_case"),
-    "RiskLevel": ("RiskLevel", "snake_case"),
+    "RiskSemantic": ("RiskSemantic", "snake_case"),
+    "RiskSeverity": ("RiskSeverity", "snake_case"),
     "ToolCategory": ("ToolCategory", "snake_case"),
     "HealthStatus": ("HealthStatus", "snake_case"),
     "LoopVerdict": ("LoopVerdict", "snake_case"),

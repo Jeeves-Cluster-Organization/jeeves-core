@@ -204,22 +204,3 @@ class CostCalculator:
 
         # Return default
         return provider_pricing.get("default", (0.0, 0.0))
-
-
-# Global calculator instance
-_calculator = CostCalculator()
-
-
-def get_cost_calculator() -> CostCalculator:
-    """Get global cost calculator instance."""
-    return _calculator
-
-
-def calculate_cost(
-    provider: str,
-    model: str,
-    prompt_tokens: int,
-    completion_tokens: int
-) -> CostMetrics:
-    """Convenience function for cost calculation using global instance."""
-    return _calculator.calculate_cost(provider, model, prompt_tokens, completion_tokens)

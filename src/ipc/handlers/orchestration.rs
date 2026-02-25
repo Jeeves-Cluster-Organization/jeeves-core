@@ -103,10 +103,8 @@ pub async fn handle(kernel: &mut Kernel, method: &str, body: Value) -> Result<Di
             };
 
             let mut envelope = kernel
-                .orchestrator
-                .get_envelope_for_process(&process_id)
-                .ok_or_else(|| Error::not_found(format!("Envelope not found: {}", process_id)))?
-                .clone();
+                .get_orchestration_envelope(&process_id)
+                .ok_or_else(|| Error::not_found(format!("Envelope not found: {}", process_id)))?;
 
             let mut agent_output = HashMap::new();
             if let Value::Object(output_map) = output {

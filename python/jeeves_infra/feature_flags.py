@@ -11,6 +11,7 @@ Orchestrator config (CyclicConfig, ContextBoundsConfig) lives in
 jeeves_infra.config.orchestrator — not here.
 """
 
+from pydantic import model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 from typing import Optional, TYPE_CHECKING
 
@@ -110,12 +111,9 @@ class FeatureFlags(BaseSettings):
             emit_agent_reasoning=self.emit_agent_reasoning,
         )
 
-    def validate_dependencies(self) -> list[str]:
-        """Validate that dependent features are properly enabled.
-
-        Returns:
-            List of validation errors (empty if all valid)
-        """
+    @model_validator(mode="after")
+    def validate_dependencies(self) -> "FeatureFlags":
+        """Validate that dependent features are properly enabled."""
         errors = []
 
         if self.enable_distributed_mode and not self.use_redis_state:
@@ -124,7 +122,13 @@ class FeatureFlags(BaseSettings):
                 "(Redis needed for node coordination)"
             )
 
-        return errors
+        if errors:
+            raise ValueError(
+                "Feature flag dependency errors:\n"
+                + "\n".join(f"  - {e}" for e in errors)
+            )
+
+        return self
 
 
 # Lazy initialization - no module-level instantiation (ADR-001 compliance)

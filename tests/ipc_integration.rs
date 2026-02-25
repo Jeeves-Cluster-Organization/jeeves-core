@@ -160,7 +160,6 @@ async fn test_missing_id_returns_error_and_connection_stays_open() {
 async fn test_queue_full_returns_resource_exhausted_and_connection_stays_open() {
     let kernel = Kernel::new();
     let mut query_rx = kernel
-        .commbus
         .register_query_handler("slow.query".to_string())
         .await
         .unwrap();

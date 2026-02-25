@@ -28,32 +28,57 @@ impl Default for RateLimitConfig {
 /// Sliding window for tracking requests.
 #[derive(Debug)]
 struct SlidingWindow {
-    timestamps: VecDeque<DateTime<Utc>>,
+    hour_timestamps: VecDeque<DateTime<Utc>>,
+    minute_timestamps: VecDeque<DateTime<Utc>>,
+    burst_timestamps: VecDeque<DateTime<Utc>>,
     config: RateLimitConfig,
 }
 
 impl SlidingWindow {
     fn new(config: RateLimitConfig) -> Self {
         Self {
-            timestamps: VecDeque::new(),
+            hour_timestamps: VecDeque::new(),
+            minute_timestamps: VecDeque::new(),
+            burst_timestamps: VecDeque::new(),
             config,
         }
     }
 
-    /// Check if request is allowed under rate limits.
-    fn check_and_record(&mut self, now: DateTime<Utc>) -> Result<()> {
-        // Remove timestamps outside the hour window
+    fn prune(&mut self, now: DateTime<Utc>) {
         let hour_ago = now - Duration::hours(1);
-        while let Some(&ts) = self.timestamps.front() {
+        while let Some(&ts) = self.hour_timestamps.front() {
             if ts < hour_ago {
-                self.timestamps.pop_front();
+                self.hour_timestamps.pop_front();
             } else {
                 break;
             }
         }
 
+        let minute_ago = now - Duration::minutes(1);
+        while let Some(&ts) = self.minute_timestamps.front() {
+            if ts < minute_ago {
+                self.minute_timestamps.pop_front();
+            } else {
+                break;
+            }
+        }
+
+        let ten_seconds_ago = now - Duration::seconds(10);
+        while let Some(&ts) = self.burst_timestamps.front() {
+            if ts < ten_seconds_ago {
+                self.burst_timestamps.pop_front();
+            } else {
+                break;
+            }
+        }
+    }
+
+    /// Check if request is allowed under rate limits.
+    fn check_and_record(&mut self, now: DateTime<Utc>) -> Result<()> {
+        self.prune(now);
+
         // Check hour limit
-        if self.timestamps.len() >= self.config.requests_per_hour as usize {
+        if self.hour_timestamps.len() >= self.config.requests_per_hour as usize {
             return Err(Error::quota_exceeded(format!(
                 "Rate limit exceeded: {} requests per hour",
                 self.config.requests_per_hour
@@ -61,14 +86,7 @@ impl SlidingWindow {
         }
 
         // Check minute limit
-        let minute_ago = now - Duration::minutes(1);
-        let recent_count = self
-            .timestamps
-            .iter()
-            .filter(|&&ts| ts >= minute_ago)
-            .count();
-
-        if recent_count >= self.config.requests_per_minute as usize {
+        if self.minute_timestamps.len() >= self.config.requests_per_minute as usize {
             return Err(Error::quota_exceeded(format!(
                 "Rate limit exceeded: {} requests per minute",
                 self.config.requests_per_minute
@@ -76,14 +94,7 @@ impl SlidingWindow {
         }
 
         // Check burst limit (last 10 seconds)
-        let ten_seconds_ago = now - Duration::seconds(10);
-        let burst_count = self
-            .timestamps
-            .iter()
-            .filter(|&&ts| ts >= ten_seconds_ago)
-            .count();
-
-        if burst_count >= self.config.burst_size as usize {
+        if self.burst_timestamps.len() >= self.config.burst_size as usize {
             return Err(Error::quota_exceeded(format!(
                 "Burst limit exceeded: {} requests per 10 seconds",
                 self.config.burst_size
@@ -91,7 +102,9 @@ impl SlidingWindow {
         }
 
         // Record this request
-        self.timestamps.push_back(now);
+        self.hour_timestamps.push_back(now);
+        self.minute_timestamps.push_back(now);
+        self.burst_timestamps.push_back(now);
         Ok(())
     }
 }
@@ -125,15 +138,10 @@ impl RateLimiter {
     }
 
     /// Get current request count for a user (last minute).
-    pub fn get_current_rate(&self, user_id: &str) -> usize {
-        if let Some(window) = self.user_windows.get(user_id) {
-            let now = Utc::now();
-            let minute_ago = now - Duration::minutes(1);
-            window
-                .timestamps
-                .iter()
-                .filter(|&&ts| ts >= minute_ago)
-                .count()
+    pub fn get_current_rate(&mut self, user_id: &str) -> usize {
+        if let Some(window) = self.user_windows.get_mut(user_id) {
+            window.prune(Utc::now());
+            window.minute_timestamps.len()
         } else {
             0
         }
@@ -163,8 +171,12 @@ impl RateLimiter {
         let window_cutoff = now - Duration::minutes(2); // Keep windows with activity in last 2 min
 
         self.user_windows.retain(|_, window| {
-            // Keep window if it has any recent timestamps
-            window.timestamps.iter().any(|&ts| ts >= window_cutoff)
+            window.prune(now);
+            // Keep window if it has any recent minute-window activity
+            window
+                .minute_timestamps
+                .iter()
+                .any(|&ts| ts >= window_cutoff)
         });
     }
 }

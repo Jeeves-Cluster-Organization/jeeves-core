@@ -176,17 +176,9 @@ def create_app_context(
     if settings is None:
         settings = get_settings()
 
-    # Build feature flags
+    # Build feature flags (validation runs automatically via @model_validator)
     if feature_flags is None:
         feature_flags = get_feature_flags()
-
-    # Validate feature flag dependencies (fail fast on invalid combinations)
-    validation_errors = feature_flags.validate_dependencies()
-    if validation_errors:
-        raise ValueError(
-            "Feature flag dependency errors:\n"
-            + "\n".join(f"  - {e}" for e in validation_errors)
-        )
 
     # Build core config from environment
     if core_config is None:
@@ -316,6 +308,14 @@ def create_tool_executor_with_access(
     )
 
 
+def create_health_checker(db, app_context: AppContext):
+    """Create HealthChecker with provider-owned LLM health checks."""
+    from jeeves_infra.health import HealthChecker
+
+    llm_provider = app_context.llm_provider_factory("health_checker")
+    return HealthChecker(db=db, llm_provider=llm_provider)
+
+
 
 async def sync_quota_defaults_to_kernel(app_context: AppContext) -> None:
     """Push env-parsed quota defaults to the kernel (single source of truth).
@@ -349,6 +349,7 @@ async def sync_quota_defaults_to_kernel(app_context: AppContext) -> None:
 __all__ = [
     "create_app_context",
     "create_tool_executor_with_access",
+    "create_health_checker",
     "create_core_config_from_env",
     "create_orchestration_flags_from_env",
     "sync_quota_defaults_to_kernel",

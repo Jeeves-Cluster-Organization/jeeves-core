@@ -14,7 +14,7 @@ from enum import Enum
 from time import monotonic
 from typing import Any, Dict, Optional
 
-from jeeves_infra.protocols import DatabaseClientProtocol, HealthStatus
+from jeeves_infra.protocols import DatabaseClientProtocol, HealthStatus, LLMProviderProtocol
 from jeeves_infra.config.constants import PLATFORM_VERSION
 
 
@@ -53,6 +53,7 @@ class HealthChecker:
     def __init__(
         self,
         db: DatabaseClientProtocol,
+        llm_provider: LLMProviderProtocol,
         *,
         database_timeout: float = 2.0,
         model_timeout: float = 5.0,
@@ -61,10 +62,12 @@ class HealthChecker:
 
         Args:
             db: Database client for persistence checks
+            llm_provider: Active LLM provider instance
             database_timeout: Timeout for database health checks (seconds)
             model_timeout: Timeout for model health checks (seconds)
         """
         self.db = db
+        self.llm_provider = llm_provider
         self.database_timeout = database_timeout
         self.model_timeout = model_timeout
         self._start_time = monotonic()
@@ -185,162 +188,33 @@ class HealthChecker:
             )
 
     async def _check_models(self) -> ComponentHealth:
-        """Check if LLM models are available and responsive.
-
-        Checks the configured LLM provider for availability:
-        - llamaserver: HTTP health check to llama.cpp server
-        - openai/anthropic/azure: API key presence check
-        - mock: Always returns UP
-        - llamacpp: Model file existence check
-        """
-        import os
-
+        """Check LLM provider availability via provider-owned health_check()."""
         start = monotonic()
 
         try:
-            from jeeves_infra.settings import get_settings
-            settings = get_settings()
-            provider = settings.llm_provider.lower()
+            async with asyncio.timeout(self.model_timeout):
+                is_healthy = await self.llm_provider.health_check()
 
-            if provider == "mock":
+            latency_ms = (monotonic() - start) * 1000
+            if is_healthy:
                 return ComponentHealth(
                     status=ComponentStatus.UP,
-                    message="Mock LLM provider (no external dependency)",
-                    latency_ms=(monotonic() - start) * 1000,
+                    message="LLM provider operational",
+                    latency_ms=latency_ms,
                     last_check=datetime.now(timezone.utc),
                 )
 
-            elif provider == "llamaserver":
-                import aiohttp
-
-                base_url = settings.llamaserver_host.rstrip('/')
-                health_url = f"{base_url}/health"
-
-                try:
-                    async with asyncio.timeout(self.model_timeout):
-                        async with aiohttp.ClientSession() as session:
-                            async with session.get(health_url) as response:
-                                latency_ms = (monotonic() - start) * 1000
-
-                                if response.status == 200:
-                                    data = await response.json()
-                                    status_str = data.get("status", "unknown")
-                                    if status_str == "ok":
-                                        return ComponentHealth(
-                                            status=ComponentStatus.UP,
-                                            message=f"llama-server healthy at {settings.llamaserver_host}",
-                                            latency_ms=latency_ms,
-                                            last_check=datetime.now(timezone.utc),
-                                        )
-                                    else:
-                                        return ComponentHealth(
-                                            status=ComponentStatus.DEGRADED,
-                                            message=f"llama-server status: {status_str}",
-                                            latency_ms=latency_ms,
-                                            last_check=datetime.now(timezone.utc),
-                                        )
-                                else:
-                                    return ComponentHealth(
-                                        status=ComponentStatus.DOWN,
-                                        message=f"llama-server returned HTTP {response.status}",
-                                        latency_ms=latency_ms,
-                                        last_check=datetime.now(timezone.utc),
-                                    )
-                except aiohttp.ClientError as e:
-                    return ComponentHealth(
-                        status=ComponentStatus.DOWN,
-                        message=f"llama-server unreachable: {str(e)[:80]}",
-                        latency_ms=(monotonic() - start) * 1000,
-                        last_check=datetime.now(timezone.utc),
-                    )
-
-            elif provider == "openai":
-                if not settings.openai_api_key:
-                    return ComponentHealth(
-                        status=ComponentStatus.DOWN,
-                        message="OpenAI API key not configured (OPENAI_API_KEY)",
-                        latency_ms=(monotonic() - start) * 1000,
-                        last_check=datetime.now(timezone.utc),
-                    )
-                return ComponentHealth(
-                    status=ComponentStatus.UP,
-                    message="OpenAI API key configured",
-                    latency_ms=(monotonic() - start) * 1000,
-                    last_check=datetime.now(timezone.utc),
-                )
-
-            elif provider == "anthropic":
-                if not settings.anthropic_api_key:
-                    return ComponentHealth(
-                        status=ComponentStatus.DOWN,
-                        message="Anthropic API key not configured (ANTHROPIC_API_KEY)",
-                        latency_ms=(monotonic() - start) * 1000,
-                        last_check=datetime.now(timezone.utc),
-                    )
-                return ComponentHealth(
-                    status=ComponentStatus.UP,
-                    message="Anthropic API key configured",
-                    latency_ms=(monotonic() - start) * 1000,
-                    last_check=datetime.now(timezone.utc),
-                )
-
-            elif provider == "azure":
-                if not all([settings.azure_endpoint, settings.azure_api_key, settings.azure_deployment_name]):
-                    missing = []
-                    if not settings.azure_endpoint:
-                        missing.append("AZURE_ENDPOINT")
-                    if not settings.azure_api_key:
-                        missing.append("AZURE_API_KEY")
-                    if not settings.azure_deployment_name:
-                        missing.append("AZURE_DEPLOYMENT_NAME")
-                    return ComponentHealth(
-                        status=ComponentStatus.DOWN,
-                        message=f"Azure config incomplete: missing {', '.join(missing)}",
-                        latency_ms=(monotonic() - start) * 1000,
-                        last_check=datetime.now(timezone.utc),
-                    )
-                return ComponentHealth(
-                    status=ComponentStatus.UP,
-                    message=f"Azure configured for deployment: {settings.azure_deployment_name}",
-                    latency_ms=(monotonic() - start) * 1000,
-                    last_check=datetime.now(timezone.utc),
-                )
-
-            elif provider == "llamacpp":
-                model_path = settings.llamacpp_model_path
-                if not os.path.exists(model_path):
-                    return ComponentHealth(
-                        status=ComponentStatus.DOWN,
-                        message=f"Model file not found: {model_path}",
-                        latency_ms=(monotonic() - start) * 1000,
-                        last_check=datetime.now(timezone.utc),
-                    )
-                return ComponentHealth(
-                    status=ComponentStatus.UP,
-                    message=f"llama.cpp model available: {os.path.basename(model_path)}",
-                    latency_ms=(monotonic() - start) * 1000,
-                    last_check=datetime.now(timezone.utc),
-                )
-
-            else:
-                return ComponentHealth(
-                    status=ComponentStatus.DEGRADED,
-                    message=f"Unknown LLM provider: {provider}",
-                    latency_ms=(monotonic() - start) * 1000,
-                    last_check=datetime.now(timezone.utc),
-                )
+            return ComponentHealth(
+                status=ComponentStatus.DOWN,
+                message="LLM provider health check failed",
+                latency_ms=latency_ms,
+                last_check=datetime.now(timezone.utc),
+            )
 
         except asyncio.TimeoutError:
             return ComponentHealth(
                 status=ComponentStatus.DOWN,
                 message=f"LLM provider timeout (>{self.model_timeout}s)",
-                latency_ms=(monotonic() - start) * 1000,
-                last_check=datetime.now(timezone.utc),
-            )
-        except ImportError as e:
-            return ComponentHealth(
-                status=ComponentStatus.DEGRADED,
-                message=f"Settings unavailable: {str(e)[:50]}",
                 latency_ms=(monotonic() - start) * 1000,
                 last_check=datetime.now(timezone.utc),
             )

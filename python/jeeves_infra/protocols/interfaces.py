@@ -205,22 +205,6 @@ class ToolRegistryProtocol(Protocol):
 # =============================================================================
 
 @runtime_checkable
-class SettingsProtocol(Protocol):
-    """Settings interface."""
-
-    def get(self, key: str, default: Any = None) -> Any: ...
-    def set(self, key: str, value: Any) -> None: ...
-
-
-@runtime_checkable
-class FeatureFlagsProtocol(Protocol):
-    """Feature flags interface."""
-
-    def is_enabled(self, flag: str) -> bool: ...
-    def get_variant(self, flag: str) -> Optional[str]: ...
-
-
-@runtime_checkable
 class ClockProtocol(Protocol):
     """Clock interface for deterministic time."""
 
@@ -233,10 +217,10 @@ class AppContextProtocol(Protocol):
     """Application context interface."""
 
     @property
-    def settings(self) -> SettingsProtocol: ...
+    def settings(self) -> Any: ...
 
     @property
-    def feature_flags(self) -> FeatureFlagsProtocol: ...
+    def feature_flags(self) -> Any: ...
 
     @property
     def logger(self) -> LoggerProtocol: ...
@@ -329,19 +313,6 @@ class DistributedBusProtocol(Protocol):
     async def get_queue_stats(self, queue_name: str) -> QueueStats: ...
     async def list_queues(self) -> List[str]: ...
     async def stats(self, task_type: str) -> QueueStats: ...
-
-
-# =============================================================================
-# EVENT BUS
-# =============================================================================
-
-@runtime_checkable
-class EventBusProtocol(Protocol):
-    """Event bus interface for pub/sub messaging."""
-
-    def publish(self, event_type: str, payload: Dict[str, Any]) -> None: ...
-    def subscribe(self, event_type: str, handler: Any) -> None: ...
-    def unsubscribe(self, event_type: str, handler: Any) -> None: ...
 
 
 # =============================================================================
@@ -456,8 +427,6 @@ __all__ = [
     "ToolDefinitionProtocol",
     "ToolRegistryProtocol",
     # App Context
-    "SettingsProtocol",
-    "FeatureFlagsProtocol",
     "ClockProtocol",
     "AppContextProtocol",
     # Memory
@@ -468,8 +437,6 @@ __all__ = [
     "DistributedTask",
     "QueueStats",
     "DistributedBusProtocol",
-    # Event Bus
-    "EventBusProtocol",
     # Tool Executor
     "ToolExecutorProtocol",
     # Config Registry

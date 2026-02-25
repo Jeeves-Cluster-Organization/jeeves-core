@@ -48,7 +48,8 @@ class ToolCatalogEntry:
     description: str
     parameters: Dict[str, str]
     category: str  # ToolCategory value as string
-    risk_level: str = "low"  # RiskLevel value as string
+    risk_semantic: str  # RiskSemantic value as string
+    risk_severity: str  # RiskSeverity value as string
 
 
 @dataclass
@@ -80,7 +81,8 @@ class CapabilityToolCatalog:
             description="Create a new task",
             parameters={"title": "string", "priority": "integer?"},
             category="standalone",
-            risk_level="write",
+            risk_semantic="write",
+            risk_severity="medium",
         )
         
         # Infrastructure queries
@@ -107,7 +109,8 @@ class CapabilityToolCatalog:
         description: str,
         parameters: Dict[str, str],
         category: str,
-        risk_level: str = "low",
+        risk_semantic: str,
+        risk_severity: str,
     ) -> None:
         """Register a tool in this capability's catalog.
         
@@ -117,14 +120,16 @@ class CapabilityToolCatalog:
             description: Human-readable description for LLM prompts
             parameters: Dict of parameter_name -> type_description
             category: Tool category (e.g., "standalone", "composite")
-            risk_level: Risk level (e.g., "read_only", "write", "destructive")
+            risk_semantic: Risk semantic (e.g., "read_only", "write", "destructive")
+            risk_severity: Risk severity (e.g., "low", "medium", "high", "critical")
         """
         entry = ToolCatalogEntry(
             id=tool_id,
             description=description,
             parameters=parameters,
             category=category,
-            risk_level=risk_level,
+            risk_semantic=risk_semantic,
+            risk_severity=risk_severity,
         )
         self._entries[tool_id] = entry
         self._functions[tool_id] = func

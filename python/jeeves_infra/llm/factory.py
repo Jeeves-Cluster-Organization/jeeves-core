@@ -156,39 +156,3 @@ def create_llm_provider_factory(
         return create_llm_provider(settings, agent_name=agent_name)
 
     return factory
-
-
-class LLMFactory:
-    """Centralized LLM provider factory with caching."""
-
-    def __init__(self, settings: "Settings"):
-        self.settings = settings
-        self._provider_cache: dict[str, "LLMProviderProtocol"] = {}
-
-    def get_provider_for_agent(
-        self,
-        agent_name: str,
-        use_cache: bool = True,
-    ) -> "LLMProviderProtocol":
-        if use_cache and agent_name in self._provider_cache:
-            return self._provider_cache[agent_name]
-
-        provider = create_llm_provider(self.settings, agent_name=agent_name)
-
-        if use_cache:
-            self._provider_cache[agent_name] = provider
-
-        return provider
-
-    def clear_cache(self) -> None:
-        self._provider_cache.clear()
-        get_current_logger().info("llm_factory_cache_cleared")
-
-
-def create_agent_provider(
-    settings: "Settings",
-    agent_name: str,
-    override_provider: Optional[str] = None,
-) -> "LLMProviderProtocol":
-    """Create provider for a specific agent. Alias for create_llm_provider."""
-    return create_llm_provider(settings, agent_name=agent_name)

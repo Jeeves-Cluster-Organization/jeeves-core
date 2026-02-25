@@ -31,8 +31,7 @@ pub async fn handle(
             };
 
             let delivered = kernel
-                .commbus
-                .publish(event)
+                .publish_event(event)
                 .await
                 .map_err(|e| Error::internal(format!("CommBus publish failed: {}", e)))?;
 
@@ -58,7 +57,6 @@ pub async fn handle(
             };
 
             kernel
-                .commbus
                 .send_command(command)
                 .await
                 .map_err(|e| Error::internal(format!("CommBus send failed: {}", e)))?;
@@ -91,8 +89,7 @@ pub async fn handle(
             };
 
             let response = kernel
-                .commbus
-                .query(query)
+                .execute_query(query)
                 .await
                 .map_err(|e| Error::internal(format!("CommBus query failed: {}", e)))?;
 
@@ -130,8 +127,7 @@ pub async fn handle(
                 .unwrap_or_else(|| format!("ipc-sub-{}", uuid::Uuid::new_v4().simple()));
 
             let (_subscription, event_rx) = kernel
-                .commbus
-                .subscribe(sub_id, event_types)
+                .subscribe_events(sub_id, event_types)
                 .await
                 .map_err(|e| Error::internal(format!("Subscribe failed: {}", e)))?;
 

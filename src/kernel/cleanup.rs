@@ -120,12 +120,65 @@ impl CleanupService {
     }
 
     /// Run a single cleanup cycle (async version for background task).
+    ///
+    /// Releases the kernel mutex between phases so IPC handlers aren't
+    /// blocked for the entire cleanup duration.
     async fn run_cleanup_cycle_async(
         kernel: &Arc<Mutex<crate::kernel::Kernel>>,
         config: &CleanupConfig,
     ) -> Result<CleanupStats> {
-        let mut k = kernel.lock().await;
-        Self::run_cleanup_cycle_sync(&mut k, config)
+        let mut stats = CleanupStats::default();
+
+        // Phase 1: Zombie processes
+        {
+            let mut k = kernel.lock().await;
+            stats.zombies_removed = Self::cleanup_zombies(&mut k, config.process_retention_seconds)?;
+        }
+
+        // Phase 2: Stale sessions
+        {
+            let mut k = kernel.lock().await;
+            stats.sessions_removed = k
+                .orchestrator
+                .cleanup_stale_sessions(config.session_retention_seconds);
+        }
+
+        // Phase 3: Resolved interrupts
+        {
+            let mut k = kernel.lock().await;
+            let interrupt_duration = Duration::seconds(config.interrupt_retention_seconds);
+            stats.interrupts_removed = k.interrupts.cleanup_resolved(interrupt_duration);
+        }
+
+        // Phase 4: Rate limit windows + envelope eviction + user usage
+        {
+            let mut k = kernel.lock().await;
+            k.rate_limiter.cleanup_expired();
+            stats.envelopes_evicted = Self::evict_stale_envelopes(&mut k, config.max_envelopes);
+
+            let active_user_ids: std::collections::HashSet<String> = k
+                .lifecycle
+                .processes
+                .values()
+                .filter(|pcb| !matches!(pcb.state, ProcessState::Terminated | ProcessState::Zombie))
+                .map(|pcb| pcb.user_id.to_string())
+                .collect();
+            stats.user_usage_evicted = k
+                .resources
+                .cleanup_stale_users(&active_user_ids, config.max_user_usage_entries);
+        }
+
+        tracing::debug!(
+            "cleanup_cycle_completed: zombies={}, sessions={}, interrupts={}, envelopes={}, user_usage={}",
+            stats.zombies_removed,
+            stats.sessions_removed,
+            stats.interrupts_removed,
+            stats.envelopes_evicted,
+            stats.user_usage_evicted,
+        );
+
+        stats.completed_at = Some(Utc::now());
+        Ok(stats)
     }
 
     /// Run a single cleanup cycle (synchronous version).

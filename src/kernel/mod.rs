@@ -44,25 +44,25 @@ use crate::types::{Error, ProcessId, RequestId, Result, SessionId, UserId};
 #[derive(Debug)]
 pub struct Kernel {
     /// Process lifecycle management
-    pub lifecycle: LifecycleManager,
+    lifecycle: LifecycleManager,
 
     /// Resource tracking and quota enforcement
-    pub resources: ResourceTracker,
+    resources: ResourceTracker,
 
     /// Rate limiting per user
-    pub rate_limiter: RateLimiter,
+    rate_limiter: RateLimiter,
 
     /// Interrupt handling (human-in-the-loop)
-    pub interrupts: interrupts::InterruptService,
+    interrupts: interrupts::InterruptService,
 
     /// Service registry (IPC and dispatch)
-    pub services: services::ServiceRegistry,
+    services: services::ServiceRegistry,
 
     /// Pipeline orchestration (kernel-driven execution)
-    pub orchestrator: orchestrator::Orchestrator,
+    orchestrator: orchestrator::Orchestrator,
 
     /// Communication bus (kernel-mediated IPC)
-    pub commbus: crate::commbus::CommBus,
+    commbus: crate::commbus::CommBus,
 
     /// Envelope storage (envelope_id -> envelope)
     envelopes: HashMap<String, Envelope>,
@@ -186,6 +186,11 @@ impl Kernel {
     /// Get next runnable process.
     pub fn get_next_runnable(&mut self) -> Option<ProcessControlBlock> {
         self.lifecycle.get_next_runnable()
+    }
+
+    /// Schedule a process from NEW/WAITING/BLOCKED into READY.
+    pub fn schedule_process(&mut self, pid: &ProcessId) -> Result<()> {
+        self.lifecycle.schedule(pid)
     }
 
     /// Start a process.
@@ -373,6 +378,77 @@ impl Kernel {
         process_id: &ProcessId,
     ) -> Result<orchestrator::SessionState> {
         self.orchestrator.get_session_state(process_id)
+    }
+
+    /// Get a cloned orchestration envelope for a process.
+    pub fn get_orchestration_envelope(&self, process_id: &ProcessId) -> Option<Envelope> {
+        self.orchestrator.get_envelope_for_process(process_id).cloned()
+    }
+
+    // =============================================================================
+    // Rate Limiting
+    // =============================================================================
+
+    /// Check and optionally record rate-limit usage for a user.
+    pub fn check_rate_limit(&mut self, user_id: &str) -> Result<()> {
+        self.rate_limiter.check_rate_limit(user_id)
+    }
+
+    /// Current request count in the minute window.
+    pub fn get_current_rate(&mut self, user_id: &str) -> usize {
+        self.rate_limiter.get_current_rate(user_id)
+    }
+
+    // =============================================================================
+    // CommBus Methods (Delegation to CommBus)
+    // =============================================================================
+
+    /// Publish an event to subscribers.
+    pub async fn publish_event(&self, event: crate::commbus::Event) -> Result<usize> {
+        self.commbus.publish(event).await
+    }
+
+    /// Send a command to a registered command handler.
+    pub async fn send_command(&self, command: crate::commbus::Command) -> Result<()> {
+        self.commbus.send_command(command).await
+    }
+
+    /// Execute a request/response query through CommBus.
+    pub async fn execute_query(
+        &self,
+        query: crate::commbus::Query,
+    ) -> Result<crate::commbus::QueryResponse> {
+        self.commbus.query(query).await
+    }
+
+    /// Subscribe to event types.
+    pub async fn subscribe_events(
+        &self,
+        subscriber_id: String,
+        event_types: Vec<String>,
+    ) -> Result<(
+        crate::commbus::Subscription,
+        tokio::sync::mpsc::UnboundedReceiver<crate::commbus::Event>,
+    )> {
+        self.commbus.subscribe(subscriber_id, event_types).await
+    }
+
+    /// Register a query handler (used by integration tests and service bootstrap).
+    pub async fn register_query_handler(
+        &self,
+        query_type: String,
+    ) -> Result<
+        tokio::sync::mpsc::UnboundedReceiver<(
+            crate::commbus::Query,
+            tokio::sync::oneshot::Sender<crate::commbus::QueryResponse>,
+        )>,
+    > {
+        self.commbus.register_query_handler(query_type).await
+    }
+
+    /// Snapshot CommBus statistics.
+    pub async fn get_commbus_stats(&self) -> crate::commbus::BusStats {
+        self.commbus.get_stats().await
     }
 
     // =============================================================================

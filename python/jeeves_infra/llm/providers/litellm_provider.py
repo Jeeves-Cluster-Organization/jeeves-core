@@ -24,7 +24,7 @@ Usage:
 from typing import AsyncIterator, Dict, Any, Optional
 
 from .base import LLMProvider, TokenChunk
-from ..cost_calculator import get_cost_calculator
+from ..cost_calculator import CostCalculator
 from jeeves_infra.logging import get_current_logger
 from jeeves_infra.protocols import LoggerProtocol
 
@@ -85,7 +85,7 @@ class LiteLLMProvider(LLMProvider):
         self._timeout = timeout
         self._max_retries = max_retries
         self._extra_params = extra_params
-        self._cost_calculator = get_cost_calculator()
+        self._cost_calculator = CostCalculator()
 
         self._logger.info(
             "litellm_provider_initialized",

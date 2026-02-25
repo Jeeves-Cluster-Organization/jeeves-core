@@ -49,6 +49,8 @@ class TestToolCatalogEntry:
             description="A test tool",
             parameters={"name": "string"},
             category="standalone",
+            risk_semantic="read_only",
+            risk_severity="low",
         )
 
         # Attempting to modify should raise FrozenInstanceError
@@ -62,25 +64,26 @@ class TestToolCatalogEntry:
             description="Add a new task",
             parameters={"title": "string", "priority": "integer?"},
             category="standalone",
-            risk_level="write",
+            risk_semantic="write",
+            risk_severity="medium",
         )
 
         assert entry.id == "add_task"
         assert entry.description == "Add a new task"
         assert entry.parameters == {"title": "string", "priority": "integer?"}
         assert entry.category == "standalone"
-        assert entry.risk_level == "write"
+        assert entry.risk_semantic == "write"
+        assert entry.risk_severity == "medium"
 
-    def test_default_risk_level(self):
-        """Test default risk_level is 'low'."""
-        entry = ToolCatalogEntry(
-            id="read_file",
-            description="Read a file",
-            parameters={},
-            category="read",
-        )
-
-        assert entry.risk_level == "low"
+    def test_requires_risk_fields(self):
+        """Tool entries require explicit semantic + severity classification."""
+        with pytest.raises(TypeError):
+            ToolCatalogEntry(
+                id="read_file",
+                description="Read a file",
+                parameters={},
+                category="read",
+            )
 
 
 class TestToolDefinition:
@@ -130,7 +133,8 @@ class TestCapabilityToolCatalog:
             description="Create a new task",
             parameters={"title": "string"},
             category="standalone",
-            risk_level="write",
+            risk_semantic="write",
+            risk_severity="medium",
         )
 
         assert len(catalog) == 1
@@ -149,6 +153,8 @@ class TestCapabilityToolCatalog:
             description="A sample tool",
             parameters={"arg": "string"},
             category="standalone",
+            risk_semantic="read_only",
+            risk_severity="low",
         )
 
         tool = catalog.get_tool("sample")
@@ -177,6 +183,8 @@ class TestCapabilityToolCatalog:
             description="My tool",
             parameters={},
             category="standalone",
+            risk_semantic="read_only",
+            risk_severity="low",
         )
 
         func = catalog.get_function("my_tool")
@@ -192,6 +200,8 @@ class TestCapabilityToolCatalog:
             description="Tool 1",
             parameters={},
             category="standalone",
+            risk_semantic="read_only",
+            risk_severity="low",
         )
 
         assert catalog.has_tool("tool1") is True
@@ -208,6 +218,8 @@ class TestCapabilityToolCatalog:
                 description=f"Tool {i}",
                 parameters={},
                 category="standalone",
+                risk_semantic="read_only",
+                risk_severity="low",
             )
 
         tools = catalog.list_tools()
@@ -226,6 +238,8 @@ class TestCapabilityToolCatalog:
             description="Tool A",
             parameters={"x": "int"},
             category="standalone",
+            risk_semantic="read_only",
+            risk_severity="low",
         )
 
         entries = catalog.get_entries()
@@ -243,6 +257,8 @@ class TestCapabilityToolCatalog:
             description="Add two numbers",
             parameters={"a": "int", "b": "int"},
             category="math",
+            risk_semantic="read_only",
+            risk_severity="low",
         )
 
         catalog.register(
@@ -251,6 +267,8 @@ class TestCapabilityToolCatalog:
             description="Subtract numbers",
             parameters={"a": "int", "b": "int?"},
             category="math",
+            risk_semantic="read_only",
+            risk_severity="low",
         )
 
         prompt = catalog.generate_prompt_section()
@@ -270,6 +288,8 @@ class TestCapabilityToolCatalog:
             description="Tool",
             parameters={},
             category="standalone",
+            risk_semantic="read_only",
+            risk_severity="low",
         )
         assert len(catalog) == 1
 
@@ -283,6 +303,8 @@ class TestCapabilityToolCatalog:
             description="Exists",
             parameters={},
             category="standalone",
+            risk_semantic="read_only",
+            risk_severity="low",
         )
 
         assert "exists" in catalog
@@ -317,6 +339,8 @@ class TestCapabilityToolsConfig:
                 description="Lazy tool",
                 parameters={},
                 category="standalone",
+                risk_semantic="read_only",
+                risk_severity="low",
             )
             return catalog
 

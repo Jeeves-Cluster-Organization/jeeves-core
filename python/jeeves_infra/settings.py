@@ -288,14 +288,3 @@ def reload_settings() -> Settings:
     global _settings
     _settings = Settings()
     return _settings
-
-
-# Singleton proxy for convenient access
-class _SettingsProxy:
-    """Lazy proxy for settings singleton."""
-
-    def __getattr__(self, name):
-        return getattr(get_settings(), name)
-
-
-settings = _SettingsProxy()

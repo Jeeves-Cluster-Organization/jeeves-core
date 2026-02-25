@@ -77,7 +77,7 @@ pub async fn handle(kernel: &mut Kernel, method: &str, body: Value) -> Result<Di
 
         "ScheduleProcess" => {
             let pid = parse_pid(&body)?;
-            kernel.lifecycle.schedule(&pid)?;
+            kernel.schedule_process(&pid)?;
             let pcb = kernel
                 .get_process(&pid)
                 .ok_or_else(|| Error::not_found(format!("Process {} not found", pid)))?;
@@ -114,7 +114,7 @@ pub async fn handle(kernel: &mut Kernel, method: &str, body: Value) -> Result<Di
             }
 
             match new_state {
-                ProcessState::Ready => kernel.lifecycle.schedule(&pid)?,
+                ProcessState::Ready => kernel.schedule_process(&pid)?,
                 ProcessState::Running => kernel.start_process(&pid)?,
                 ProcessState::Terminated => kernel.terminate_process(&pid)?,
                 ProcessState::Blocked => kernel.block_process(&pid, reason.clone())?,
@@ -257,13 +257,13 @@ pub async fn handle(kernel: &mut Kernel, method: &str, body: Value) -> Result<Di
 
             let record = body.get("record").and_then(|v| v.as_bool()).unwrap_or(true);
             let result = if record {
-                kernel.rate_limiter.check_rate_limit(&user_id)
+                kernel.check_rate_limit(&user_id)
             } else {
                 Ok(())
             };
 
             // Lossless: usize fits in i64 on all supported platforms.
-            let current_count = kernel.rate_limiter.get_current_rate(&user_id) as i64;
+            let current_count = kernel.get_current_rate(&user_id) as i64;
             let allowed = result.is_ok();
             let reason = result.err().map(|e| e.to_string()).unwrap_or_default();
 
@@ -366,7 +366,7 @@ pub async fn handle(kernel: &mut Kernel, method: &str, body: Value) -> Result<Di
             }
 
             // Gather commbus stats (async)
-            let commbus_stats = kernel.commbus.get_stats().await;
+            let commbus_stats = kernel.get_commbus_stats().await;
 
             Ok(DispatchResponse::Single(serde_json::json!({
                 "processes": {
@@ -411,7 +411,7 @@ async fn emit_lifecycle_event(kernel: &Kernel, event_type: &str, payload: Value)
         timestamp_ms: chrono::Utc::now().timestamp_millis(),
         source: "kernel".to_string(),
     };
-    let _ = kernel.commbus.publish(event).await;
+    let _ = kernel.publish_event(event).await;
 }
 
 // =============================================================================

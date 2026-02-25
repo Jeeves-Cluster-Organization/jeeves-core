@@ -14,7 +14,7 @@ Provides:
 from dataclasses import dataclass
 from typing import Any, Callable, Dict, List, Optional
 
-from jeeves_infra.protocols import RiskLevel, ToolCategory
+from jeeves_infra.protocols import RiskSemantic, RiskSeverity, ToolCategory
 
 
 @dataclass(frozen=True)
@@ -28,7 +28,8 @@ class ToolCatalogEntry:
     description: str
     parameters: Dict[str, str]
     category: ToolCategory
-    risk_level: RiskLevel = RiskLevel.LOW
+    risk_semantic: RiskSemantic
+    risk_severity: RiskSeverity
     accepts: str = ""
     returns: str = ""
 
@@ -97,7 +98,8 @@ class ToolCatalog:
         description: str,
         parameters: Dict[str, str],
         category: ToolCategory,
-        risk_level: RiskLevel = RiskLevel.LOW,
+        risk_semantic: RiskSemantic,
+        risk_severity: RiskSeverity,
         accepts: str = "",
         returns: str = "",
     ) -> Callable:
@@ -108,7 +110,8 @@ class ToolCatalog:
             description: Human-readable description
             parameters: Dict of param_name -> type_description
             category: Tool category
-            risk_level: Risk classification
+            risk_semantic: Risk behavior classification
+            risk_severity: Risk impact classification
             accepts: Description of accepted input
             returns: Description of returned output
 
@@ -120,7 +123,8 @@ class ToolCatalog:
             description=description,
             parameters=parameters,
             category=category,
-            risk_level=risk_level,
+            risk_semantic=risk_semantic,
+            risk_severity=risk_severity,
             accepts=accepts,
             returns=returns,
         )
@@ -138,7 +142,8 @@ class ToolCatalog:
         description: str,
         parameters: Dict[str, str],
         category: ToolCategory,
-        risk_level: RiskLevel = RiskLevel.LOW,
+        risk_semantic: RiskSemantic,
+        risk_severity: RiskSeverity,
     ) -> None:
         """Register tool without decorator syntax.
 
@@ -148,14 +153,16 @@ class ToolCatalog:
             description: Human-readable description
             parameters: Dict of param_name -> type_description
             category: Tool category
-            risk_level: Risk classification
+            risk_semantic: Risk behavior classification
+            risk_severity: Risk impact classification
         """
         entry = ToolCatalogEntry(
             id=tool_name,
             description=description,
             parameters=parameters,
             category=category,
-            risk_level=risk_level,
+            risk_semantic=risk_semantic,
+            risk_severity=risk_severity,
         )
         self._entries[tool_name] = entry
         self._functions[tool_name] = func
@@ -281,7 +288,8 @@ class ToolCatalog:
                 "description": entry.description,
                 "parameters": entry.parameters,
                 "category": entry.category.value,
-                "risk_level": entry.risk_level.value,
+                "risk_semantic": entry.risk_semantic.value,
+                "risk_severity": entry.risk_severity.value,
             }
             for name, entry in self._entries.items()
         }
