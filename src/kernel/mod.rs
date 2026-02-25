@@ -170,17 +170,27 @@ impl Kernel {
         self.resources.check_quota(pcb)
     }
 
-    /// Record resource usage.
+    /// Record resource usage (updates both per-user aggregate and per-process PCB).
     pub fn record_usage(
         &mut self,
+        pid: &ProcessId,
         user_id: &str,
         llm_calls: i32,
         tool_calls: i32,
         tokens_in: i64,
         tokens_out: i64,
     ) {
+        // Per-user aggregate (billing/rate-limit secondary index)
         self.resources
             .record_usage(user_id, llm_calls, tool_calls, tokens_in, tokens_out);
+
+        // Per-process PCB (single source of truth for quota checks)
+        if let Some(pcb) = self.lifecycle.get_mut(pid) {
+            pcb.usage.llm_calls += llm_calls;
+            pcb.usage.tool_calls += tool_calls;
+            pcb.usage.tokens_in += tokens_in;
+            pcb.usage.tokens_out += tokens_out;
+        }
     }
 
     /// Get next runnable process.
@@ -305,6 +315,25 @@ impl Kernel {
     /// Get the most recent pending interrupt for a request.
     pub fn get_pending_interrupt(&self, request_id: &str) -> Option<&interrupts::KernelInterrupt> {
         self.interrupts.get_pending_for_request(request_id)
+    }
+
+    /// Cancel an interrupt.
+    pub fn cancel_interrupt(&mut self, interrupt_id: &str, reason: String) -> bool {
+        self.interrupts.cancel(interrupt_id, reason)
+    }
+
+    /// Get an interrupt by ID.
+    pub fn get_interrupt(&self, interrupt_id: &str) -> Option<&interrupts::KernelInterrupt> {
+        self.interrupts.get_interrupt(interrupt_id)
+    }
+
+    /// Get all pending interrupts for a session, optionally filtered by kind.
+    pub fn get_pending_for_session(
+        &self,
+        session_id: &str,
+        kinds: Option<&[crate::envelope::InterruptKind]>,
+    ) -> Vec<&interrupts::KernelInterrupt> {
+        self.interrupts.get_pending_for_session(session_id, kinds)
     }
 
     // =============================================================================

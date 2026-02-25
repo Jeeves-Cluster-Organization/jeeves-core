@@ -487,7 +487,6 @@ class ExecutionConfig:
     max_agent_hops: int = 21
     context_bounds: ContextBounds = field(default_factory=ContextBounds)
     enable_telemetry: bool = True
-    enable_checkpoints: bool = False
     debug_mode: bool = False
 
 
@@ -495,11 +494,9 @@ class ExecutionConfig:
 class OrchestrationFlags:
     """Runtime orchestration flags."""
     enable_parallel_agents: bool = False
-    enable_checkpoints: bool = False
     enable_distributed: bool = False
     enable_telemetry: bool = True
     max_concurrent_agents: int = 4
-    checkpoint_interval_seconds: int = 30
 
 
 # =============================================================================
@@ -749,7 +746,10 @@ from typing import Protocol, runtime_checkable
 
 @runtime_checkable
 class InterruptServiceProtocol(Protocol):
-    """Interrupt service interface."""
+    """Interrupt service interface.
+
+    Method signatures match the gateway interrupts router expectations.
+    """
 
     async def create_interrupt(
         self,
@@ -758,16 +758,31 @@ class InterruptServiceProtocol(Protocol):
         question: str = "",
         message: str = "",
         data: Optional[Dict[str, Any]] = None,
+        request_id: str = "",
+        user_id: str = "",
+        session_id: str = "",
     ) -> FlowInterrupt: ...
 
-    async def resolve_interrupt(
+    async def respond(
         self,
         interrupt_id: str,
         response: InterruptResponse,
-    ) -> FlowInterrupt: ...
+        user_id: str,
+    ) -> Optional[FlowInterrupt]: ...
 
     async def get_interrupt(self, interrupt_id: str) -> Optional[FlowInterrupt]: ...
-    async def list_pending(self, envelope_id: str) -> List[FlowInterrupt]: ...
+
+    async def get_pending_for_session(
+        self,
+        session_id: str,
+        kinds: Optional[List[InterruptKind]] = None,
+    ) -> List[FlowInterrupt]: ...
+
+    async def cancel(
+        self,
+        interrupt_id: str,
+        reason: Optional[str] = None,
+    ) -> bool: ...
 
 
 # =============================================================================

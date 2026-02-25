@@ -62,7 +62,6 @@ from jeeves_infra.protocols.interfaces import (
     AppContextProtocol,
     SearchResult,
     SemanticSearchProtocol,
-    SessionStateProtocol,
     DistributedTask,
     QueueStats,
     DistributedBusProtocol,
@@ -72,7 +71,6 @@ from jeeves_infra.protocols.interfaces import (
     AgentToolAccessProtocol,
     WebSocketManagerProtocol,
     EventBridgeProtocol,
-    SessionStateServiceProtocol,
 )
 
 # =============================================================================
@@ -164,7 +162,6 @@ __all__ = [
     "AppContextProtocol",
     "SearchResult",
     "SemanticSearchProtocol",
-    "SessionStateProtocol",
     "DistributedTask",
     "QueueStats",
     "DistributedBusProtocol",
@@ -174,7 +171,6 @@ __all__ = [
     "AgentToolAccessProtocol",
     "WebSocketManagerProtocol",
     "EventBridgeProtocol",
-    "SessionStateServiceProtocol",
     "InterruptServiceProtocol",
     # Capability registration
     "get_capability_resource_registry",

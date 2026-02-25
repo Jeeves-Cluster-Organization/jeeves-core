@@ -253,14 +253,6 @@ class SemanticSearchProtocol(Protocol):
     async def index(self, id: str, content: str, metadata: Dict[str, Any]) -> None: ...
 
 
-@runtime_checkable
-class SessionStateProtocol(Protocol):
-    """Session state interface."""
-
-    async def get(self, session_id: str) -> Optional[Dict[str, Any]]: ...
-    async def set(self, session_id: str, state: Dict[str, Any]) -> None: ...
-    async def delete(self, session_id: str) -> None: ...
-
 
 # =============================================================================
 # DISTRIBUTED BUS
@@ -400,14 +392,6 @@ class EventBridgeProtocol(Protocol):
     async def emit(self, event_type: str, payload: Dict[str, Any]) -> None: ...
 
 
-@runtime_checkable
-class SessionStateServiceProtocol(Protocol):
-    """Session state persistence interface."""
-
-    async def get_state(self, session_id: str) -> Optional[Dict[str, Any]]: ...
-    async def set_state(self, session_id: str, state: Dict[str, Any]) -> None: ...
-    async def delete_state(self, session_id: str) -> bool: ...
-
 
 # =============================================================================
 # EXPORTS
@@ -432,7 +416,6 @@ __all__ = [
     # Memory
     "SearchResult",
     "SemanticSearchProtocol",
-    "SessionStateProtocol",
     # Distributed Bus (kept for Redis scaling)
     "DistributedTask",
     "QueueStats",
@@ -448,5 +431,4 @@ __all__ = [
     # Infrastructure Protocols
     "WebSocketManagerProtocol",
     "EventBridgeProtocol",
-    "SessionStateServiceProtocol",
 ]

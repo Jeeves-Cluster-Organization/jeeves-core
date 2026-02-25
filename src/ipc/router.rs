@@ -29,6 +29,7 @@ pub async fn route_request(
         "engine" => handlers::engine::handle(kernel, method, body).await,
         "orchestration" => handlers::orchestration::handle(kernel, method, body).await,
         "commbus" => handlers::commbus::handle(kernel, method, body, ipc_config).await,
+        "interrupt" => handlers::interrupt::handle(kernel, method, body).await,
         _ => Err(Error::not_found(format!("Unknown service: {}", service))),
     }
 }

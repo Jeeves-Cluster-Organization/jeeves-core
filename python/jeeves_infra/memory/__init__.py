@@ -1,18 +1,18 @@
-"""Jeeves Memory Module - Memory services (L1-L7) for the Jeeves system.
+"""Jeeves Memory Module.
 
 Provides:
-- Event sourcing and domain events (L2)
-- Semantic chunking and search (L3)
-- Session state management (L4)
+- Session state management (working memory: focus, entities, context)
 - Tool health governance (L7)
-- CommBus handler registration
-
-Constitutional Reference:
-- Memory Module CONSTITUTION: Memory types and protocols in protocols
 """
 
-from jeeves_infra.memory.handlers import register_memory_handlers
+from jeeves_infra.memory.session_state_service import (
+    SessionStateService,
+    SessionState,
+    EntityRef,
+)
 
 __all__ = [
-    "register_memory_handlers",
+    "SessionStateService",
+    "SessionState",
+    "EntityRef",
 ]
