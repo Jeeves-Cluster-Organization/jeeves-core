@@ -73,6 +73,7 @@ def mock_envelope():
     envelope.terminated = False
     envelope.terminal_reason = None
     envelope.outputs = {}
+    envelope.metadata = {}
     envelope.to_dict.return_value = {
         "envelope_id": "test-envelope-1",
         "current_stage": "start",
@@ -230,19 +231,16 @@ async def test_pipeline_worker_executes_agents(mock_kernel_client, mock_agents, 
         OrchestratorInstruction(
             kind="RUN_AGENT",
             agent_name="understand",
-            agent_config={"output_key": "understand"},
             envelope={"current_stage": "understand"},
         ),
         OrchestratorInstruction(
             kind="RUN_AGENT",
             agent_name="think",
-            agent_config={"output_key": "think"},
             envelope={"current_stage": "think"},
         ),
         OrchestratorInstruction(
             kind="RUN_AGENT",
             agent_name="respond",
-            agent_config={"output_key": "final_response"},
             envelope={"current_stage": "respond"},
         ),
         OrchestratorInstruction(
@@ -282,6 +280,74 @@ async def test_pipeline_worker_executes_agents(mock_kernel_client, mock_agents, 
     # Verify final result
     assert result.terminated is True
     assert result.terminal_reason == "COMPLETED"
+
+
+@pytest.mark.asyncio
+async def test_pipeline_worker_reports_agent_metrics(
+    mock_kernel_client,
+    mock_envelope,
+    pipeline_config,
+):
+    mock_kernel_client.initialize_orchestration_session.return_value = OrchestrationSessionState(
+        process_id="test-envelope-1",
+        current_stage="understand",
+        stage_order=["understand"],
+    )
+    mock_kernel_client.get_next_instruction.side_effect = [
+        OrchestratorInstruction(
+            kind="RUN_AGENT",
+            agent_name="understand",
+            envelope={"current_stage": "understand"},
+        ),
+        OrchestratorInstruction(
+            kind="TERMINATE",
+            terminal_reason="COMPLETED",
+            envelope={"current_stage": "end"},
+        ),
+    ]
+    mock_kernel_client.report_agent_result.return_value = OrchestratorInstruction(
+        kind="RUN_AGENT",
+        agent_name="",
+    )
+
+    agent = MagicMock()
+    agent.name = "understand"
+
+    async def process(envelope):
+        envelope.outputs["understand"] = {
+            "tool_calls": [
+                {"name": "search"},
+                {"name": "summarize"},
+            ],
+            "response": "ok",
+        }
+        envelope.metadata["_agent_run_metrics"] = {
+            "understand": {
+                "tokens_in": 123,
+                "tokens_out": 45,
+            }
+        }
+        return envelope
+
+    agent.process = process
+
+    worker = PipelineWorker(
+        kernel_client=mock_kernel_client,
+        agents={"understand": agent},
+        logger=test_logger,
+    )
+
+    await worker.execute(
+        process_id="test-envelope-1",
+        pipeline_config=pipeline_config,
+        envelope=mock_envelope,
+    )
+
+    report_call = mock_kernel_client.report_agent_result.call_args
+    metrics: AgentExecutionMetrics = report_call.kwargs["metrics"]
+    assert metrics.tool_calls == 2
+    assert metrics.tokens_in == 123
+    assert metrics.tokens_out == 45
 
 
 # =============================================================================
@@ -381,7 +447,6 @@ async def test_pipeline_worker_handles_agent_not_found(mock_kernel_client, mock_
         OrchestratorInstruction(
             kind="RUN_AGENT",
             agent_name="unknown_agent",
-            agent_config={"output_key": "unknown"},
             envelope={"current_stage": "unknown_agent"},
         ),
         OrchestratorInstruction(
@@ -429,7 +494,6 @@ async def test_pipeline_worker_handles_agent_exception(mock_kernel_client, mock_
         OrchestratorInstruction(
             kind="RUN_AGENT",
             agent_name="understand",
-            agent_config={"output_key": "understand"},
             envelope={"current_stage": "understand"},
         ),
         OrchestratorInstruction(
@@ -509,13 +573,11 @@ async def test_pipeline_worker_streaming(mock_kernel_client, mock_agents, mock_e
         OrchestratorInstruction(
             kind="RUN_AGENT",
             agent_name="understand",
-            agent_config={"output_key": "understand"},
             envelope={"current_stage": "understand"},
         ),
         OrchestratorInstruction(
             kind="RUN_AGENT",
             agent_name="respond",
-            agent_config={"output_key": "final_response"},
             envelope={"current_stage": "respond"},
         ),
         OrchestratorInstruction(

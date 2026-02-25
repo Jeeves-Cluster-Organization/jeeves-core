@@ -4,7 +4,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from enum import Enum
-from typing import Any, Awaitable, Callable, Dict, Optional
+from typing import Any, Awaitable, Callable, Dict, Optional, Protocol
 import uuid
 
 from jeeves_infra.protocols.interfaces import RequestContext
@@ -73,16 +73,16 @@ class Event:
         )
 
 
-class EventEmitterProtocol:
+class EventEmitterProtocol(Protocol):
     """Protocol for event bus emitter implementations."""
 
     async def emit(self, event: Event) -> None:
-        raise NotImplementedError
+        ...
 
     async def subscribe(
         self, pattern: str, handler: Callable[[Event], Awaitable[None]]
     ) -> str:
-        raise NotImplementedError
+        ...
 
     async def unsubscribe(self, subscription_id: str) -> None:
-        raise NotImplementedError
+        ...

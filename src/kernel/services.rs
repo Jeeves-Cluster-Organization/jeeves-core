@@ -4,14 +4,10 @@
 //!   - Service registration and discovery
 //!   - Health tracking
 //!   - Load balancing
-//!   - Dispatch routing
 
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
-use std::sync::Arc;
-
-use crate::kernel::SchedulingPriority;
 
 // =============================================================================
 // Service Status
@@ -99,63 +95,6 @@ impl ServiceInfo {
 }
 
 // =============================================================================
-// Service Call Target
-// =============================================================================
-
-/// ServiceCallTarget represents a target for service invocation.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct ServiceCallTarget {
-    pub service_name: String,
-    pub method: String,
-    pub priority: SchedulingPriority,
-    pub timeout_seconds: i32,
-    pub retry_count: i32,
-    pub max_retries: i32,
-}
-
-impl ServiceCallTarget {
-    /// Check if the service call can be retried.
-    pub fn can_retry(&self) -> bool {
-        self.retry_count < self.max_retries
-    }
-
-    /// Increment the retry count.
-    pub fn increment_retry(&mut self) {
-        self.retry_count += 1;
-    }
-}
-
-// =============================================================================
-// Service Call Result
-// =============================================================================
-
-/// ServiceCallResult represents the result of a service invocation operation.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct ServiceCallResult {
-    pub success: bool,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub error: Option<String>,
-    #[serde(skip_serializing_if = "HashMap::is_empty")]
-    pub data: HashMap<String, serde_json::Value>,
-    pub duration_ms: i64,
-    pub retries: i32,
-}
-
-// =============================================================================
-// Service Handler
-// =============================================================================
-
-/// ServiceHandler is a function that handles service requests.
-pub type ServiceHandler = Arc<
-    dyn Fn(
-            &ServiceCallTarget,
-            &HashMap<String, serde_json::Value>,
-        ) -> Result<ServiceCallResult, String>
-        + Send
-        + Sync,
->;
-
-// =============================================================================
 // Service Registry
 // =============================================================================
 
@@ -166,8 +105,6 @@ pub type ServiceHandler = Arc<
 pub struct ServiceRegistry {
     /// Service registry
     services: HashMap<String, ServiceInfo>,
-    /// Dispatch handlers (using type erasure for simplicity)
-    handlers: HashMap<String, usize>, // Placeholder - real impl would use ServiceHandler
 }
 
 impl ServiceRegistry {
@@ -175,7 +112,6 @@ impl ServiceRegistry {
     pub fn new() -> Self {
         Self {
             services: HashMap::new(),
-            handlers: HashMap::new(),
         }
     }
 
@@ -202,15 +138,7 @@ impl ServiceRegistry {
         }
 
         self.services.remove(service_name);
-        self.handlers.remove(service_name);
         true
-    }
-
-    /// Register a handler for a service (placeholder).
-    /// Full implementation would store Arc<dyn Fn> but simplified for now.
-    pub fn register_handler(&mut self, service_name: String) {
-        // Placeholder - just mark that handler exists
-        self.handlers.insert(service_name, 1);
     }
 
     // =============================================================================
@@ -253,11 +181,6 @@ impl ServiceRegistry {
     /// Check if a service is registered.
     pub fn has_service(&self, service_name: &str) -> bool {
         self.services.contains_key(service_name)
-    }
-
-    /// Check if a service has a handler registered.
-    pub fn has_handler(&self, service_name: &str) -> bool {
-        self.handlers.contains_key(service_name)
     }
 
     // =============================================================================
@@ -364,51 +287,6 @@ impl ServiceRegistry {
         stats
     }
 
-    // =============================================================================
-    // Dispatch (Placeholder)
-    // =============================================================================
-
-    /// Dispatch a request to a service (placeholder implementation).
-    /// Full implementation would invoke the registered handler.
-    pub fn invoke_service(
-        &mut self,
-        target: &ServiceCallTarget,
-        _data: &HashMap<String, serde_json::Value>,
-    ) -> Result<ServiceCallResult, String> {
-        // Check if service exists and has handler
-        if !self.has_service(&target.service_name) {
-            return Err(format!("Service not found: {}", target.service_name));
-        }
-
-        if !self.has_handler(&target.service_name) {
-            return Err(format!("No handler for service: {}", target.service_name));
-        }
-
-        // Check if service can accept load
-        if let Some(svc) = self.services.get(&target.service_name) {
-            if !svc.can_accept() {
-                return Err(format!(
-                    "Service {} cannot accept more load (current: {}, max: {})",
-                    target.service_name, svc.current_load, svc.max_concurrent
-                ));
-            }
-        }
-
-        // Placeholder result
-        // Full implementation would:
-        // 1. Increment load
-        // 2. Invoke handler
-        // 3. Decrement load
-        // 4. Return result
-        Ok(ServiceCallResult {
-            success: true,
-            error: None,
-            data: HashMap::new(),
-            duration_ms: 0,
-            retries: target.retry_count,
-        })
-    }
-
 }
 
 impl Default for ServiceRegistry {
@@ -473,11 +351,9 @@ mod tests {
 
         let service = ServiceInfo::new("flow_service".to_string(), SERVICE_TYPE_FLOW.to_string());
         registry.register_service(service);
-        registry.register_handler("flow_service".to_string());
 
         // Verify service exists
         assert!(registry.has_service("flow_service"));
-        assert!(registry.has_handler("flow_service"));
 
         // Unregister
         let success = registry.unregister_service("flow_service");
@@ -485,7 +361,6 @@ mod tests {
 
         // Verify service is gone
         assert!(!registry.has_service("flow_service"));
-        assert!(!registry.has_handler("flow_service"));
 
         // Try to unregister again - should fail
         let not_found = registry.unregister_service("flow_service");
@@ -609,38 +484,6 @@ mod tests {
         // Try to update non-existent service
         let not_found = registry.update_health("nonexistent", ServiceStatus::Healthy);
         assert!(!not_found);
-    }
-
-    #[test]
-    fn test_dispatch_checks_capacity() {
-        let mut registry = ServiceRegistry::new();
-
-        // Create service at capacity
-        let mut service = ServiceInfo::new("flow1".to_string(), SERVICE_TYPE_FLOW.to_string());
-        service.max_concurrent = 2;
-        service.current_load = 2; // At capacity
-        registry.register_service(service);
-        registry.register_handler("flow1".to_string());
-
-        let target = ServiceCallTarget {
-            service_name: "flow1".to_string(),
-            method: "execute".to_string(),
-            priority: SchedulingPriority::Normal,
-            timeout_seconds: 30,
-            retry_count: 0,
-            max_retries: 3,
-        };
-
-        // Dispatch should fail due to capacity
-        let result = registry.invoke_service(&target, &HashMap::new());
-        assert!(result.is_err());
-        assert!(result.unwrap_err().contains("cannot accept more load"));
-
-        // Reduce load and try again
-        registry.decrement_load("flow1");
-        let result2 = registry.invoke_service(&target, &HashMap::new());
-        assert!(result2.is_ok());
-        assert!(result2.unwrap().success);
     }
 
     #[test]

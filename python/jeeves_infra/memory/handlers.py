@@ -25,8 +25,6 @@ def register_memory_handlers(
     """
     from jeeves_infra.memory.messages import (
         GetSessionState,
-        SearchMemory,
-        GetClarificationContext,
         GetRecentEntities,
         ClearSession,
         UpdateFocus,
@@ -73,32 +71,6 @@ def register_memory_handlers(
             limit=query.limit,
         )
         return {"entities": entities}
-
-    async def handle_search_memory(query: SearchMemory) -> Any:
-        """Handle SearchMemory query.
-
-        Note: This is a placeholder. Full semantic search requires
-        VectorRepository and EmbeddingService which are optional.
-        """
-        # For now, return empty results - semantic search requires more setup
-        return {
-            "results": [],
-            "total": 0,
-            "query": query.query,
-            "note": "Semantic search requires VectorRepository configuration",
-        }
-
-    async def handle_get_clarification_context(query: GetClarificationContext) -> Any:
-        """Handle GetClarificationContext query.
-
-        Note: Clarification handling is now in InterruptService (Control Tower).
-        This returns session-related clarification context if available.
-        """
-        return {
-            "session_id": query.session_id,
-            "has_pending": False,
-            "note": "Clarification handling is via InterruptService",
-        }
 
     # =========================================================================
     # Command Handlers
@@ -147,8 +119,6 @@ def register_memory_handlers(
     # Queries
     commbus.register_handler("GetSessionState", handle_get_session_state)
     commbus.register_handler("GetRecentEntities", handle_get_recent_entities)
-    commbus.register_handler("SearchMemory", handle_search_memory)
-    commbus.register_handler("GetClarificationContext", handle_get_clarification_context)
 
     # Commands
     commbus.register_handler("ClearSession", handle_clear_session)

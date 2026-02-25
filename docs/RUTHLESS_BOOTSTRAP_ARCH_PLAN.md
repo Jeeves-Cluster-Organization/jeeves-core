@@ -61,12 +61,12 @@ If `ServiceRegistry` dispatch handlers are placeholder or future-facing, remove 
 - explicit command handlers and query interfaces
 - immutable snapshots for status responses
 
-### 6) Make protocol versioning explicit but minimal
+### 6) Keep one canonical wire contract
 
-No broad compatibility matrix. Only:
-- `protocol_version` integer
-- one supported major
-- hard fail for mismatches
+No wire-version negotiation and no compatibility matrix.
+- required request fields: `id`, `service`, `method`, `body`
+- malformed/missing fields fail fast with `INVALID_ARGUMENT`
+- contract changes are atomic in this bootstrap branch
 
 **Rule:** prefer break-fast over compatibility glue.
 
@@ -161,7 +161,7 @@ A PR is blocked unless it passes all:
 2. No string service/method switching after parse boundary.
 3. No public mutable kernel internals.
 4. Benchmarks reported (throughput + p95/p99 latency).
-5. Protocol version behavior documented and tested.
+5. Request contract behavior documented and tested.
 
 ---
 
@@ -278,57 +278,43 @@ Proceed to code only after these decisions are explicitly approved:
 
 ---
 
-## Dry run v2 (after feedback): keep-callers-safe + one-major policy
+## Dry run v2 (updated): strict single-path execution
 
-This revision incorporates explicit product constraints from review:
+This revision removes compatibility posture and aligns with bootstrap rules:
 
-1. **Do not remove components that may still have callers** (deprecate + isolate first).
-2. **Protocol policy remains single major** (hard-fail cross-major).
+1. No compatibility shims or dual-path adapters.
+2. Placeholder or speculative surfaces are either made real now or deleted.
+3. IPC contract remains singular (no `protocol_version` negotiation).
 
 ### Decision lock (updated)
 
 | Topic | Decision | Rationale |
 |---|---|---|
-| Placeholder/legacy components | **Retain initially if caller uncertainty exists**; isolate behind facade and mark deprecated | Avoid accidental breakage while still reducing debt |
-| Protocol compatibility | **One-major only** | Bootstrap speed + deterministic behavior |
-| Ordering semantics | Per-process FIFO + weighted global fairness | Avoid global serialization while preserving process coherence |
+| Placeholder/legacy components | **Delete immediately if not on active path** | Prevent dormant complexity from becoming debt |
+| IPC contract | **Single canonical request shape** | Minimize negotiation/state explosion |
+| Ordering semantics | Per-process FIFO + weighted global fairness | Preserve process coherence while scaling |
 | Backpressure | Bounded queues + reject with retry hints | Prevent tail collapse under burst load |
-| Cancellation | Cooperative cancel for long operations | Preserve consistency while allowing resource recovery |
+| Cancellation | Cooperative cancel for long operations | Recover resources without hidden side effects |
 
-### Revised phase complexity (with caller-safety constraint)
+### Updated phase notes
 
-#### Phase 1 — naming + encapsulation (no behavioral deletion)
+#### Phase 1 — naming + deletion pass
 
 **Scope**
 - Rename ambiguous transport naming (`dispatch` -> router terminology).
-- Keep `ServiceRegistry` present if uncertain callers exist, but:
-  - move behind trait/facade,
-  - mark placeholder paths deprecated,
-  - add usage telemetry/log warnings.
+- Remove placeholder paths outright (no facade/deprecation grace period).
 - Privatize kernel fields and replace direct field access with method surface.
 
-**Complexity:** 7/10 (increased due to compatibility shims)
-
-**Primary risk**
-- Hidden transitive usage through tests/integration paths.
-
-**Mitigation**
-- Add compile-time and runtime call-site detection before any future deletion.
+**Complexity:** 6/10
 
 #### Phase 2 — typed command boundary
 
 **Scope**
 - Parse wire request once into typed command tree.
-- Preserve external wire shape for current major.
-- Keep temporary adapter only at boundary for unresolved legacy callers.
+- Remove string-switching below parse boundary.
+- Keep one request/response contract shape.
 
 **Complexity:** 8/10
-
-**Primary risk**
-- Payload-schema drift across services.
-
-**Mitigation**
-- Golden tests per IPC method and centralized command schema table.
 
 #### Phase 3 — core actorization
 
@@ -339,66 +325,21 @@ This revision incorporates explicit product constraints from review:
 
 **Complexity:** 9/10
 
-**Primary risk**
-- Throughput wins but p99 regression from queue contention.
-
-**Mitigation**
-- Queue-depth metrics + burst benchmarks + strict p99 gates.
-
-#### Phase 4 — one-major enforcement + hardening
+#### Phase 4 — hardening
 
 **Scope**
-- Add explicit `protocol_version` negotiation with hard cross-major fail.
-- Keep only one active major and remove per-minor branching in runtime.
-- Publish deprecation/upgrade note in docs.
+- Enforce request contract at parse boundary.
+- Keep queue/backpressure behavior explicit and tested.
+- Publish current (single) IPC contract in docs.
 
 **Complexity:** 4/10
-
-**Primary risk**
-- Integrator surprise on major bumps.
-
-**Mitigation**
-- Error payload includes supported major and migration pointer.
-
-### Caller-safe deprecation workflow (replaces immediate deletion)
-
-When a module might still be called:
-
-1. **Isolate** behind interface/facade.
-2. **Instrument** all entry points (counter + warning + caller tag).
-3. **Observe** over agreed window (e.g., 2 release cycles or N days).
-4. **Prove zero usage** in tests + runtime telemetry.
-5. **Delete** in dedicated cleanup PR.
-
-This preserves your “minimal debt” goal while avoiding accidental breakage from unknown consumers.
-
-### Detailed complexity breakout by workstream
-
-| Workstream | Est. Effort | Complexity Drivers | Exit Check |
-|---|---:|---|---|
-| Rename/router coherence | 1-2 days | cross-module import churn | all references compile + docs updated |
-| Kernel encapsulation | 2-3 days | high fan-out from public fields | no direct field access from IPC handlers |
-| Typed command schemas | 3-4 days | many methods + validation details | all methods mapped to typed command variants |
-| Actor command loop | 4-6 days | concurrency semantics + cancellation | no global kernel mutex on request path |
-| Backpressure/cancellation policy | 2-3 days | queue sizing + fairness tradeoffs | bounded queue saturation tests pass |
-| One-major protocol guard | 1 day | parse-path changes + errors | major mismatch tests pass |
-| Observability + telemetry | 1-2 days | metric cardinality choices | dashboards expose queue/latency/errors |
-| Performance envelope | 2-3 days | realistic mixed workload design | p95/p99 gates enforced |
-
-### Questions requiring explicit user decision (v2)
-
-1. For uncertain callers, what observation window is acceptable before deletion (time-based vs release-count)?
-2. Should deprecated paths be warning-only or fail-fast in non-prod profiles?
-3. For one-major policy, do we allow a temporary env override in staging only?
-4. What fairness policy do you prefer at saturation: tenant-weighted, process-priority-weighted, or hybrid?
-5. What p99 budget should be merge-gating for mixed interrupt+quota load?
 
 ### v2 go/no-go gates
 
 Proceed to invasive refactor only after:
 
-1. Caller-safety workflow is approved.
-2. One-major protocol behavior and error payload are approved.
+1. No compatibility shims remain on runtime path.
+2. Single request contract behavior is documented and tested.
 3. Queue/backpressure fairness policy is selected.
 4. Performance SLO thresholds are selected.
 5. Observability dimensions are approved (to avoid metric rework).

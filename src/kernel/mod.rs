@@ -27,8 +27,7 @@ pub use rate_limiter::{RateLimitConfig, RateLimiter};
 pub use recovery::with_recovery;
 pub use resources::ResourceTracker;
 pub use services::{
-    RegistryStats, ServiceCallResult, ServiceCallTarget, ServiceInfo, ServiceRegistry,
-    ServiceStats, ServiceStatus,
+    RegistryStats, ServiceInfo, ServiceRegistry, ServiceStats, ServiceStatus,
 };
 pub use types::{
     ProcessControlBlock, ProcessState, QuotaViolation, ResourceQuota, ResourceUsage,
@@ -316,22 +315,6 @@ impl Kernel {
     pub fn unregister_service(&mut self, service_name: &str) -> bool {
         self.services.unregister_service(service_name)
     }
-
-    /// Dispatch a request to a service.
-    ///
-    /// # Errors
-    ///
-    /// Returns error if target service is not registered or dispatch fails.
-    pub fn invoke_service(
-        &mut self,
-        target: &services::ServiceCallTarget,
-        data: &HashMap<String, serde_json::Value>,
-    ) -> Result<services::ServiceCallResult> {
-        self.services
-            .invoke_service(target, data)
-            .map_err(Error::internal)
-    }
-
 
     // =============================================================================
     // Orchestrator Methods (Delegation to Orchestrator)

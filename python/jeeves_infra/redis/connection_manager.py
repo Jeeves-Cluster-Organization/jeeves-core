@@ -5,7 +5,7 @@ switches between single-node (in-memory) and distributed (Redis)
 backends based on deployment_mode configuration.
 """
 
-from typing import Optional, Tuple, List, Any
+from typing import Optional, Protocol, Tuple, List
 from jeeves_infra.settings import Settings
 from jeeves_infra.feature_flags import get_feature_flags
 from jeeves_infra.logging import get_current_logger
@@ -13,8 +13,8 @@ from jeeves_infra.protocols import LoggerProtocol
 from jeeves_infra.utils.strings import redact_url
 
 
-class StateBackend:
-    """Abstract interface for state storage backends."""
+class StateBackend(Protocol):
+    """Structural interface for state storage backends."""
 
     async def rate_limit_check(
         self,
@@ -23,7 +23,7 @@ class StateBackend:
         window_seconds: int
     ) -> Tuple[bool, int]:
         """Check if user is within rate limit."""
-        raise NotImplementedError
+        ...
 
     async def acquire_lock(
         self,
@@ -32,11 +32,11 @@ class StateBackend:
         owner: Optional[str] = None
     ) -> bool:
         """Acquire distributed/process lock."""
-        raise NotImplementedError
+        ...
 
     async def release_lock(self, key: str) -> bool:
         """Release lock."""
-        raise NotImplementedError
+        ...
 
     async def cache_embedding(
         self,
@@ -45,17 +45,17 @@ class StateBackend:
         ttl: int
     ) -> None:
         """Cache embedding vector."""
-        raise NotImplementedError
+        ...
 
     async def get_cached_embedding(
         self,
         text_hash: str
     ) -> Optional[List[float]]:
         """Retrieve cached embedding."""
-        raise NotImplementedError
+        ...
 
 
-class InMemoryStateBackend(StateBackend):
+class InMemoryStateBackend:
     """In-memory state backend for single-node deployments.
 
     Uses simple Python dicts with manual expiry tracking.
@@ -170,7 +170,7 @@ class InMemoryStateBackend(StateBackend):
         return None
 
 
-class RedisStateBackend(StateBackend):
+class RedisStateBackend:
     """Redis-based state backend for distributed deployments."""
 
     def __init__(self, redis_url: str, logger: Optional[LoggerProtocol] = None):

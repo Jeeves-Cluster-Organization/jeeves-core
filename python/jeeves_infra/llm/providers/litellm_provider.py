@@ -97,6 +97,12 @@ class LiteLLMProvider(LLMProvider):
     async def generate(
         self, model: str, prompt: str, options: Optional[Dict[str, Any]] = None
     ) -> str:
+        text, _usage = await self.generate_with_usage(model, prompt, options)
+        return text
+
+    async def generate_with_usage(
+        self, model: str, prompt: str, options: Optional[Dict[str, Any]] = None
+    ) -> tuple[str, Optional[Dict[str, int]]]:
         """
         Generate text completion via LiteLLM.
 
@@ -155,7 +161,10 @@ class LiteLLMProvider(LLMProvider):
                 cost_usd=cost_metrics.cost_usd,
             )
 
-            return text
+            return text, {
+                "prompt_tokens": int(prompt_tokens),
+                "completion_tokens": int(completion_tokens),
+            }
 
         except Exception as e:
             self._logger.error(

@@ -10,6 +10,7 @@ from __future__ import annotations
 import asyncio
 from dataclasses import dataclass, field
 from typing import Any, Callable, Dict, List, Optional, Protocol, AsyncIterator, Tuple, TYPE_CHECKING
+from jeeves_infra.protocols.interfaces import LLMProviderProtocol
 
 if TYPE_CHECKING:
     from jeeves_infra.protocols import Envelope, AgentConfig, PipelineConfig
@@ -18,12 +19,6 @@ if TYPE_CHECKING:
 # =============================================================================
 # PROTOCOLS
 # =============================================================================
-
-class LLMProvider(Protocol):
-    """Protocol for LLM providers."""
-    async def complete(self, messages: List[Dict[str, str]], **kwargs) -> str:
-        ...
-
 
 class ToolExecutor(Protocol):
     """Protocol for tool execution."""
@@ -60,7 +55,7 @@ class EventContext(Protocol):
 # TYPE ALIASES
 # =============================================================================
 
-LLMProviderFactory = Callable[[str], LLMProvider]
+LLMProviderFactory = Callable[[str], LLMProviderProtocol]
 PreProcessHook = Callable[["Envelope", Optional["Agent"]], "Envelope"]
 PostProcessHook = Callable[["Envelope", Dict[str, Any], Optional["Agent"]], "Envelope"]
 MockHandler = Callable[["Envelope"], Dict[str, Any]]
@@ -90,7 +85,7 @@ class Agent:
     """
     config: AgentConfig
     logger: Logger
-    llm: Optional[LLMProvider] = None
+    llm: Optional[LLMProviderProtocol] = None
     tools: Optional[ToolExecutor] = None
     prompt_registry: Optional[PromptRegistry] = None
     event_context: Optional[EventContext] = None
@@ -99,6 +94,7 @@ class Agent:
     pre_process: Optional[PreProcessHook] = None
     post_process: Optional[PostProcessHook] = None
     mock_handler: Optional[MockHandler] = None
+    _last_llm_usage: Optional[Dict[str, int]] = field(default=None, init=False, repr=False)
 
     @property
     def name(self) -> str:
@@ -110,6 +106,7 @@ class Agent:
     async def process(self, envelope: Envelope) -> Envelope:
         """Process envelope through this agent."""
         self.logger.info(f"{self.name}_started", envelope_id=envelope.envelope_id)
+        self._last_llm_usage = None
 
         if self.event_context:
             await self.event_context.emit_agent_started(self.name)
@@ -130,6 +127,8 @@ class Agent:
         # Tool execution
         if self.config.has_tools and self.tools and output.get("tool_calls"):
             output = await self._execute_tools(envelope, output)
+
+        self._record_run_metrics(envelope, output)
 
         # Debug log output structure for diagnostics
         output_keys = list(output.keys()) if isinstance(output, dict) else []
@@ -190,7 +189,25 @@ class Agent:
 
         # Call LLM provider's generate() method
         # model is empty string since llama-server loads a single model
-        response = await self.llm.generate(model="", prompt=prompt, options=options)
+        response: str
+        usage: Optional[Dict[str, int]] = None
+        if hasattr(self.llm, "generate_with_usage"):
+            response, usage = await self.llm.generate_with_usage(
+                model="",
+                prompt=prompt,
+                options=options,
+            )
+        else:
+            response = await self.llm.generate(model="", prompt=prompt, options=options)
+
+        if isinstance(usage, dict):
+            prompt_tokens = usage.get("prompt_tokens")
+            completion_tokens = usage.get("completion_tokens")
+            if isinstance(prompt_tokens, int) and isinstance(completion_tokens, int):
+                self._last_llm_usage = {
+                    "tokens_in": prompt_tokens,
+                    "tokens_out": completion_tokens,
+                }
         envelope.llm_call_count += 1
 
         # Use JSONRepairKit for robust parsing of LLM output
@@ -235,6 +252,29 @@ class Agent:
         if self.config.allowed_tools:
             return tool_name in self.config.allowed_tools
         return True
+
+    def _record_run_metrics(self, envelope: Envelope, output: Dict[str, Any]) -> None:
+        tool_calls = 0
+        if isinstance(output, dict):
+            calls = output.get("tool_calls", [])
+            if isinstance(calls, list):
+                tool_calls = len(calls)
+
+        metrics = {
+            "tool_calls": tool_calls,
+        }
+        if isinstance(self._last_llm_usage, dict):
+            if isinstance(self._last_llm_usage.get("tokens_in"), int):
+                metrics["tokens_in"] = self._last_llm_usage["tokens_in"]
+            if isinstance(self._last_llm_usage.get("tokens_out"), int):
+                metrics["tokens_out"] = self._last_llm_usage["tokens_out"]
+
+        if not isinstance(envelope.metadata, dict):
+            envelope.metadata = {}
+        envelope.metadata.setdefault("_agent_run_metrics", {})
+        by_agent = envelope.metadata["_agent_run_metrics"]
+        if isinstance(by_agent, dict):
+            by_agent[self.name] = metrics
 
     async def stream(self, envelope: Envelope) -> AsyncIterator[Tuple[str, Any]]:
         """Streaming execution (token/event emission).

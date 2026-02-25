@@ -1,7 +1,9 @@
 //! Orchestration service handler — session management, instruction pipeline.
 
 use crate::envelope::Envelope;
-use crate::ipc::handlers::validation::{parse_non_negative_i32, require_non_negative_i64};
+use crate::ipc::handlers::validation::{
+    parse_non_negative_i32, parse_optional_non_negative_i64, require_non_negative_i64,
+};
 use crate::ipc::router::{str_field, DispatchResponse};
 use crate::kernel::orchestrator::{AgentExecutionMetrics, PipelineConfig};
 use crate::kernel::Kernel;
@@ -53,7 +55,13 @@ pub async fn handle(kernel: &mut Kernel, method: &str, body: Value) -> Result<Di
             let process_id = ProcessId::from_string(process_id_str)
                 .map_err(|e| Error::validation(e.to_string()))?;
 
-            let agent_name = str_field(&body, "agent_name")?;
+            let agent_name = str_field(&body, "agent_name")?.to_string();
+            let success = body.get("success").and_then(|v| v.as_bool()).unwrap_or(true);
+            let error_message = body
+                .get("error")
+                .and_then(|v| v.as_str())
+                .unwrap_or_default()
+                .to_string();
 
             let output: Value = body
                 .get("output")
@@ -71,12 +79,12 @@ pub async fn handle(kernel: &mut Kernel, method: &str, body: Value) -> Result<Di
                         m.get("tool_calls").and_then(|v| v.as_i64()).unwrap_or(0),
                         "metrics.tool_calls",
                     )?,
-                    tokens_in: require_non_negative_i64(
-                        m.get("tokens_in").and_then(|v| v.as_i64()).unwrap_or(0),
+                    tokens_in: parse_optional_non_negative_i64(
+                        m.get("tokens_in"),
                         "metrics.tokens_in",
                     )?,
-                    tokens_out: require_non_negative_i64(
-                        m.get("tokens_out").and_then(|v| v.as_i64()).unwrap_or(0),
+                    tokens_out: parse_optional_non_negative_i64(
+                        m.get("tokens_out"),
                         "metrics.tokens_out",
                     )?,
                     duration_ms: require_non_negative_i64(
@@ -88,8 +96,8 @@ pub async fn handle(kernel: &mut Kernel, method: &str, body: Value) -> Result<Di
                 AgentExecutionMetrics {
                     llm_calls: 0,
                     tool_calls: 0,
-                    tokens_in: 0,
-                    tokens_out: 0,
+                    tokens_in: None,
+                    tokens_out: None,
                     duration_ms: 0,
                 }
             };
@@ -100,13 +108,26 @@ pub async fn handle(kernel: &mut Kernel, method: &str, body: Value) -> Result<Di
                 .ok_or_else(|| Error::not_found(format!("Envelope not found: {}", process_id)))?
                 .clone();
 
+            let mut agent_output = HashMap::new();
             if let Value::Object(output_map) = output {
-                let mut agent_output = HashMap::new();
                 for (key, value) in output_map {
                     agent_output.insert(key, value);
                 }
-                envelope.outputs.insert(agent_name, agent_output);
             }
+            if !success {
+                agent_output.insert("success".to_string(), Value::Bool(false));
+                if !error_message.is_empty() {
+                    agent_output.insert("error".to_string(), Value::String(error_message.clone()));
+                }
+                envelope.audit.metadata.insert(
+                    "last_agent_failure".to_string(),
+                    serde_json::json!({
+                        "agent_name": agent_name,
+                        "error": error_message,
+                    }),
+                );
+            }
+            envelope.outputs.insert(agent_name.clone(), agent_output);
 
             kernel.report_agent_result(&process_id, metrics, envelope)?;
 
@@ -150,16 +171,14 @@ pub fn instruction_to_value(instr: &crate::kernel::orchestrator::Instruction) ->
         .and_then(|v| v.as_str().map(|s| s.to_string()))
         .unwrap_or_default();
 
-    let agent_config = instr.agent_config.as_ref().map(|v| v.to_string());
     let envelope = instr
         .envelope
         .as_ref()
-        .and_then(|e| serde_json::to_string(e).ok());
+        .and_then(|e| serde_json::to_value(e).ok());
 
     serde_json::json!({
         "kind": kind_str,
         "agent_name": instr.agent_name.as_deref().unwrap_or(""),
-        "agent_config": agent_config,
         "envelope": envelope,
         "terminal_reason": terminal_reason_str,
         "termination_message": instr.termination_message.as_deref().unwrap_or(""),
@@ -170,7 +189,6 @@ pub fn instruction_to_value(instr: &crate::kernel::orchestrator::Instruction) ->
 
 /// Convert SessionState to the dict shape expected by `kernel_client.py._dict_to_session_state`.
 pub fn session_state_to_value(state: &crate::kernel::orchestrator::SessionState) -> Value {
-    let envelope_str = serde_json::to_string(&state.envelope).ok();
     let terminal_reason_str = state
         .terminal_reason
         .as_ref()
@@ -182,7 +200,7 @@ pub fn session_state_to_value(state: &crate::kernel::orchestrator::SessionState)
         "process_id": state.process_id.as_str(),
         "current_stage": state.current_stage,
         "stage_order": state.stage_order,
-        "envelope": envelope_str,
+        "envelope": state.envelope.clone(),
         "edge_traversals": state.edge_traversals,
         "terminated": state.terminated,
         "terminal_reason": terminal_reason_str,

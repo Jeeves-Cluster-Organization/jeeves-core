@@ -22,8 +22,6 @@ from jeeves_infra.memory.messages.events import (
 
 from jeeves_infra.memory.messages.queries import (
     GetSessionState,
-    SearchMemory,
-    GetClarificationContext,
     GetRecentEntities,
 )
 
@@ -46,8 +44,6 @@ __all__ = [
     "ClarificationResolved",
     # Queries
     "GetSessionState",
-    "SearchMemory",
-    "GetClarificationContext",
     "GetRecentEntities",
     # Commands
     "ClearSession",

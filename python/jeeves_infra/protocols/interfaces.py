@@ -153,6 +153,13 @@ class LLMProviderProtocol(Protocol):
         options: Optional[Dict[str, Any]] = None,
     ) -> str: ...
 
+    async def generate_with_usage(
+        self,
+        model: str,
+        prompt: str,
+        options: Optional[Dict[str, Any]] = None,
+    ) -> tuple[str, Optional[Dict[str, int]]]: ...
+
     async def generate_stream(
         self,
         model: str,

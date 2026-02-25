@@ -265,41 +265,12 @@ class PipelineWorker:
                     envelope = self._merge_envelope(envelope, instruction.envelope)
 
                 # Execute agent
-                start_time = time.time()
-                llm_calls_before = envelope.llm_call_count
-
-                try:
-                    envelope = await agent.process(envelope)
-                    success = True
-                    error = ""
-                except Exception as e:
-                    self._logger.error(
-                        "worker_agent_error",
-                        process_id=process_id,
-                        agent_name=agent_name,
-                        error=str(e),
-                    )
-                    success = False
-                    error = str(e)
-
-                # Calculate metrics
-                duration_ms = int((time.time() - start_time) * 1000)
-                llm_calls = envelope.llm_call_count - llm_calls_before
-
-                metrics = AgentExecutionMetrics(
-                    llm_calls=llm_calls,
-                    tool_calls=0,  # TODO: track tool calls
-                    tokens_in=0,   # TODO: track tokens
-                    tokens_out=0,
-                    duration_ms=duration_ms,
+                envelope, success, error, output, metrics = await self._run_agent(
+                    envelope=envelope,
+                    process_id=process_id,
+                    agent_name=agent_name,
+                    agent=agent,
                 )
-
-                # Get output from envelope
-                output = None
-                agent_config = instruction.agent_config
-                if agent_config and success:
-                    output_key = agent_config.get("output_key", agent_name)
-                    output = envelope.outputs.get(output_key, {})
 
                 # Report result to kernel and get next instruction
                 try:
@@ -327,11 +298,6 @@ class PipelineWorker:
                         await self._persistence.save_state(thread_id, envelope.to_state_dict())
                     except Exception as e:
                         self._logger.warning("worker_persistence_failed", error=str(e))
-
-                # Continue loop - the instruction from report_agent_result
-                # will be handled in the next iteration
-                # We need to handle it now actually since we got a new instruction
-                # Let me refactor to handle it properly
 
             else:
                 self._logger.warning(
@@ -437,29 +403,13 @@ class PipelineWorker:
                 if instruction.envelope:
                     envelope = self._merge_envelope(envelope, instruction.envelope)
 
-                start_time = time.time()
-                llm_calls_before = envelope.llm_call_count
-
-                try:
-                    envelope = await agent.process(envelope)
-                    success = True
-                    error = ""
-                except Exception as e:
-                    success = False
-                    error = str(e)
-
-                duration_ms = int((time.time() - start_time) * 1000)
-                llm_calls = envelope.llm_call_count - llm_calls_before
-
-                metrics = AgentExecutionMetrics(
-                    llm_calls=llm_calls,
-                    duration_ms=duration_ms,
+                envelope, success, error, output, metrics = await self._run_agent(
+                    envelope=envelope,
+                    process_id=process_id,
+                    agent_name=agent_name,
+                    agent=agent,
+                    log_errors=False,
                 )
-
-                output = None
-                if instruction.agent_config and success:
-                    output_key = instruction.agent_config.get("output_key", agent_name)
-                    output = envelope.outputs.get(output_key, {})
 
                 await self._kernel.report_agent_result(
                     process_id=process_id,
@@ -479,6 +429,55 @@ class PipelineWorker:
                         await self._persistence.save_state(thread_id, envelope.to_state_dict())
                     except Exception:
                         pass
+
+    async def _run_agent(
+        self,
+        envelope: Envelope,
+        process_id: str,
+        agent_name: str,
+        agent: AgentProtocol,
+        *,
+        log_errors: bool = True,
+    ) -> Tuple[Envelope, bool, str, Optional[Dict[str, Any]], AgentExecutionMetrics]:
+        """Run one agent execution step and return updated envelope/output/metrics."""
+        start_time = time.time()
+        llm_calls_before = envelope.llm_call_count
+        outputs_before = (
+            set(envelope.outputs.keys()) if isinstance(envelope.outputs, dict) else set()
+        )
+
+        try:
+            envelope = await agent.process(envelope)
+            success = True
+            error = ""
+        except Exception as e:
+            if log_errors:
+                self._logger.error(
+                    "worker_agent_error",
+                    process_id=process_id,
+                    agent_name=agent_name,
+                    error=str(e),
+                )
+            success = False
+            error = str(e)
+
+        duration_ms = int((time.time() - start_time) * 1000)
+        llm_calls = envelope.llm_call_count - llm_calls_before
+        agent_output = (
+            self._select_agent_output(envelope, agent_name, outputs_before)
+            if success
+            else {}
+        )
+        agent_metrics = self._extract_agent_metrics(envelope, agent_name, agent_output)
+        metrics = AgentExecutionMetrics(
+            llm_calls=llm_calls,
+            tool_calls=agent_metrics["tool_calls"],
+            tokens_in=agent_metrics["tokens_in"],
+            tokens_out=agent_metrics["tokens_out"],
+            duration_ms=duration_ms,
+        )
+        output = agent_output if success else None
+        return envelope, success, error, output, metrics
 
     def _merge_envelope(self, envelope: Envelope, kernel_state: Dict[str, Any]) -> Envelope:
         """Merge kernel envelope state into Python envelope.
@@ -510,6 +509,61 @@ class PipelineWorker:
             # Merge outputs - kernel may have updated them
             envelope.outputs.update(kernel_state["outputs"])
         return envelope
+
+    def _extract_agent_metrics(
+        self,
+        envelope: Envelope,
+        agent_name: str,
+        agent_output: Dict[str, Any],
+    ) -> Dict[str, Optional[int]]:
+        has_tool_calls = False
+        tool_calls = 0
+
+        tokens_in: Optional[int] = None
+        tokens_out: Optional[int] = None
+        meta = envelope.metadata if isinstance(envelope.metadata, dict) else {}
+        by_agent = meta.get("_agent_run_metrics", {})
+        if isinstance(by_agent, dict):
+            run_metrics = by_agent.get(agent_name, {})
+            if isinstance(run_metrics, dict):
+                if isinstance(run_metrics.get("tool_calls"), int):
+                    tool_calls = run_metrics["tool_calls"]
+                    has_tool_calls = True
+                if isinstance(run_metrics.get("tokens_in"), int):
+                    tokens_in = run_metrics["tokens_in"]
+                if isinstance(run_metrics.get("tokens_out"), int):
+                    tokens_out = run_metrics["tokens_out"]
+
+        if not has_tool_calls and isinstance(agent_output, dict):
+            calls = agent_output.get("tool_calls", [])
+            if isinstance(calls, list):
+                tool_calls = len(calls)
+
+        return {
+            "tool_calls": tool_calls,
+            "tokens_in": tokens_in,
+            "tokens_out": tokens_out,
+        }
+
+    def _select_agent_output(
+        self,
+        envelope: Envelope,
+        agent_name: str,
+        outputs_before: set[str],
+    ) -> Dict[str, Any]:
+        if not isinstance(envelope.outputs, dict):
+            return {}
+
+        if isinstance(envelope.outputs.get(agent_name), dict):
+            return envelope.outputs[agent_name]
+
+        new_keys = [k for k in envelope.outputs.keys() if k not in outputs_before]
+        for key in reversed(new_keys):
+            value = envelope.outputs.get(key)
+            if isinstance(value, dict):
+                return value
+
+        return {}
 
 
 __all__ = [

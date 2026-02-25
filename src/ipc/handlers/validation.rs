@@ -4,6 +4,7 @@
 //! before being passed to kernel internals, preventing silent integer overflow.
 
 use crate::types::{Error, Result};
+use serde_json::Value;
 
 /// Safely convert an i64 (from JSON) to i32, rejecting out-of-range values.
 pub fn safe_i64_to_i32(value: i64, field: &str) -> Result<i32> {
@@ -26,4 +27,18 @@ pub fn require_non_negative_i64(value: i64, field: &str) -> Result<i64> {
 pub fn parse_non_negative_i32(value: i64, field: &str) -> Result<i32> {
     require_non_negative_i64(value, field)?;
     safe_i64_to_i32(value, field)
+}
+
+/// Parse an optional i64 field from JSON and require non-negative values when present.
+pub fn parse_optional_non_negative_i64(value: Option<&Value>, field: &str) -> Result<Option<i64>> {
+    match value {
+        None => Ok(None),
+        Some(v) => {
+            let parsed = v
+                .as_i64()
+                .ok_or_else(|| Error::validation(format!("{field} must be an integer")))?;
+            require_non_negative_i64(parsed, field)?;
+            Ok(Some(parsed))
+        }
+    }
 }

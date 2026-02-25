@@ -3,6 +3,7 @@
 use std::net::SocketAddr;
 use std::sync::Arc;
 use std::time::Duration;
+use tokio::io::AsyncWrite;
 use tokio::net::TcpListener;
 use tokio::sync::{mpsc, oneshot, OwnedSemaphorePermit, Semaphore};
 use tokio_util::sync::CancellationToken;
@@ -14,19 +15,71 @@ use crate::ipc::router::{self, DispatchResponse};
 use crate::kernel::Kernel;
 use crate::types::IpcConfig;
 
-const SUPPORTED_PROTOCOL_MAJOR: u64 = 1;
-
-fn required_str_field<'a>(request: &'a serde_json::Value, key: &str) -> std::io::Result<&'a str> {
+fn required_str_field<'a>(
+    request: &'a serde_json::Value,
+    key: &str,
+) -> std::result::Result<&'a str, String> {
     request
         .get(key)
         .and_then(|v| v.as_str())
         .filter(|s| !s.is_empty())
-        .ok_or_else(|| {
-            std::io::Error::new(
-                std::io::ErrorKind::InvalidInput,
-                format!("Missing required request field: {}", key),
-            )
-        })
+        .ok_or_else(|| format!("Missing required request field: {}", key))
+}
+
+struct ParsedRequest {
+    request_id: String,
+    service: String,
+    method: String,
+    body: serde_json::Value,
+}
+
+struct RequestValidationError {
+    request_id: String,
+    message: String,
+}
+
+fn parse_request(request: &serde_json::Value) -> std::result::Result<ParsedRequest, RequestValidationError> {
+    let request_id_hint = request
+        .get("id")
+        .and_then(|v| v.as_str())
+        .unwrap_or("")
+        .to_string();
+
+    let request_id = required_str_field(request, "id")
+        .map(str::to_string)
+        .map_err(|message| RequestValidationError {
+            request_id: request_id_hint.clone(),
+            message,
+        })?;
+
+    let service = required_str_field(request, "service")
+        .map(str::to_string)
+        .map_err(|message| RequestValidationError {
+            request_id: request_id.clone(),
+            message,
+        })?;
+
+    let method = required_str_field(request, "method")
+        .map(str::to_string)
+        .map_err(|message| RequestValidationError {
+            request_id: request_id.clone(),
+            message,
+        })?;
+
+    let body = request
+        .get("body")
+        .cloned()
+        .ok_or_else(|| RequestValidationError {
+            request_id: request_id.clone(),
+            message: "Missing required request field: body".to_string(),
+        })?;
+
+    Ok(ParsedRequest {
+        request_id,
+        service,
+        method,
+        body,
+    })
 }
 
 /// Encode a JSON value to msgpack. Logs and returns an error on failure
@@ -36,6 +89,33 @@ fn encode_msgpack(value: &serde_json::Value) -> std::io::Result<Vec<u8>> {
         tracing::error!("Msgpack encoding failed: {}", e);
         std::io::Error::new(std::io::ErrorKind::InvalidData, e.to_string())
     })
+}
+
+async fn send_error_response<W: AsyncWrite + Unpin>(
+    writer: &mut W,
+    response: &serde_json::Value,
+    timeout: Duration,
+) -> std::io::Result<()> {
+    let encoded = encode_msgpack(response)?;
+    timed_write(writer, MSG_ERROR, &encoded, timeout).await
+}
+
+async fn send_error<W: AsyncWrite + Unpin>(
+    writer: &mut W,
+    request_id: &str,
+    code: &str,
+    message: impl Into<String>,
+    timeout: Duration,
+) -> std::io::Result<()> {
+    let response = serde_json::json!({
+        "id": request_id,
+        "ok": false,
+        "error": {
+            "code": code,
+            "message": message.into(),
+        }
+    });
+    send_error_response(writer, &response, timeout).await
 }
 
 /// IPC server wrapping the kernel.
@@ -161,16 +241,14 @@ async fn handle_connection(
                 let (msg_type, payload_bytes) = frame;
 
                 if msg_type != MSG_REQUEST {
-                    let err_payload = serde_json::json!({
-                        "id": "",
-                        "ok": false,
-                        "error": {
-                            "code": "INVALID_ARGUMENT",
-                            "message": format!("Unexpected message type: 0x{:02X}", msg_type),
-                        }
-                    });
-                    let encoded = encode_msgpack(&err_payload)?;
-                    timed_write(&mut writer, MSG_ERROR, &encoded, write_timeout).await?;
+                    send_error(
+                        &mut writer,
+                        "",
+                        "INVALID_ARGUMENT",
+                        format!("Unexpected message type: 0x{:02X}", msg_type),
+                        write_timeout,
+                    )
+                    .await?;
                     continue;
                 }
 
@@ -178,81 +256,89 @@ async fn handle_connection(
                 let request: serde_json::Value = match rmp_serde::from_slice(&payload_bytes) {
                     Ok(v) => v,
                     Err(e) => {
-                        let err_payload = serde_json::json!({
-                            "id": "",
-                            "ok": false,
-                            "error": {
-                                "code": "INVALID_ARGUMENT",
-                                "message": format!("Invalid msgpack: {}", e),
-                            }
-                        });
-                        let encoded = encode_msgpack(&err_payload)?;
-                        timed_write(&mut writer, MSG_ERROR, &encoded, write_timeout).await?;
+                        send_error(
+                            &mut writer,
+                            "",
+                            "INVALID_ARGUMENT",
+                            format!("Invalid msgpack: {}", e),
+                            write_timeout,
+                        )
+                        .await?;
                         continue;
                     }
                 };
 
-                let request_id = required_str_field(&request, "id")?.to_string();
-                let service = required_str_field(&request, "service")?;
-                let method = required_str_field(&request, "method")?;
-                let body = request
-                    .get("body")
-                    .cloned()
-                    .ok_or_else(|| {
-                        std::io::Error::new(
-                            std::io::ErrorKind::InvalidInput,
-                            "Missing required request field: body",
+                let ParsedRequest {
+                    request_id,
+                    service,
+                    method,
+                    body,
+                } = match parse_request(&request) {
+                    Ok(parsed) => parsed,
+                    Err(validation_error) => {
+                        send_error(
+                            &mut writer,
+                            &validation_error.request_id,
+                            "INVALID_ARGUMENT",
+                            validation_error.message,
+                            write_timeout,
                         )
-                    })?;
-
-                let protocol_major = request
-                    .get("protocol_version")
-                    .and_then(|v| v.as_u64())
-                    .ok_or_else(|| {
-                        std::io::Error::new(
-                            std::io::ErrorKind::InvalidInput,
-                            "Missing required request field: protocol_version",
-                        )
-                    })?;
-                if protocol_major != SUPPORTED_PROTOCOL_MAJOR {
-                    let response = serde_json::json!({
-                        "id": request_id,
-                        "ok": false,
-                        "error": {
-                            "code": "INVALID_ARGUMENT",
-                            "message": format!(
-                                "Unsupported protocol_version {} (supported: {})",
-                                protocol_major, SUPPORTED_PROTOCOL_MAJOR
-                            ),
-                            "supported_protocol_major": SUPPORTED_PROTOCOL_MAJOR,
-                        }
-                    });
-                    let encoded = encode_msgpack(&response)?;
-                    timed_write(&mut writer, MSG_ERROR, &encoded, write_timeout).await?;
-                    continue;
-                }
+                        .await?;
+                        continue;
+                    }
+                };
 
                 let (response_tx, response_rx) = oneshot::channel();
                 let command = KernelCommand {
-                    service: service.to_string(),
-                    method: method.to_string(),
+                    service,
+                    method,
                     body,
                     response_tx,
                 };
 
-                kernel_tx.try_send(command).map_err(|e| {
-                    std::io::Error::new(
-                        std::io::ErrorKind::WouldBlock,
-                        format!("Kernel actor unavailable: {}", e),
-                    )
-                })?;
+                match kernel_tx.try_send(command) {
+                    Ok(()) => {}
+                    Err(tokio::sync::mpsc::error::TrySendError::Full(_)) => {
+                        let response = serde_json::json!({
+                            "id": request_id,
+                            "ok": false,
+                            "error": {
+                                "code": "RESOURCE_EXHAUSTED",
+                                "message": "Kernel request queue is full; retry shortly",
+                                "retryable": true,
+                                "kernel_queue_capacity": ipc_config.kernel_queue_capacity,
+                            }
+                        });
+                        send_error_response(&mut writer, &response, write_timeout).await?;
+                        continue;
+                    }
+                    Err(tokio::sync::mpsc::error::TrySendError::Closed(_)) => {
+                        send_error(
+                            &mut writer,
+                            &request_id,
+                            "UNAVAILABLE",
+                            "Kernel actor is unavailable",
+                            write_timeout,
+                        )
+                        .await?;
+                        continue;
+                    }
+                }
 
-                let result = response_rx.await.map_err(|_| {
-                    std::io::Error::new(
-                        std::io::ErrorKind::BrokenPipe,
-                        "Kernel actor terminated while request was in flight",
-                    )
-                })?;
+                let result = match response_rx.await {
+                    Ok(result) => result,
+                    Err(_) => {
+                        send_error(
+                            &mut writer,
+                            &request_id,
+                            "UNAVAILABLE",
+                            "Kernel actor terminated while request was in flight",
+                            write_timeout,
+                        )
+                        .await?;
+                        continue;
+                    }
+                };
 
                 match result {
                     Ok(DispatchResponse::Single(response_body)) => {
@@ -280,16 +366,14 @@ async fn handle_connection(
                         timed_write(&mut writer, MSG_STREAM_END, &encoded, write_timeout).await?;
                     }
                     Err(e) => {
-                        let response = serde_json::json!({
-                            "id": request_id,
-                            "ok": false,
-                            "error": {
-                                "code": e.to_ipc_error_code(),
-                                "message": e.to_string(),
-                            }
-                        });
-                        let encoded = encode_msgpack(&response)?;
-                        timed_write(&mut writer, MSG_ERROR, &encoded, write_timeout).await?;
+                        send_error(
+                            &mut writer,
+                            &request_id,
+                            e.to_ipc_error_code(),
+                            e.to_string(),
+                            write_timeout,
+                        )
+                        .await?;
                     }
                 }
             }
@@ -335,7 +419,7 @@ async fn run_kernel_actor(
 
 /// Write a frame with a timeout. Returns an error if the write takes too long
 /// (prevents slow consumers from holding connections indefinitely).
-async fn timed_write<W: tokio::io::AsyncWriteExt + Unpin>(
+async fn timed_write<W: AsyncWrite + Unpin>(
     writer: &mut W,
     msg_type: u8,
     payload: &[u8],

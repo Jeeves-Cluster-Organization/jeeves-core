@@ -38,7 +38,6 @@ Every request is a MessagePack object with:
   "id": "unique-request-id",
   "service": "kernel",
   "method": "CreateProcess",
-  "protocol_version": 1,
   "body": { ... }
 }
 ```
@@ -48,13 +47,8 @@ Every request is a MessagePack object with:
 | `id` | string | Yes | Correlation ID echoed in responses |
 | `service` | string | Yes | Target service (`kernel`, `engine`, `orchestration`, `commbus`) |
 | `method` | string | Yes | Method name within the service |
-| `protocol_version` | u64 | Yes | Protocol major version (must be `1`) |
 | `body` | object | Yes | Method-specific parameters |
-
-## Protocol Versioning
-
-- Server supports **one protocol major**: `1`.
-- Any other major value is rejected with `INVALID_ARGUMENT` and includes `supported_protocol_major` in the error payload.
+- Missing required request fields (`id`, `service`, `method`, `body`) are rejected with `INVALID_ARGUMENT` and do not close the TCP connection.
 
 ## Response Format
 
@@ -94,8 +88,11 @@ Every request is a MessagePack object with:
 |------|---------|
 | `NOT_FOUND` | Resource does not exist |
 | `INVALID_ARGUMENT` | Validation failure or malformed input |
-| `STATE_TRANSITION` | Invalid process state transition |
-| `QUOTA_EXCEEDED` | Resource quota limit reached |
+| `FAILED_PRECONDITION` | Invalid process state transition |
+| `RESOURCE_EXHAUSTED` | Quota exceeded or kernel request queue saturated |
+| `UNAVAILABLE` | Kernel actor unavailable or terminated mid-request |
+| `CANCELLED` | Operation cancelled |
+| `TIMEOUT` | Operation timed out |
 | `INTERNAL` | Unexpected server error |
 
 ## Connection Limits
@@ -103,9 +100,15 @@ Every request is a MessagePack object with:
 | Parameter | Default | Description |
 |-----------|---------|-------------|
 | `max_connections` | 1000 | Concurrent TCP connections (semaphore backpressure) |
+| `kernel_queue_capacity` | 2048 | Max in-flight requests queued for the kernel actor |
 | `read_timeout_secs` | 30 | Idle read timeout per frame |
 | `write_timeout_secs` | 10 | Write timeout per frame (slow consumer protection) |
 | `max_frame_bytes` | 5 MB | Maximum frame payload size |
+
+When `kernel_queue_capacity` is full, server responds with `MSG_ERROR`:
+- `code`: `RESOURCE_EXHAUSTED`
+- `retryable`: `true`
+- `kernel_queue_capacity`: configured capacity
 
 ---
 
@@ -158,8 +161,14 @@ Multi-agent pipeline session management.
 |--------|----------------|-------------|
 | `InitializeSession` | `process_id`, `pipeline_config`, `envelope` | Start orchestration session. Optional: `force` |
 | `GetNextInstruction` | `process_id` | Get next agent instruction for process |
-| `ReportAgentResult` | `process_id`, `agent_name` | Report agent execution result. Optional: `output`, `metrics` |
+| `ReportAgentResult` | `process_id`, `agent_name` | Report agent execution result. Optional: `success`, `error`, `output`, `metrics` |
 | `GetSessionState` | `process_id` | Get current session state |
+
+`ReportAgentResult` semantics:
+- `success` defaults to `true`.
+- If `success=false`, kernel records `{ "success": false, "error": ... }` in that agent's output.
+- `metrics.tokens_in` and `metrics.tokens_out` are optional.
+- Omitted token metrics are treated as unknown and do not increment token counters.
 
 ### commbus (4 methods)
 

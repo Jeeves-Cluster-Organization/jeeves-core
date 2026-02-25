@@ -18,6 +18,7 @@ from jeeves_infra.ipc.protocol import (
     MSG_ERROR,
     MAX_FRAME_SIZE,
     IpcError,
+    decode_frame,
     encode_frame,
 )
 from jeeves_infra.ipc.transport import IpcTransport
@@ -53,6 +54,13 @@ def _make_stream_chunk_frame(request_id: str, body: dict) -> bytes:
 
 def _make_stream_end_frame(request_id: str) -> bytes:
     return encode_frame(MSG_STREAM_END, {"id": request_id})
+
+
+def _decode_first_outbound_frame(raw_bytes: bytes) -> tuple[int, dict]:
+    """Decode the first outbound frame captured by the mock writer."""
+    frame_len = struct.unpack(">I", raw_bytes[:4])[0]
+    frame_data = raw_bytes[4:4 + frame_len]
+    return decode_frame(frame_data)
 
 
 class FakeKernel:
@@ -132,6 +140,9 @@ class TestRequestHappyPath:
         result = await transport.request("kernel", "CreateProcess", {"user_id": "u1"})
         await task
         assert result == {"pid": "p-1", "state": "NEW"}
+        msg_type, payload = _decode_first_outbound_frame(bytes(transport._writer.data))
+        assert msg_type == MSG_REQUEST
+        assert "protocol_version" not in payload
         await transport.close()
 
 
@@ -223,6 +234,9 @@ class TestStreaming:
         assert len(chunks) == 2
         assert chunks[0] == {"event": "msg1"}
         assert chunks[1] == {"event": "msg2"}
+        msg_type, payload = _decode_first_outbound_frame(bytes(transport._writer.data))
+        assert msg_type == MSG_REQUEST
+        assert "protocol_version" not in payload
         await transport.close()
 
 

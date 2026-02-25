@@ -89,6 +89,21 @@ class LLMProvider(ABC):
             token_count=len(result) // 4,  # Rough estimate
         )
 
+    async def generate_with_usage(
+        self,
+        model: str,
+        prompt: str,
+        options: Optional[Dict[str, Any]] = None,
+    ) -> tuple[str, Optional[Dict[str, int]]]:
+        """Generate text and optional token usage metadata.
+
+        Returns:
+            Tuple of (text, usage). `usage` should contain `prompt_tokens` and
+            `completion_tokens` when the provider can report them.
+        """
+        text = await self.generate(model, prompt, options)
+        return text, None
+
     @abstractmethod
     async def health_check(self) -> bool:
         """Check if the provider is available and responding.

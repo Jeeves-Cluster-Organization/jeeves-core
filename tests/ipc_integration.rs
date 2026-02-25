@@ -5,21 +5,23 @@ use jeeves_core::ipc::codec::{
 };
 use jeeves_core::ipc::IpcServer;
 use jeeves_core::kernel::Kernel;
+use jeeves_core::commbus::QueryResponse;
 use jeeves_core::IpcConfig;
 use tokio::io::AsyncReadExt;
 use tokio::net::TcpStream;
 
 /// Helper: spin up an IpcServer on a random port, return (addr, server_task).
-async fn start_test_server() -> (std::net::SocketAddr, tokio::task::JoinHandle<()>) {
-    let kernel = Kernel::new();
-
+async fn start_test_server_with(
+    kernel: Kernel,
+    ipc_config: IpcConfig,
+) -> (std::net::SocketAddr, tokio::task::JoinHandle<()>) {
     // Bind temporarily to get a free port, then drop immediately
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
     let addr = listener.local_addr().unwrap();
     drop(listener);
 
     let handle = tokio::spawn(async move {
-        let server = IpcServer::new(kernel, addr, IpcConfig::default());
+        let server = IpcServer::new(kernel, addr, ipc_config);
         let _ = server.serve().await;
     });
 
@@ -27,6 +29,31 @@ async fn start_test_server() -> (std::net::SocketAddr, tokio::task::JoinHandle<(
     tokio::time::sleep(std::time::Duration::from_millis(100)).await;
 
     (addr, handle)
+}
+
+/// Helper: spin up server with default Kernel + IpcConfig.
+async fn start_test_server() -> (std::net::SocketAddr, tokio::task::JoinHandle<()>) {
+    start_test_server_with(Kernel::new(), IpcConfig::default()).await
+}
+
+/// Helper: send an already-built request payload.
+async fn send_raw_request(stream: &mut TcpStream, request: serde_json::Value) {
+    let payload = rmp_serde::to_vec_named(&request).unwrap();
+    write_frame(stream, MSG_REQUEST, &payload).await.unwrap();
+}
+
+/// Helper: read one response frame.
+async fn read_response(stream: &mut TcpStream) -> (u8, serde_json::Value) {
+    // Read response frame
+    let mut len_buf = [0u8; 4];
+    stream.read_exact(&mut len_buf).await.unwrap();
+    let frame_len = u32::from_be_bytes(len_buf) as usize;
+    let mut frame_data = vec![0u8; frame_len];
+    stream.read_exact(&mut frame_data).await.unwrap();
+
+    let msg_type = frame_data[0];
+    let response: serde_json::Value = rmp_serde::from_slice(&frame_data[1..]).unwrap();
+    (msg_type, response)
 }
 
 /// Helper: send a request frame, receive and decode the response.
@@ -41,22 +68,10 @@ async fn round_trip(
         "service": service,
         "method": method,
         "body": body,
-        "protocol_version": 1,
     });
 
-    let payload = rmp_serde::to_vec_named(&request).unwrap();
-    write_frame(stream, MSG_REQUEST, &payload).await.unwrap();
-
-    // Read response frame
-    let mut len_buf = [0u8; 4];
-    stream.read_exact(&mut len_buf).await.unwrap();
-    let frame_len = u32::from_be_bytes(len_buf) as usize;
-    let mut frame_data = vec![0u8; frame_len];
-    stream.read_exact(&mut frame_data).await.unwrap();
-
-    let msg_type = frame_data[0];
-    let response: serde_json::Value = rmp_serde::from_slice(&frame_data[1..]).unwrap();
-    (msg_type, response)
+    send_raw_request(stream, request).await;
+    read_response(stream).await
 }
 
 #[tokio::test]
@@ -105,6 +120,142 @@ async fn test_unknown_service_returns_error() {
     assert_eq!(response.get("ok").unwrap().as_bool().unwrap(), false);
     let error = response.get("error").unwrap();
     assert_eq!(error.get("code").unwrap().as_str().unwrap(), "NOT_FOUND");
+}
+
+#[tokio::test]
+async fn test_missing_id_returns_error_and_connection_stays_open() {
+    let (addr, _handle) = start_test_server().await;
+    let mut stream = TcpStream::connect(addr).await.unwrap();
+
+    // Missing id should return INVALID_ARGUMENT with empty correlation id.
+    send_raw_request(
+        &mut stream,
+        serde_json::json!({
+            "service": "kernel",
+            "method": "GetSystemStatus",
+            "body": {},
+        }),
+    )
+    .await;
+    let (msg_type, response) = read_response(&mut stream).await;
+    assert_eq!(msg_type, MSG_ERROR);
+    assert_eq!(response.get("id").unwrap().as_str().unwrap(), "");
+    let error = response.get("error").unwrap();
+    assert_eq!(error.get("code").unwrap().as_str().unwrap(), "INVALID_ARGUMENT");
+    assert!(error.get("message").unwrap().as_str().unwrap().contains("id"));
+
+    // The same connection should remain usable.
+    let (msg_type, response) = round_trip(
+        &mut stream,
+        "kernel",
+        "GetSystemStatus",
+        serde_json::json!({}),
+    )
+    .await;
+    assert_eq!(msg_type, MSG_RESPONSE);
+    assert_eq!(response.get("ok").unwrap().as_bool().unwrap(), true);
+}
+
+#[tokio::test]
+async fn test_queue_full_returns_resource_exhausted_and_connection_stays_open() {
+    let kernel = Kernel::new();
+    let mut query_rx = kernel
+        .commbus
+        .register_query_handler("slow.query".to_string())
+        .await
+        .unwrap();
+
+    tokio::spawn(async move {
+        while let Some((_query, response_tx)) = query_rx.recv().await {
+            tokio::time::sleep(std::time::Duration::from_millis(600)).await;
+            let _ = response_tx.send(QueryResponse {
+                success: true,
+                result: b"{}".to_vec(),
+                error: String::new(),
+            });
+        }
+    });
+
+    let mut ipc_config = IpcConfig::default();
+    ipc_config.kernel_queue_capacity = 1;
+
+    let (addr, _handle) = start_test_server_with(kernel, ipc_config.clone()).await;
+    let mut stream1 = TcpStream::connect(addr).await.unwrap();
+    let mut stream2 = TcpStream::connect(addr).await.unwrap();
+    let mut stream3 = TcpStream::connect(addr).await.unwrap();
+
+    let slow_query_body = serde_json::json!({
+        "query_type": "slow.query",
+        "payload": "{}",
+        "source": "integration-test",
+        "timeout_ms": 2_000,
+    });
+
+    send_raw_request(
+        &mut stream1,
+        serde_json::json!({
+            "id": "q1",
+            "service": "commbus",
+            "method": "Query",
+            "body": slow_query_body.clone(),
+        }),
+    )
+    .await;
+    tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+
+    send_raw_request(
+        &mut stream2,
+        serde_json::json!({
+            "id": "q2",
+            "service": "commbus",
+            "method": "Query",
+            "body": slow_query_body.clone(),
+        }),
+    )
+    .await;
+    tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+
+    send_raw_request(
+        &mut stream3,
+        serde_json::json!({
+            "id": "q3",
+            "service": "commbus",
+            "method": "Query",
+            "body": slow_query_body,
+        }),
+    )
+    .await;
+
+    let (msg_type, response) = read_response(&mut stream3).await;
+    assert_eq!(msg_type, MSG_ERROR);
+    assert_eq!(response.get("id").unwrap().as_str().unwrap(), "q3");
+    let error = response.get("error").unwrap();
+    assert_eq!(
+        error.get("code").unwrap().as_str().unwrap(),
+        "RESOURCE_EXHAUSTED"
+    );
+    assert_eq!(error.get("retryable").unwrap().as_bool().unwrap(), true);
+    assert_eq!(
+        error.get("kernel_queue_capacity").unwrap().as_u64().unwrap(),
+        ipc_config.kernel_queue_capacity as u64
+    );
+
+    // Drain first two responses so the actor catches up.
+    let (msg_type, _) = read_response(&mut stream1).await;
+    assert_eq!(msg_type, MSG_RESPONSE);
+    let (msg_type, _) = read_response(&mut stream2).await;
+    assert_eq!(msg_type, MSG_RESPONSE);
+
+    // The saturated connection remains usable.
+    let (msg_type, response) = round_trip(
+        &mut stream3,
+        "kernel",
+        "GetSystemStatus",
+        serde_json::json!({}),
+    )
+    .await;
+    assert_eq!(msg_type, MSG_RESPONSE);
+    assert_eq!(response.get("ok").unwrap().as_bool().unwrap(), true);
 }
 
 #[tokio::test]
@@ -290,6 +441,112 @@ async fn test_execute_pipeline() {
     assert_eq!(
         body.get("agent_name").unwrap().as_str().unwrap(),
         "classifier"
+    );
+}
+
+#[tokio::test]
+async fn test_report_agent_result_failure_records_error_and_keeps_unknown_tokens() {
+    let (addr, _handle) = start_test_server().await;
+    let mut stream = TcpStream::connect(addr).await.unwrap();
+
+    let envelope = create_test_envelope(&mut stream).await;
+    let process_id = "proc-report-failure-1";
+
+    let pipeline_config = serde_json::json!({
+        "name": "test-pipeline",
+        "agents": [
+            {
+                "name": "classify",
+                "agent": "classifier",
+                "routing": [
+                    {"target": "respond", "condition": null, "value": null}
+                ]
+            },
+            {
+                "name": "respond",
+                "agent": "responder",
+                "routing": []
+            }
+        ],
+        "max_iterations": 5,
+        "max_llm_calls": 100,
+        "max_agent_hops": 20,
+        "edge_limits": []
+    });
+
+    let (msg_type, response) = round_trip(
+        &mut stream,
+        "orchestration",
+        "InitializeSession",
+        serde_json::json!({
+            "process_id": process_id,
+            "pipeline_config": pipeline_config,
+            "envelope": envelope,
+        }),
+    )
+    .await;
+    assert_eq!(msg_type, MSG_RESPONSE);
+    assert_eq!(response.get("ok").unwrap().as_bool().unwrap(), true);
+
+    let (msg_type, response) = round_trip(
+        &mut stream,
+        "orchestration",
+        "ReportAgentResult",
+        serde_json::json!({
+            "process_id": process_id,
+            "agent_name": "classifier",
+            "success": false,
+            "error": "simulated agent failure",
+            "metrics": {
+                "llm_calls": 0,
+                "tool_calls": 0,
+                "duration_ms": 5
+            }
+        }),
+    )
+    .await;
+
+    assert_eq!(msg_type, MSG_RESPONSE);
+    assert_eq!(response.get("ok").unwrap().as_bool().unwrap(), true);
+    let body = response.get("body").unwrap();
+    assert_eq!(body.get("kind").unwrap().as_str().unwrap(), "RUN_AGENT");
+    assert_eq!(body.get("agent_name").unwrap().as_str().unwrap(), "responder");
+
+    let (msg_type, response) = round_trip(
+        &mut stream,
+        "orchestration",
+        "GetSessionState",
+        serde_json::json!({
+            "process_id": process_id
+        }),
+    )
+    .await;
+    assert_eq!(msg_type, MSG_RESPONSE);
+    assert_eq!(response.get("ok").unwrap().as_bool().unwrap(), true);
+    let body = response.get("body").unwrap();
+    let env = body.get("envelope").unwrap();
+    let agent_output = env
+        .get("outputs")
+        .and_then(|v| v.get("classifier"))
+        .unwrap();
+    assert_eq!(agent_output.get("success").unwrap().as_bool().unwrap(), false);
+    assert_eq!(
+        agent_output.get("error").unwrap().as_str().unwrap(),
+        "simulated agent failure"
+    );
+    assert_eq!(
+        env.get("bounds")
+            .and_then(|b| b.get("tokens_in"))
+            .and_then(|v| v.as_i64())
+            .unwrap(),
+        0
+    );
+    assert_eq!(
+        env.get("bounds")
+            .and_then(|b| b.get("tokens_out"))
+            .and_then(|v| v.as_i64())
+            .unwrap(),
+        0
     );
 }
 

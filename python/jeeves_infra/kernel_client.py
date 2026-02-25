@@ -86,8 +86,8 @@ class AgentExecutionMetrics:
     """Metrics from agent execution."""
     llm_calls: int = 0
     tool_calls: int = 0
-    tokens_in: int = 0
-    tokens_out: int = 0
+    tokens_in: Optional[int] = None
+    tokens_out: Optional[int] = None
     duration_ms: int = 0
 
 
@@ -99,7 +99,6 @@ class OrchestratorInstruction:
     """Instruction from the kernel orchestrator."""
     kind: str  # RUN_AGENT, TERMINATE, WAIT_INTERRUPT
     agent_name: str = ""
-    agent_config: Optional[Dict[str, Any]] = None
     envelope: Optional[Dict[str, Any]] = None
     terminal_reason: str = ""
     termination_message: str = ""
@@ -609,13 +608,16 @@ class KernelClient:
             "error": error,
         }
         if metrics:
-            body["metrics"] = {
+            metrics_body: Dict[str, Any] = {
                 "llm_calls": metrics.llm_calls,
                 "tool_calls": metrics.tool_calls,
-                "tokens_in": metrics.tokens_in,
-                "tokens_out": metrics.tokens_out,
                 "duration_ms": metrics.duration_ms,
             }
+            if metrics.tokens_in is not None:
+                metrics_body["tokens_in"] = metrics.tokens_in
+            if metrics.tokens_out is not None:
+                metrics_body["tokens_out"] = metrics.tokens_out
+            body["metrics"] = metrics_body
         try:
             response = await self._transport.request("orchestration", "ReportAgentResult", body)
             return self._dict_to_instruction(response)
@@ -729,6 +731,20 @@ class KernelClient:
     # Internal Helpers
     # =========================================================================
 
+    def _parse_optional_json_object(self, raw_value: Any) -> Optional[Dict[str, Any]]:
+        """Parse a value that may already be an object or a JSON-encoded object."""
+        if raw_value is None:
+            return None
+        if isinstance(raw_value, dict):
+            return raw_value
+        if isinstance(raw_value, str):
+            try:
+                parsed = json.loads(raw_value)
+            except json.JSONDecodeError:
+                return None
+            return parsed if isinstance(parsed, dict) else None
+        return None
+
     def _dict_to_process_info(self, d: Dict[str, Any]) -> ProcessInfo:
         """Convert response dict to ProcessInfo."""
         usage = d.get("usage", {})
@@ -768,32 +784,11 @@ class KernelClient:
 
     def _dict_to_instruction(self, d: Dict[str, Any]) -> OrchestratorInstruction:
         """Convert response dict to OrchestratorInstruction."""
-        agent_config = None
-        raw_config = d.get("agent_config")
-        if raw_config:
-            if isinstance(raw_config, str):
-                try:
-                    agent_config = json.loads(raw_config)
-                except json.JSONDecodeError:
-                    pass
-            elif isinstance(raw_config, dict):
-                agent_config = raw_config
-
-        envelope = None
-        raw_envelope = d.get("envelope")
-        if raw_envelope:
-            if isinstance(raw_envelope, str):
-                try:
-                    envelope = json.loads(raw_envelope)
-                except json.JSONDecodeError:
-                    pass
-            elif isinstance(raw_envelope, dict):
-                envelope = raw_envelope
+        envelope = self._parse_optional_json_object(d.get("envelope"))
 
         return OrchestratorInstruction(
             kind=d.get("kind", "UNSPECIFIED"),
             agent_name=d.get("agent_name", ""),
-            agent_config=agent_config,
             envelope=envelope,
             terminal_reason=d.get("terminal_reason", ""),
             termination_message=d.get("termination_message", ""),
@@ -803,16 +798,7 @@ class KernelClient:
 
     def _dict_to_session_state(self, d: Dict[str, Any]) -> OrchestrationSessionState:
         """Convert response dict to OrchestrationSessionState."""
-        envelope = None
-        raw_envelope = d.get("envelope")
-        if raw_envelope:
-            if isinstance(raw_envelope, str):
-                try:
-                    envelope = json.loads(raw_envelope)
-                except json.JSONDecodeError:
-                    pass
-            elif isinstance(raw_envelope, dict):
-                envelope = raw_envelope
+        envelope = self._parse_optional_json_object(d.get("envelope"))
 
         return OrchestrationSessionState(
             process_id=d.get("process_id", ""),

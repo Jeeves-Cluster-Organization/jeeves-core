@@ -56,6 +56,15 @@ class OpenAIHTTPProvider(LLMProvider):
         prompt: str,
         options: Optional[Dict[str, Any]] = None,
     ) -> str:
+        text, _usage = await self.generate_with_usage(model, prompt, options)
+        return text
+
+    async def generate_with_usage(
+        self,
+        model: str,
+        prompt: str,
+        options: Optional[Dict[str, Any]] = None,
+    ) -> tuple[str, Optional[Dict[str, int]]]:
         """Generate completion via OpenAI-compatible API."""
         opts = options or {}
         model_to_use = model or self._model
@@ -82,6 +91,15 @@ class OpenAIHTTPProvider(LLMProvider):
 
                     data = response.json()
                     text = data["choices"][0]["message"]["content"] or ""
+                    usage = data.get("usage", {})
+                    prompt_tokens = usage.get("prompt_tokens")
+                    completion_tokens = usage.get("completion_tokens")
+                    usage_payload: Optional[Dict[str, int]] = None
+                    if isinstance(prompt_tokens, int) and isinstance(completion_tokens, int):
+                        usage_payload = {
+                            "prompt_tokens": prompt_tokens,
+                            "completion_tokens": completion_tokens,
+                        }
 
                     self._logger.info(
                         "openai_http_generation_complete",
@@ -89,7 +107,7 @@ class OpenAIHTTPProvider(LLMProvider):
                         response_length=len(text),
                     )
 
-                    return text
+                    return text, usage_payload
 
                 except httpx.HTTPStatusError as e:
                     if attempt == self._max_retries:

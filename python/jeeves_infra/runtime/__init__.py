@@ -10,7 +10,6 @@ Usage:
 
 from jeeves_infra.runtime.agents import (
     # Protocols
-    LLMProvider,
     ToolExecutor,
     Logger,
     Persistence,
@@ -33,7 +32,6 @@ from jeeves_infra.runtime.agents import (
 
 __all__ = [
     # Protocols
-    "LLMProvider",
     "ToolExecutor",
     "Logger",
     "Persistence",
