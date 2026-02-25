@@ -1,4 +1,4 @@
-//! Top-level IPC dispatcher — routes by service, delegates to handlers.
+//! Top-level IPC router — routes by service, delegates to handlers.
 
 use crate::ipc::handlers;
 use crate::kernel::Kernel;
@@ -16,8 +16,8 @@ pub enum DispatchResponse {
     Stream(mpsc::Receiver<Value>),
 }
 
-/// Dispatch an IPC request to the appropriate service handler.
-pub async fn dispatch(
+/// Route an IPC request to the appropriate service handler.
+pub async fn route_request(
     kernel: &mut Kernel,
     service: &str,
     method: &str,

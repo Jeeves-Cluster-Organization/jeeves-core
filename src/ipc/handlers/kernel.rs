@@ -4,24 +4,23 @@
 //! enabling downstream consumers (EventBridge → WebSocket → Frontend).
 
 use crate::commbus::Event;
-use crate::ipc::dispatch::{str_field, DispatchResponse};
 use crate::ipc::handlers::validation::{parse_non_negative_i32, require_non_negative_i64};
+use crate::ipc::router::{str_field, DispatchResponse};
 use crate::kernel::{Kernel, ProcessState, ResourceQuota, SchedulingPriority};
 use crate::types::{Error, ProcessId, RequestId, Result, SessionId, UserId};
 use serde_json::Value;
 
-pub async fn handle(
-    kernel: &mut Kernel,
-    method: &str,
-    body: Value,
-) -> Result<DispatchResponse> {
+pub async fn handle(kernel: &mut Kernel, method: &str, body: Value) -> Result<DispatchResponse> {
     match method {
         "CreateProcess" => {
             let pid_str = str_field(&body, "pid")?;
             let pid = ProcessId::from_string(pid_str.clone())
                 .map_err(|e| Error::validation(e.to_string()))?;
 
-            let request_id_str = body.get("request_id").and_then(|v| v.as_str()).unwrap_or("");
+            let request_id_str = body
+                .get("request_id")
+                .and_then(|v| v.as_str())
+                .unwrap_or("");
             let request_id = if request_id_str.is_empty() {
                 RequestId::new()
             } else {
@@ -37,7 +36,10 @@ pub async fn handle(
                     .map_err(|e| Error::validation(e.to_string()))?
             };
 
-            let session_id_str = body.get("session_id").and_then(|v| v.as_str()).unwrap_or("");
+            let session_id_str = body
+                .get("session_id")
+                .and_then(|v| v.as_str())
+                .unwrap_or("");
             let session_id = if session_id_str.is_empty() {
                 SessionId::new()
             } else {
@@ -47,14 +49,20 @@ pub async fn handle(
             let priority = parse_priority(&body)?;
             let quota = parse_quota(&body)?;
 
-            let pcb = kernel.create_process(pid, request_id, user_id, session_id, priority, quota)?;
+            let pcb =
+                kernel.create_process(pid, request_id, user_id, session_id, priority, quota)?;
 
-            emit_lifecycle_event(kernel, "process.created", serde_json::json!({
-                "pid": pcb.pid.as_str(),
-                "request_id": pcb.request_id.as_str(),
-                "user_id": pcb.user_id.as_str(),
-                "session_id": pcb.session_id.as_str(),
-            })).await;
+            emit_lifecycle_event(
+                kernel,
+                "process.created",
+                serde_json::json!({
+                    "pid": pcb.pid.as_str(),
+                    "request_id": pcb.request_id.as_str(),
+                    "user_id": pcb.user_id.as_str(),
+                    "session_id": pcb.session_id.as_str(),
+                }),
+            )
+            .await;
 
             Ok(DispatchResponse::Single(pcb_to_value(&pcb)))
         }
@@ -87,7 +95,11 @@ pub async fn handle(
             let pid = parse_pid(&body)?;
             let new_state_str = str_field(&body, "new_state")?;
             let new_state = parse_process_state(&new_state_str)?;
-            let reason = body.get("reason").and_then(|v| v.as_str()).unwrap_or("").to_string();
+            let reason = body
+                .get("reason")
+                .and_then(|v| v.as_str())
+                .unwrap_or("")
+                .to_string();
 
             let pcb = kernel
                 .get_process(&pid)
@@ -114,13 +126,18 @@ pub async fn handle(
                 .and_then(|v| v.as_str().map(|s| s.to_string()))
                 .unwrap_or_else(|| format!("{:?}", old_state));
 
-            emit_lifecycle_event(kernel, "process.state_changed", serde_json::json!({
-                "pid": pid.as_str(),
-                "old_state": old_state_str,
-                "new_state": new_state_str,
-                "reason": reason,
-                "session_id": session_id_str,
-            })).await;
+            emit_lifecycle_event(
+                kernel,
+                "process.state_changed",
+                serde_json::json!({
+                    "pid": pid.as_str(),
+                    "old_state": old_state_str,
+                    "new_state": new_state_str,
+                    "reason": reason,
+                    "session_id": session_id_str,
+                }),
+            )
+            .await;
 
             let pcb = kernel
                 .get_process(&pid)
@@ -136,10 +153,15 @@ pub async fn handle(
                 .get_process(&pid)
                 .ok_or_else(|| Error::not_found(format!("Process {} not found", pid)))?;
 
-            emit_lifecycle_event(kernel, "process.terminated", serde_json::json!({
-                "pid": pid.as_str(),
-                "session_id": pcb.session_id.as_str(),
-            })).await;
+            emit_lifecycle_event(
+                kernel,
+                "process.terminated",
+                serde_json::json!({
+                    "pid": pid.as_str(),
+                    "session_id": pcb.session_id.as_str(),
+                }),
+            )
+            .await;
 
             Ok(DispatchResponse::Single(pcb_to_value(pcb)))
         }
@@ -155,18 +177,23 @@ pub async fn handle(
             let exceeded_reason = result.err().map(|e| e.to_string()).unwrap_or_default();
 
             if !within_bounds {
-                emit_lifecycle_event(kernel, "resource.exhausted", serde_json::json!({
-                    "pid": pid.as_str(),
-                    "session_id": pcb.session_id.as_str(),
-                    "reason": exceeded_reason,
-                    "usage": {
-                        "llm_calls": pcb.usage.llm_calls,
-                        "tool_calls": pcb.usage.tool_calls,
-                        "agent_hops": pcb.usage.agent_hops,
-                        "tokens_in": pcb.usage.tokens_in,
-                        "tokens_out": pcb.usage.tokens_out,
-                    },
-                })).await;
+                emit_lifecycle_event(
+                    kernel,
+                    "resource.exhausted",
+                    serde_json::json!({
+                        "pid": pid.as_str(),
+                        "session_id": pcb.session_id.as_str(),
+                        "reason": exceeded_reason,
+                        "usage": {
+                            "llm_calls": pcb.usage.llm_calls,
+                            "tool_calls": pcb.usage.tool_calls,
+                            "agent_hops": pcb.usage.agent_hops,
+                            "tokens_in": pcb.usage.tokens_in,
+                            "tokens_out": pcb.usage.tokens_out,
+                        },
+                    }),
+                )
+                .await;
             }
 
             Ok(DispatchResponse::Single(serde_json::json!({
@@ -282,7 +309,9 @@ pub async fn handle(
 
             let process_values: Vec<Value> = filtered.iter().map(pcb_to_value).collect();
 
-            Ok(DispatchResponse::Single(serde_json::json!({ "processes": process_values })))
+            Ok(DispatchResponse::Single(
+                serde_json::json!({ "processes": process_values }),
+            ))
         }
 
         "GetProcessCounts" => {
@@ -303,10 +332,7 @@ pub async fn handle(
                     .ok()
                     .and_then(|v| v.as_str().map(|s| s.to_string()))
                     .unwrap_or_else(|| format!("{:?}", state));
-                counts_by_state.insert(
-                    state_key,
-                    Value::Number(count.into()),
-                );
+                counts_by_state.insert(state_key, Value::Number(count.into()));
             }
 
             Ok(DispatchResponse::Single(serde_json::json!({
@@ -364,7 +390,10 @@ pub async fn handle(
             })))
         }
 
-        _ => Err(Error::not_found(format!("Unknown kernel method: {}", method))),
+        _ => Err(Error::not_found(format!(
+            "Unknown kernel method: {}",
+            method
+        ))),
     }
 }
 

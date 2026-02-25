@@ -1,45 +1,42 @@
 //! Orchestration service handler — session management, instruction pipeline.
 
 use crate::envelope::Envelope;
-use crate::ipc::dispatch::{str_field, DispatchResponse};
 use crate::ipc::handlers::validation::{parse_non_negative_i32, require_non_negative_i64};
+use crate::ipc::router::{str_field, DispatchResponse};
 use crate::kernel::orchestrator::{AgentExecutionMetrics, PipelineConfig};
 use crate::kernel::Kernel;
 use crate::types::{Error, ProcessId, Result};
 use serde_json::Value;
 use std::collections::HashMap;
 
-pub async fn handle(
-    kernel: &mut Kernel,
-    method: &str,
-    body: Value,
-) -> Result<DispatchResponse> {
+pub async fn handle(kernel: &mut Kernel, method: &str, body: Value) -> Result<DispatchResponse> {
     match method {
         "InitializeSession" => {
             let process_id_str = str_field(&body, "process_id")?;
             let process_id = ProcessId::from_string(process_id_str)
                 .map_err(|e| Error::validation(e.to_string()))?;
 
-            let pipeline_config_val = body.get("pipeline_config")
+            let pipeline_config_val = body
+                .get("pipeline_config")
                 .ok_or_else(|| Error::validation("Missing field: pipeline_config"))?;
-            let pipeline_config: PipelineConfig = serde_json::from_value(pipeline_config_val.clone())
-                .map_err(|e| Error::validation(format!("Invalid pipeline_config: {}", e)))?;
+            let pipeline_config: PipelineConfig =
+                serde_json::from_value(pipeline_config_val.clone())
+                    .map_err(|e| Error::validation(format!("Invalid pipeline_config: {}", e)))?;
 
-            let envelope_val = body.get("envelope")
+            let envelope_val = body
+                .get("envelope")
                 .ok_or_else(|| Error::validation("Missing field: envelope"))?;
             let envelope: Envelope = serde_json::from_value(envelope_val.clone())
                 .map_err(|e| Error::validation(format!("Invalid envelope: {}", e)))?;
 
             let force = body.get("force").and_then(|v| v.as_bool()).unwrap_or(false);
 
-            let session_state = kernel.initialize_orchestration(
-                process_id,
-                pipeline_config,
-                envelope,
-                force,
-            )?;
+            let session_state =
+                kernel.initialize_orchestration(process_id, pipeline_config, envelope, force)?;
 
-            Ok(DispatchResponse::Single(session_state_to_value(&session_state)))
+            Ok(DispatchResponse::Single(session_state_to_value(
+                &session_state,
+            )))
         }
 
         "GetNextInstruction" => {
@@ -58,7 +55,8 @@ pub async fn handle(
 
             let agent_name = str_field(&body, "agent_name")?;
 
-            let output: Value = body.get("output")
+            let output: Value = body
+                .get("output")
                 .cloned()
                 .unwrap_or_else(|| Value::Object(serde_json::Map::new()));
 
@@ -122,10 +120,15 @@ pub async fn handle(
                 .map_err(|e| Error::validation(e.to_string()))?;
 
             let session_state = kernel.get_orchestration_state(&process_id)?;
-            Ok(DispatchResponse::Single(session_state_to_value(&session_state)))
+            Ok(DispatchResponse::Single(session_state_to_value(
+                &session_state,
+            )))
         }
 
-        _ => Err(Error::not_found(format!("Unknown orchestration method: {}", method))),
+        _ => Err(Error::not_found(format!(
+            "Unknown orchestration method: {}",
+            method
+        ))),
     }
 }
 
@@ -140,7 +143,9 @@ pub fn instruction_to_value(instr: &crate::kernel::orchestrator::Instruction) ->
         .and_then(|v| v.as_str().map(|s| s.to_string()))
         .unwrap_or_else(|| "UNKNOWN".to_string());
 
-    let terminal_reason_str = instr.terminal_reason.as_ref()
+    let terminal_reason_str = instr
+        .terminal_reason
+        .as_ref()
         .and_then(|r| serde_json::to_value(r).ok())
         .and_then(|v| v.as_str().map(|s| s.to_string()))
         .unwrap_or_default();
@@ -166,7 +171,9 @@ pub fn instruction_to_value(instr: &crate::kernel::orchestrator::Instruction) ->
 /// Convert SessionState to the dict shape expected by `kernel_client.py._dict_to_session_state`.
 pub fn session_state_to_value(state: &crate::kernel::orchestrator::SessionState) -> Value {
     let envelope_str = serde_json::to_string(&state.envelope).ok();
-    let terminal_reason_str = state.terminal_reason.as_ref()
+    let terminal_reason_str = state
+        .terminal_reason
+        .as_ref()
         .and_then(|r| serde_json::to_value(r).ok())
         .and_then(|v| v.as_str().map(|s| s.to_string()))
         .unwrap_or_default();

@@ -118,6 +118,10 @@ pub struct IpcConfig {
     /// are held until a slot opens (backpressure via semaphore).
     pub max_connections: usize,
 
+    /// Bounded queue capacity for requests entering the kernel actor.
+    /// Requests beyond this limit are rejected immediately.
+    pub kernel_queue_capacity: usize,
+
     /// Read timeout in seconds per frame. Connections idle beyond this
     /// duration are dropped (prevents slowloris-style resource exhaustion).
     pub read_timeout_secs: u64,
@@ -135,6 +139,7 @@ impl Default for IpcConfig {
             default_query_timeout_ms: 5_000,
             stream_channel_capacity: 64,
             max_connections: 1000,
+            kernel_queue_capacity: 2048,
             read_timeout_secs: 30,
             write_timeout_secs: 10,
         }
