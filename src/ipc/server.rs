@@ -4,15 +4,30 @@ use std::net::SocketAddr;
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::net::TcpListener;
-use tokio::sync::{Mutex, Semaphore, OwnedSemaphorePermit};
+use tokio::sync::{mpsc, oneshot, OwnedSemaphorePermit, Semaphore};
 use tokio_util::sync::CancellationToken;
 
 use crate::ipc::codec::{
     read_frame, write_frame, MSG_ERROR, MSG_REQUEST, MSG_RESPONSE, MSG_STREAM_CHUNK, MSG_STREAM_END,
 };
-use crate::ipc::dispatch::{self, DispatchResponse};
+use crate::ipc::router::{self, DispatchResponse};
 use crate::kernel::Kernel;
 use crate::types::IpcConfig;
+
+const SUPPORTED_PROTOCOL_MAJOR: u64 = 1;
+
+fn required_str_field<'a>(request: &'a serde_json::Value, key: &str) -> std::io::Result<&'a str> {
+    request
+        .get(key)
+        .and_then(|v| v.as_str())
+        .filter(|s| !s.is_empty())
+        .ok_or_else(|| {
+            std::io::Error::new(
+                std::io::ErrorKind::InvalidInput,
+                format!("Missing required request field: {}", key),
+            )
+        })
+}
 
 /// Encode a JSON value to msgpack. Logs and returns an error on failure
 /// instead of silently producing an empty vec.
@@ -26,18 +41,34 @@ fn encode_msgpack(value: &serde_json::Value) -> std::io::Result<Vec<u8>> {
 /// IPC server wrapping the kernel.
 #[derive(Debug)]
 pub struct IpcServer {
-    kernel: Arc<Mutex<Kernel>>,
+    kernel_tx: mpsc::Sender<KernelCommand>,
     addr: SocketAddr,
     cancel: CancellationToken,
     ipc_config: IpcConfig,
 }
 
+struct KernelCommand {
+    service: String,
+    method: String,
+    body: serde_json::Value,
+    response_tx: oneshot::Sender<crate::types::Result<DispatchResponse>>,
+}
+
 impl IpcServer {
-    pub fn new(kernel: Arc<Mutex<Kernel>>, addr: SocketAddr, ipc_config: IpcConfig) -> Self {
-        Self {
+    pub fn new(kernel: Kernel, addr: SocketAddr, ipc_config: IpcConfig) -> Self {
+        let (kernel_tx, kernel_rx) = mpsc::channel(ipc_config.kernel_queue_capacity);
+        let cancel = CancellationToken::new();
+        tokio::spawn(run_kernel_actor(
             kernel,
+            kernel_rx,
+            cancel.clone(),
+            ipc_config.clone(),
+        ));
+
+        Self {
+            kernel_tx,
             addr,
-            cancel: CancellationToken::new(),
+            cancel,
             ipc_config,
         }
     }
@@ -79,11 +110,11 @@ impl IpcServer {
                         peer,
                         self.ipc_config.max_connections - conn_semaphore.available_permits(),
                     );
-                    let kernel = self.kernel.clone();
+                    let kernel_tx = self.kernel_tx.clone();
                     let cancel = self.cancel.clone();
                     let ipc_config = self.ipc_config.clone();
                     tokio::spawn(async move {
-                        if let Err(e) = handle_connection(stream, kernel, cancel, ipc_config, permit).await {
+                        if let Err(e) = handle_connection(stream, kernel_tx, cancel, ipc_config, permit).await {
                             tracing::warn!("Connection from {} error: {}", peer, e);
                         }
                         // permit is dropped here, releasing the connection slot
@@ -103,7 +134,7 @@ impl IpcServer {
 /// Handle a single TCP connection: read frames → dispatch → write responses.
 async fn handle_connection(
     stream: tokio::net::TcpStream,
-    kernel: Arc<Mutex<Kernel>>,
+    kernel_tx: mpsc::Sender<KernelCommand>,
     cancel: CancellationToken,
     ipc_config: IpcConfig,
     _permit: OwnedSemaphorePermit, // held for connection lifetime
@@ -161,24 +192,67 @@ async fn handle_connection(
                     }
                 };
 
-                let request_id = request.get("id")
-                    .and_then(|v| v.as_str())
-                    .unwrap_or("")
-                    .to_string();
-                let service = request.get("service")
-                    .and_then(|v| v.as_str())
-                    .unwrap_or("");
-                let method = request.get("method")
-                    .and_then(|v| v.as_str())
-                    .unwrap_or("");
-                let body = request.get("body")
+                let request_id = required_str_field(&request, "id")?.to_string();
+                let service = required_str_field(&request, "service")?;
+                let method = required_str_field(&request, "method")?;
+                let body = request
+                    .get("body")
                     .cloned()
-                    .unwrap_or(serde_json::Value::Object(serde_json::Map::new()));
+                    .ok_or_else(|| {
+                        std::io::Error::new(
+                            std::io::ErrorKind::InvalidInput,
+                            "Missing required request field: body",
+                        )
+                    })?;
 
-                // Dispatch (kernel lock released before response writing)
-                let mut kernel_guard = kernel.lock().await;
-                let result = dispatch::dispatch(&mut kernel_guard, service, method, body, &ipc_config).await;
-                drop(kernel_guard);
+                let protocol_major = request
+                    .get("protocol_version")
+                    .and_then(|v| v.as_u64())
+                    .ok_or_else(|| {
+                        std::io::Error::new(
+                            std::io::ErrorKind::InvalidInput,
+                            "Missing required request field: protocol_version",
+                        )
+                    })?;
+                if protocol_major != SUPPORTED_PROTOCOL_MAJOR {
+                    let response = serde_json::json!({
+                        "id": request_id,
+                        "ok": false,
+                        "error": {
+                            "code": "INVALID_ARGUMENT",
+                            "message": format!(
+                                "Unsupported protocol_version {} (supported: {})",
+                                protocol_major, SUPPORTED_PROTOCOL_MAJOR
+                            ),
+                            "supported_protocol_major": SUPPORTED_PROTOCOL_MAJOR,
+                        }
+                    });
+                    let encoded = encode_msgpack(&response)?;
+                    timed_write(&mut writer, MSG_ERROR, &encoded, write_timeout).await?;
+                    continue;
+                }
+
+                let (response_tx, response_rx) = oneshot::channel();
+                let command = KernelCommand {
+                    service: service.to_string(),
+                    method: method.to_string(),
+                    body,
+                    response_tx,
+                };
+
+                kernel_tx.try_send(command).map_err(|e| {
+                    std::io::Error::new(
+                        std::io::ErrorKind::WouldBlock,
+                        format!("Kernel actor unavailable: {}", e),
+                    )
+                })?;
+
+                let result = response_rx.await.map_err(|_| {
+                    std::io::Error::new(
+                        std::io::ErrorKind::BrokenPipe,
+                        "Kernel actor terminated while request was in flight",
+                    )
+                })?;
 
                 match result {
                     Ok(DispatchResponse::Single(response_body)) => {
@@ -225,6 +299,40 @@ async fn handle_connection(
     Ok(())
 }
 
+async fn run_kernel_actor(
+    mut kernel: Kernel,
+    mut kernel_rx: mpsc::Receiver<KernelCommand>,
+    cancel: CancellationToken,
+    ipc_config: IpcConfig,
+) {
+    loop {
+        tokio::select! {
+            _ = cancel.cancelled() => {
+                tracing::info!("Kernel actor shutting down");
+                break;
+            }
+            command = kernel_rx.recv() => {
+                let Some(command) = command else {
+                    tracing::error!("Kernel actor request channel closed unexpectedly");
+                    break;
+                };
+
+                let result = router::route_request(
+                    &mut kernel,
+                    &command.service,
+                    &command.method,
+                    command.body,
+                    &ipc_config,
+                ).await;
+
+                if command.response_tx.send(result).is_err() {
+                    tracing::warn!("Dropped kernel actor response: requester closed channel");
+                }
+            }
+        }
+    }
+}
+
 /// Write a frame with a timeout. Returns an error if the write takes too long
 /// (prevents slow consumers from holding connections indefinitely).
 async fn timed_write<W: tokio::io::AsyncWriteExt + Unpin>(
@@ -236,7 +344,10 @@ async fn timed_write<W: tokio::io::AsyncWriteExt + Unpin>(
     tokio::time::timeout(timeout, write_frame(writer, msg_type, payload))
         .await
         .map_err(|_| {
-            tracing::warn!("Write timeout ({}s), dropping connection", timeout.as_secs());
+            tracing::warn!(
+                "Write timeout ({}s), dropping connection",
+                timeout.as_secs()
+            );
             std::io::Error::new(std::io::ErrorKind::TimedOut, "write timeout")
         })?
 }

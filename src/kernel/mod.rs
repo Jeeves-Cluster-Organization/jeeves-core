@@ -27,8 +27,8 @@ pub use rate_limiter::{RateLimitConfig, RateLimiter};
 pub use recovery::with_recovery;
 pub use resources::ResourceTracker;
 pub use services::{
-    DispatchResult, DispatchTarget, RegistryStats, ServiceInfo, ServiceRegistry, ServiceStats,
-    ServiceStatus,
+    RegistryStats, ServiceCallResult, ServiceCallTarget, ServiceInfo, ServiceRegistry,
+    ServiceStats, ServiceStatus,
 };
 pub use types::{
     ProcessControlBlock, ProcessState, QuotaViolation, ResourceQuota, ResourceUsage,
@@ -322,15 +322,16 @@ impl Kernel {
     /// # Errors
     ///
     /// Returns error if target service is not registered or dispatch fails.
-    pub fn dispatch(
+    pub fn invoke_service(
         &mut self,
-        target: &services::DispatchTarget,
+        target: &services::ServiceCallTarget,
         data: &HashMap<String, serde_json::Value>,
-    ) -> Result<services::DispatchResult> {
+    ) -> Result<services::ServiceCallResult> {
         self.services
-            .dispatch(target, data)
+            .invoke_service(target, data)
             .map_err(Error::internal)
     }
+
 
     // =============================================================================
     // Orchestrator Methods (Delegation to Orchestrator)
@@ -361,8 +362,7 @@ impl Kernel {
         &mut self,
         process_id: &ProcessId,
     ) -> Result<orchestrator::Instruction> {
-        self.orchestrator
-            .get_next_instruction(process_id)
+        self.orchestrator.get_next_instruction(process_id)
     }
 
     /// Report agent execution result.
@@ -385,9 +385,11 @@ impl Kernel {
     /// # Errors
     ///
     /// Returns error if no orchestration session exists for this process.
-    pub fn get_orchestration_state(&self, process_id: &ProcessId) -> Result<orchestrator::SessionState> {
-        self.orchestrator
-            .get_session_state(process_id)
+    pub fn get_orchestration_state(
+        &self,
+        process_id: &ProcessId,
+    ) -> Result<orchestrator::SessionState> {
+        self.orchestrator.get_session_state(process_id)
     }
 
     // =============================================================================
@@ -534,30 +536,39 @@ mod tests {
         let pid2 = ProcessId::must("pid2");
         let pid3 = ProcessId::must("pid3");
 
-        kernel.lifecycle.submit(
-            pid1.clone(),
-            RequestId::must("req1"),
-            UserId::must("user1"),
-            SessionId::must("sess1"),
-            SchedulingPriority::Normal,
-            None,
-        ).unwrap();
-        kernel.lifecycle.submit(
-            pid2.clone(),
-            RequestId::must("req2"),
-            UserId::must("user2"),
-            SessionId::must("sess2"),
-            SchedulingPriority::Normal,
-            None,
-        ).unwrap();
-        kernel.lifecycle.submit(
-            pid3.clone(),
-            RequestId::must("req3"),
-            UserId::must("user3"),
-            SessionId::must("sess3"),
-            SchedulingPriority::Normal,
-            None,
-        ).unwrap();
+        kernel
+            .lifecycle
+            .submit(
+                pid1.clone(),
+                RequestId::must("req1"),
+                UserId::must("user1"),
+                SessionId::must("sess1"),
+                SchedulingPriority::Normal,
+                None,
+            )
+            .unwrap();
+        kernel
+            .lifecycle
+            .submit(
+                pid2.clone(),
+                RequestId::must("req2"),
+                UserId::must("user2"),
+                SessionId::must("sess2"),
+                SchedulingPriority::Normal,
+                None,
+            )
+            .unwrap();
+        kernel
+            .lifecycle
+            .submit(
+                pid3.clone(),
+                RequestId::must("req3"),
+                UserId::must("user3"),
+                SessionId::must("sess3"),
+                SchedulingPriority::Normal,
+                None,
+            )
+            .unwrap();
 
         // Schedule 2 of them (New → Ready)
         kernel.lifecycle.schedule(&pid1).unwrap();
@@ -569,8 +580,20 @@ mod tests {
         let status = kernel.get_system_status();
 
         assert_eq!(status.processes_total, 3);
-        assert_eq!(*status.processes_by_state.get(&ProcessState::New).unwrap(), 1);
-        assert_eq!(*status.processes_by_state.get(&ProcessState::Ready).unwrap(), 1);
-        assert_eq!(*status.processes_by_state.get(&ProcessState::Running).unwrap(), 1);
+        assert_eq!(
+            *status.processes_by_state.get(&ProcessState::New).unwrap(),
+            1
+        );
+        assert_eq!(
+            *status.processes_by_state.get(&ProcessState::Ready).unwrap(),
+            1
+        );
+        assert_eq!(
+            *status
+                .processes_by_state
+                .get(&ProcessState::Running)
+                .unwrap(),
+            1
+        );
     }
 }

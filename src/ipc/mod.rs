@@ -4,8 +4,8 @@
 //! matching the protocol defined in `python/jeeves_infra/ipc/transport.py`.
 
 pub mod codec;
-pub mod dispatch;
 pub mod handlers;
+pub mod router;
 pub mod server;
 
 pub use server::IpcServer;

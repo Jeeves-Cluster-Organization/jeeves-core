@@ -38,16 +38,23 @@ Every request is a MessagePack object with:
   "id": "unique-request-id",
   "service": "kernel",
   "method": "CreateProcess",
+  "protocol_version": 1,
   "body": { ... }
 }
 ```
 
 | Field | Type | Required | Description |
 |-------|------|----------|-------------|
-| `id` | string | No | Correlation ID echoed in responses |
+| `id` | string | Yes | Correlation ID echoed in responses |
 | `service` | string | Yes | Target service (`kernel`, `engine`, `orchestration`, `commbus`) |
 | `method` | string | Yes | Method name within the service |
-| `body` | object | No | Method-specific parameters (defaults to `{}`) |
+| `protocol_version` | u64 | Yes | Protocol major version (must be `1`) |
+| `body` | object | Yes | Method-specific parameters |
+
+## Protocol Versioning
+
+- Server supports **one protocol major**: `1`.
+- Any other major value is rejected with `INVALID_ARGUMENT` and includes `supported_protocol_major` in the error payload.
 
 ## Response Format
 

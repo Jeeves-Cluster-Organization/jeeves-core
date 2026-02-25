@@ -91,17 +91,20 @@ impl ServiceInfo {
 
     /// Check if the service is healthy.
     pub fn is_healthy(&self) -> bool {
-        matches!(self.status, ServiceStatus::Healthy | ServiceStatus::Degraded)
+        matches!(
+            self.status,
+            ServiceStatus::Healthy | ServiceStatus::Degraded
+        )
     }
 }
 
 // =============================================================================
-// Dispatch Target
+// Service Call Target
 // =============================================================================
 
-/// DispatchTarget represents a target for request dispatch.
+/// ServiceCallTarget represents a target for service invocation.
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct DispatchTarget {
+pub struct ServiceCallTarget {
     pub service_name: String,
     pub method: String,
     pub priority: SchedulingPriority,
@@ -110,8 +113,8 @@ pub struct DispatchTarget {
     pub max_retries: i32,
 }
 
-impl DispatchTarget {
-    /// Check if the dispatch can be retried.
+impl ServiceCallTarget {
+    /// Check if the service call can be retried.
     pub fn can_retry(&self) -> bool {
         self.retry_count < self.max_retries
     }
@@ -123,12 +126,12 @@ impl DispatchTarget {
 }
 
 // =============================================================================
-// Dispatch Result
+// Service Call Result
 // =============================================================================
 
-/// DispatchResult represents the result of a dispatch operation.
+/// ServiceCallResult represents the result of a service invocation operation.
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct DispatchResult {
+pub struct ServiceCallResult {
     pub success: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub error: Option<String>,
@@ -144,7 +147,10 @@ pub struct DispatchResult {
 
 /// ServiceHandler is a function that handles service requests.
 pub type ServiceHandler = Arc<
-    dyn Fn(&DispatchTarget, &HashMap<String, serde_json::Value>) -> Result<DispatchResult, String>
+    dyn Fn(
+            &ServiceCallTarget,
+            &HashMap<String, serde_json::Value>,
+        ) -> Result<ServiceCallResult, String>
         + Send
         + Sync,
 >;
@@ -217,7 +223,11 @@ impl ServiceRegistry {
     }
 
     /// List all registered services matching criteria.
-    pub fn list_services(&self, service_type: Option<&str>, healthy_only: bool) -> Vec<ServiceInfo> {
+    pub fn list_services(
+        &self,
+        service_type: Option<&str>,
+        healthy_only: bool,
+    ) -> Vec<ServiceInfo> {
         self.services
             .values()
             .filter(|svc| {
@@ -299,10 +309,7 @@ impl ServiceRegistry {
 
     /// Get count of healthy services.
     pub fn get_healthy_count(&self) -> usize {
-        self.services
-            .values()
-            .filter(|s| s.is_healthy())
-            .count()
+        self.services.values().filter(|s| s.is_healthy()).count()
     }
 
     // =============================================================================
@@ -363,11 +370,11 @@ impl ServiceRegistry {
 
     /// Dispatch a request to a service (placeholder implementation).
     /// Full implementation would invoke the registered handler.
-    pub fn dispatch(
+    pub fn invoke_service(
         &mut self,
-        target: &DispatchTarget,
+        target: &ServiceCallTarget,
         _data: &HashMap<String, serde_json::Value>,
-    ) -> Result<DispatchResult, String> {
+    ) -> Result<ServiceCallResult, String> {
         // Check if service exists and has handler
         if !self.has_service(&target.service_name) {
             return Err(format!("Service not found: {}", target.service_name));
@@ -393,7 +400,7 @@ impl ServiceRegistry {
         // 2. Invoke handler
         // 3. Decrement load
         // 4. Return result
-        Ok(DispatchResult {
+        Ok(ServiceCallResult {
             success: true,
             error: None,
             data: HashMap::new(),
@@ -401,6 +408,7 @@ impl ServiceRegistry {
             retries: target.retry_count,
         })
     }
+
 }
 
 impl Default for ServiceRegistry {
@@ -435,6 +443,7 @@ pub struct RegistryStats {
     pub total_capacity: usize,
     pub services_by_type: HashMap<String, usize>,
 }
+
 
 #[cfg(test)]
 mod tests {
@@ -585,11 +594,17 @@ mod tests {
         // Update to degraded
         let success = registry.update_health("worker1", ServiceStatus::Degraded);
         assert!(success);
-        assert_eq!(registry.get_service("worker1").unwrap().status, ServiceStatus::Degraded);
+        assert_eq!(
+            registry.get_service("worker1").unwrap().status,
+            ServiceStatus::Degraded
+        );
 
         // Update to unhealthy
         registry.update_health("worker1", ServiceStatus::Unhealthy);
-        assert_eq!(registry.get_service("worker1").unwrap().status, ServiceStatus::Unhealthy);
+        assert_eq!(
+            registry.get_service("worker1").unwrap().status,
+            ServiceStatus::Unhealthy
+        );
 
         // Try to update non-existent service
         let not_found = registry.update_health("nonexistent", ServiceStatus::Healthy);
@@ -607,7 +622,7 @@ mod tests {
         registry.register_service(service);
         registry.register_handler("flow1".to_string());
 
-        let target = DispatchTarget {
+        let target = ServiceCallTarget {
             service_name: "flow1".to_string(),
             method: "execute".to_string(),
             priority: SchedulingPriority::Normal,
@@ -617,13 +632,13 @@ mod tests {
         };
 
         // Dispatch should fail due to capacity
-        let result = registry.dispatch(&target, &HashMap::new());
+        let result = registry.invoke_service(&target, &HashMap::new());
         assert!(result.is_err());
         assert!(result.unwrap_err().contains("cannot accept more load"));
 
         // Reduce load and try again
         registry.decrement_load("flow1");
-        let result2 = registry.dispatch(&target, &HashMap::new());
+        let result2 = registry.invoke_service(&target, &HashMap::new());
         assert!(result2.is_ok());
         assert!(result2.unwrap().success);
     }
