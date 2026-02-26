@@ -187,10 +187,6 @@ class PipelineWorker:
                 )
                 return (None, False, f"Agent not found: {agent_name}", AgentExecutionMetrics())
 
-            # Update envelope from kernel state before execution
-            if instruction.envelope:
-                envelope = self._merge_envelope(envelope, instruction.envelope)
-
             # Execute agent
             envelope, success, error, output, metrics = await self._run_agent(
                 envelope=envelope,
@@ -224,9 +220,6 @@ class PipelineWorker:
             )
 
         # Map terminal instruction to WorkerResult
-        if terminal.envelope:
-            envelope = self._merge_envelope(envelope, terminal.envelope)
-
         if terminal.kind == "TERMINATE":
             envelope.terminated = True
             envelope.terminal_reason = terminal.terminal_reason
@@ -358,9 +351,6 @@ class PipelineWorker:
                     )
                     continue
 
-                if instruction.envelope:
-                    envelope = self._merge_envelope(envelope, instruction.envelope)
-
                 envelope, success, error, output, metrics = await self._run_agent(
                     envelope=envelope,
                     process_id=process_id,
@@ -436,37 +426,6 @@ class PipelineWorker:
         )
         output = agent_output if success else None
         return envelope, success, error, output, metrics
-
-    def _merge_envelope(self, envelope: Envelope, kernel_state: Dict[str, Any]) -> Envelope:
-        """Merge kernel envelope state into Python envelope.
-
-        The kernel is authoritative for orchestration state:
-        - current_stage
-        - stage_order
-        - iteration
-        - llm_call_count
-        - agent_hop_count
-        - terminated
-        - terminal_reason
-        """
-        if "current_stage" in kernel_state:
-            envelope.current_stage = kernel_state["current_stage"]
-        if "stage_order" in kernel_state:
-            envelope.stage_order = kernel_state["stage_order"]
-        if "iteration" in kernel_state:
-            envelope.iteration = kernel_state["iteration"]
-        if "llm_call_count" in kernel_state:
-            envelope.llm_call_count = kernel_state["llm_call_count"]
-        if "agent_hop_count" in kernel_state:
-            envelope.agent_hop_count = kernel_state["agent_hop_count"]
-        if "terminated" in kernel_state:
-            envelope.terminated = kernel_state["terminated"]
-        if "terminal_reason" in kernel_state:
-            envelope.terminal_reason = kernel_state["terminal_reason"]
-        if "outputs" in kernel_state:
-            # Merge outputs - kernel may have updated them
-            envelope.outputs.update(kernel_state["outputs"])
-        return envelope
 
     def _extract_agent_metrics(
         self,

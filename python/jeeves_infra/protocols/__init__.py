@@ -24,7 +24,6 @@ from jeeves_infra.protocols.types import (
     JoinStrategy,
     AgentOutputMode,
     TokenStreamMode,
-    AgentCapability,
     # Dataclass types with methods
     OperationResult,
     InterruptResponse,
@@ -132,7 +131,6 @@ __all__ = [
     "JoinStrategy",
     "AgentOutputMode",
     "TokenStreamMode",
-    "AgentCapability",
     # Dataclass types
     "OperationResult",
     "InterruptResponse",

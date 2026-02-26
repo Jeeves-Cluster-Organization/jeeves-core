@@ -434,15 +434,39 @@ pub async fn handle(kernel: &mut Kernel, method: &str, body: Value) -> Result<Di
 
 /// Publish a lifecycle event to CommBus (fire-and-forget).
 /// Delivery failure does NOT block the lifecycle operation.
+///
+/// Also emits a pre-translated frontend event (event_type prefixed with
+/// "frontend.") so Python EventBridge can forward without translation.
 async fn emit_lifecycle_event(kernel: &Kernel, event_type: &str, payload: Value) {
+    let timestamp_ms = chrono::Utc::now().timestamp_millis();
+
+    // Emit raw kernel event
     let payload_bytes = serde_json::to_vec(&payload).unwrap_or_default();
     let event = Event {
         event_type: event_type.to_string(),
         payload: payload_bytes,
-        timestamp_ms: chrono::Utc::now().timestamp_millis(),
+        timestamp_ms,
         source: "kernel".to_string(),
     };
     let _ = kernel.publish_event(event).await;
+
+    // Emit pre-translated frontend event (if translatable)
+    if let Some((frontend_type, frontend_data)) =
+        crate::events::translate_kernel_event(event_type, &payload)
+    {
+        let frontend_payload = serde_json::json!({
+            "type": frontend_type,
+            "data": frontend_data,
+        });
+        let frontend_bytes = serde_json::to_vec(&frontend_payload).unwrap_or_default();
+        let frontend_event = Event {
+            event_type: format!("frontend.{}", frontend_type),
+            payload: frontend_bytes,
+            timestamp_ms,
+            source: "kernel".to_string(),
+        };
+        let _ = kernel.publish_event(frontend_event).await;
+    }
 }
 
 // =============================================================================

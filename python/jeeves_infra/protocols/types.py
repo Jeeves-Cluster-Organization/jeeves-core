@@ -2,6 +2,10 @@
 
 These dataclasses and enums define the contract between Python and Rust.
 No proto dependency — code is the contract.
+
+Enums matching Rust definitions are auto-generated in _generated.py
+(run: cd jeeves-core && python codegen/generate_python_types.py).
+Python-only enums (no Rust equivalent) are defined here.
 """
 
 from dataclasses import dataclass, field
@@ -11,160 +15,52 @@ from typing import Any, Callable, Dict, List, Optional, Set, TYPE_CHECKING
 
 from jeeves_infra.protocols.interfaces import RequestContext
 
+# =============================================================================
+# RUST-GENERATED ENUMS (canonical source: Rust serde output)
+# =============================================================================
+
+from jeeves_infra.protocols._generated import (  # noqa: E402
+    TerminalReason,
+    InterruptKind,
+    InterruptStatus,
+    RiskSemantic,
+    RiskSeverity,
+    ToolCategory,
+    HealthStatus,
+    LoopVerdict,
+    RiskApproval,
+    ToolAccess,
+    OperationStatus,
+)
 
 # =============================================================================
-# PYTHON ENUMS (backward compatible with string values)
+# PYTHON-ONLY ENUMS (no Rust equivalent — never cross IPC)
 # =============================================================================
-
-class TerminalReason(str, Enum):
-    """Terminal reason enum — SCREAMING_SNAKE_CASE, matches Rust serde output."""
-    UNSPECIFIED = "UNSPECIFIED"
-    MAX_ITERATIONS_EXCEEDED = "MAX_ITERATIONS_EXCEEDED"
-    MAX_LLM_CALLS_EXCEEDED = "MAX_LLM_CALLS_EXCEEDED"
-    MAX_AGENT_HOPS_EXCEEDED = "MAX_AGENT_HOPS_EXCEEDED"
-    USER_CANCELLED = "USER_CANCELLED"
-    TOOL_FAILED_FATALLY = "TOOL_FAILED_FATALLY"
-    LLM_FAILED_FATALLY = "LLM_FAILED_FATALLY"
-    COMPLETED = "COMPLETED"
-    POLICY_VIOLATION = "POLICY_VIOLATION"
-
-
-class InterruptKind(str, Enum):
-    """Interrupt kind enum - mirrors Rust InterruptKind in envelope/enums.rs."""
-    UNSPECIFIED = "unspecified"
-    CLARIFICATION = "clarification"
-    CONFIRMATION = "confirmation"
-    CHECKPOINT = "checkpoint"
-    RESOURCE_EXHAUSTED = "resource_exhausted"
-    TIMEOUT = "timeout"
-    SYSTEM_ERROR = "system_error"
-    AGENT_REVIEW = "agent_review"
-
-
-class InterruptStatus(str, Enum):
-    """Interrupt status enum."""
-    UNSPECIFIED = "unspecified"
-    PENDING = "pending"
-    RESOLVED = "resolved"
-    EXPIRED = "expired"
-    CANCELLED = "cancelled"
-
-
-class RiskSemantic(str, Enum):
-    """Risk semantic for tool operations."""
-    UNSPECIFIED = "unspecified"
-    READ_ONLY = "read_only"
-    WRITE = "write"
-    DESTRUCTIVE = "destructive"
-
-
-class RiskSeverity(str, Enum):
-    """Risk severity for tool operations."""
-    UNSPECIFIED = "unspecified"
-    LOW = "low"
-    MEDIUM = "medium"
-    HIGH = "high"
-    CRITICAL = "critical"
-
-
-class ToolCategory(str, Enum):
-    """Tool category classification."""
-    UNSPECIFIED = "unspecified"
-    READ = "read"
-    WRITE = "write"
-    EXECUTE = "execute"
-    NETWORK = "network"
-    SYSTEM = "system"
-    UNIFIED = "unified"
-    COMPOSITE = "composite"
-    RESILIENT = "resilient"
-    STANDALONE = "standalone"
-    INTERNAL = "internal"
-
-
-class HealthStatus(str, Enum):
-    """Health status for service monitoring."""
-    UNSPECIFIED = "unspecified"
-    HEALTHY = "healthy"
-    DEGRADED = "degraded"
-    UNHEALTHY = "unhealthy"
-    UNKNOWN = "unknown"
-
-
-class LoopVerdict(str, Enum):
-    """Loop control verdict."""
-    UNSPECIFIED = "unspecified"
-    PROCEED = "proceed"
-    LOOP_BACK = "loop_back"
-    ADVANCE = "advance"
-    ESCALATE = "escalate"
-
-
-class RiskApproval(str, Enum):
-    """Risk approval status."""
-    UNSPECIFIED = "unspecified"
-    APPROVED = "approved"
-    DENIED = "denied"
-    PENDING = "pending"
-
-
-class ToolAccess(str, Enum):
-    """Tool access level."""
-    UNSPECIFIED = "unspecified"
-    NONE = "none"
-    READ = "read"
-    WRITE = "write"
-    ALL = "all"
-
-
-class OperationStatus(str, Enum):
-    """Operation result status."""
-    UNSPECIFIED = "unspecified"
-    SUCCESS = "success"
-    ERROR = "error"
-    NOT_FOUND = "not_found"
-    TIMEOUT = "timeout"
-    VALIDATION_ERROR = "validation_error"
-    PARTIAL = "partial"
-    INVALID_PARAMETERS = "invalid_parameters"
 
 
 class RunMode(str, Enum):
     """Pipeline run mode."""
-    UNSPECIFIED = "unspecified"
     SEQUENTIAL = "sequential"
     PARALLEL = "parallel"
 
 
 class JoinStrategy(str, Enum):
     """Join strategy for dependencies."""
-    UNSPECIFIED = "unspecified"
     ALL = "all"
     ANY = "any"
 
 
 class AgentOutputMode(str, Enum):
     """Agent output mode."""
-    UNSPECIFIED = "unspecified"
     STRUCTURED = "structured"
     TEXT = "text"
 
 
 class TokenStreamMode(str, Enum):
     """Token streaming mode."""
-    UNSPECIFIED = "unspecified"
     OFF = "off"
     DEBUG = "debug"
     AUTHORITATIVE = "authoritative"
-
-
-class AgentCapability(str, Enum):
-    """Agent capability flags."""
-    UNSPECIFIED = "unspecified"
-    LLM = "llm"
-    TOOLS = "tools"
-    POLICIES = "policies"
-    SERVICE = "service"
 
 
 # =============================================================================
@@ -208,7 +104,7 @@ class InterruptResponse:
 class FlowInterrupt:
     """Flow interrupt for user interaction."""
     id: str = ""
-    kind: InterruptKind = InterruptKind.UNSPECIFIED
+    kind: Optional[InterruptKind] = None
     request_id: str = ""
     user_id: str = ""
     session_id: str = ""
@@ -247,13 +143,14 @@ class FlowInterrupt:
     @classmethod
     def from_db_row(cls, row: Dict[str, Any]) -> "FlowInterrupt":
         """Create FlowInterrupt from database row."""
-        kind_value = row.get("kind", "unspecified")
+        kind_value = row.get("kind")
+        kind = None
         if isinstance(kind_value, str):
             try:
                 kind = InterruptKind(kind_value)
             except ValueError:
-                kind = InterruptKind.UNSPECIFIED
-        else:
+                pass  # Unknown kind stays None
+        elif isinstance(kind_value, InterruptKind):
             kind = kind_value
 
         status_value = row.get("status", "pending")
@@ -790,7 +687,7 @@ class InterruptServiceProtocol(Protocol):
 # =============================================================================
 
 __all__ = [
-    # Enums
+    # Enums (from _generated.py — Rust canonical)
     "TerminalReason",
     "InterruptKind",
     "InterruptStatus",
@@ -802,11 +699,11 @@ __all__ = [
     "RiskApproval",
     "ToolAccess",
     "OperationStatus",
+    # Enums (Python-only)
     "RunMode",
     "JoinStrategy",
     "AgentOutputMode",
     "TokenStreamMode",
-    "AgentCapability",
     # Operation result
     "OperationResult",
     # Interrupt types

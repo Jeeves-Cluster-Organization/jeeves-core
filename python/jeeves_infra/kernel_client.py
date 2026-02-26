@@ -530,43 +530,6 @@ class KernelClient:
             raise KernelClientError(f"GetProcessCounts failed: {e}") from e
 
     # =========================================================================
-    # Envelope Operations (EngineService)
-    # =========================================================================
-
-    async def create_envelope(
-        self,
-        raw_input: str,
-        *,
-        user_id: str = "",
-        session_id: str = "",
-        request_id: str = "",
-        metadata: Optional[Dict[str, str]] = None,
-        stage_order: Optional[List[str]] = None,
-    ) -> Dict[str, Any]:
-        """Create a new envelope via the Rust engine."""
-        body = {
-            "raw_input": raw_input,
-            "user_id": user_id,
-            "session_id": session_id,
-            "request_id": request_id,
-            "metadata": metadata or {},
-            "stage_order": stage_order or [],
-        }
-        try:
-            return await self._transport.request("engine", "CreateEnvelope", body)
-        except IpcError as e:
-            logger.error(f"Failed to create envelope: {e}")
-            raise KernelClientError(f"CreateEnvelope failed: {e}") from e
-
-    async def check_bounds(self, envelope: Dict[str, Any]) -> Dict[str, Any]:
-        """Check if an envelope is within bounds."""
-        try:
-            return await self._transport.request("engine", "CheckBounds", envelope)
-        except IpcError as e:
-            logger.error(f"Failed to check bounds: {e}")
-            raise KernelClientError(f"CheckBounds failed: {e}") from e
-
-    # =========================================================================
     # Orchestration (OrchestrationService)
     # =========================================================================
 
@@ -843,6 +806,169 @@ class KernelClient:
             raise KernelClientError(f"Embedding computation failed: {e}") from e
 
     # =========================================================================
+    # Tool Catalog & Access Control (tools service)
+    # =========================================================================
+
+    async def register_tool(self, tool_entry: Dict[str, Any]) -> bool:
+        """Register a tool's metadata in the Rust catalog.
+
+        Args:
+            tool_entry: Tool entry dict with id, description, parameters,
+                        category, risk_semantic, risk_severity.
+
+        Returns:
+            True if registered.
+        """
+        try:
+            response = await self._transport.request("tools", "RegisterTool", tool_entry)
+            return response.get("registered", False)
+        except IpcError as e:
+            raise KernelClientError(f"RegisterTool failed: {e}") from e
+
+    async def validate_tool_params(
+        self, tool_id: str, params: Dict[str, Any]
+    ) -> List[str]:
+        """Validate tool parameters against Rust-side schema.
+
+        Returns:
+            List of error strings (empty = valid).
+        """
+        body = {"tool_id": tool_id, "params": params}
+        try:
+            response = await self._transport.request("tools", "ValidateToolParams", body)
+            return response.get("errors", [])
+        except IpcError as e:
+            raise KernelClientError(f"ValidateToolParams failed: {e}") from e
+
+    async def fill_tool_defaults(
+        self, tool_id: str, params: Dict[str, Any]
+    ) -> Dict[str, Any]:
+        """Fill default values for missing optional parameters.
+
+        Returns:
+            Params dict with defaults filled in.
+        """
+        body = {"tool_id": tool_id, "params": params}
+        try:
+            response = await self._transport.request("tools", "FillDefaults", body)
+            return response.get("params", params)
+        except IpcError as e:
+            raise KernelClientError(f"FillDefaults failed: {e}") from e
+
+    async def generate_tool_prompt(
+        self, allowed_tools: Optional[List[str]] = None
+    ) -> str:
+        """Generate LLM-formatted tool prompt from Rust catalog.
+
+        Returns:
+            Formatted prompt string.
+        """
+        body: Dict[str, Any] = {}
+        if allowed_tools is not None:
+            body["allowed_tools"] = allowed_tools
+        try:
+            response = await self._transport.request("tools", "GenerateToolPrompt", body)
+            return response.get("prompt", "")
+        except IpcError as e:
+            raise KernelClientError(f"GenerateToolPrompt failed: {e}") from e
+
+    async def get_tool_entry(self, tool_id: str) -> Optional[Dict[str, Any]]:
+        """Get tool metadata from Rust catalog."""
+        body = {"tool_id": tool_id}
+        try:
+            return await self._transport.request("tools", "GetToolEntry", body)
+        except IpcError as e:
+            if "not found" in str(e).lower():
+                return None
+            raise KernelClientError(f"GetToolEntry failed: {e}") from e
+
+    async def list_tools(self) -> List[Dict[str, Any]]:
+        """List all registered tools."""
+        try:
+            response = await self._transport.request("tools", "ListTools", {})
+            return response.get("tools", [])
+        except IpcError as e:
+            raise KernelClientError(f"ListTools failed: {e}") from e
+
+    async def check_tool_access(self, agent_name: str, tool_id: str) -> bool:
+        """Check if an agent has access to a tool."""
+        body = {"agent_name": agent_name, "tool_id": tool_id}
+        try:
+            response = await self._transport.request("tools", "CheckToolAccess", body)
+            return response.get("allowed", False)
+        except IpcError as e:
+            raise KernelClientError(f"CheckToolAccess failed: {e}") from e
+
+    async def grant_tool_access(
+        self, agent_name: str, tool_ids: List[str]
+    ) -> bool:
+        """Grant an agent access to tools."""
+        body = {"agent_name": agent_name, "tool_ids": tool_ids}
+        try:
+            response = await self._transport.request("tools", "GrantToolAccess", body)
+            return response.get("granted", False)
+        except IpcError as e:
+            raise KernelClientError(f"GrantToolAccess failed: {e}") from e
+
+    # =========================================================================
+    # Tool Health & Circuit Breaking (tools service)
+    # =========================================================================
+
+    async def record_tool_execution(
+        self,
+        tool_name: str,
+        success: bool = True,
+        latency_ms: int = 0,
+        error_type: Optional[str] = None,
+    ) -> bool:
+        """Record a tool execution for health tracking."""
+        body: Dict[str, Any] = {
+            "tool_name": tool_name,
+            "success": success,
+            "latency_ms": latency_ms,
+        }
+        if error_type:
+            body["error_type"] = error_type
+        try:
+            response = await self._transport.request("tools", "RecordToolExecution", body)
+            return response.get("recorded", False)
+        except IpcError as e:
+            raise KernelClientError(f"RecordToolExecution failed: {e}") from e
+
+    async def check_tool_health(self, tool_name: str) -> Dict[str, Any]:
+        """Check health of a single tool."""
+        body = {"tool_name": tool_name}
+        try:
+            return await self._transport.request("tools", "CheckToolHealth", body)
+        except IpcError as e:
+            raise KernelClientError(f"CheckToolHealth failed: {e}") from e
+
+    async def get_system_tool_health(self) -> Dict[str, Any]:
+        """Get system-wide tool health report."""
+        try:
+            return await self._transport.request("tools", "GetSystemToolHealth", {})
+        except IpcError as e:
+            raise KernelClientError(f"GetSystemToolHealth failed: {e}") from e
+
+    async def should_circuit_break(self, tool_name: str) -> bool:
+        """Check if a tool's circuit breaker is open."""
+        body = {"tool_name": tool_name}
+        try:
+            response = await self._transport.request("tools", "ShouldCircuitBreak", body)
+            return response.get("circuit_broken", False)
+        except IpcError as e:
+            raise KernelClientError(f"ShouldCircuitBreak failed: {e}") from e
+
+    async def get_error_patterns(self, tool_name: str) -> List[Dict[str, Any]]:
+        """Get error patterns for a tool."""
+        body = {"tool_name": tool_name}
+        try:
+            response = await self._transport.request("tools", "GetErrorPatterns", body)
+            return response.get("patterns", [])
+        except IpcError as e:
+            raise KernelClientError(f"GetErrorPatterns failed: {e}") from e
+
+    # =========================================================================
     # Internal Helpers
     # =========================================================================
 
@@ -868,7 +994,7 @@ class KernelClient:
             request_id=d.get("request_id", ""),
             user_id=d.get("user_id", ""),
             session_id=d.get("session_id", ""),
-            state=d.get("state", "UNKNOWN"),
+            state=d.get("state", "NEW"),
             priority=d.get("priority", "NORMAL"),
             llm_calls=usage.get("llm_calls", 0),
             tool_calls=usage.get("tool_calls", 0),
@@ -901,8 +1027,14 @@ class KernelClient:
         """Convert response dict to OrchestratorInstruction."""
         envelope = self._parse_optional_json_object(d.get("envelope"))
 
+        kind = d.get("kind", "")
+        if not kind:
+            raise KernelClientError(
+                f"Instruction missing 'kind' field. Got keys: {sorted(d.keys())}"
+            )
+
         return OrchestratorInstruction(
-            kind=d.get("kind", "UNSPECIFIED"),
+            kind=kind,
             agent_name=d.get("agent_name", ""),
             envelope=envelope,
             terminal_reason=d.get("terminal_reason", ""),

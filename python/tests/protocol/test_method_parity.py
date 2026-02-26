@@ -14,10 +14,10 @@ KERNEL_CLIENT = Path(__file__).resolve().parent.parent.parent / "jeeves_infra" /
 # service name -> Rust handler file
 SERVICE_FILES = {
     "kernel": HANDLER_DIR / "kernel.rs",
-    "engine": HANDLER_DIR / "engine.rs",
     "orchestration": HANDLER_DIR / "orchestration.rs",
     "commbus": HANDLER_DIR / "commbus.rs",
     "interrupt": HANDLER_DIR / "interrupt.rs",
+    "tools": HANDLER_DIR / "tools.rs",
 }
 
 

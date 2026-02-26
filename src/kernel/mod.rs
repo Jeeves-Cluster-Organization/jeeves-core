@@ -68,6 +68,15 @@ pub struct Kernel {
     /// Single source of truth for all envelopes. Keyed by ProcessId so that
     /// lifecycle methods, orchestrator, and IPC handlers all use the same key.
     process_envelopes: HashMap<ProcessId, Envelope>,
+
+    /// Tool catalog — metadata, validation, prompt generation.
+    tool_catalog: crate::tools::ToolCatalog,
+
+    /// Tool access policy — agent-scoped permissions.
+    tool_access: crate::tools::ToolAccessPolicy,
+
+    /// Tool health tracking — sliding-window metrics and circuit breaking.
+    tool_health: crate::tools::ToolHealthTracker,
 }
 
 impl Kernel {
@@ -81,6 +90,9 @@ impl Kernel {
             orchestrator: orchestrator::Orchestrator::new(),
             commbus: crate::commbus::CommBus::new(),
             process_envelopes: HashMap::new(),
+            tool_catalog: crate::tools::ToolCatalog::new(),
+            tool_access: crate::tools::ToolAccessPolicy::new(),
+            tool_health: crate::tools::ToolHealthTracker::default(),
         }
     }
 
@@ -97,6 +109,9 @@ impl Kernel {
             orchestrator: orchestrator::Orchestrator::new(),
             commbus: crate::commbus::CommBus::new(),
             process_envelopes: HashMap::new(),
+            tool_catalog: crate::tools::ToolCatalog::new(),
+            tool_access: crate::tools::ToolAccessPolicy::new(),
+            tool_health: crate::tools::ToolHealthTracker::default(),
         }
     }
 
@@ -552,6 +567,40 @@ impl Kernel {
     /// Merge overrides into the default quota (non-zero fields overwrite).
     pub fn set_default_quota(&mut self, overrides: &ResourceQuota) {
         self.lifecycle.set_default_quota(overrides);
+    }
+
+    // =============================================================================
+    // Tool Catalog & Access Control
+    // =============================================================================
+
+    /// Get a reference to the tool catalog.
+    pub fn tool_catalog(&self) -> &crate::tools::ToolCatalog {
+        &self.tool_catalog
+    }
+
+    /// Get a mutable reference to the tool catalog.
+    pub fn tool_catalog_mut(&mut self) -> &mut crate::tools::ToolCatalog {
+        &mut self.tool_catalog
+    }
+
+    /// Get a reference to the tool access policy.
+    pub fn tool_access(&self) -> &crate::tools::ToolAccessPolicy {
+        &self.tool_access
+    }
+
+    /// Get a mutable reference to the tool access policy.
+    pub fn tool_access_mut(&mut self) -> &mut crate::tools::ToolAccessPolicy {
+        &mut self.tool_access
+    }
+
+    /// Get a reference to the tool health tracker.
+    pub fn tool_health(&self) -> &crate::tools::ToolHealthTracker {
+        &self.tool_health
+    }
+
+    /// Get a mutable reference to the tool health tracker.
+    pub fn tool_health_mut(&mut self) -> &mut crate::tools::ToolHealthTracker {
+        &mut self.tool_health
     }
 
     // =============================================================================

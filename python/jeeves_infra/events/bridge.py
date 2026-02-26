@@ -4,7 +4,12 @@ This bridge:
 1. Subscribes to kernel lifecycle events via KernelEventAggregator
 2. Translates them to frontend-friendly event formats
 3. Forwards to WebSocket manager for real-time streaming
-4. Handles interrupt-to-clarification/confirmation translation
+
+Kernel event types handled (from kernel.rs lifecycle emissions):
+  process.created       → orchestrator.started
+  process.state_changed → orchestrator.completed (TERMINATED only; WAITING filtered)
+  resource.exhausted    → orchestrator.resource_exhausted
+  process.cancelled     → orchestrator.cancelled
 
 Architecture:
     Kernel CommBus (Rust)
@@ -20,7 +25,6 @@ from __future__ import annotations
 
 from typing import Any, Dict, Optional, TYPE_CHECKING
 
-from jeeves_infra.protocols import InterruptKind
 from jeeves_infra.protocols import LoggerProtocol
 
 from dataclasses import dataclass
@@ -156,40 +160,7 @@ class EventBridge:
                     },
                 }
             elif new_state == "WAITING":
-                # Check if it's clarification or confirmation
-                return None  # interrupt.raised will handle this
-
-        elif event_type == "interrupt.raised":
-            interrupt_type = data.get("interrupt_type")
-
-            if interrupt_type == InterruptKind.CLARIFICATION.value:
-                return {
-                    "type": "orchestrator.clarification",
-                    "data": {
-                        "request_id": event.pid,
-                        "clarification_question": data.get("question"),
-                        "thread_id": event.pid,
-                    },
-                }
-
-            elif interrupt_type == InterruptKind.CONFIRMATION.value:
-                return {
-                    "type": "orchestrator.confirmation",
-                    "data": {
-                        "request_id": event.pid,
-                        "confirmation_message": data.get("message"),
-                        "confirmation_id": data.get("confirmation_id"),
-                    },
-                }
-
-            elif interrupt_type == InterruptKind.RESOURCE_EXHAUSTED.value:
-                return {
-                    "type": "orchestrator.resource_exhausted",
-                    "data": {
-                        "request_id": event.pid,
-                        "reason": data.get("reason"),
-                    },
-                }
+                return None  # WAITING state not forwarded to frontend
 
         elif event_type == "resource.exhausted":
             return {

@@ -33,8 +33,10 @@
 // Re-export public API
 pub mod commbus;
 pub mod envelope;
+pub mod events;
 pub mod ipc;
 pub mod kernel;
+pub mod tools;
 pub mod types;
 
 // Internal utilities

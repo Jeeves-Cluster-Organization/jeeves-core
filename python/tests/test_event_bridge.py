@@ -71,7 +71,7 @@ class TestEventBridgeTranslation:
             "old_state": "RUNNING", "new_state": "WAITING",
         })
         result = bridge._translate_event(event)
-        assert result is None  # interrupt.raised handles WAITING
+        assert result is None  # WAITING state not forwarded to frontend
 
     def test_resource_exhausted(self):
         bridge = self._make_bridge()

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 from datetime import datetime
 from typing import Any, Dict, List, Optional, TYPE_CHECKING
 
@@ -11,6 +12,8 @@ from jeeves_infra.protocols import (
     InterruptResponse,
     InterruptStatus,
 )
+
+logger = logging.getLogger(__name__)
 
 if TYPE_CHECKING:
     from jeeves_infra.kernel_client import KernelClient
@@ -115,7 +118,8 @@ def _dict_to_flow_interrupt(d: Dict[str, Any]) -> FlowInterrupt:
     try:
         kind = InterruptKind(kind_str)
     except ValueError:
-        kind = InterruptKind.UNSPECIFIED
+        logger.warning("unknown_interrupt_kind", extra={"value": kind_str})
+        kind = InterruptKind.SYSTEM_ERROR  # safe fallback for unknown kinds
 
     status_str = d.get("status", "pending")
     try:
