@@ -166,6 +166,37 @@ pub async fn handle(kernel: &mut Kernel, method: &str, body: Value) -> Result<Di
             Ok(DispatchResponse::Single(pcb_to_value(pcb)))
         }
 
+        "ResumeProcess" => {
+            let pid = parse_pid(&body)?;
+
+            // Optional envelope updates (e.g., new raw_input, metadata)
+            let envelope_update = body.get("envelope_update")
+                .and_then(|v| v.as_object())
+                .map(|obj| {
+                    obj.iter()
+                        .map(|(k, v)| (k.clone(), v.clone()))
+                        .collect::<std::collections::HashMap<String, Value>>()
+                });
+
+            kernel.resume_process_with_update(&pid, envelope_update)?;
+
+            let pcb = kernel
+                .get_process(&pid)
+                .ok_or_else(|| Error::not_found(format!("Process {} not found", pid)))?;
+
+            emit_lifecycle_event(
+                kernel,
+                "process.resumed",
+                serde_json::json!({
+                    "pid": pid.as_str(),
+                    "session_id": pcb.session_id.as_str(),
+                }),
+            )
+            .await;
+
+            Ok(DispatchResponse::Single(pcb_to_value(pcb)))
+        }
+
         "CheckQuota" => {
             let pid = parse_pid(&body)?;
             let pcb = kernel

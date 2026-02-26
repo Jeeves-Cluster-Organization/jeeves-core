@@ -162,12 +162,16 @@ pub struct EdgeLimit {
 // Orchestration Session
 // =============================================================================
 
-/// OrchestrationSession represents an active pipeline execution session.
+/// PipelineSession represents an active pipeline execution session.
+///
+/// The session tracks pipeline execution state only (config, edge traversals,
+/// termination status). The envelope is owned by the Kernel's `process_envelopes`
+/// store — the microkernel pattern: kernel owns state, subsystems process it.
 #[derive(Debug, Clone)]
-pub struct OrchestrationSession {
+pub struct PipelineSession {
     pub process_id: ProcessId,
     pub pipeline_config: PipelineConfig,
-    pub envelope: Envelope,
+    // NOTE: No envelope field — kernel owns it via `process_envelopes`
     pub edge_traversals: HashMap<String, i32>, // "from->to" -> count
     pub terminated: bool,
     pub terminal_reason: Option<TerminalReason>,
@@ -193,16 +197,19 @@ pub struct SessionState {
 // =============================================================================
 
 /// Orchestrator manages kernel-side pipeline execution.
+///
+/// Stateless with respect to envelopes — the Kernel extracts envelopes from
+/// `process_envelopes`, passes them in, and re-stores the results.
 #[derive(Debug)]
 pub struct Orchestrator {
-    sessions: HashMap<ProcessId, OrchestrationSession>,
+    pipelines: HashMap<ProcessId, PipelineSession>,
 }
 
 impl Orchestrator {
     /// Create a new Orchestrator.
     pub fn new() -> Self {
         Self {
-            sessions: HashMap::new(),
+            pipelines: HashMap::new(),
         }
     }
 
@@ -210,18 +217,20 @@ impl Orchestrator {
     // Session Management
     // =============================================================================
 
-    /// Initialize a new orchestration session.
+    /// Initialize a new pipeline session.
+    ///
+    /// Takes a mutable envelope reference to set pipeline bounds (kernel owns the envelope).
     /// If force is false and a session already exists, returns an error.
     /// If force is true, replaces any existing session.
     pub fn initialize_session(
         &mut self,
         process_id: ProcessId,
         pipeline_config: PipelineConfig,
-        mut envelope: Envelope,
+        envelope: &mut Envelope,
         force: bool,
     ) -> Result<SessionState> {
         // Check for duplicate processID
-        if self.sessions.contains_key(&process_id) && !force {
+        if self.pipelines.contains_key(&process_id) && !force {
             return Err(Error::validation(format!(
                 "Session already exists for process: {} (use force=true to replace)",
                 process_id
@@ -243,10 +252,9 @@ impl Orchestrator {
         }
 
         let now = Utc::now();
-        let session = OrchestrationSession {
+        let session = PipelineSession {
             process_id: process_id.clone(),
             pipeline_config,
-            envelope,
             edge_traversals: HashMap::new(),
             terminated: false,
             terminal_reason: None,
@@ -254,16 +262,23 @@ impl Orchestrator {
             last_activity_at: now,
         };
 
-        let state = self.build_session_state(&session);
-        self.sessions.insert(process_id, session);
+        let state = self.build_session_state(&session, envelope);
+        self.pipelines.insert(process_id, session);
 
         Ok(state)
     }
 
     /// Get the next instruction for a process.
-    pub fn get_next_instruction(&mut self, process_id: &ProcessId) -> Result<Instruction> {
+    ///
+    /// Envelope is passed in by the Kernel (which owns it). The envelope may be
+    /// mutated (e.g., bounds termination) — the Kernel re-stores it afterward.
+    pub fn get_next_instruction(
+        &mut self,
+        process_id: &ProcessId,
+        envelope: &mut Envelope,
+    ) -> Result<Instruction> {
         let session = self
-            .sessions
+            .pipelines
             .get_mut(process_id)
             .ok_or_else(|| Error::not_found(format!("Unknown process: {}", process_id)))?;
 
@@ -275,7 +290,7 @@ impl Orchestrator {
             return Ok(Instruction {
                 kind: InstructionKind::Terminate,
                 agent_name: None,
-                envelope: Some(session.envelope.clone()),
+                envelope: Some(envelope.clone()),
                 terminal_reason: session.terminal_reason,
                 termination_message: Some("Session already terminated".to_string()),
                 interrupt_pending: false,
@@ -284,28 +299,28 @@ impl Orchestrator {
         }
 
         // Check for pending interrupt
-        if session.envelope.interrupts.interrupt_pending {
+        if envelope.interrupts.interrupt_pending {
             return Ok(Instruction {
                 kind: InstructionKind::WaitInterrupt,
                 agent_name: None,
-                envelope: Some(session.envelope.clone()),
+                envelope: Some(envelope.clone()),
                 terminal_reason: None,
                 termination_message: None,
                 interrupt_pending: true,
-                interrupt: session.envelope.interrupts.interrupt.clone(),
+                interrupt: envelope.interrupts.interrupt.clone(),
             });
         }
 
         // Check bounds
-        if let Some(reason) = check_bounds(&session.envelope) {
+        if let Some(reason) = check_bounds(envelope) {
             session.terminated = true;
             session.terminal_reason = Some(reason);
-            session.envelope.bounds.terminated = true;
-            session.envelope.bounds.terminal_reason = Some(reason);
+            envelope.bounds.terminated = true;
+            envelope.bounds.terminal_reason = Some(reason);
             return Ok(Instruction {
                 kind: InstructionKind::Terminate,
                 agent_name: None,
-                envelope: Some(session.envelope.clone()),
+                envelope: Some(envelope.clone()),
                 terminal_reason: Some(reason),
                 termination_message: Some(format!("Bounds exceeded: {:?}", reason)),
                 interrupt_pending: false,
@@ -314,7 +329,7 @@ impl Orchestrator {
         }
 
         // Determine next agent to run
-        let current_stage = &session.envelope.pipeline.current_stage;
+        let current_stage = &envelope.pipeline.current_stage;
         if current_stage.is_empty() {
             return Err(Error::state_transition("No current stage set"));
         }
@@ -324,7 +339,7 @@ impl Orchestrator {
         Ok(Instruction {
             kind: InstructionKind::RunAgent,
             agent_name: Some(agent_name),
-            envelope: Some(session.envelope.clone()),
+            envelope: Some(envelope.clone()),
             terminal_reason: None,
             termination_message: None,
             interrupt_pending: false,
@@ -333,44 +348,46 @@ impl Orchestrator {
     }
 
     /// Process agent execution result.
+    ///
+    /// Takes the updated envelope (Kernel extracted it from `process_envelopes`,
+    /// IPC handler may have merged agent outputs into it). Updates metrics,
+    /// advances the pipeline, and mutates the envelope accordingly.
+    /// The Kernel re-stores the envelope after this call.
     pub fn report_agent_result(
         &mut self,
         process_id: &ProcessId,
         metrics: AgentExecutionMetrics,
-        updated_envelope: Envelope,
+        envelope: &mut Envelope,
     ) -> Result<()> {
         let session = self
-            .sessions
+            .pipelines
             .get_mut(process_id)
             .ok_or_else(|| Error::not_found(format!("Unknown process: {}", process_id)))?;
 
-        // Update envelope
-        session.envelope = updated_envelope;
-
         // Update metrics in envelope
-        session.envelope.bounds.llm_call_count += metrics.llm_calls;
-        session.envelope.bounds.tool_call_count += metrics.tool_calls;
+        envelope.bounds.llm_call_count += metrics.llm_calls;
+        envelope.bounds.tool_call_count += metrics.tool_calls;
         if let Some(tokens_in) = metrics.tokens_in {
-            session.envelope.bounds.tokens_in += tokens_in;
+            envelope.bounds.tokens_in += tokens_in;
         }
         if let Some(tokens_out) = metrics.tokens_out {
-            session.envelope.bounds.tokens_out += tokens_out;
+            envelope.bounds.tokens_out += tokens_out;
         }
 
         // Increment iteration
-        session.envelope.pipeline.iteration += 1;
+        envelope.pipeline.iteration += 1;
 
         // Check bounds after iteration increment (terminates cycles)
-        if let Some(reason) = check_bounds(&session.envelope) {
+        if let Some(reason) = check_bounds(envelope) {
             session.terminated = true;
             session.terminal_reason = Some(reason);
-            session.envelope.bounds.terminated = true;
-            session.envelope.bounds.terminal_reason = Some(reason);
+            envelope.bounds.terminated = true;
+            envelope.bounds.terminal_reason = Some(reason);
             return Ok(());
         }
 
         // ===== ROUTING-BASED STAGE ADVANCEMENT =====
-        let current_stage = session.envelope.pipeline.current_stage.clone();
+        let current_stage = envelope.pipeline.current_stage.clone();
 
         // Look up the PipelineStage config for the current stage
         let pipeline_stage = session.pipeline_config.agents
@@ -383,7 +400,7 @@ impl Orchestrator {
             .clone();
 
         // Mark current stage as completed
-        session.envelope.complete_stage(&current_stage);
+        envelope.complete_stage(&current_stage);
 
         // Get agent name for output lookup
         let agent_name = pipeline_stage.agent.clone();
@@ -391,7 +408,7 @@ impl Orchestrator {
         // Evaluate routing rules (first match wins)
         let next_target = evaluate_routing(
             &pipeline_stage,
-            &session.envelope.outputs,
+            &envelope.outputs,
             &agent_name,
         );
 
@@ -406,9 +423,9 @@ impl Orchestrator {
                 ) {
                     session.terminated = true;
                     session.terminal_reason = Some(TerminalReason::MaxAgentHopsExceeded);
-                    session.envelope.bounds.terminated = true;
-                    session.envelope.bounds.terminal_reason = Some(TerminalReason::MaxAgentHopsExceeded);
-                    session.envelope.bounds.termination_reason = Some(format!(
+                    envelope.bounds.terminated = true;
+                    envelope.bounds.terminal_reason = Some(TerminalReason::MaxAgentHopsExceeded);
+                    envelope.bounds.termination_reason = Some(format!(
                         "Edge limit exceeded: {} -> {}", current_stage, target
                     ));
                 } else {
@@ -417,8 +434,8 @@ impl Orchestrator {
                     *session.edge_traversals.entry(edge_key).or_insert(0) += 1;
 
                     // Advance to target stage
-                    session.envelope.pipeline.current_stage = target;
-                    session.envelope.bounds.agent_hop_count += 1;
+                    envelope.pipeline.current_stage = target;
+                    envelope.bounds.agent_hop_count += 1;
                 }
                 session.last_activity_at = Utc::now();
             }
@@ -426,8 +443,8 @@ impl Orchestrator {
                 // No routing rules matched — pipeline complete
                 session.terminated = true;
                 session.terminal_reason = Some(TerminalReason::Completed);
-                session.envelope.bounds.terminated = true;
-                session.envelope.bounds.terminal_reason = Some(TerminalReason::Completed);
+                envelope.bounds.terminated = true;
+                envelope.bounds.terminal_reason = Some(TerminalReason::Completed);
                 session.last_activity_at = Utc::now();
             }
         }
@@ -436,50 +453,54 @@ impl Orchestrator {
     }
 
     /// Get session state for external queries.
-    pub fn get_session_state(&self, process_id: &ProcessId) -> Result<SessionState> {
+    ///
+    /// Envelope is passed in by the Kernel (which owns it).
+    pub fn get_session_state(
+        &self,
+        process_id: &ProcessId,
+        envelope: &Envelope,
+    ) -> Result<SessionState> {
         let session = self
-            .sessions
+            .pipelines
             .get(process_id)
             .ok_or_else(|| Error::not_found(format!("Unknown process: {}", process_id)))?;
 
-        Ok(self.build_session_state(session))
+        Ok(self.build_session_state(session, envelope))
     }
 
-    /// Cleanup a session.
+    /// Check if a pipeline session exists for the given process.
+    pub fn has_session(&self, process_id: &ProcessId) -> bool {
+        self.pipelines.contains_key(process_id)
+    }
+
+    /// Cleanup a pipeline session.
     pub fn cleanup_session(&mut self, process_id: &ProcessId) -> bool {
-        self.sessions.remove(process_id).is_some()
+        self.pipelines.remove(process_id).is_some()
     }
 
-    /// Get session count.
+    /// Get pipeline session count.
     pub fn get_session_count(&self) -> usize {
-        self.sessions.len()
+        self.pipelines.len()
     }
 
-    /// Cleanup stale sessions older than the given duration.
-    pub fn cleanup_stale_sessions(&mut self, max_age_seconds: i64) -> usize {
+    /// Cleanup stale pipeline sessions older than the given duration.
+    /// Returns the PIDs of removed sessions so the Kernel can also clean up
+    /// the corresponding envelopes from `process_envelopes`.
+    pub fn cleanup_stale_sessions(&mut self, max_age_seconds: i64) -> Vec<ProcessId> {
         let cutoff = Utc::now() - chrono::Duration::seconds(max_age_seconds);
         let mut to_remove = Vec::new();
 
-        for (pid, session) in &self.sessions {
+        for (pid, session) in &self.pipelines {
             if session.last_activity_at < cutoff {
                 to_remove.push(pid.clone());
             }
         }
 
-        let count = to_remove.len();
-        for pid in to_remove {
-            self.sessions.remove(&pid);
+        for pid in &to_remove {
+            self.pipelines.remove(pid);
         }
 
-        count
-    }
-
-    /// Get the current envelope for a process.
-    /// Returns None if the process does not exist.
-    pub fn get_envelope_for_process(&self, process_id: &ProcessId) -> Option<&Envelope> {
-        self.sessions
-            .get(process_id)
-            .map(|session| &session.envelope)
+        to_remove
     }
 
     // =============================================================================
@@ -487,15 +508,15 @@ impl Orchestrator {
     // =============================================================================
 
     /// Build external session state representation.
-    fn build_session_state(&self, session: &OrchestrationSession) -> SessionState {
-        let envelope = serde_json::to_value(&session.envelope)
+    fn build_session_state(&self, session: &PipelineSession, envelope: &Envelope) -> SessionState {
+        let envelope_value = serde_json::to_value(envelope)
             .unwrap_or_else(|_| serde_json::json!({}));
 
         SessionState {
             process_id: session.process_id.clone(),
-            current_stage: session.envelope.pipeline.current_stage.clone(),
-            stage_order: session.envelope.pipeline.stage_order.clone(),
-            envelope,
+            current_stage: envelope.pipeline.current_stage.clone(),
+            stage_order: envelope.pipeline.stage_order.clone(),
+            envelope: envelope_value,
             edge_traversals: session.edge_traversals.clone(),
             terminated: session.terminated,
             terminal_reason: session.terminal_reason,
@@ -638,10 +659,10 @@ mod tests {
     fn test_initialize_session() {
         let mut orch = Orchestrator::new();
         let pipeline = create_test_pipeline();
-        let envelope = create_test_envelope();
+        let mut envelope = create_test_envelope();
 
         let state = orch
-            .initialize_session(ProcessId::must("proc1"), pipeline.clone(), envelope, false)
+            .initialize_session(ProcessId::must("proc1"), pipeline.clone(), &mut envelope, false)
             .unwrap();
 
         assert_eq!(state.process_id.as_str(), "proc1");
@@ -654,15 +675,16 @@ mod tests {
     fn test_initialize_session_duplicate_fails() {
         let mut orch = Orchestrator::new();
         let pipeline = create_test_pipeline();
-        let envelope = create_test_envelope();
+        let mut envelope = create_test_envelope();
 
         // Initialize first time
-        orch.initialize_session(ProcessId::must("proc1"), pipeline.clone(), envelope.clone(), false)
+        orch.initialize_session(ProcessId::must("proc1"), pipeline.clone(), &mut envelope, false)
             .unwrap();
 
         // Try to initialize again without force
+        let mut envelope2 = create_test_envelope();
         let result =
-            orch.initialize_session(ProcessId::must("proc1"), pipeline, envelope, false);
+            orch.initialize_session(ProcessId::must("proc1"), pipeline, &mut envelope2, false);
 
         assert!(result.is_err());
         assert!(result.unwrap_err().to_string().contains("already exists"));
@@ -672,15 +694,16 @@ mod tests {
     fn test_initialize_session_force_replaces() {
         let mut orch = Orchestrator::new();
         let pipeline = create_test_pipeline();
-        let envelope = create_test_envelope();
+        let mut envelope = create_test_envelope();
 
         // Initialize first time
-        orch.initialize_session(ProcessId::must("proc1"), pipeline.clone(), envelope.clone(), false)
+        orch.initialize_session(ProcessId::must("proc1"), pipeline.clone(), &mut envelope, false)
             .unwrap();
 
         // Initialize again with force=true should succeed
+        let mut envelope2 = create_test_envelope();
         let result =
-            orch.initialize_session(ProcessId::must("proc1"), pipeline, envelope, true);
+            orch.initialize_session(ProcessId::must("proc1"), pipeline, &mut envelope2, true);
 
         assert!(result.is_ok());
     }
@@ -689,12 +712,12 @@ mod tests {
     fn test_get_next_instruction_run_agent() {
         let mut orch = Orchestrator::new();
         let pipeline = create_test_pipeline();
-        let envelope = create_test_envelope();
+        let mut envelope = create_test_envelope();
 
-        orch.initialize_session(ProcessId::must("proc1"), pipeline, envelope, false)
+        orch.initialize_session(ProcessId::must("proc1"), pipeline, &mut envelope, false)
             .unwrap();
 
-        let instruction = orch.get_next_instruction(&ProcessId::must("proc1")).unwrap();
+        let instruction = orch.get_next_instruction(&ProcessId::must("proc1"), &mut envelope).unwrap();
 
         assert_eq!(instruction.kind, InstructionKind::RunAgent);
         assert_eq!(instruction.agent_name, Some("agent1".to_string()));
@@ -705,17 +728,17 @@ mod tests {
     fn test_get_next_instruction_terminate_after_terminated() {
         let mut orch = Orchestrator::new();
         let pipeline = create_test_pipeline();
-        let envelope = create_test_envelope();
+        let mut envelope = create_test_envelope();
 
-        orch.initialize_session(ProcessId::must("proc1"), pipeline, envelope, false)
+        orch.initialize_session(ProcessId::must("proc1"), pipeline, &mut envelope, false)
             .unwrap();
 
         // Manually terminate session
-        let session = orch.sessions.get_mut(&ProcessId::must("proc1")).unwrap();
+        let session = orch.pipelines.get_mut(&ProcessId::must("proc1")).unwrap();
         session.terminated = true;
         session.terminal_reason = Some(TerminalReason::MaxIterationsExceeded);
 
-        let instruction = orch.get_next_instruction(&ProcessId::must("proc1")).unwrap();
+        let instruction = orch.get_next_instruction(&ProcessId::must("proc1"), &mut envelope).unwrap();
 
         assert_eq!(instruction.kind, InstructionKind::Terminate);
         assert_eq!(
@@ -737,10 +760,10 @@ mod tests {
                 .with_message("Need clarification".to_string())
         );
 
-        orch.initialize_session(ProcessId::must("proc1"), pipeline, envelope, false)
+        orch.initialize_session(ProcessId::must("proc1"), pipeline, &mut envelope, false)
             .unwrap();
 
-        let instruction = orch.get_next_instruction(&ProcessId::must("proc1")).unwrap();
+        let instruction = orch.get_next_instruction(&ProcessId::must("proc1"), &mut envelope).unwrap();
 
         assert_eq!(instruction.kind, InstructionKind::WaitInterrupt);
         assert!(instruction.interrupt_pending);
@@ -751,17 +774,16 @@ mod tests {
     fn test_check_bounds_llm_exceeded() {
         let mut orch = Orchestrator::new();
         let pipeline = create_test_pipeline();
-        let envelope = create_test_envelope();
+        let mut envelope = create_test_envelope();
 
-        orch.initialize_session(ProcessId::must("proc1"), pipeline, envelope, false)
+        orch.initialize_session(ProcessId::must("proc1"), pipeline, &mut envelope, false)
             .unwrap();
 
         // Manually exceed LLM calls
-        let session = orch.sessions.get_mut(&ProcessId::must("proc1")).unwrap();
-        session.envelope.bounds.llm_call_count = 50; // At limit
-        session.envelope.bounds.max_llm_calls = 50;
+        envelope.bounds.llm_call_count = 50; // At limit
+        envelope.bounds.max_llm_calls = 50;
 
-        let instruction = orch.get_next_instruction(&ProcessId::must("proc1")).unwrap();
+        let instruction = orch.get_next_instruction(&ProcessId::must("proc1"), &mut envelope).unwrap();
 
         assert_eq!(instruction.kind, InstructionKind::Terminate);
         assert_eq!(
@@ -774,17 +796,16 @@ mod tests {
     fn test_check_bounds_iterations_exceeded() {
         let mut orch = Orchestrator::new();
         let pipeline = create_test_pipeline();
-        let envelope = create_test_envelope();
+        let mut envelope = create_test_envelope();
 
-        orch.initialize_session(ProcessId::must("proc1"), pipeline, envelope, false)
+        orch.initialize_session(ProcessId::must("proc1"), pipeline, &mut envelope, false)
             .unwrap();
 
         // Manually exceed iterations
-        let session = orch.sessions.get_mut(&ProcessId::must("proc1")).unwrap();
-        session.envelope.pipeline.iteration = 10; // At limit
-        session.envelope.pipeline.max_iterations = 10;
+        envelope.pipeline.iteration = 10; // At limit
+        envelope.pipeline.max_iterations = 10;
 
-        let instruction = orch.get_next_instruction(&ProcessId::must("proc1")).unwrap();
+        let instruction = orch.get_next_instruction(&ProcessId::must("proc1"), &mut envelope).unwrap();
 
         assert_eq!(instruction.kind, InstructionKind::Terminate);
         assert_eq!(
@@ -797,9 +818,9 @@ mod tests {
     fn test_report_agent_result_updates_metrics() {
         let mut orch = Orchestrator::new();
         let pipeline = create_test_pipeline();
-        let envelope = create_test_envelope();
+        let mut envelope = create_test_envelope();
 
-        orch.initialize_session(ProcessId::must("proc1"), pipeline, envelope, false)
+        orch.initialize_session(ProcessId::must("proc1"), pipeline, &mut envelope, false)
             .unwrap();
 
         let metrics = AgentExecutionMetrics {
@@ -810,27 +831,24 @@ mod tests {
             duration_ms: 1500,
         };
 
-        // Use the initialized envelope (with stage_order set) for the report
-        let initialized_envelope = orch.sessions.get(&ProcessId::must("proc1")).unwrap().envelope.clone();
-        orch.report_agent_result(&ProcessId::must("proc1"), metrics, initialized_envelope)
+        orch.report_agent_result(&ProcessId::must("proc1"), metrics, &mut envelope)
             .unwrap();
 
         // Check metrics were updated
-        let session = orch.sessions.get(&ProcessId::must("proc1")).unwrap();
-        assert_eq!(session.envelope.bounds.llm_call_count, 2);
-        assert_eq!(session.envelope.bounds.tool_call_count, 5);
-        assert_eq!(session.envelope.bounds.tokens_in, 1000);
-        assert_eq!(session.envelope.bounds.tokens_out, 500);
-        assert_eq!(session.envelope.pipeline.iteration, 1); // Incremented
+        assert_eq!(envelope.bounds.llm_call_count, 2);
+        assert_eq!(envelope.bounds.tool_call_count, 5);
+        assert_eq!(envelope.bounds.tokens_in, 1000);
+        assert_eq!(envelope.bounds.tokens_out, 500);
+        assert_eq!(envelope.pipeline.iteration, 1); // Incremented
     }
 
     #[test]
     fn test_report_agent_result_with_unknown_tokens_keeps_token_counters() {
         let mut orch = Orchestrator::new();
         let pipeline = create_test_pipeline();
-        let envelope = create_test_envelope();
+        let mut envelope = create_test_envelope();
 
-        orch.initialize_session(ProcessId::must("proc1"), pipeline, envelope, false)
+        orch.initialize_session(ProcessId::must("proc1"), pipeline, &mut envelope, false)
             .unwrap();
 
         let metrics = AgentExecutionMetrics {
@@ -841,30 +859,23 @@ mod tests {
             duration_ms: 100,
         };
 
-        let initialized_envelope = orch
-            .sessions
-            .get(&ProcessId::must("proc1"))
-            .unwrap()
-            .envelope
-            .clone();
-        orch.report_agent_result(&ProcessId::must("proc1"), metrics, initialized_envelope)
+        orch.report_agent_result(&ProcessId::must("proc1"), metrics, &mut envelope)
             .unwrap();
 
-        let session = orch.sessions.get(&ProcessId::must("proc1")).unwrap();
-        assert_eq!(session.envelope.bounds.tokens_in, 0);
-        assert_eq!(session.envelope.bounds.tokens_out, 0);
+        assert_eq!(envelope.bounds.tokens_in, 0);
+        assert_eq!(envelope.bounds.tokens_out, 0);
     }
 
     #[test]
     fn test_get_session_state() {
         let mut orch = Orchestrator::new();
         let pipeline = create_test_pipeline();
-        let envelope = create_test_envelope();
+        let mut envelope = create_test_envelope();
 
-        orch.initialize_session(ProcessId::must("proc1"), pipeline, envelope, false)
+        orch.initialize_session(ProcessId::must("proc1"), pipeline, &mut envelope, false)
             .unwrap();
 
-        let state = orch.get_session_state(&ProcessId::must("proc1")).unwrap();
+        let state = orch.get_session_state(&ProcessId::must("proc1"), &envelope).unwrap();
 
         assert_eq!(state.process_id.as_str(), "proc1");
         assert_eq!(state.current_stage, "stage1");
@@ -883,9 +894,9 @@ mod tests {
     fn test_cleanup_session() {
         let mut orch = Orchestrator::new();
         let pipeline = create_test_pipeline();
-        let envelope = create_test_envelope();
+        let mut envelope = create_test_envelope();
 
-        orch.initialize_session(ProcessId::must("proc1"), pipeline, envelope, false)
+        orch.initialize_session(ProcessId::must("proc1"), pipeline, &mut envelope, false)
             .unwrap();
 
         assert_eq!(orch.get_session_count(), 1);
@@ -902,8 +913,9 @@ mod tests {
     #[test]
     fn test_get_session_state_not_found() {
         let orch = Orchestrator::new();
+        let envelope = create_test_envelope();
 
-        let result = orch.get_session_state(&ProcessId::must("nonexistent"));
+        let result = orch.get_session_state(&ProcessId::must("nonexistent"), &envelope);
         assert!(result.is_err());
     }
 
@@ -958,22 +970,20 @@ mod tests {
             max_agent_hops: 10,
             edge_limits: vec![],
         };
-        let envelope = create_test_envelope();
-        orch.initialize_session(ProcessId::must("p1"), pipeline, envelope, false).unwrap();
+        let mut envelope = create_test_envelope();
+        orch.initialize_session(ProcessId::must("p1"), pipeline, &mut envelope, false).unwrap();
 
         // Report result with output that matches the conditional rule
-        let mut env = orch.sessions.get(&ProcessId::must("p1")).unwrap().envelope.clone();
         let mut output = HashMap::new();
         output.insert("intent".to_string(), serde_json::json!("skip"));
-        env.outputs.insert("a1".to_string(), output);
+        envelope.outputs.insert("a1".to_string(), output);
 
         let metrics = AgentExecutionMetrics { llm_calls: 0, tool_calls: 0, tokens_in: Some(0), tokens_out: Some(0), duration_ms: 0 };
-        orch.report_agent_result(&ProcessId::must("p1"), metrics, env).unwrap();
+        orch.report_agent_result(&ProcessId::must("p1"), metrics, &mut envelope).unwrap();
 
         // Should route to s3 (conditional match), not s2 (catch-all)
-        let session = orch.sessions.get(&ProcessId::must("p1")).unwrap();
-        assert_eq!(session.envelope.pipeline.current_stage, "s3");
-        assert!(!session.terminated);
+        assert_eq!(envelope.pipeline.current_stage, "s3");
+        assert!(!orch.pipelines.get(&ProcessId::must("p1")).unwrap().terminated);
     }
 
     #[test]
@@ -998,16 +1008,14 @@ mod tests {
             max_agent_hops: 10,
             edge_limits: vec![],
         };
-        let envelope = create_test_envelope();
-        orch.initialize_session(ProcessId::must("p1"), pipeline, envelope, false).unwrap();
+        let mut envelope = create_test_envelope();
+        orch.initialize_session(ProcessId::must("p1"), pipeline, &mut envelope, false).unwrap();
 
-        let env = orch.sessions.get(&ProcessId::must("p1")).unwrap().envelope.clone();
         let metrics = AgentExecutionMetrics { llm_calls: 0, tool_calls: 0, tokens_in: Some(0), tokens_out: Some(0), duration_ms: 0 };
-        orch.report_agent_result(&ProcessId::must("p1"), metrics, env).unwrap();
+        orch.report_agent_result(&ProcessId::must("p1"), metrics, &mut envelope).unwrap();
 
-        let session = orch.sessions.get(&ProcessId::must("p1")).unwrap();
-        assert_eq!(session.envelope.pipeline.current_stage, "s2");
-        assert!(!session.terminated);
+        assert_eq!(envelope.pipeline.current_stage, "s2");
+        assert!(!orch.pipelines.get(&ProcessId::must("p1")).unwrap().terminated);
     }
 
     #[test]
@@ -1040,20 +1048,18 @@ mod tests {
             max_agent_hops: 10,
             edge_limits: vec![],
         };
-        let envelope = create_test_envelope();
-        orch.initialize_session(ProcessId::must("p1"), pipeline, envelope, false).unwrap();
+        let mut envelope = create_test_envelope();
+        orch.initialize_session(ProcessId::must("p1"), pipeline, &mut envelope, false).unwrap();
 
-        let mut env = orch.sessions.get(&ProcessId::must("p1")).unwrap().envelope.clone();
         let mut output = HashMap::new();
         output.insert("intent".to_string(), serde_json::json!("greet"));
-        env.outputs.insert("a1".to_string(), output);
+        envelope.outputs.insert("a1".to_string(), output);
 
         let metrics = AgentExecutionMetrics { llm_calls: 0, tool_calls: 0, tokens_in: Some(0), tokens_out: Some(0), duration_ms: 0 };
-        orch.report_agent_result(&ProcessId::must("p1"), metrics, env).unwrap();
+        orch.report_agent_result(&ProcessId::must("p1"), metrics, &mut envelope).unwrap();
 
         // First rule wins → s2, not s3
-        let session = orch.sessions.get(&ProcessId::must("p1")).unwrap();
-        assert_eq!(session.envelope.pipeline.current_stage, "s2");
+        assert_eq!(envelope.pipeline.current_stage, "s2");
     }
 
     #[test]
@@ -1084,24 +1090,21 @@ mod tests {
             max_agent_hops: 10,
             edge_limits: vec![],
         };
-        let envelope = create_test_envelope();
-        orch.initialize_session(ProcessId::must("p1"), pipeline, envelope, false).unwrap();
+        let mut envelope = create_test_envelope();
+        orch.initialize_session(ProcessId::must("p1"), pipeline, &mut envelope, false).unwrap();
         let metrics = AgentExecutionMetrics { llm_calls: 0, tool_calls: 0, tokens_in: Some(0), tokens_out: Some(0), duration_ms: 0 };
 
         // s1 → s2
-        let env = orch.sessions.get(&ProcessId::must("p1")).unwrap().envelope.clone();
-        orch.report_agent_result(&ProcessId::must("p1"), metrics.clone(), env).unwrap();
-        assert_eq!(orch.sessions.get(&ProcessId::must("p1")).unwrap().envelope.pipeline.current_stage, "s2");
+        orch.report_agent_result(&ProcessId::must("p1"), metrics.clone(), &mut envelope).unwrap();
+        assert_eq!(envelope.pipeline.current_stage, "s2");
 
         // s2 → s3
-        let env = orch.sessions.get(&ProcessId::must("p1")).unwrap().envelope.clone();
-        orch.report_agent_result(&ProcessId::must("p1"), metrics.clone(), env).unwrap();
-        assert_eq!(orch.sessions.get(&ProcessId::must("p1")).unwrap().envelope.pipeline.current_stage, "s3");
+        orch.report_agent_result(&ProcessId::must("p1"), metrics.clone(), &mut envelope).unwrap();
+        assert_eq!(envelope.pipeline.current_stage, "s3");
 
         // s3 → terminate (no routing rules)
-        let env = orch.sessions.get(&ProcessId::must("p1")).unwrap().envelope.clone();
-        orch.report_agent_result(&ProcessId::must("p1"), metrics, env).unwrap();
-        let session = orch.sessions.get(&ProcessId::must("p1")).unwrap();
+        orch.report_agent_result(&ProcessId::must("p1"), metrics, &mut envelope).unwrap();
+        let session = orch.pipelines.get(&ProcessId::must("p1")).unwrap();
         assert!(session.terminated);
         assert_eq!(session.terminal_reason, Some(TerminalReason::Completed));
     }
@@ -1129,17 +1132,16 @@ mod tests {
             max_agent_hops: 50,
             edge_limits: vec![],
         };
-        let envelope = create_test_envelope();
-        orch.initialize_session(ProcessId::must("p1"), pipeline, envelope, false).unwrap();
+        let mut envelope = create_test_envelope();
+        orch.initialize_session(ProcessId::must("p1"), pipeline, &mut envelope, false).unwrap();
         let metrics = AgentExecutionMetrics { llm_calls: 0, tool_calls: 0, tokens_in: Some(0), tokens_out: Some(0), duration_ms: 0 };
 
         // Run the loop until bounds terminate it
         let mut terminated = false;
         for _ in 0..20 {
-            let env = orch.sessions.get(&ProcessId::must("p1")).unwrap().envelope.clone();
-            orch.report_agent_result(&ProcessId::must("p1"), metrics.clone(), env).unwrap();
+            orch.report_agent_result(&ProcessId::must("p1"), metrics.clone(), &mut envelope).unwrap();
 
-            let session = orch.sessions.get(&ProcessId::must("p1")).unwrap();
+            let session = orch.pipelines.get(&ProcessId::must("p1")).unwrap();
             if session.terminated {
                 terminated = true;
                 assert_eq!(session.terminal_reason, Some(TerminalReason::MaxIterationsExceeded));
@@ -1166,14 +1168,13 @@ mod tests {
             max_agent_hops: 10,
             edge_limits: vec![],
         };
-        let envelope = create_test_envelope();
-        orch.initialize_session(ProcessId::must("p1"), pipeline, envelope, false).unwrap();
+        let mut envelope = create_test_envelope();
+        orch.initialize_session(ProcessId::must("p1"), pipeline, &mut envelope, false).unwrap();
 
-        let env = orch.sessions.get(&ProcessId::must("p1")).unwrap().envelope.clone();
         let metrics = AgentExecutionMetrics { llm_calls: 0, tool_calls: 0, tokens_in: Some(0), tokens_out: Some(0), duration_ms: 0 };
-        orch.report_agent_result(&ProcessId::must("p1"), metrics, env).unwrap();
+        orch.report_agent_result(&ProcessId::must("p1"), metrics, &mut envelope).unwrap();
 
-        let session = orch.sessions.get(&ProcessId::must("p1")).unwrap();
+        let session = orch.pipelines.get(&ProcessId::must("p1")).unwrap();
         assert!(session.terminated);
         assert_eq!(session.terminal_reason, Some(TerminalReason::Completed));
     }
@@ -1228,21 +1229,20 @@ mod tests {
                 max_count: 2,
             }],
         };
-        let envelope = create_test_envelope();
-        orch.initialize_session(ProcessId::must("p1"), pipeline, envelope, false).unwrap();
+        let mut envelope = create_test_envelope();
+        orch.initialize_session(ProcessId::must("p1"), pipeline, &mut envelope, false).unwrap();
         let metrics = AgentExecutionMetrics { llm_calls: 0, tool_calls: 0, tokens_in: Some(0), tokens_out: Some(0), duration_ms: 0 };
 
         // Run cycle: s1→s2→s1→s2→s1→s2→(edge limit s2→s1)
         let mut terminated = false;
         for _ in 0..20 {
-            let session = orch.sessions.get(&ProcessId::must("p1")).unwrap();
+            let session = orch.pipelines.get(&ProcessId::must("p1")).unwrap();
             if session.terminated {
                 terminated = true;
                 assert_eq!(session.terminal_reason, Some(TerminalReason::MaxAgentHopsExceeded));
                 break;
             }
-            let env = session.envelope.clone();
-            orch.report_agent_result(&ProcessId::must("p1"), metrics.clone(), env).unwrap();
+            orch.report_agent_result(&ProcessId::must("p1"), metrics.clone(), &mut envelope).unwrap();
         }
         assert!(terminated, "Edge limit should have terminated the cycle");
     }
@@ -1251,14 +1251,13 @@ mod tests {
     fn test_edge_traversal_tracking() {
         let mut orch = Orchestrator::new();
         let pipeline = create_test_pipeline(); // s1 → s2 (unconditional)
-        let envelope = create_test_envelope();
-        orch.initialize_session(ProcessId::must("p1"), pipeline, envelope, false).unwrap();
+        let mut envelope = create_test_envelope();
+        orch.initialize_session(ProcessId::must("p1"), pipeline, &mut envelope, false).unwrap();
 
-        let env = orch.sessions.get(&ProcessId::must("p1")).unwrap().envelope.clone();
         let metrics = AgentExecutionMetrics { llm_calls: 0, tool_calls: 0, tokens_in: Some(0), tokens_out: Some(0), duration_ms: 0 };
-        orch.report_agent_result(&ProcessId::must("p1"), metrics, env).unwrap();
+        orch.report_agent_result(&ProcessId::must("p1"), metrics, &mut envelope).unwrap();
 
-        let session = orch.sessions.get(&ProcessId::must("p1")).unwrap();
+        let session = orch.pipelines.get(&ProcessId::must("p1")).unwrap();
         assert_eq!(session.edge_traversals.get("stage1->stage2"), Some(&1));
     }
 }

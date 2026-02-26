@@ -290,157 +290,61 @@ async fn test_kernel_shared_state() {
 }
 
 // =============================================================================
-// Engine service tests
+// Orchestration service tests
 // =============================================================================
 
-/// Helper: Create an envelope via engine.CreateEnvelope and return the serialized envelope.
-async fn create_test_envelope(stream: &mut TcpStream) -> serde_json::Value {
-    let body = serde_json::json!({
+/// Helper: Build a test envelope JSON value (no IPC — pure construction).
+fn build_test_envelope() -> serde_json::Value {
+    serde_json::json!({
+        "identity": {
+            "envelope_id": format!("env_{}", uuid::Uuid::new_v4().simple()),
+            "request_id": "req-e1",
+            "user_id": "user-e1",
+            "session_id": "sess-e1",
+        },
         "raw_input": "test input",
-        "request_id": "req-e1",
-        "user_id": "user-e1",
-        "session_id": "sess-e1",
-        "stage_order": ["classify", "respond"],
-    });
-    let (msg_type, response) = round_trip(stream, "engine", "CreateEnvelope", body).await;
-    assert_eq!(msg_type, MSG_RESPONSE);
-    assert_eq!(response.get("ok").unwrap().as_bool().unwrap(), true);
-    response.get("body").unwrap().clone()
-}
-
-#[tokio::test]
-async fn test_update_envelope() {
-    let (addr, _handle) = start_test_server().await;
-    let mut stream = TcpStream::connect(addr).await.unwrap();
-
-    // Create envelope
-    let envelope = create_test_envelope(&mut stream).await;
-    let env_id = envelope
-        .get("identity")
-        .unwrap()
-        .get("envelope_id")
-        .unwrap()
-        .as_str()
-        .unwrap()
-        .to_string();
-
-    // Update it (change raw_input)
-    let mut updated = envelope.clone();
-    updated
-        .as_object_mut()
-        .unwrap()
-        .insert("raw_input".to_string(), serde_json::json!("updated input"));
-
-    let (msg_type, response) = round_trip(
-        &mut stream,
-        "engine",
-        "UpdateEnvelope",
-        serde_json::json!({ "envelope": updated }),
-    )
-    .await;
-
-    assert_eq!(msg_type, MSG_RESPONSE);
-    assert_eq!(response.get("ok").unwrap().as_bool().unwrap(), true);
-    let body = response.get("body").unwrap();
-    assert_eq!(
-        body.get("raw_input").unwrap().as_str().unwrap(),
-        "updated input"
-    );
-    assert_eq!(
-        body.get("identity")
-            .unwrap()
-            .get("envelope_id")
-            .unwrap()
-            .as_str()
-            .unwrap(),
-        env_id,
-    );
-}
-
-#[tokio::test]
-async fn test_update_envelope_not_found() {
-    let (addr, _handle) = start_test_server().await;
-    let mut stream = TcpStream::connect(addr).await.unwrap();
-
-    // Create an envelope, tweak its ID to a non-existent one, try to update
-    let envelope = create_test_envelope(&mut stream).await;
-    let mut fake = envelope.clone();
-    fake.as_object_mut()
-        .unwrap()
-        .get_mut("identity")
-        .unwrap()
-        .as_object_mut()
-        .unwrap()
-        .insert(
-            "envelope_id".to_string(),
-            serde_json::json!("env_does_not_exist"),
-        );
-
-    let (msg_type, response) = round_trip(
-        &mut stream,
-        "engine",
-        "UpdateEnvelope",
-        serde_json::json!({ "envelope": fake }),
-    )
-    .await;
-
-    assert_eq!(msg_type, MSG_ERROR);
-    let error = response.get("error").unwrap();
-    assert_eq!(error.get("code").unwrap().as_str().unwrap(), "NOT_FOUND");
-}
-
-#[tokio::test]
-async fn test_execute_pipeline() {
-    let (addr, _handle) = start_test_server().await;
-    let mut stream = TcpStream::connect(addr).await.unwrap();
-
-    // Create an envelope first
-    let envelope = create_test_envelope(&mut stream).await;
-    let envelope_str = serde_json::to_string(&envelope).unwrap();
-
-    let pipeline_config = serde_json::json!({
-        "name": "test-pipeline",
-        "agents": [
-            {
-                "name": "classify",
-                "agent": "classifier",
-                "routing": [
-                    {"target": "respond", "condition": null, "value": null}
-                ]
-            },
-            {
-                "name": "respond",
-                "agent": "responder",
-                "routing": []
-            }
-        ],
-        "max_iterations": 5,
-        "max_llm_calls": 100,
-        "max_agent_hops": 20,
-        "edge_limits": []
-    });
-    let pipeline_config_str = serde_json::to_string(&pipeline_config).unwrap();
-
-    let (msg_type, response) = round_trip(
-        &mut stream,
-        "engine",
-        "ExecutePipeline",
-        serde_json::json!({
-            "envelope": envelope_str,
-            "pipeline_config": pipeline_config_str,
-        }),
-    )
-    .await;
-
-    assert_eq!(msg_type, MSG_RESPONSE);
-    assert_eq!(response.get("ok").unwrap().as_bool().unwrap(), true);
-    let body = response.get("body").unwrap();
-    // First instruction should be RUN_AGENT for the entry stage
-    assert_eq!(body.get("kind").unwrap().as_str().unwrap(), "RUN_AGENT");
-    assert_eq!(
-        body.get("agent_name").unwrap().as_str().unwrap(),
-        "classifier"
-    );
+        "received_at": chrono::Utc::now().to_rfc3339(),
+        "outputs": {},
+        "pipeline": {
+            "current_stage": "",
+            "stage_order": [],
+            "iteration": 0,
+            "max_iterations": 3,
+            "active_stages": [],
+            "completed_stage_set": [],
+            "failed_stages": {},
+            "parallel_mode": false,
+        },
+        "bounds": {
+            "llm_call_count": 0,
+            "max_llm_calls": 10,
+            "tool_call_count": 0,
+            "agent_hop_count": 0,
+            "max_agent_hops": 21,
+            "tokens_in": 0,
+            "tokens_out": 0,
+            "terminated": false,
+        },
+        "interrupts": {
+            "interrupt_pending": false,
+        },
+        "execution": {
+            "completed_stages": [],
+            "current_stage_number": 1,
+            "max_stages": 5,
+            "all_goals": [],
+            "remaining_goals": [],
+            "goal_completion_status": {},
+            "prior_plans": [],
+            "loop_feedback": [],
+        },
+        "audit": {
+            "processing_history": [],
+            "errors": [],
+            "created_at": chrono::Utc::now().to_rfc3339(),
+            "metadata": {},
+        },
+    })
 }
 
 #[tokio::test]
@@ -448,7 +352,7 @@ async fn test_report_agent_result_failure_records_error_and_keeps_unknown_tokens
     let (addr, _handle) = start_test_server().await;
     let mut stream = TcpStream::connect(addr).await.unwrap();
 
-    let envelope = create_test_envelope(&mut stream).await;
+    let envelope = build_test_envelope();
     let process_id = "proc-report-failure-1";
 
     let pipeline_config = serde_json::json!({
@@ -546,48 +450,6 @@ async fn test_report_agent_result_failure_records_error_and_keeps_unknown_tokens
             .and_then(|v| v.as_i64())
             .unwrap(),
         0
-    );
-}
-
-#[tokio::test]
-async fn test_clone_envelope() {
-    let (addr, _handle) = start_test_server().await;
-    let mut stream = TcpStream::connect(addr).await.unwrap();
-
-    let envelope = create_test_envelope(&mut stream).await;
-    let original_id = envelope
-        .get("identity")
-        .unwrap()
-        .get("envelope_id")
-        .unwrap()
-        .as_str()
-        .unwrap()
-        .to_string();
-
-    let (msg_type, response) = round_trip(
-        &mut stream,
-        "engine",
-        "CloneEnvelope",
-        serde_json::json!({ "envelope": envelope }),
-    )
-    .await;
-
-    assert_eq!(msg_type, MSG_RESPONSE);
-    assert_eq!(response.get("ok").unwrap().as_bool().unwrap(), true);
-    let body = response.get("body").unwrap();
-    let cloned_id = body
-        .get("identity")
-        .unwrap()
-        .get("envelope_id")
-        .unwrap()
-        .as_str()
-        .unwrap();
-    // Clone gets a new ID
-    assert_ne!(cloned_id, original_id);
-    // Content preserved
-    assert_eq!(
-        body.get("raw_input").unwrap().as_str().unwrap(),
-        "test input"
     );
 }
 

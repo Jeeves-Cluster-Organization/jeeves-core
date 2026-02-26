@@ -317,6 +317,29 @@ class KernelClient:
             logger.error(f"Failed to terminate process {pid}: {e}")
             raise KernelClientError(f"TerminateProcess failed: {e}") from e
 
+    async def resume_process(
+        self,
+        pid: str,
+        envelope_update: Optional[Dict[str, Any]] = None,
+    ) -> ProcessInfo:
+        """Resume a waiting/blocked process with optional envelope updates.
+
+        Args:
+            pid: Process ID to resume.
+            envelope_update: Optional dict of updates to merge into the envelope.
+                Supported keys: "raw_input", "metadata" (merged into audit.metadata),
+                "outputs" (merged into outputs).
+        """
+        body: Dict[str, Any] = {"pid": pid}
+        if envelope_update is not None:
+            body["envelope_update"] = envelope_update
+        try:
+            response = await self._transport.request("kernel", "ResumeProcess", body)
+            return self._dict_to_process_info(response)
+        except IpcError as e:
+            logger.error(f"Failed to resume process {pid}: {e}")
+            raise KernelClientError(f"ResumeProcess failed: {e}") from e
+
     # =========================================================================
     # Resource Management (KernelService)
     # =========================================================================

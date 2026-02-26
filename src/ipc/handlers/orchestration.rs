@@ -120,32 +120,36 @@ pub async fn handle(kernel: &mut Kernel, method: &str, body: Value) -> Result<Di
                 }
             };
 
-            let mut envelope = kernel
-                .get_orchestration_envelope(&process_id)
-                .ok_or_else(|| Error::not_found(format!("Envelope not found: {}", process_id)))?;
+            // Mutate envelope in-place (never extracted from HashMap — impossible to lose)
+            {
+                let envelope = kernel
+                    .get_process_envelope_mut(&process_id)
+                    .ok_or_else(|| Error::not_found(format!("Envelope not found: {}", process_id)))?;
 
-            let mut agent_output = HashMap::new();
-            if let Value::Object(output_map) = output {
-                for (key, value) in output_map {
-                    agent_output.insert(key, value);
+                let mut agent_output = HashMap::new();
+                if let Value::Object(output_map) = output {
+                    for (key, value) in output_map {
+                        agent_output.insert(key, value);
+                    }
                 }
-            }
-            if !success {
-                agent_output.insert("success".to_string(), Value::Bool(false));
-                if !error_message.is_empty() {
-                    agent_output.insert("error".to_string(), Value::String(error_message.clone()));
+                if !success {
+                    agent_output.insert("success".to_string(), Value::Bool(false));
+                    if !error_message.is_empty() {
+                        agent_output.insert("error".to_string(), Value::String(error_message.clone()));
+                    }
+                    envelope.audit.metadata.insert(
+                        "last_agent_failure".to_string(),
+                        serde_json::json!({
+                            "agent_name": agent_name,
+                            "error": error_message,
+                        }),
+                    );
                 }
-                envelope.audit.metadata.insert(
-                    "last_agent_failure".to_string(),
-                    serde_json::json!({
-                        "agent_name": agent_name,
-                        "error": error_message,
-                    }),
-                );
+                envelope.outputs.insert(agent_name.clone(), agent_output);
             }
-            envelope.outputs.insert(agent_name.clone(), agent_output);
 
-            kernel.report_agent_result(&process_id, metrics, envelope)?;
+            // Report metrics and advance pipeline (envelope stays in HashMap)
+            kernel.report_agent_result(&process_id, metrics)?;
 
             let instruction = kernel.get_next_instruction(&process_id)?;
             Ok(DispatchResponse::Single(instruction_to_value(&instruction)))
@@ -170,7 +174,7 @@ pub async fn handle(kernel: &mut Kernel, method: &str, body: Value) -> Result<Di
 }
 
 // =============================================================================
-// Conversion helpers (used by engine handler too via pub)
+// Conversion helpers
 // =============================================================================
 
 /// Convert Instruction to the dict shape expected by `kernel_client.py._dict_to_instruction`.
