@@ -6,7 +6,7 @@ build-backend = "hatchling.build"
 name = "jeeves-infra"
 version = "1.0.0"
 description = "Jeeves Infrastructure Layer - adapters above the kernel"
-readme = "../README.md"
+readme = "README.md"
 license = "Apache-2.0"
 requires-python = ">=3.11"
 authors = [
