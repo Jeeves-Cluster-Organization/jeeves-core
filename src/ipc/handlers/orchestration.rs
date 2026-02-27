@@ -65,7 +65,8 @@ pub async fn handle(kernel: &mut Kernel, method: &str, body: Value) -> Result<Di
                 let _ = kernel.terminate_process(&process_id);
             }
 
-            Ok(DispatchResponse::Single(instruction_to_value(&instruction)))
+            let envelope = kernel.get_process_envelope(&process_id);
+            Ok(DispatchResponse::Single(instruction_to_value(&instruction, envelope)))
         }
 
         "ReportAgentResult" => {
@@ -149,10 +150,31 @@ pub async fn handle(kernel: &mut Kernel, method: &str, body: Value) -> Result<Di
             }
 
             // Report metrics and advance pipeline (envelope stays in HashMap)
-            kernel.report_agent_result(&process_id, metrics)?;
+            kernel.report_agent_result(&process_id, metrics, !success)?;
+
+            // Sync PCB counters from envelope after report_agent_result
+            if let Some(envelope) = kernel.get_process_envelope(&process_id) {
+                let llm_delta = envelope.bounds.llm_call_count;
+                let tool_delta = envelope.bounds.tool_call_count;
+                let tokens_in = envelope.bounds.tokens_in;
+                let tokens_out = envelope.bounds.tokens_out;
+                if let Some(pcb) = kernel.get_process(&process_id) {
+                    let user_id_str = pcb.user_id.as_str().to_string();
+                    // Reconcile PCB usage with envelope counters
+                    kernel.record_usage(
+                        &process_id,
+                        &user_id_str,
+                        llm_delta.saturating_sub(pcb.usage.llm_calls).max(0),
+                        tool_delta.saturating_sub(pcb.usage.tool_calls).max(0),
+                        (tokens_in - pcb.usage.tokens_in).max(0),
+                        (tokens_out - pcb.usage.tokens_out).max(0),
+                    );
+                }
+            }
 
             let instruction = kernel.get_next_instruction(&process_id)?;
-            Ok(DispatchResponse::Single(instruction_to_value(&instruction)))
+            let envelope = kernel.get_process_envelope(&process_id);
+            Ok(DispatchResponse::Single(instruction_to_value(&instruction, envelope)))
         }
 
         "GetSessionState" => {
@@ -178,7 +200,13 @@ pub async fn handle(kernel: &mut Kernel, method: &str, body: Value) -> Result<Di
 // =============================================================================
 
 /// Convert Instruction to the dict shape expected by `kernel_client.py._dict_to_instruction`.
-pub fn instruction_to_value(instr: &crate::kernel::orchestrator::Instruction) -> Value {
+///
+/// The envelope is passed separately because it is no longer part of the Instruction struct.
+/// The kernel fetches the envelope from its process_envelopes store and passes it here.
+pub fn instruction_to_value(
+    instr: &crate::kernel::orchestrator::Instruction,
+    envelope: Option<&crate::envelope::Envelope>,
+) -> Value {
     let kind_str = serde_json::to_value(&instr.kind)
         .ok()
         .and_then(|v| v.as_str().map(|s| s.to_string()))
@@ -191,15 +219,13 @@ pub fn instruction_to_value(instr: &crate::kernel::orchestrator::Instruction) ->
         .and_then(|v| v.as_str().map(|s| s.to_string()))
         .unwrap_or_default();
 
-    let envelope = instr
-        .envelope
-        .as_ref()
+    let envelope_val = envelope
         .and_then(|e| serde_json::to_value(e).ok());
 
     serde_json::json!({
         "kind": kind_str,
-        "agent_name": instr.agent_name.as_deref().unwrap_or(""),
-        "envelope": envelope,
+        "agents": instr.agents,
+        "envelope": envelope_val,
         "terminal_reason": terminal_reason_str,
         "termination_message": instr.termination_message.as_deref().unwrap_or(""),
         "interrupt_pending": instr.interrupt_pending,

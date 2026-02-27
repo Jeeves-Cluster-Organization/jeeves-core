@@ -229,28 +229,3 @@ pub async fn handle(kernel: &mut Kernel, method: &str, body: Value) -> Result<Di
     }
 }
 
-/// Convert `ToolEntry` to the dict shape expected by Python's `ToolCatalogEntry`.
-pub fn tool_entry_to_value(entry: &ToolEntry) -> Value {
-    let params: Vec<Value> = entry
-        .parameters
-        .iter()
-        .map(|p| {
-            serde_json::json!({
-                "name": p.name,
-                "param_type": p.param_type,
-                "description": p.description,
-                "default": p.default,
-                "required": p.is_required(),
-            })
-        })
-        .collect();
-
-    serde_json::json!({
-        "id": entry.id,
-        "description": entry.description,
-        "parameters": params,
-        "category": entry.category,
-        "risk_semantic": entry.risk_semantic,
-        "risk_severity": entry.risk_severity,
-    })
-}

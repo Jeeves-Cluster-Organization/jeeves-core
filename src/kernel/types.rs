@@ -250,24 +250,24 @@ pub struct ProcessControlBlock {
     // Scheduling timestamps
     pub created_at: DateTime<Utc>,
 
-    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub started_at: Option<DateTime<Utc>>,
 
-    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub completed_at: Option<DateTime<Utc>>,
 
-    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub last_scheduled_at: Option<DateTime<Utc>>,
 
     // Interrupt handling
-    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub pending_interrupt: Option<InterruptKind>,
 
-    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub interrupt_data: Option<HashMap<String, serde_json::Value>>,
 
     // Parent/child relationships
-    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub parent_pid: Option<ProcessId>,
 
     pub child_pids: Vec<ProcessId>,

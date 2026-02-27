@@ -129,7 +129,6 @@ from jeeves_core.logging.adapter import StructlogAdapter, create_structlog_adapt
 # Re-export from context module (ADR-001)
 from jeeves_core.logging.context import (
     bind_logger_context,
-    request_context,
 )
 
 
@@ -157,5 +156,4 @@ __all__ = [
     "request_scope",
     # ADR-001: Context extensions
     "bind_logger_context",
-    "request_context",
 ]

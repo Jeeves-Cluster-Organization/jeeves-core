@@ -12,6 +12,7 @@ pub enum TerminalReason {
     MaxIterationsExceeded,
     MaxLlmCallsExceeded,
     MaxAgentHopsExceeded,
+    MaxStageVisitsExceeded,
     UserCancelled,
     ToolFailedFatally,
     LlmFailedFatally,

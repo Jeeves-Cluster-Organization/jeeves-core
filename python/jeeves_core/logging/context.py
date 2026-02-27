@@ -21,9 +21,7 @@ Usage:
 """
 
 from contextlib import contextmanager
-from typing import Generator, Iterator
-
-import structlog
+from typing import Generator
 
 from jeeves_core.protocols import LoggerProtocol
 
@@ -67,37 +65,6 @@ def bind_logger_context(**kwargs) -> Generator[LoggerProtocol, None, None]:
         _current_logger.reset(token)
 
 
-@contextmanager
-def request_context(request_id: str, user_id: str, **extra_context) -> Iterator[None]:
-    """Bind request context to all log messages within the context.
-
-    This uses structlog's contextvars to propagate context through async calls.
-    Backward-compatible function moved from jeeves_core_engine.agents.base.
-
-    Args:
-        request_id: Request ID for tracing
-        user_id: User ID for the request
-        **extra_context: Additional context to bind
-
-    Yields:
-        None
-
-    Usage:
-        with request_context("req-123", "user-456"):
-            # All log messages in this scope will have request_id and user_id
-            logger.info("processing_request")
-    """
-    token = structlog.contextvars.bind_contextvars(
-        request_id=request_id,
-        user_id=user_id,
-        **extra_context
-    )
-    try:
-        yield
-    finally:
-        structlog.contextvars.reset_contextvars(**token)
-
-
 __all__ = [
     "get_request_context",
     "set_request_context",
@@ -105,5 +72,4 @@ __all__ = [
     "set_current_logger",
     "request_scope",
     "bind_logger_context",
-    "request_context",
 ]

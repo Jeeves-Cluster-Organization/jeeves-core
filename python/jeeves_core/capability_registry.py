@@ -151,7 +151,7 @@ class DomainLLMRegistry:
                 )
 
         # Server URL override
-        url_env = os.getenv(f"LLAMASERVER_{prefix}_URL")
+        url_env = os.getenv(f"AIRFRAME_LLM_{prefix}_BASE_URL")
         if url_env:
             config = AgentLLMConfig(
                 agent_name=config.agent_name,

@@ -60,7 +60,7 @@ pub struct ServiceInfo {
     pub last_health_check: DateTime<Utc>,
 
     // Metadata
-    #[serde(skip_serializing_if = "HashMap::is_empty")]
+    #[serde(default, skip_serializing_if = "HashMap::is_empty")]
     pub metadata: HashMap<String, serde_json::Value>,
 }
 

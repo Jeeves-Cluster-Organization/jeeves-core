@@ -87,8 +87,6 @@ class Settings(BaseSettings):
     # NEUTRAL LLM CONFIGURATION (preferred over legacy vars)
     # =========================================================================
     # These are the canonical environment variables for LLM configuration.
-    # Legacy vars (LITELLM_*, LLAMASERVER_*) are still supported for
-    # backwards compatibility but new deployments should use AIRFRAME_LLM_*.
     airframe_llm_adapter: Optional[str] = Field(
         default=None,
         description="LLM adapter: openai_http, litellm, mock"
