@@ -321,8 +321,15 @@ class Agent:
                 # For debug mode, still call regular _call_llm for canonical output
                 output = await self._call_llm(envelope)
                 envelope.outputs[self.config.output_key] = output
+
+            # Post-process hook (same as process()) — required for routing
+            # rule evaluation after streaming completes
+            if self.post_process:
+                output = envelope.outputs.get(self.config.output_key, {})
+                result = self.post_process(envelope, output, self)
+                envelope = await result if asyncio.iscoroutine(result) else result
         else:
-            # No streaming - use regular process
+            # No streaming - use regular process (includes post_process)
             await self.process(envelope)
 
         # Note: agent_hop_count and current_stage are now managed by the kernel orchestrator

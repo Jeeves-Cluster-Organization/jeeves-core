@@ -351,26 +351,73 @@ class PipelineWorker:
                     )
                     continue
 
-                envelope, success, error, output, metrics = await self._run_agent(
-                    envelope=envelope,
-                    process_id=process_id,
-                    agent_name=agent_name,
-                    agent=agent,
-                    log_errors=False,
+                # Check if agent supports token streaming
+                has_streaming = (
+                    hasattr(agent, 'config')
+                    and hasattr(agent.config, 'token_stream')
+                    and hasattr(agent.config.token_stream, 'value')
+                    and agent.config.token_stream.value != "off"
                 )
 
-                await self._kernel.report_agent_result(
-                    process_id=process_id,
-                    agent_name=agent_name,
-                    output=output,
-                    metrics=metrics,
-                    success=success,
-                    error=error,
-                )
+                if has_streaming and hasattr(agent, 'stream'):
+                    # Streaming path: yield tokens, then report final output
+                    start_time = time.time()
+                    llm_calls_before = envelope.llm_call_count
+                    outputs_before = (
+                        set(envelope.outputs.keys()) if isinstance(envelope.outputs, dict) else set()
+                    )
 
-                # Yield the output for streaming
-                if success and output:
-                    yield (agent_name, output)
+                    try:
+                        async for event_type, event in agent.stream(envelope):
+                            yield ("__token__", {"agent": agent_name, "event": event})
+
+                        duration_ms = int((time.time() - start_time) * 1000)
+                        output = self._select_agent_output(envelope, agent_name, outputs_before)
+                        metrics = AgentExecutionMetrics(
+                            llm_calls=envelope.llm_call_count - llm_calls_before,
+                            duration_ms=duration_ms,
+                        )
+                        await self._kernel.report_agent_result(
+                            process_id=process_id,
+                            agent_name=agent_name,
+                            output=output,
+                            metrics=metrics,
+                            success=True,
+                            error="",
+                        )
+                        if output:
+                            yield (agent_name, output)
+                    except Exception as e:
+                        duration_ms = int((time.time() - start_time) * 1000)
+                        await self._kernel.report_agent_result(
+                            process_id=process_id,
+                            agent_name=agent_name,
+                            output=None,
+                            metrics=AgentExecutionMetrics(duration_ms=duration_ms),
+                            success=False,
+                            error=str(e),
+                        )
+                else:
+                    # Non-streaming path (original)
+                    envelope, success, error, output, metrics = await self._run_agent(
+                        envelope=envelope,
+                        process_id=process_id,
+                        agent_name=agent_name,
+                        agent=agent,
+                        log_errors=False,
+                    )
+
+                    await self._kernel.report_agent_result(
+                        process_id=process_id,
+                        agent_name=agent_name,
+                        output=output,
+                        metrics=metrics,
+                        success=success,
+                        error=error,
+                    )
+
+                    if success and output:
+                        yield (agent_name, output)
 
                 if self._persistence and thread_id:
                     try:
