@@ -21,7 +21,7 @@ EXPECTED = {
 
 def test_python_wire_constants():
     """Python ipc/protocol.py constants match expected values."""
-    from jeeves_airframe.ipc.protocol import (
+    from jeeves_core.ipc.protocol import (
         MSG_REQUEST,
         MSG_RESPONSE,
         MSG_STREAM_CHUNK,

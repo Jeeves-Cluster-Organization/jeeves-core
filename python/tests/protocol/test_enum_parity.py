@@ -75,7 +75,7 @@ def _pascal_to_wire(variant: str, strategy: str) -> str:
 def test_enum_parity(rust_file: str, rust_name: str, py_name: str, strategy: str):
     """Assert Python enum has all Rust variants (wire-format values)."""
     # Import Python enum dynamically
-    import jeeves_airframe.protocols.types as types_mod
+    import jeeves_core.protocols.types as types_mod
     py_enum = getattr(types_mod, py_name)
 
     # Parse Rust source

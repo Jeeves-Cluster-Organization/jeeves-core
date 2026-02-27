@@ -5,20 +5,20 @@ build-backend = "maturin"
 [tool.maturin]
 bindings = "bin"
 python-source = "python"
-python-packages = ["jeeves_airframe"]
+python-packages = ["jeeves_core"]
 strip = true
 
 [project]
-name = "jeeves-airframe"
-version = "1.0.0"
-description = "Jeeves Airframe - orchestration infrastructure above the kernel"
+name = "jeeves-core"
+version = "1.0.1"
+description = "Jeeves Core - kernel binary + Python orchestration infrastructure"
 readme = "python/README.md"
 license = "Apache-2.0"
 requires-python = ">=3.11"
 authors = [
     {name = "Jeeves Cluster Organization"}
 ]
-keywords = ["llm", "inference", "orchestration", "ipc", "agents", "airframe"]
+keywords = ["llm", "inference", "orchestration", "ipc", "agents", "kernel"]
 classifiers = [
     "Development Status :: 4 - Beta",
     "Intended Audience :: Developers",
@@ -64,7 +64,7 @@ dev = [
     "mypy>=1.0.0,<2",
 ]
 all = [
-    "jeeves-airframe[gateway,redis,llm]",
+    "jeeves-core[gateway,redis,llm]",
 ]
 
 [project.urls]
@@ -85,8 +85,8 @@ warn_return_any = true
 warn_unused_ignores = true
 
 [tool.coverage.run]
-source = ["python/jeeves_airframe"]
-omit = ["python/jeeves_airframe/**/test_*", "python/jeeves_airframe/**/*_test.py"]
+source = ["python/jeeves_core"]
+omit = ["python/jeeves_core/**/test_*", "python/jeeves_core/**/*_test.py"]
 
 [tool.coverage.report]
 fail_under = 50

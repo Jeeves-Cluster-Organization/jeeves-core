@@ -6,8 +6,8 @@ from unittest.mock import AsyncMock, MagicMock
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
-from jeeves_airframe.gateway.routers.interrupts import router, InterruptKind
-from jeeves_airframe.protocols import InterruptStatus
+from jeeves_core.gateway.routers.interrupts import router, InterruptKind
+from jeeves_core.protocols import InterruptStatus
 
 
 # ---------------------------------------------------------------------------

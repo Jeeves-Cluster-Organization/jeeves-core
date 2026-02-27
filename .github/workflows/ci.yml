@@ -73,7 +73,7 @@ jobs:
       - name: Run audit
         run: cargo audit
 
-  # ── Python (jeeves_airframe) ──────────────────────────────────────────
+  # ── Python (jeeves_core) ──────────────────────────────────────────
 
   py-lint:
     name: Python Lint
@@ -98,7 +98,7 @@ jobs:
         run: black --check .
 
       - name: Mypy
-        run: mypy --ignore-missing-imports jeeves_airframe/
+        run: mypy --ignore-missing-imports jeeves_core/
 
   py-test:
     name: Python Test + Coverage
@@ -121,14 +121,14 @@ jobs:
         run: pip install -e ".[dev,all]"
 
       - name: Run tests with coverage
-        run: pytest --cov=jeeves_airframe --cov-fail-under=40 --cov-report=xml
+        run: pytest --cov=jeeves_core --cov-fail-under=40 --cov-report=xml
 
       - name: Upload coverage to Codecov
         if: github.event_name == 'push'
         uses: codecov/codecov-action@v4
         with:
           files: coverage.xml
-          flags: jeeves-airframe
+          flags: jeeves-core
           fail_ci_if_error: false
         env:
           CODECOV_TOKEN: ${{ secrets.CODECOV_TOKEN }}

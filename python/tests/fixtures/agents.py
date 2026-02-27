@@ -14,11 +14,11 @@ Usage:
 
 import pytest
 from typing import Callable, Dict, Any
-from jeeves_airframe.protocols import (
+from jeeves_core.protocols import (
     Envelope,
     create_envelope,
 )
-from jeeves_airframe.protocols import RequestContext
+from jeeves_core.protocols import RequestContext
 from tests.fixtures.mocks import (
     MockDatabaseClient,
     MockLLMAdapter,

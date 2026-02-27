@@ -37,7 +37,7 @@ docker build -t jeeves-core .
 ./target/release/jeeves-kernel
 ```
 
-The Python infrastructure is a library — capabilities compose their own entry points and import `jeeves_airframe`.
+The Python infrastructure is a library — capabilities compose their own entry points and import `jeeves_core`.
 
 ---
 

@@ -16,9 +16,9 @@ Constitutional Compliance:
 - P6: Testable - tests catch real failures, not mock patterns
 
 Constitutional Import Boundary Note:
-- Mission system layer IS the wiring layer between app and jeeves_airframe
-- Direct jeeves_airframe imports are acceptable here for LLM factory access
-- App layer tests must use jeeves_airframe.wiring instead
+- Mission system layer IS the wiring layer between app and jeeves_core
+- Direct jeeves_core imports are acceptable here for LLM factory access
+- App layer tests must use jeeves_core.wiring instead
 """
 
 from pathlib import Path
@@ -52,8 +52,8 @@ def llm_provider():
             response = await llm_provider.generate(...)
             assert response is not None
     """
-    from jeeves_airframe.settings import get_settings
-    from jeeves_airframe.llm.factory import create_llm_provider
+    from jeeves_core.settings import get_settings
+    from jeeves_core.llm.factory import create_llm_provider
 
     provider_type = get_llm_provider_type()
     provider = create_llm_provider(provider_type, get_settings())

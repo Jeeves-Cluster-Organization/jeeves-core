@@ -3,7 +3,7 @@
 import pytest
 from unittest.mock import AsyncMock, MagicMock
 
-from jeeves_airframe.orchestrator.governance_service import (
+from jeeves_core.orchestrator.governance_service import (
     HealthServicer,
     ServiceError,
     get_agent_definitions,

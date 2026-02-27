@@ -3,7 +3,7 @@
 import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
 
-from jeeves_airframe.middleware.rate_limit import (
+from jeeves_core.middleware.rate_limit import (
     RateLimitMiddleware,
     RateLimitError,
     SKIP_ENDPOINTS,
