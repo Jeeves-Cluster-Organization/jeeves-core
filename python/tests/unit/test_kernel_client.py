@@ -6,8 +6,8 @@ Tests the Python IPC client for the Rust kernel with mocked transport.
 import pytest
 from unittest.mock import MagicMock, AsyncMock, patch
 
-from jeeves_infra.ipc import IpcTransport, IpcError
-from jeeves_infra.kernel_client import (
+from jeeves_core.ipc import IpcTransport, IpcError
+from jeeves_core.kernel_client import (
     KernelClient,
     KernelClientError,
     QuotaCheckResult,

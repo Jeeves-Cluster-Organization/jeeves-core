@@ -381,6 +381,41 @@ impl Envelope {
         self.interrupts.interrupt_pending = false;
         self.interrupts.interrupt = None;
     }
+
+    /// Merge key-value updates into the envelope.
+    ///
+    /// Supports updating well-known fields: `raw_input`, `metadata` (merged into
+    /// `audit.metadata`), and `outputs` (merged into `outputs`). Unknown keys
+    /// are stored in `audit.metadata` as a catch-all.
+    pub fn merge_updates(&mut self, updates: HashMap<String, serde_json::Value>) {
+        for (key, value) in updates {
+            match key.as_str() {
+                "raw_input" => {
+                    if let Some(s) = value.as_str() {
+                        self.raw_input = s.to_string();
+                    }
+                }
+                "metadata" => {
+                    if let serde_json::Value::Object(map) = value {
+                        for (k, v) in map {
+                            self.audit.metadata.insert(k, v);
+                        }
+                    }
+                }
+                "outputs" => {
+                    if let Ok(output_map) = serde_json::from_value::<HashMap<String, HashMap<String, serde_json::Value>>>(value) {
+                        for (agent, output) in output_map {
+                            self.outputs.entry(agent).or_default().extend(output);
+                        }
+                    }
+                }
+                _ => {
+                    // Store unknown keys in audit metadata
+                    self.audit.metadata.insert(key, value);
+                }
+            }
+        }
+    }
 }
 
 impl Default for Envelope {

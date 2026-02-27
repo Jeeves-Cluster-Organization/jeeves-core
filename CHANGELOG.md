@@ -42,7 +42,7 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 - Import allowlist on `_try_import_capability()` — blocks bare stdlib imports
 
 **Repo:**
-- Merged jeeves-airframe into jeeves-core under `python/` directory
+- Merged jeeves-core into jeeves-core under `python/` directory
 - Dockerfile (multi-stage: Rust kernel build + Python wheel)
 
 ### Changed

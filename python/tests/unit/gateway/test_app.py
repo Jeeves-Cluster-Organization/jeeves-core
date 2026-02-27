@@ -66,7 +66,7 @@ def _build_test_app(
         allow_headers=["*"],
     )
 
-    from jeeves_infra.middleware.body_limit import BodyLimitMiddleware
+    from jeeves_core.middleware.body_limit import BodyLimitMiddleware
 
     test_app.add_middleware(BodyLimitMiddleware, max_bytes=1 * 1024 * 1024)
 

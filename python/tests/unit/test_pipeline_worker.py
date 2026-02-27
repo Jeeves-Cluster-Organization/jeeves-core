@@ -13,13 +13,13 @@ from unittest.mock import AsyncMock, MagicMock, patch
 from dataclasses import dataclass
 from typing import Any, Dict, Optional
 
-from jeeves_infra.pipeline_worker import PipelineWorker, WorkerResult
-from jeeves_infra.kernel_client import (
+from jeeves_core.pipeline_worker import PipelineWorker, WorkerResult
+from jeeves_core.kernel_client import (
     OrchestratorInstruction,
     OrchestrationSessionState,
     AgentExecutionMetrics,
 )
-from jeeves_infra.protocols.types import Envelope
+from jeeves_core.protocols.types import Envelope
 
 
 # Create a test logger that accepts structlog-style keyword arguments
@@ -509,7 +509,7 @@ async def test_pipeline_worker_handles_agent_exception(mock_kernel_client, mock_
 @pytest.mark.asyncio
 async def test_pipeline_worker_handles_session_init_failure(mock_kernel_client, mock_agents, mock_envelope, pipeline_config):
     """Test PipelineWorker handles session initialization failure."""
-    from jeeves_infra.kernel_client import KernelClientError
+    from jeeves_core.kernel_client import KernelClientError
 
     mock_kernel_client.initialize_orchestration_session.side_effect = KernelClientError("Connection failed")
 

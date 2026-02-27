@@ -16,8 +16,8 @@ import pytest
 from typing import Any, Dict, Optional
 
 # Test the REAL implementations
-from jeeves_infra.tools.executor import ToolExecutionCore
-from jeeves_infra.wiring import ToolExecutor
+from jeeves_core.tools.executor import ToolExecutionCore
+from jeeves_core.wiring import ToolExecutor
 
 
 # =============================================================================

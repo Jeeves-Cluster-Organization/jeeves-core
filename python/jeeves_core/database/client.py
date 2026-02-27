@@ -1,0 +1,27 @@
+"""Database client module.
+
+Re-exports DatabaseClientProtocol and JSON utilities.
+Concrete implementations are owned by capabilities (e.g. SQLiteClient).
+
+Constitutional Reference:
+- jeeves_core.protocols: DatabaseClientProtocol definition
+- Constitution R4: Swappable Implementations
+"""
+
+# Re-export protocol from canonical location
+from jeeves_core.protocols import DatabaseClientProtocol
+
+# Re-export JSON utilities from centralized location
+from jeeves_core.utils.serialization import (
+    JSONEncoderWithUUID,
+    to_json,
+    from_json,
+)
+
+
+__all__ = [
+    "DatabaseClientProtocol",
+    "JSONEncoderWithUUID",
+    "to_json",
+    "from_json",
+]

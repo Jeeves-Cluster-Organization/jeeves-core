@@ -6,7 +6,7 @@ Tests the structured-column + callback injection persistence adapter.
 import json
 import pytest
 
-from jeeves_infra.runtime.persistence import DatabasePersistence
+from jeeves_core.runtime.persistence import DatabasePersistence
 from fixtures.sqlite_client import SQLiteClient
 
 

@@ -1,0 +1,108 @@
+[build-system]
+requires = ["maturin>=1.4,<2"]
+build-backend = "maturin"
+
+[tool.maturin]
+bindings = "bin"
+python-source = "python"
+python-packages = ["jeeves_core"]
+strip = true
+
+[project]
+name = "jeeves-core"
+version = "1.0.1"
+description = "Jeeves Core - kernel binary + Python orchestration infrastructure"
+readme = "python/README.md"
+license = "Apache-2.0"
+requires-python = ">=3.11"
+authors = [
+    {name = "Jeeves Cluster Organization"}
+]
+keywords = ["llm", "inference", "orchestration", "ipc", "agents", "kernel"]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: Apache Software License",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Software Development :: Libraries :: Python Modules",
+]
+
+dependencies = [
+    # IPC transport for kernel communication (Rust kernel via TCP+msgpack)
+    "msgpack>=1.0.0,<2",
+    # HTTP client (used by LLM providers and health probes)
+    "httpx>=0.25.0,<1",
+    # Data validation
+    "pydantic>=2.0.0,<3",
+    "pydantic-settings>=2.0.0,<3",
+    # Structured logging
+    "structlog>=23.0.0,<25",
+]
+
+[project.optional-dependencies]
+gateway = [
+    "fastapi>=0.109.0,<1",
+    "uvicorn>=0.27.0,<1",
+    "websockets>=12.0,<14",
+    "sse-starlette>=1.6.0,<3",
+]
+redis = [
+    "redis>=5.0.0,<6",
+]
+llm = [
+    "litellm>=1.0.0,<2",
+    "tiktoken>=0.5.0,<1",
+]
+dev = [
+    "pytest>=7.0.0,<9",
+    "pytest-asyncio>=0.21.0,<1",
+    "pytest-cov>=4.0.0,<6",
+    "aiosqlite>=0.19.0,<1",
+    "black>=23.0.0,<25",
+    "ruff>=0.1.0,<1",
+    "mypy>=1.0.0,<2",
+]
+all = [
+    "jeeves-core[gateway,redis,llm]",
+]
+
+[project.urls]
+Repository = "https://github.com/Jeeves-Cluster-Organization/jeeves-core"
+
+[tool.black]
+line-length = 100
+target-version = ["py311", "py312"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+select = ["E", "F", "I", "UP"]
+
+[tool.mypy]
+python_version = "3.11"
+warn_return_any = true
+warn_unused_ignores = true
+
+[tool.coverage.run]
+source = ["python/jeeves_core"]
+omit = ["python/jeeves_core/**/test_*", "python/jeeves_core/**/*_test.py"]
+
+[tool.coverage.report]
+fail_under = 50
+exclude_lines = [
+    "pragma: no cover",
+    "if TYPE_CHECKING:",
+    "if __name__ == .__main__.",
+    "@abstractmethod",
+    "raise NotImplementedError",
+]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["python/tests"]
+pythonpath = ["python"]
+markers = [
+    "integration: integration tests requiring a running kernel",
+    "protocol: cross-language protocol parity tests",
+]

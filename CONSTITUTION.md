@@ -201,7 +201,7 @@ pub fn function(arg1: Type1, arg2: Type2) -> Result<ReturnType> {
 
 If you're unsure whether a change belongs in the kernel layer:
 
-1. Could this be implemented in jeeves-infra? → Do it there
+1. Could this be implemented in jeeves-core? → Do it there
 2. Is this domain-specific? → Belongs in capability layer
 3. Does this require kernel primitives? → Maybe kernel (discuss first)
 
@@ -209,15 +209,15 @@ Open an issue for architectural discussions before implementing large changes.
 
 ---
 
-## Python Infrastructure Layer (`python/jeeves_infra`)
+## Python Infrastructure Layer (`python/jeeves_core`)
 
 ### Purpose
 
-`jeeves_infra` is the **unified infrastructure and orchestration framework** sitting between the Rust kernel and the capability layer. It provides LLM providers, pipeline execution, gateway, orchestration, memory handling, configuration, and bootstrap.
+`jeeves_core` is the **unified infrastructure and orchestration framework** sitting between the Rust kernel and the capability layer. It provides LLM providers, pipeline execution, gateway, orchestration, memory handling, configuration, and bootstrap.
 
 ### Ownership Boundaries
 
-**jeeves_infra MUST own:**
+**jeeves_core MUST own:**
 
 | Domain | Description |
 |--------|-------------|
@@ -231,7 +231,7 @@ Open an issue for architectural discussions before implementing large changes.
 | **Config** | Agent profiles, registry, constants |
 | **Orchestrator** | Event context, emitter, governance, flow |
 
-**jeeves_infra MUST NOT own:**
+**jeeves_core MUST NOT own:**
 
 | Concern | Belongs To |
 |---------|------------|
@@ -246,18 +246,18 @@ Open an issue for architectural discussions before implementing large changes.
 Capability Layer (agents, prompts, tools, domain DB)
        | imports from
        v
-jeeves_infra (python/)
+jeeves_core (python/)
        | IPC (TCP+msgpack)
        v
 Rust kernel (src/)
 ```
 
-- `jeeves_infra` MUST NOT import from any capability
-- Capabilities import from `jeeves_infra` public modules only
+- `jeeves_core` MUST NOT import from any capability
+- Capabilities import from `jeeves_core` public modules only
 
 ### Acceptance Criteria
 
-A change to `jeeves_infra` is acceptable only if:
+A change to `jeeves_core` is acceptable only if:
 
 - No capability-specific logic embedded
 - No tool implementations (only tool executor framework)

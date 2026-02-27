@@ -39,7 +39,7 @@ if str(project_root) not in sys.path:
 # App layer setup (for mission system code that imports from app layer)
 # NOTE: This is needed because mission system code imports from app layer
 # (e.g., prompts.registry). Ideally this dependency should be inverted.
-# IMPORTANT: Append (not insert) so jeeves_infra paths take precedence
+# IMPORTANT: Append (not insert) so jeeves_core paths take precedence
 app_dir = project_root.parent / "jeeves-capability-code-analyser"
 if app_dir.exists() and str(app_dir) not in sys.path:
     sys.path.append(str(app_dir))
@@ -68,7 +68,7 @@ def setup_capability_registration():
     This ensures the CapabilityResourceRegistry is populated with
     capability resources for tests that exercise the full stack.
     """
-    from jeeves_infra.protocols import reset_capability_resource_registry
+    from jeeves_core.protocols import reset_capability_resource_registry
 
     # Start with clean registry
     reset_capability_resource_registry()

@@ -1,8 +1,8 @@
 """Cross-language enum parity tests.
 
-Parses Rust enum definitions from src/envelope/enums.rs and asserts
-Python enums in jeeves_infra/protocols/types.py have matching variants.
-Catches enum drift at CI time without code generation.
+Parses Rust enum definitions from source files and asserts Python enums
+(auto-generated in _generated.py) match the Rust serde output exactly.
+Catches enum drift at CI time.
 """
 
 import re
@@ -10,24 +10,31 @@ from pathlib import Path
 
 import pytest
 
-RUST_ENUMS_FILE = Path(__file__).resolve().parent.parent.parent.parent / "src" / "envelope" / "enums.rs"
+JEEVES_CORE_ROOT = Path(__file__).resolve().parent.parent.parent.parent
 
-# Rust enum name -> (Python enum name, serde rename strategy)
+# (Rust source file, enum name, Python enum name, serde rename strategy)
+ENUM_SOURCES = [
+    ("src/envelope/enums.rs", "TerminalReason", "TerminalReason", "SCREAMING_SNAKE_CASE"),
+    ("src/envelope/enums.rs", "InterruptKind", "InterruptKind", "snake_case"),
+    ("src/envelope/enums.rs", "RiskSemantic", "RiskSemantic", "snake_case"),
+    ("src/envelope/enums.rs", "RiskSeverity", "RiskSeverity", "snake_case"),
+    ("src/envelope/enums.rs", "ToolCategory", "ToolCategory", "snake_case"),
+    ("src/envelope/enums.rs", "HealthStatus", "HealthStatus", "snake_case"),
+    ("src/envelope/enums.rs", "LoopVerdict", "LoopVerdict", "snake_case"),
+    ("src/envelope/enums.rs", "RiskApproval", "RiskApproval", "snake_case"),
+    ("src/envelope/enums.rs", "ToolAccess", "ToolAccess", "snake_case"),
+    ("src/envelope/enums.rs", "OperationStatus", "OperationStatus", "snake_case"),
+    ("src/kernel/interrupts.rs", "InterruptStatus", "InterruptStatus", "lowercase"),
+]
+
+# Legacy compat dict for the parametrize IDs
 ENUM_MAP = {
-    "TerminalReason": ("TerminalReason", "SCREAMING_SNAKE_CASE"),
-    "InterruptKind": ("InterruptKind", "snake_case"),
-    "RiskSemantic": ("RiskSemantic", "snake_case"),
-    "RiskSeverity": ("RiskSeverity", "snake_case"),
-    "ToolCategory": ("ToolCategory", "snake_case"),
-    "HealthStatus": ("HealthStatus", "snake_case"),
-    "LoopVerdict": ("LoopVerdict", "snake_case"),
-    "RiskApproval": ("RiskApproval", "snake_case"),
-    "ToolAccess": ("ToolAccess", "snake_case"),
-    "OperationStatus": ("OperationStatus", "snake_case"),
+    rust_name: (py_name, strategy)
+    for _, rust_name, py_name, strategy in ENUM_SOURCES
 }
 
-# Python may have these extra sentinel variants that Rust doesn't define
-ALLOWED_PYTHON_EXTRAS = {"unspecified", "UNSPECIFIED"}
+# No extra Python variants allowed — generated enums must match Rust exactly
+ALLOWED_PYTHON_EXTRAS: set[str] = set()
 
 
 def _parse_rust_enum_variants(source: str, enum_name: str) -> list[str]:
@@ -55,22 +62,27 @@ def _pascal_to_wire(variant: str, strategy: str) -> str:
         return snake.upper()
     elif strategy == "snake_case":
         return snake.lower()
+    elif strategy == "lowercase":
+        return variant.lower()
     return variant
 
 
-@pytest.mark.parametrize("rust_name", ENUM_MAP.keys())
-def test_enum_parity(rust_name: str):
+@pytest.mark.parametrize(
+    "rust_file,rust_name,py_name,strategy",
+    ENUM_SOURCES,
+    ids=[e[1] for e in ENUM_SOURCES],
+)
+def test_enum_parity(rust_file: str, rust_name: str, py_name: str, strategy: str):
     """Assert Python enum has all Rust variants (wire-format values)."""
-    py_name, strategy = ENUM_MAP[rust_name]
-
     # Import Python enum dynamically
-    import jeeves_infra.protocols.types as types_mod
+    import jeeves_core.protocols.types as types_mod
     py_enum = getattr(types_mod, py_name)
 
     # Parse Rust source
-    rust_source = RUST_ENUMS_FILE.read_text(encoding="utf-8")
+    rust_path = JEEVES_CORE_ROOT / rust_file
+    rust_source = rust_path.read_text(encoding="utf-8")
     rust_variants = _parse_rust_enum_variants(rust_source, rust_name)
-    assert rust_variants, f"No variants found for Rust enum {rust_name}"
+    assert rust_variants, f"No variants found for Rust enum {rust_name} in {rust_file}"
 
     # Convert Rust variants to wire format
     rust_wire_values = {_pascal_to_wire(v, strategy) for v in rust_variants}

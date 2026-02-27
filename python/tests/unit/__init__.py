@@ -1,1 +1,1 @@
-"""Unit tests for jeeves_infra."""
+"""Unit tests for jeeves_core."""

@@ -73,14 +73,14 @@ jobs:
       - name: Run audit
         run: cargo audit
 
-  # ── Python (jeeves_infra) ──────────────────────────────────────────
+  # ── Python (jeeves_core) ──────────────────────────────────────────
 
   py-lint:
     name: Python Lint
     runs-on: ubuntu-latest
     defaults:
       run:
-        working-directory: python
+        working-directory: .
     steps:
       - uses: actions/checkout@v4
 
@@ -98,7 +98,7 @@ jobs:
         run: black --check .
 
       - name: Mypy
-        run: mypy --ignore-missing-imports jeeves_infra/
+        run: mypy --ignore-missing-imports jeeves_core/
 
   py-test:
     name: Python Test + Coverage
@@ -109,7 +109,7 @@ jobs:
         python-version: ["3.11", "3.12"]
     defaults:
       run:
-        working-directory: python
+        working-directory: .
     steps:
       - uses: actions/checkout@v4
 
@@ -121,14 +121,14 @@ jobs:
         run: pip install -e ".[dev,all]"
 
       - name: Run tests with coverage
-        run: pytest --cov=jeeves_infra --cov-fail-under=40 --cov-report=xml
+        run: pytest --cov=jeeves_core --cov-fail-under=40 --cov-report=xml
 
       - name: Upload coverage to Codecov
         if: github.event_name == 'push'
         uses: codecov/codecov-action@v4
         with:
           files: coverage.xml
-          flags: jeeves-infra
+          flags: jeeves-core
           fail_ci_if_error: false
         env:
           CODECOV_TOKEN: ${{ secrets.CODECOV_TOKEN }}
@@ -138,7 +138,7 @@ jobs:
     runs-on: ubuntu-latest
     defaults:
       run:
-        working-directory: python
+        working-directory: .
     steps:
       - uses: actions/checkout@v4
 

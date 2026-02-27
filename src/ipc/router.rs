@@ -26,10 +26,10 @@ pub async fn route_request(
 ) -> Result<DispatchResponse> {
     match service {
         "kernel" => handlers::kernel::handle(kernel, method, body).await,
-        "engine" => handlers::engine::handle(kernel, method, body).await,
         "orchestration" => handlers::orchestration::handle(kernel, method, body).await,
         "commbus" => handlers::commbus::handle(kernel, method, body, ipc_config).await,
         "interrupt" => handlers::interrupt::handle(kernel, method, body).await,
+        "tools" => handlers::tools::handle(kernel, method, body).await,
         _ => Err(Error::not_found(format!("Unknown service: {}", service))),
     }
 }

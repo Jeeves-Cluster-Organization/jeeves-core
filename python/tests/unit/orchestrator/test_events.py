@@ -14,21 +14,21 @@ import json
 import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
 
-from jeeves_infra.orchestrator.agent_events import (
+from jeeves_core.orchestrator.agent_events import (
     AgentEventType,
     AgentEvent,
     EventEmitter,
     create_agent_event_emitter,
 )
-from jeeves_infra.orchestrator.event_context import (
+from jeeves_core.orchestrator.event_context import (
     EventContext,
     create_event_context,
 )
-from jeeves_infra.orchestrator.events import (
+from jeeves_core.orchestrator.events import (
     EventOrchestrator,
     create_event_orchestrator,
 )
-from jeeves_infra.protocols import RequestContext
+from jeeves_core.protocols import RequestContext
 
 
 # =============================================================================
@@ -253,7 +253,7 @@ class TestEventEmitter:
         emitter = EventEmitter()
         ctx = _make_request_context()
 
-        with patch("jeeves_infra.logging.get_current_logger", return_value=_make_mock_logger()):
+        with patch("jeeves_core.logging.get_current_logger", return_value=_make_mock_logger()):
             await emitter.emit_agent_started("planner", ctx)
 
         event = emitter.get_nowait()
@@ -266,7 +266,7 @@ class TestEventEmitter:
         emitter = EventEmitter()
         ctx = _make_request_context()
 
-        with patch("jeeves_infra.logging.get_current_logger", return_value=_make_mock_logger()):
+        with patch("jeeves_core.logging.get_current_logger", return_value=_make_mock_logger()):
             await emitter.emit_agent_completed("critic", ctx, status="success")
 
         event = emitter.get_nowait()
@@ -280,7 +280,7 @@ class TestEventEmitter:
         emitter = EventEmitter()
         ctx = _make_request_context()
 
-        with patch("jeeves_infra.logging.get_current_logger", return_value=_make_mock_logger()):
+        with patch("jeeves_core.logging.get_current_logger", return_value=_make_mock_logger()):
             await emitter.emit_agent_decision(
                 "critic", ctx, action="loop_back", confidence=0.8
             )
@@ -296,7 +296,7 @@ class TestEventEmitter:
         emitter = EventEmitter()
         ctx = _make_request_context()
 
-        with patch("jeeves_infra.logging.get_current_logger", return_value=_make_mock_logger()):
+        with patch("jeeves_core.logging.get_current_logger", return_value=_make_mock_logger()):
             await emitter.emit_tool_started(
                 "grep_search", ctx, agent_name="executor"
             )
@@ -311,7 +311,7 @@ class TestEventEmitter:
         emitter = EventEmitter()
         ctx = _make_request_context()
 
-        with patch("jeeves_infra.logging.get_current_logger", return_value=_make_mock_logger()):
+        with patch("jeeves_core.logging.get_current_logger", return_value=_make_mock_logger()):
             await emitter.emit_tool_completed(
                 "grep_search", ctx, agent_name="executor", status="error"
             )
@@ -326,7 +326,7 @@ class TestEventEmitter:
         emitter = EventEmitter()
         ctx = _make_request_context()
 
-        with patch("jeeves_infra.logging.get_current_logger", return_value=_make_mock_logger()):
+        with patch("jeeves_core.logging.get_current_logger", return_value=_make_mock_logger()):
             await emitter.emit_stage_transition(
                 ctx, from_stage=1, to_stage=2,
                 satisfied_goals=["goal_a"],
@@ -353,7 +353,7 @@ class TestEventEmitter:
         await emitter.close()
 
         # Should not raise, just silently ignore
-        with patch("jeeves_infra.logging.get_current_logger", return_value=_make_mock_logger()):
+        with patch("jeeves_core.logging.get_current_logger", return_value=_make_mock_logger()):
             await emitter.emit_agent_started("planner", ctx)
 
         # The None sentinel is in the queue from close(), but not the new event
@@ -365,7 +365,7 @@ class TestEventEmitter:
         emitter = EventEmitter()
         ctx = _make_request_context()
 
-        with patch("jeeves_infra.logging.get_current_logger", return_value=_make_mock_logger()):
+        with patch("jeeves_core.logging.get_current_logger", return_value=_make_mock_logger()):
             await emitter.emit_agent_started("planner", ctx)
             await emitter.emit_agent_completed("planner", ctx)
             await emitter.close()
@@ -716,7 +716,7 @@ class TestEventContextReasoning:
         mock_flags.emit_agent_reasoning = True
 
         with patch(
-            "jeeves_infra.feature_flags.get_feature_flags",
+            "jeeves_core.feature_flags.get_feature_flags",
             return_value=mock_flags,
         ):
             await event_ctx.emit_agent_reasoning(
@@ -742,7 +742,7 @@ class TestEventContextReasoning:
         mock_flags.emit_agent_reasoning = False
 
         with patch(
-            "jeeves_infra.feature_flags.get_feature_flags",
+            "jeeves_core.feature_flags.get_feature_flags",
             return_value=mock_flags,
         ):
             await event_ctx.emit_agent_reasoning(
@@ -760,7 +760,7 @@ class TestEventContextReasoning:
         event_ctx = self._make_context(agent_emitter=emitter)
 
         with patch(
-            "jeeves_infra.feature_flags.get_feature_flags",
+            "jeeves_core.feature_flags.get_feature_flags",
             side_effect=ImportError("no feature_flags"),
         ):
             await event_ctx.emit_agent_reasoning(
@@ -783,7 +783,7 @@ class TestEventContextReasoning:
         long_text = "A" * 1000
 
         with patch(
-            "jeeves_infra.feature_flags.get_feature_flags",
+            "jeeves_core.feature_flags.get_feature_flags",
             return_value=mock_flags,
         ):
             await event_ctx.emit_agent_reasoning(
@@ -813,12 +813,12 @@ class TestEventOrchestrator:
         defaults.update(kwargs)
 
         logger = _make_mock_logger()
-        with patch("jeeves_infra.orchestrator.events.get_logger", return_value=logger):
+        with patch("jeeves_core.orchestrator.events.get_logger", return_value=logger):
             return EventOrchestrator(**defaults)
 
     def test_factory_function(self):
         ctx = _make_request_context()
-        with patch("jeeves_infra.orchestrator.events.get_logger", return_value=_make_mock_logger()):
+        with patch("jeeves_core.orchestrator.events.get_logger", return_value=_make_mock_logger()):
             orch = create_event_orchestrator(
                 request_context=ctx,
                 enable_streaming=False,
@@ -1057,7 +1057,7 @@ class TestEventOrchestratorStreaming:
         ctx = _make_request_context()
         logger = _make_mock_logger()
 
-        with patch("jeeves_infra.orchestrator.events.get_logger", return_value=logger):
+        with patch("jeeves_core.orchestrator.events.get_logger", return_value=logger):
             orch = EventOrchestrator(
                 request_context=ctx,
                 enable_streaming=True,
@@ -1068,7 +1068,7 @@ class TestEventOrchestratorStreaming:
         emitter = orch._agent_emitter
 
         # Emit events then close
-        with patch("jeeves_infra.logging.get_current_logger", return_value=logger):
+        with patch("jeeves_core.logging.get_current_logger", return_value=logger):
             await emitter.emit_agent_started("planner", ctx)
             await emitter.emit_agent_completed("planner", ctx, status="success")
             await emitter.close()
@@ -1087,7 +1087,7 @@ class TestEventOrchestratorStreaming:
         ctx = _make_request_context()
         logger = _make_mock_logger()
 
-        with patch("jeeves_infra.orchestrator.events.get_logger", return_value=logger):
+        with patch("jeeves_core.orchestrator.events.get_logger", return_value=logger):
             orch = EventOrchestrator(
                 request_context=ctx,
                 enable_streaming=False,
@@ -1114,7 +1114,7 @@ class TestEventOrchestratorPersistence:
         mock_registry = MagicMock()
         mock_registry.get_memory_service_factory = MagicMock(return_value=mock_factory)
 
-        with patch("jeeves_infra.orchestrator.events.get_logger", return_value=logger):
+        with patch("jeeves_core.orchestrator.events.get_logger", return_value=logger):
             orch = EventOrchestrator(
                 request_context=ctx,
                 persistence="mock_db",
@@ -1123,7 +1123,7 @@ class TestEventOrchestratorPersistence:
             )
 
         with patch(
-            "jeeves_infra.protocols.get_capability_resource_registry",
+            "jeeves_core.protocols.get_capability_resource_registry",
             return_value=mock_registry,
         ):
             orch._ensure_initialized()
@@ -1139,7 +1139,7 @@ class TestEventOrchestratorPersistence:
         mock_registry = MagicMock()
         mock_registry.get_memory_service_factory = MagicMock(return_value=None)
 
-        with patch("jeeves_infra.orchestrator.events.get_logger", return_value=logger):
+        with patch("jeeves_core.orchestrator.events.get_logger", return_value=logger):
             orch = EventOrchestrator(
                 request_context=ctx,
                 persistence="mock_db",
@@ -1148,7 +1148,7 @@ class TestEventOrchestratorPersistence:
             )
 
         with patch(
-            "jeeves_infra.protocols.get_capability_resource_registry",
+            "jeeves_core.protocols.get_capability_resource_registry",
             return_value=mock_registry,
         ):
             orch._ensure_initialized()
@@ -1159,7 +1159,7 @@ class TestEventOrchestratorPersistence:
         ctx = _make_request_context()
         logger = _make_mock_logger()
 
-        with patch("jeeves_infra.orchestrator.events.get_logger", return_value=logger):
+        with patch("jeeves_core.orchestrator.events.get_logger", return_value=logger):
             orch = EventOrchestrator(
                 request_context=ctx,
                 persistence="mock_db",

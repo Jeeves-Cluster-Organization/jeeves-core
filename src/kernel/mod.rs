@@ -64,8 +64,19 @@ pub struct Kernel {
     /// Communication bus (kernel-mediated IPC)
     commbus: crate::commbus::CommBus,
 
-    /// Envelope storage (envelope_id -> envelope)
-    envelopes: HashMap<String, Envelope>,
+    /// Process envelope storage (process_id -> envelope).
+    /// Single source of truth for all envelopes. Keyed by ProcessId so that
+    /// lifecycle methods, orchestrator, and IPC handlers all use the same key.
+    process_envelopes: HashMap<ProcessId, Envelope>,
+
+    /// Tool catalog — metadata, validation, prompt generation.
+    tool_catalog: crate::tools::ToolCatalog,
+
+    /// Tool access policy — agent-scoped permissions.
+    tool_access: crate::tools::ToolAccessPolicy,
+
+    /// Tool health tracking — sliding-window metrics and circuit breaking.
+    tool_health: crate::tools::ToolHealthTracker,
 }
 
 impl Kernel {
@@ -78,7 +89,10 @@ impl Kernel {
             services: services::ServiceRegistry::new(),
             orchestrator: orchestrator::Orchestrator::new(),
             commbus: crate::commbus::CommBus::new(),
-            envelopes: HashMap::new(),
+            process_envelopes: HashMap::new(),
+            tool_catalog: crate::tools::ToolCatalog::new(),
+            tool_access: crate::tools::ToolAccessPolicy::new(),
+            tool_health: crate::tools::ToolHealthTracker::default(),
         }
     }
 
@@ -94,7 +108,10 @@ impl Kernel {
             services: services::ServiceRegistry::new(),
             orchestrator: orchestrator::Orchestrator::new(),
             commbus: crate::commbus::CommBus::new(),
-            envelopes: HashMap::new(),
+            process_envelopes: HashMap::new(),
+            tool_catalog: crate::tools::ToolCatalog::new(),
+            tool_access: crate::tools::ToolAccessPolicy::new(),
+            tool_health: crate::tools::ToolHealthTracker::default(),
         }
     }
 
@@ -136,25 +153,33 @@ impl Kernel {
         self.lifecycle.get(pid)
     }
 
-    /// Store envelope.
-    pub fn store_envelope(&mut self, envelope: Envelope) {
-        self.envelopes
-            .insert(envelope.identity.envelope_id.to_string(), envelope);
+    // =============================================================================
+    // Process Envelope Store (Single Source of Truth)
+    // =============================================================================
+
+    /// Store an envelope for a process. Kernel-owned, keyed by ProcessId.
+    pub fn store_process_envelope(&mut self, pid: ProcessId, envelope: Envelope) {
+        self.process_envelopes.insert(pid, envelope);
     }
 
-    /// Get envelope by ID.
-    pub fn get_envelope(&self, envelope_id: &str) -> Option<&Envelope> {
-        self.envelopes.get(envelope_id)
+    /// Get a reference to a process envelope.
+    pub fn get_process_envelope(&self, pid: &ProcessId) -> Option<&Envelope> {
+        self.process_envelopes.get(pid)
     }
 
-    /// Get mutable envelope by ID.
-    pub fn get_envelope_mut(&mut self, envelope_id: &str) -> Option<&mut Envelope> {
-        self.envelopes.get_mut(envelope_id)
+    /// Get a mutable reference to a process envelope.
+    pub fn get_process_envelope_mut(&mut self, pid: &ProcessId) -> Option<&mut Envelope> {
+        self.process_envelopes.get_mut(pid)
     }
 
-    /// Remove envelope.
-    pub fn remove_envelope(&mut self, envelope_id: &str) -> Option<Envelope> {
-        self.envelopes.remove(envelope_id)
+    /// Take (remove and return) a process envelope.
+    ///
+    /// Prefer `get_process_envelope_mut()` + field-level borrow splitting instead.
+    /// This method removes the envelope from the store — if the caller fails to
+    /// re-insert it, the envelope is silently lost.
+    #[deprecated(note = "Use get_process_envelope_mut() with field-level borrow splitting")]
+    pub fn take_process_envelope(&mut self, pid: &ProcessId) -> Option<Envelope> {
+        self.process_envelopes.remove(pid)
     }
 
     /// Check process quota.
@@ -228,8 +253,7 @@ impl Kernel {
     /// Returns error if process not found or invalid state transition.
     pub fn wait_process(&mut self, pid: &ProcessId, interrupt: FlowInterrupt) -> Result<()> {
         self.lifecycle.wait(pid, interrupt.kind)?;
-        // Also set interrupt on envelope
-        if let Some(env) = self.envelopes.get_mut(pid.as_str()) {
+        if let Some(env) = self.process_envelopes.get_mut(pid) {
             env.set_interrupt(interrupt);
         }
         Ok(())
@@ -242,9 +266,26 @@ impl Kernel {
     /// Returns error if process not found or invalid state transition.
     pub fn resume_process(&mut self, pid: &ProcessId) -> Result<()> {
         self.lifecycle.resume(pid)?;
-        // Clear interrupt on envelope
-        if let Some(env) = self.envelopes.get_mut(pid.as_str()) {
+        if let Some(env) = self.process_envelopes.get_mut(pid) {
             env.clear_interrupt();
+        }
+        Ok(())
+    }
+
+    /// Resume a process with optional envelope updates.
+    ///
+    /// Clears the interrupt and merges any provided updates into the envelope.
+    pub fn resume_process_with_update(
+        &mut self,
+        pid: &ProcessId,
+        envelope_update: Option<HashMap<String, serde_json::Value>>,
+    ) -> Result<()> {
+        self.lifecycle.resume(pid)?;
+        if let Some(env) = self.process_envelopes.get_mut(pid) {
+            env.clear_interrupt();
+            if let Some(updates) = envelope_update {
+                env.merge_updates(updates);
+            }
         }
         Ok(())
     }
@@ -256,8 +297,7 @@ impl Kernel {
     /// Returns error if process not found or invalid state transition.
     pub fn terminate_process(&mut self, pid: &ProcessId) -> Result<()> {
         self.lifecycle.terminate(pid)?;
-        // Terminate envelope
-        if let Some(env) = self.envelopes.get_mut(pid.as_str()) {
+        if let Some(env) = self.process_envelopes.get_mut(pid) {
             env.terminate("Process terminated");
         }
         Ok(())
@@ -265,13 +305,16 @@ impl Kernel {
 
     /// Cleanup and remove a terminated process.
     ///
+    /// Removes the PCB, the process envelope, and the pipeline session.
+    ///
     /// # Errors
     ///
     /// Returns error if process not found or not in terminal state.
     pub fn cleanup_process(&mut self, pid: &ProcessId) -> Result<()> {
         self.lifecycle.cleanup(pid)?;
         self.lifecycle.remove(pid)?;
-        self.envelopes.remove(pid.as_str());
+        self.process_envelopes.remove(pid);
+        self.orchestrator.cleanup_session(pid);
         Ok(())
     }
 
@@ -351,10 +394,14 @@ impl Kernel {
     }
 
     // =============================================================================
-    // Orchestrator Methods (Delegation to Orchestrator)
+    // Orchestrator Methods (Microkernel: kernel owns envelope, orchestrator processes)
     // =============================================================================
 
     /// Initialize an orchestration session.
+    ///
+    /// Stores the envelope in `process_envelopes`, then initializes the pipeline
+    /// session in the orchestrator. The orchestrator sets pipeline bounds on the
+    /// envelope but does not own it.
     ///
     /// # Errors
     ///
@@ -363,55 +410,63 @@ impl Kernel {
         &mut self,
         process_id: ProcessId,
         pipeline_config: orchestrator::PipelineConfig,
-        envelope: Envelope,
+        mut envelope: Envelope,
         force: bool,
     ) -> Result<orchestrator::SessionState> {
-        self.orchestrator
-            .initialize_session(process_id, pipeline_config, envelope, force)
+        let state = self.orchestrator
+            .initialize_session(process_id.clone(), pipeline_config, &mut envelope, force)?;
+        self.process_envelopes.insert(process_id, envelope);
+        Ok(state)
     }
 
     /// Get the next instruction for a process.
     ///
+    /// Extracts the envelope from `process_envelopes`, passes it to the orchestrator
+    /// (which may mutate it for bounds termination), then re-stores it.
+    ///
     /// # Errors
     ///
-    /// Returns error if no orchestration session exists for this process.
+    /// Returns error if no orchestration session or envelope exists for this process.
     pub fn get_next_instruction(
         &mut self,
         process_id: &ProcessId,
     ) -> Result<orchestrator::Instruction> {
-        self.orchestrator.get_next_instruction(process_id)
+        let envelope = self.process_envelopes.get_mut(process_id)
+            .ok_or_else(|| Error::not_found(format!("Envelope not found for process: {}", process_id)))?;
+        self.orchestrator.get_next_instruction(process_id, envelope)
     }
 
     /// Report agent execution result.
     ///
+    /// The IPC handler merges agent outputs into the envelope in-place via
+    /// `get_process_envelope_mut()`, then calls this method.  Envelope never
+    /// leaves `process_envelopes` — field-level borrow split keeps it safe.
+    ///
     /// # Errors
     ///
-    /// Returns error if no orchestration session exists for this process.
+    /// Returns error if no orchestration session or envelope exists for this process.
     pub fn report_agent_result(
         &mut self,
         process_id: &ProcessId,
         metrics: orchestrator::AgentExecutionMetrics,
-        updated_envelope: Envelope,
     ) -> Result<()> {
-        self.orchestrator
-            .report_agent_result(process_id, metrics, updated_envelope)
+        let envelope = self.process_envelopes.get_mut(process_id)
+            .ok_or_else(|| Error::not_found(format!("Envelope not found for process: {}", process_id)))?;
+        self.orchestrator.report_agent_result(process_id, metrics, envelope)
     }
 
     /// Get orchestration session state.
     ///
     /// # Errors
     ///
-    /// Returns error if no orchestration session exists for this process.
+    /// Returns error if no orchestration session or envelope exists for this process.
     pub fn get_orchestration_state(
         &self,
         process_id: &ProcessId,
     ) -> Result<orchestrator::SessionState> {
-        self.orchestrator.get_session_state(process_id)
-    }
-
-    /// Get a cloned orchestration envelope for a process.
-    pub fn get_orchestration_envelope(&self, process_id: &ProcessId) -> Option<Envelope> {
-        self.orchestrator.get_envelope_for_process(process_id).cloned()
+        let envelope = self.process_envelopes.get(process_id)
+            .ok_or_else(|| Error::not_found(format!("Envelope not found for process: {}", process_id)))?;
+        self.orchestrator.get_session_state(process_id, envelope)
     }
 
     // =============================================================================
@@ -512,6 +567,40 @@ impl Kernel {
     /// Merge overrides into the default quota (non-zero fields overwrite).
     pub fn set_default_quota(&mut self, overrides: &ResourceQuota) {
         self.lifecycle.set_default_quota(overrides);
+    }
+
+    // =============================================================================
+    // Tool Catalog & Access Control
+    // =============================================================================
+
+    /// Get a reference to the tool catalog.
+    pub fn tool_catalog(&self) -> &crate::tools::ToolCatalog {
+        &self.tool_catalog
+    }
+
+    /// Get a mutable reference to the tool catalog.
+    pub fn tool_catalog_mut(&mut self) -> &mut crate::tools::ToolCatalog {
+        &mut self.tool_catalog
+    }
+
+    /// Get a reference to the tool access policy.
+    pub fn tool_access(&self) -> &crate::tools::ToolAccessPolicy {
+        &self.tool_access
+    }
+
+    /// Get a mutable reference to the tool access policy.
+    pub fn tool_access_mut(&mut self) -> &mut crate::tools::ToolAccessPolicy {
+        &mut self.tool_access
+    }
+
+    /// Get a reference to the tool health tracker.
+    pub fn tool_health(&self) -> &crate::tools::ToolHealthTracker {
+        &self.tool_health
+    }
+
+    /// Get a mutable reference to the tool health tracker.
+    pub fn tool_health_mut(&mut self) -> &mut crate::tools::ToolHealthTracker {
+        &mut self.tool_health
     }
 
     // =============================================================================
