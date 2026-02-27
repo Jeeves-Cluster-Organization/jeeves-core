@@ -18,8 +18,8 @@ from datetime import datetime, timezone
 from unittest.mock import AsyncMock, MagicMock, call
 from typing import Any, Dict
 
-from jeeves_infra.distributed.redis_bus import RedisDistributedBus
-from jeeves_infra.protocols import DistributedTask, QueueStats
+from jeeves_airframe.distributed.redis_bus import RedisDistributedBus
+from jeeves_airframe.protocols import DistributedTask, QueueStats
 
 
 # =============================================================================

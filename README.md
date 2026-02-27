@@ -2,7 +2,7 @@
 
 Rust micro-kernel + Python infrastructure library for AI agent orchestration.
 
-The kernel provides process lifecycle, IPC, interrupt handling, and resource quotas via TCP+msgpack. The Python layer (`jeeves_infra`) provides LLM providers, gateway, pipeline execution, and bootstrap — consumed by capabilities as a library.
+The kernel provides process lifecycle, IPC, interrupt handling, and resource quotas via TCP+msgpack. The Python layer (`jeeves_airframe`) provides LLM providers, gateway, pipeline execution, and bootstrap — consumed by capabilities as a library.
 
 ## Quick Start
 
@@ -28,8 +28,8 @@ docker build -t jeeves-core .
 ```
 jeeves-core/
 ├── src/              # Rust kernel
-├── python/           # Python infrastructure (jeeves_infra)
-│   ├── jeeves_infra/ # The package
+├── python/           # Python infrastructure (jeeves_airframe)
+│   ├── jeeves_airframe/ # The package
 │   ├── tests/        # Python tests
 │   └── pyproject.toml
 ├── tests/            # Rust integration tests
@@ -65,21 +65,21 @@ jeeves-core/
 
 | Module | Description |
 |--------|-------------|
-| `jeeves_infra.kernel_client` | IPC bridge to Rust kernel (TCP+msgpack) |
-| `jeeves_infra.gateway` | FastAPI HTTP/WS/SSE server |
-| `jeeves_infra.llm` | LLM provider abstraction (OpenAI, LiteLLM, mock) |
-| `jeeves_infra.bootstrap` | AppContext creation, composition root |
-| `jeeves_infra.orchestrator` | Event orchestration and governance |
-| `jeeves_infra.protocols` | Type definitions and interfaces |
-| `jeeves_infra.capability_wiring` | Capability registration and discovery |
+| `jeeves_airframe.kernel_client` | IPC bridge to Rust kernel (TCP+msgpack) |
+| `jeeves_airframe.gateway` | FastAPI HTTP/WS/SSE server |
+| `jeeves_airframe.llm` | LLM provider abstraction (OpenAI, LiteLLM, mock) |
+| `jeeves_airframe.bootstrap` | AppContext creation, composition root |
+| `jeeves_airframe.orchestrator` | Event orchestration and governance |
+| `jeeves_airframe.protocols` | Type definitions and interfaces |
+| `jeeves_airframe.capability_wiring` | Capability registration and discovery |
 
 ## Architecture
 
 ```
 Capability Layer (agents, prompts, tools)
-       | imports jeeves_infra
+       | imports jeeves_airframe
        v
-Python Infrastructure (python/jeeves_infra)
+Python Infrastructure (python/jeeves_airframe)
        | TCP+msgpack IPC
        v
 Rust Kernel (src/)

@@ -10,7 +10,7 @@ import struct
 import msgpack
 import pytest
 
-from jeeves_infra.ipc.protocol import (
+from jeeves_airframe.ipc.protocol import (
     MSG_REQUEST,
     MSG_RESPONSE,
     MSG_STREAM_CHUNK,
@@ -21,7 +21,7 @@ from jeeves_infra.ipc.protocol import (
     decode_frame,
     encode_frame,
 )
-from jeeves_infra.ipc.transport import IpcTransport
+from jeeves_airframe.ipc.transport import IpcTransport
 
 
 # ---------------------------------------------------------------------------

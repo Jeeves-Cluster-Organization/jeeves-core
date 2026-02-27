@@ -22,7 +22,7 @@ def _extract_rust_quota_defaults(source: str) -> dict[str, int]:
 
 def test_quota_defaults_match():
     """Python QuotaDefaults field values match Rust parse_quota() defaults."""
-    from jeeves_infra.kernel_client import QuotaDefaults
+    from jeeves_airframe.kernel_client import QuotaDefaults
 
     rust_source = RUST_KERNEL_HANDLER.read_text(encoding="utf-8")
     rust_defaults = _extract_rust_quota_defaults(rust_source)
@@ -42,7 +42,7 @@ def test_quota_defaults_match():
 
 def test_python_has_no_extra_quota_fields():
     """Python QuotaDefaults should not have fields absent from Rust."""
-    from jeeves_infra.kernel_client import QuotaDefaults
+    from jeeves_airframe.kernel_client import QuotaDefaults
 
     rust_source = RUST_KERNEL_HANDLER.read_text(encoding="utf-8")
     rust_defaults = _extract_rust_quota_defaults(rust_source)

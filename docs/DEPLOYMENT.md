@@ -37,7 +37,7 @@ docker build -t jeeves-core .
 ./target/release/jeeves-kernel
 ```
 
-The Python infrastructure is a library — capabilities compose their own entry points and import `jeeves_infra`.
+The Python infrastructure is a library — capabilities compose their own entry points and import `jeeves_airframe`.
 
 ---
 
@@ -104,18 +104,18 @@ All configuration via environment variables.
 |---------|---------|-------------|
 | `ORCHESTRATOR_HOST` | `localhost` | Kernel IPC host |
 | `ORCHESTRATOR_PORT` | `50051` | Kernel IPC port |
-| `JEEVES_KERNEL_ADDRESS` | `localhost:50051` | Alternative: host:port for kernel client |
+| `AIRFRAME_KERNEL_ADDRESS` | `localhost:50051` | Alternative: host:port for kernel client |
 
 ### LLM Providers
 
 | Env Var | Default | Description |
 |---------|---------|-------------|
-| `JEEVES_LLM_ADAPTER` | `openai_http` | Provider: `openai_http`, `litellm`, `mock` |
-| `JEEVES_LLM_MODEL` | — | Model identifier (required) |
-| `JEEVES_LLM_BASE_URL` | — | API base URL |
-| `JEEVES_LLM_API_KEY` | — | API key |
-| `JEEVES_LLM_TIMEOUT` | `120` | Request timeout (seconds) |
-| `JEEVES_LLM_MAX_RETRIES` | `3` | Max retry attempts |
+| `AIRFRAME_LLM_ADAPTER` | `openai_http` | Provider: `openai_http`, `litellm`, `mock` |
+| `AIRFRAME_LLM_MODEL` | — | Model identifier (required) |
+| `AIRFRAME_LLM_BASE_URL` | — | API base URL |
+| `AIRFRAME_LLM_API_KEY` | — | API key |
+| `AIRFRAME_LLM_TIMEOUT` | `120` | Request timeout (seconds) |
+| `AIRFRAME_LLM_MAX_RETRIES` | `3` | Max retry attempts |
 
 ### Pipeline Defaults
 
@@ -183,7 +183,7 @@ Prometheus metrics exposed at `metrics_addr` (default `:9090`). OpenTelemetry tr
 - Set `otlp_endpoint` for distributed tracing (Jaeger, Grafana Tempo)
 - Set `CORS_ORIGINS` to your actual frontend domain(s)
 - Set `LOG_LEVEL=WARNING` and `FEATURE_ENABLE_TRACING=true` for production
-- Configure `JEEVES_LLM_*` vars for your LLM provider
+- Configure `AIRFRAME_LLM_*` vars for your LLM provider
 - Redis credentials in `REDIS_URL` are automatically redacted in logs
 - No TLS on kernel IPC — run kernel and infrastructure on the same host or behind a VPN
 - Body size limit (1 MB default) applies to all HTTP endpoints

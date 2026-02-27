@@ -27,8 +27,8 @@ Before contributing, verify your change belongs in this layer:
 | Resource quota enforcement | jeeves-core (here) |
 | Interrupt handling (HITL) | jeeves-core (here) |
 | Inter-process communication | jeeves-core (here) |
-| LLM provider adapters | jeeves-infra |
-| Database clients | jeeves-infra |
+| LLM provider adapters | jeeves-airframe |
+| Database clients | jeeves-airframe |
 | Domain-specific tools | capability layer |
 | Prompt templates | capability layer |
 

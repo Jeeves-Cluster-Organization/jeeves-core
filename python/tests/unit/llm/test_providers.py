@@ -9,7 +9,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import httpx
 import pytest
 
-from jeeves_infra.llm.providers.base import LLMProvider, TokenChunk
+from jeeves_airframe.llm.providers.base import LLMProvider, TokenChunk
 
 
 # =============================================================================
@@ -61,7 +61,7 @@ class TestOpenAIHTTPProvider:
     """Tests for OpenAIHTTPProvider."""
 
     def _make_provider(self, **overrides):
-        from jeeves_infra.llm.providers.openai_http_provider import OpenAIHTTPProvider
+        from jeeves_airframe.llm.providers.openai_http_provider import OpenAIHTTPProvider
 
         defaults = dict(
             model="test-model",
@@ -227,7 +227,7 @@ class TestLiteLLMProvider:
     """Tests for LiteLLMProvider."""
 
     def _make_provider(self, **overrides):
-        from jeeves_infra.llm.providers.litellm_provider import LiteLLMProvider
+        from jeeves_airframe.llm.providers.litellm_provider import LiteLLMProvider
 
         defaults = dict(
             model="openai/test-model",
@@ -257,7 +257,7 @@ class TestLiteLLMProvider:
         mock_response = self._make_litellm_response("Hello world")
 
         with patch(
-            "jeeves_infra.llm.providers.litellm_provider.acompletion",
+            "jeeves_airframe.llm.providers.litellm_provider.acompletion",
             new_callable=AsyncMock,
             return_value=mock_response,
         ):
@@ -272,7 +272,7 @@ class TestLiteLLMProvider:
         mock_response = self._make_litellm_response(custom_text)
 
         with patch(
-            "jeeves_infra.llm.providers.litellm_provider.acompletion",
+            "jeeves_airframe.llm.providers.litellm_provider.acompletion",
             new_callable=AsyncMock,
             return_value=mock_response,
         ):
@@ -290,7 +290,7 @@ class TestLiteLLMProvider:
         mock_response = self._make_litellm_response("ok")
 
         with patch(
-            "jeeves_infra.llm.providers.litellm_provider.acompletion",
+            "jeeves_airframe.llm.providers.litellm_provider.acompletion",
             new_callable=AsyncMock,
             return_value=mock_response,
         ):
@@ -302,7 +302,7 @@ class TestLiteLLMProvider:
     async def test_health_check_unhealthy(self):
         """Mock acompletion raising exception -> False."""
         with patch(
-            "jeeves_infra.llm.providers.litellm_provider.acompletion",
+            "jeeves_airframe.llm.providers.litellm_provider.acompletion",
             new_callable=AsyncMock,
             side_effect=ConnectionError("Endpoint unreachable"),
         ):
@@ -318,7 +318,7 @@ class TestLiteLLMProvider:
     async def test_supports_streaming(self):
         """Property returns True."""
         with patch(
-            "jeeves_infra.llm.providers.litellm_provider.acompletion",
+            "jeeves_airframe.llm.providers.litellm_provider.acompletion",
             new_callable=AsyncMock,
         ):
             provider = self._make_provider()
@@ -335,7 +335,7 @@ class TestFactory:
 
     def _reset_registry(self):
         """Reset the module-level registry so tests are independent."""
-        import jeeves_infra.llm.factory as factory_mod
+        import jeeves_airframe.llm.factory as factory_mod
 
         factory_mod._REGISTRY.clear()
         factory_mod._loaded = False
@@ -343,11 +343,11 @@ class TestFactory:
     def _make_settings(self, **attrs) -> MagicMock:
         """Build a minimal mock Settings object."""
         settings = MagicMock()
-        settings.jeeves_llm_adapter = attrs.get("jeeves_llm_adapter", None)
-        settings.jeeves_llm_model = attrs.get("jeeves_llm_model", None)
+        settings.airframe_llm_adapter = attrs.get("airframe_llm_adapter", None)
+        settings.airframe_llm_model = attrs.get("airframe_llm_model", None)
         settings.default_model = attrs.get("default_model", None)
-        settings.jeeves_llm_base_url = attrs.get("jeeves_llm_base_url", None)
-        settings.jeeves_llm_api_key = attrs.get("jeeves_llm_api_key", None)
+        settings.airframe_llm_base_url = attrs.get("airframe_llm_base_url", None)
+        settings.airframe_llm_api_key = attrs.get("airframe_llm_api_key", None)
         settings.llm_timeout = attrs.get("llm_timeout", 120)
         settings.llm_max_retries = attrs.get("llm_max_retries", 3)
         return settings
@@ -357,11 +357,11 @@ class TestFactory:
         self._reset_registry()
         monkeypatch.setenv("MOCK_LLM_ENABLED", "true")
         # Clear any adapter/model env vars that might interfere
-        monkeypatch.delenv("JEEVES_LLM_ADAPTER", raising=False)
-        monkeypatch.delenv("JEEVES_LLM_MODEL", raising=False)
+        monkeypatch.delenv("AIRFRAME_LLM_ADAPTER", raising=False)
+        monkeypatch.delenv("AIRFRAME_LLM_MODEL", raising=False)
 
-        from jeeves_infra.llm.factory import create_llm_provider
-        from jeeves_infra.llm.providers.mock import MockProvider
+        from jeeves_airframe.llm.factory import create_llm_provider
+        from jeeves_airframe.llm.providers.mock import MockProvider
 
         settings = self._make_settings()
         provider = create_llm_provider(settings, agent_name="test")
@@ -372,7 +372,7 @@ class TestFactory:
         """Verify returns at least ['mock', 'openai_http']."""
         self._reset_registry()
 
-        from jeeves_infra.llm.factory import get_available_adapters
+        from jeeves_airframe.llm.factory import get_available_adapters
 
         adapters = get_available_adapters()
 
@@ -383,18 +383,18 @@ class TestFactory:
         """Verify ValueError when no model configured."""
         self._reset_registry()
         monkeypatch.delenv("MOCK_LLM_ENABLED", raising=False)
-        monkeypatch.delenv("JEEVES_LLM_ADAPTER", raising=False)
-        monkeypatch.delenv("JEEVES_LLM_MODEL", raising=False)
-        monkeypatch.delenv("JEEVES_LLM_BASE_URL", raising=False)
-        monkeypatch.delenv("JEEVES_LLM_API_KEY", raising=False)
-        monkeypatch.delenv("JEEVES_LLM_TIMEOUT", raising=False)
-        monkeypatch.delenv("JEEVES_LLM_MAX_RETRIES", raising=False)
+        monkeypatch.delenv("AIRFRAME_LLM_ADAPTER", raising=False)
+        monkeypatch.delenv("AIRFRAME_LLM_MODEL", raising=False)
+        monkeypatch.delenv("AIRFRAME_LLM_BASE_URL", raising=False)
+        monkeypatch.delenv("AIRFRAME_LLM_API_KEY", raising=False)
+        monkeypatch.delenv("AIRFRAME_LLM_TIMEOUT", raising=False)
+        monkeypatch.delenv("AIRFRAME_LLM_MAX_RETRIES", raising=False)
 
-        from jeeves_infra.llm.factory import create_llm_provider
+        from jeeves_airframe.llm.factory import create_llm_provider
 
         # Settings with no model at all
         settings = self._make_settings(
-            jeeves_llm_model=None,
+            airframe_llm_model=None,
             default_model=None,
         )
 

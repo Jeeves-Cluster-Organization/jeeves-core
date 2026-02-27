@@ -11,7 +11,7 @@ class TestJSONRepairKit:
 
     def test_extract_json_from_code_block(self):
         """Test extracting JSON from code block."""
-        from jeeves_infra.utils import JSONRepairKit
+        from jeeves_airframe.utils import JSONRepairKit
 
         text = '```json\n{"key": "value"}\n```'
         extracted = JSONRepairKit.extract_json(text)
@@ -20,7 +20,7 @@ class TestJSONRepairKit:
 
     def test_extract_json_from_text(self):
         """Test extracting JSON from surrounding text."""
-        from jeeves_infra.utils import JSONRepairKit
+        from jeeves_airframe.utils import JSONRepairKit
 
         text = 'Here is the result: {"key": "value"} and some more text'
         extracted = JSONRepairKit.extract_json(text)
@@ -31,7 +31,7 @@ class TestJSONRepairKit:
 
     def test_repair_trailing_comma(self):
         """Test repairing JSON with trailing comma."""
-        from jeeves_infra.utils import JSONRepairKit
+        from jeeves_airframe.utils import JSONRepairKit
 
         broken = '{"a": 1, "b": 2,}'
         repaired = JSONRepairKit.repair_json(broken)
@@ -43,7 +43,7 @@ class TestJSONRepairKit:
 
     def test_repair_single_quotes(self):
         """Test repairing JSON with single quotes."""
-        from jeeves_infra.utils import JSONRepairKit
+        from jeeves_airframe.utils import JSONRepairKit
 
         broken = "{'key': 'value'}"
         repaired = JSONRepairKit.repair_json(broken)
@@ -54,7 +54,7 @@ class TestJSONRepairKit:
 
     def test_parse_lenient_valid_json(self):
         """Test parsing valid JSON."""
-        from jeeves_infra.utils import JSONRepairKit
+        from jeeves_airframe.utils import JSONRepairKit
 
         valid = '{"key": "value", "number": 42}'
         parsed = JSONRepairKit.parse_lenient(valid)
@@ -64,7 +64,7 @@ class TestJSONRepairKit:
 
     def test_parse_lenient_broken_json(self):
         """Test parsing broken JSON with repair."""
-        from jeeves_infra.utils import JSONRepairKit
+        from jeeves_airframe.utils import JSONRepairKit
 
         broken = '{"items": [1, 2, 3,]}'
         parsed = JSONRepairKit.parse_lenient(broken)
@@ -78,7 +78,7 @@ class TestNormalizeStringList:
 
     def test_normalize_simple_list(self):
         """Test normalizing a simple string list."""
-        from jeeves_infra.utils import normalize_string_list
+        from jeeves_airframe.utils import normalize_string_list
 
         items = ["  item1  ", "item2", "  item3"]
         normalized = normalize_string_list(items)
@@ -89,7 +89,7 @@ class TestNormalizeStringList:
 
     def test_normalize_from_comma_string(self):
         """Test normalizing comma-separated string."""
-        from jeeves_infra.utils import normalize_string_list
+        from jeeves_airframe.utils import normalize_string_list
 
         text = "item1, item2, item3"
         normalized = normalize_string_list(text)
@@ -98,7 +98,7 @@ class TestNormalizeStringList:
 
     def test_normalize_from_newline_string(self):
         """Test normalizing newline-separated string."""
-        from jeeves_infra.utils import normalize_string_list
+        from jeeves_airframe.utils import normalize_string_list
 
         text = "item1\nitem2\nitem3"
         normalized = normalize_string_list(text)
@@ -107,7 +107,7 @@ class TestNormalizeStringList:
 
     def test_normalize_none(self):
         """Test normalizing None."""
-        from jeeves_infra.utils import normalize_string_list
+        from jeeves_airframe.utils import normalize_string_list
 
         normalized = normalize_string_list(None)
 
@@ -115,7 +115,7 @@ class TestNormalizeStringList:
 
     def test_normalize_empty_list(self):
         """Test normalizing empty list."""
-        from jeeves_infra.utils import normalize_string_list
+        from jeeves_airframe.utils import normalize_string_list
 
         normalized = normalize_string_list([])
 
@@ -127,7 +127,7 @@ class TestTruncateString:
 
     def test_truncate_long_string(self):
         """Test truncating a long string."""
-        from jeeves_infra.utils import truncate_string
+        from jeeves_airframe.utils import truncate_string
 
         long_string = "a" * 10000
         truncated = truncate_string(long_string, max_length=100)
@@ -137,7 +137,7 @@ class TestTruncateString:
 
     def test_truncate_short_string(self):
         """Test that short strings are not truncated."""
-        from jeeves_infra.utils import truncate_string
+        from jeeves_airframe.utils import truncate_string
 
         short = "Hello, world!"
         truncated = truncate_string(short, max_length=100)
@@ -146,7 +146,7 @@ class TestTruncateString:
 
     def test_truncate_exact_length(self):
         """Test string at exact max length."""
-        from jeeves_infra.utils import truncate_string
+        from jeeves_airframe.utils import truncate_string
 
         text = "a" * 100
         truncated = truncate_string(text, max_length=100)
@@ -155,7 +155,7 @@ class TestTruncateString:
 
     def test_truncate_with_custom_suffix(self):
         """Test truncation with custom suffix."""
-        from jeeves_infra.utils import truncate_string
+        from jeeves_airframe.utils import truncate_string
 
         text = "a" * 200
         truncated = truncate_string(text, max_length=100, suffix=" [truncated]")
@@ -165,7 +165,7 @@ class TestTruncateString:
 
     def test_truncate_empty_string(self):
         """Test truncating empty string."""
-        from jeeves_infra.utils import truncate_string
+        from jeeves_airframe.utils import truncate_string
 
         truncated = truncate_string("", max_length=100)
 

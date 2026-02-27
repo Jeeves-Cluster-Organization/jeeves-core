@@ -14,8 +14,8 @@ Usage:
 import pytest
 from unittest.mock import MagicMock, AsyncMock
 
-from jeeves_infra.kernel_client import KernelClient
-from jeeves_infra.ipc import IpcTransport
+from jeeves_airframe.kernel_client import KernelClient
+from jeeves_airframe.ipc import IpcTransport
 
 
 def make_process_dict(

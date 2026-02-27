@@ -9,7 +9,7 @@ import re
 from pathlib import Path
 
 HANDLER_DIR = Path(__file__).resolve().parent.parent.parent.parent / "src" / "ipc" / "handlers"
-KERNEL_CLIENT = Path(__file__).resolve().parent.parent.parent / "jeeves_infra" / "kernel_client.py"
+KERNEL_CLIENT = Path(__file__).resolve().parent.parent.parent / "jeeves_airframe" / "kernel_client.py"
 
 
 # =============================================================================

@@ -14,7 +14,7 @@ import os
 import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
 
-from jeeves_infra.bootstrap import (
+from jeeves_airframe.bootstrap import (
     _parse_bool,
     create_core_config_from_env,
     create_orchestration_flags_from_env,
@@ -25,7 +25,7 @@ from jeeves_infra.bootstrap import (
     request_pid_context,
     sync_quota_defaults_to_kernel,
 )
-from jeeves_infra.protocols import ExecutionConfig, ContextBounds, OrchestrationFlags
+from jeeves_airframe.protocols import ExecutionConfig, ContextBounds, OrchestrationFlags
 
 
 # =============================================================================
@@ -297,7 +297,7 @@ class TestCreateAppContext:
 
         mock_settings = MagicMock()
         mock_settings.log_level = "INFO"
-        mock_settings.jeeves_llm_adapter = "mock"
+        mock_settings.airframe_llm_adapter = "mock"
 
         mock_flags = MagicMock()
         mock_flags.enable_tracing = False
@@ -307,16 +307,16 @@ class TestCreateAppContext:
         mock_registry = MagicMock()
         mock_registry.get_default_service.return_value = "test"
 
-        with patch("jeeves_infra.bootstrap.get_settings", return_value=mock_settings), \
-             patch("jeeves_infra.bootstrap.get_feature_flags", return_value=mock_flags), \
-             patch("jeeves_infra.bootstrap.configure_logging"), \
-             patch("jeeves_infra.logging.create_logger", return_value=mock_logger), \
-             patch("jeeves_infra.bootstrap.get_capability_resource_registry", return_value=mock_registry), \
-             patch("jeeves_infra.llm.factory.create_llm_provider_factory", return_value=MagicMock()), \
-             patch("jeeves_infra.ipc.IpcTransport", return_value=MagicMock()), \
-             patch("jeeves_infra.bootstrap.KernelClient", return_value=MagicMock()), \
-             patch("jeeves_infra.config.registry.ConfigRegistry", return_value=MagicMock()), \
-             patch("jeeves_infra.redis.connection_manager.InMemoryStateBackend", return_value=MagicMock()):
+        with patch("jeeves_airframe.bootstrap.get_settings", return_value=mock_settings), \
+             patch("jeeves_airframe.bootstrap.get_feature_flags", return_value=mock_flags), \
+             patch("jeeves_airframe.bootstrap.configure_logging"), \
+             patch("jeeves_airframe.logging.create_logger", return_value=mock_logger), \
+             patch("jeeves_airframe.bootstrap.get_capability_resource_registry", return_value=mock_registry), \
+             patch("jeeves_airframe.llm.factory.create_llm_provider_factory", return_value=MagicMock()), \
+             patch("jeeves_airframe.ipc.IpcTransport", return_value=MagicMock()), \
+             patch("jeeves_airframe.bootstrap.KernelClient", return_value=MagicMock()), \
+             patch("jeeves_airframe.config.registry.ConfigRegistry", return_value=MagicMock()), \
+             patch("jeeves_airframe.redis.connection_manager.InMemoryStateBackend", return_value=MagicMock()):
 
             ctx = create_app_context(core_config=custom_config)
 
@@ -334,7 +334,7 @@ class TestCreateAppContext:
 
         mock_settings = MagicMock()
         mock_settings.log_level = "INFO"
-        mock_settings.jeeves_llm_adapter = "mock"
+        mock_settings.airframe_llm_adapter = "mock"
 
         mock_ff = MagicMock()
         mock_ff.enable_tracing = False
@@ -344,16 +344,16 @@ class TestCreateAppContext:
         mock_registry = MagicMock()
         mock_registry.get_default_service.return_value = "test"
 
-        with patch("jeeves_infra.bootstrap.get_settings", return_value=mock_settings), \
-             patch("jeeves_infra.bootstrap.get_feature_flags", return_value=mock_ff), \
-             patch("jeeves_infra.bootstrap.configure_logging"), \
-             patch("jeeves_infra.logging.create_logger", return_value=mock_logger), \
-             patch("jeeves_infra.bootstrap.get_capability_resource_registry", return_value=mock_registry), \
-             patch("jeeves_infra.llm.factory.create_llm_provider_factory", return_value=MagicMock()), \
-             patch("jeeves_infra.ipc.IpcTransport", return_value=MagicMock()), \
-             patch("jeeves_infra.bootstrap.KernelClient", return_value=MagicMock()), \
-             patch("jeeves_infra.config.registry.ConfigRegistry", return_value=MagicMock()), \
-             patch("jeeves_infra.redis.connection_manager.InMemoryStateBackend", return_value=MagicMock()):
+        with patch("jeeves_airframe.bootstrap.get_settings", return_value=mock_settings), \
+             patch("jeeves_airframe.bootstrap.get_feature_flags", return_value=mock_ff), \
+             patch("jeeves_airframe.bootstrap.configure_logging"), \
+             patch("jeeves_airframe.logging.create_logger", return_value=mock_logger), \
+             patch("jeeves_airframe.bootstrap.get_capability_resource_registry", return_value=mock_registry), \
+             patch("jeeves_airframe.llm.factory.create_llm_provider_factory", return_value=MagicMock()), \
+             patch("jeeves_airframe.ipc.IpcTransport", return_value=MagicMock()), \
+             patch("jeeves_airframe.bootstrap.KernelClient", return_value=MagicMock()), \
+             patch("jeeves_airframe.config.registry.ConfigRegistry", return_value=MagicMock()), \
+             patch("jeeves_airframe.redis.connection_manager.InMemoryStateBackend", return_value=MagicMock()):
 
             ctx = create_app_context(orchestration_flags=custom_flags)
 
@@ -369,7 +369,7 @@ class TestCreateAppContext:
 
         mock_settings = MagicMock()
         mock_settings.log_level = "DEBUG"
-        mock_settings.jeeves_llm_adapter = "mock"
+        mock_settings.airframe_llm_adapter = "mock"
 
         mock_ff = MagicMock()
         mock_ff.enable_tracing = True
@@ -379,18 +379,18 @@ class TestCreateAppContext:
         mock_registry = MagicMock()
         mock_registry.get_default_service.return_value = "test"
 
-        with patch("jeeves_infra.bootstrap.get_settings", return_value=mock_settings), \
-             patch("jeeves_infra.bootstrap.get_feature_flags", return_value=mock_ff), \
-             patch("jeeves_infra.bootstrap.configure_logging") as mock_configure_logging, \
-             patch("jeeves_infra.logging.create_logger", return_value=mock_logger), \
-             patch("jeeves_infra.bootstrap.get_capability_resource_registry", return_value=mock_registry), \
-             patch("jeeves_infra.llm.factory.create_llm_provider_factory", return_value=MagicMock()), \
-             patch("jeeves_infra.ipc.IpcTransport", return_value=MagicMock()), \
-             patch("jeeves_infra.bootstrap.KernelClient", return_value=MagicMock()), \
-             patch("jeeves_infra.config.registry.ConfigRegistry", return_value=MagicMock()), \
-             patch("jeeves_infra.redis.connection_manager.InMemoryStateBackend", return_value=MagicMock()), \
-             patch("jeeves_infra.observability.otel_adapter.init_global_otel"), \
-             patch("jeeves_infra.observability.otel_adapter.get_global_otel_adapter", return_value=MagicMock(enabled=True)):
+        with patch("jeeves_airframe.bootstrap.get_settings", return_value=mock_settings), \
+             patch("jeeves_airframe.bootstrap.get_feature_flags", return_value=mock_ff), \
+             patch("jeeves_airframe.bootstrap.configure_logging") as mock_configure_logging, \
+             patch("jeeves_airframe.logging.create_logger", return_value=mock_logger), \
+             patch("jeeves_airframe.bootstrap.get_capability_resource_registry", return_value=mock_registry), \
+             patch("jeeves_airframe.llm.factory.create_llm_provider_factory", return_value=MagicMock()), \
+             patch("jeeves_airframe.ipc.IpcTransport", return_value=MagicMock()), \
+             patch("jeeves_airframe.bootstrap.KernelClient", return_value=MagicMock()), \
+             patch("jeeves_airframe.config.registry.ConfigRegistry", return_value=MagicMock()), \
+             patch("jeeves_airframe.redis.connection_manager.InMemoryStateBackend", return_value=MagicMock()), \
+             patch("jeeves_airframe.observability.otel_adapter.init_global_otel"), \
+             patch("jeeves_airframe.observability.otel_adapter.get_global_otel_adapter", return_value=MagicMock(enabled=True)):
 
             create_app_context()
 
@@ -402,7 +402,7 @@ class TestCreateAppContext:
 
     def test_returns_app_context_with_all_fields(self):
         """Verify the returned AppContext has all expected fields populated."""
-        from jeeves_infra.context import AppContext
+        from jeeves_airframe.context import AppContext
 
         mock_logger = MagicMock()
         mock_logger.bind = MagicMock(return_value=mock_logger)
@@ -410,7 +410,7 @@ class TestCreateAppContext:
 
         mock_settings = MagicMock()
         mock_settings.log_level = "INFO"
-        mock_settings.jeeves_llm_adapter = "mock"
+        mock_settings.airframe_llm_adapter = "mock"
 
         mock_ff = MagicMock()
         mock_ff.enable_tracing = False
@@ -420,16 +420,16 @@ class TestCreateAppContext:
         mock_registry = MagicMock()
         mock_registry.get_default_service.return_value = "test"
 
-        with patch("jeeves_infra.bootstrap.get_settings", return_value=mock_settings), \
-             patch("jeeves_infra.bootstrap.get_feature_flags", return_value=mock_ff), \
-             patch("jeeves_infra.bootstrap.configure_logging"), \
-             patch("jeeves_infra.logging.create_logger", return_value=mock_logger), \
-             patch("jeeves_infra.bootstrap.get_capability_resource_registry", return_value=mock_registry), \
-             patch("jeeves_infra.llm.factory.create_llm_provider_factory", return_value=MagicMock()), \
-             patch("jeeves_infra.ipc.IpcTransport", return_value=MagicMock()), \
-             patch("jeeves_infra.bootstrap.KernelClient", return_value=MagicMock()), \
-             patch("jeeves_infra.config.registry.ConfigRegistry", return_value=MagicMock()), \
-             patch("jeeves_infra.redis.connection_manager.InMemoryStateBackend", return_value=MagicMock()):
+        with patch("jeeves_airframe.bootstrap.get_settings", return_value=mock_settings), \
+             patch("jeeves_airframe.bootstrap.get_feature_flags", return_value=mock_ff), \
+             patch("jeeves_airframe.bootstrap.configure_logging"), \
+             patch("jeeves_airframe.logging.create_logger", return_value=mock_logger), \
+             patch("jeeves_airframe.bootstrap.get_capability_resource_registry", return_value=mock_registry), \
+             patch("jeeves_airframe.llm.factory.create_llm_provider_factory", return_value=MagicMock()), \
+             patch("jeeves_airframe.ipc.IpcTransport", return_value=MagicMock()), \
+             patch("jeeves_airframe.bootstrap.KernelClient", return_value=MagicMock()), \
+             patch("jeeves_airframe.config.registry.ConfigRegistry", return_value=MagicMock()), \
+             patch("jeeves_airframe.redis.connection_manager.InMemoryStateBackend", return_value=MagicMock()):
 
             ctx = create_app_context()
 
@@ -561,7 +561,7 @@ class TestSyncQuotaDefaultsToKernel:
 
 class TestCreateToolExecutorWithAccess:
     def test_creates_tool_executor(self):
-        from jeeves_infra.bootstrap import create_tool_executor_with_access
+        from jeeves_airframe.bootstrap import create_tool_executor_with_access
 
         mock_registry = MagicMock()
         mock_app_context = MagicMock()
@@ -570,7 +570,7 @@ class TestCreateToolExecutorWithAccess:
 
         mock_tool_executor = MagicMock()
 
-        with patch("jeeves_infra.wiring.ToolExecutor", return_value=mock_tool_executor) as mock_cls:
+        with patch("jeeves_airframe.wiring.ToolExecutor", return_value=mock_tool_executor) as mock_cls:
             result = create_tool_executor_with_access(
                 tool_registry=mock_registry,
                 app_context=mock_app_context,
@@ -584,7 +584,7 @@ class TestCreateToolExecutorWithAccess:
         assert call_kwargs["access_checker"] is mock_access_checker
 
     def test_creates_tool_executor_without_access_checker(self):
-        from jeeves_infra.bootstrap import create_tool_executor_with_access
+        from jeeves_airframe.bootstrap import create_tool_executor_with_access
 
         mock_registry = MagicMock()
         mock_app_context = MagicMock()
@@ -592,7 +592,7 @@ class TestCreateToolExecutorWithAccess:
 
         mock_tool_executor = MagicMock()
 
-        with patch("jeeves_infra.wiring.ToolExecutor", return_value=mock_tool_executor) as mock_cls:
+        with patch("jeeves_airframe.wiring.ToolExecutor", return_value=mock_tool_executor) as mock_cls:
             result = create_tool_executor_with_access(
                 tool_registry=mock_registry,
                 app_context=mock_app_context,

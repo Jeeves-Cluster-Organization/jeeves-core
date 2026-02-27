@@ -1,12 +1,12 @@
 """Unit tests for protocol types and capability registration.
 
-Tests the capability registration system in jeeves_infra.protocols.capability.
+Tests the capability registration system in jeeves_airframe.protocols.capability.
 """
 
 import pytest
 from dataclasses import FrozenInstanceError
 
-from jeeves_infra.protocols.capability import (
+from jeeves_airframe.protocols.capability import (
     ToolCatalogEntry,
     ToolDefinition,
     CapabilityToolCatalog,

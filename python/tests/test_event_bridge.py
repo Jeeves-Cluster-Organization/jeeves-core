@@ -9,8 +9,8 @@ import json
 import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
 
-from jeeves_infra.events.bridge import EventBridge, KernelEvent
-from jeeves_infra.events.aggregator import KernelEventAggregator
+from jeeves_airframe.events.bridge import EventBridge, KernelEvent
+from jeeves_airframe.events.aggregator import KernelEventAggregator
 
 
 # =============================================================================

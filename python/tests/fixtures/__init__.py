@@ -1,6 +1,6 @@
 """Test Fixtures Package.
 
-Provides centralized fixtures for jeeves-infra tests:
+Provides centralized fixtures for jeeves-airframe tests:
 - database.py: SQLite fixtures and FK helpers
 - sqlite_client.py: In-memory SQLite client (DatabaseClientProtocol)
 - llm.py: LLM provider fixtures

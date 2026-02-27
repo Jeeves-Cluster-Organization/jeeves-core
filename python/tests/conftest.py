@@ -1,4 +1,4 @@
-"""Pytest configuration for jeeves-infra tests.
+"""Pytest configuration for jeeves-airframe tests.
 
 This conftest.py provides fixtures and configuration for the
 infrastructure test suite.
@@ -16,10 +16,10 @@ from pathlib import Path
 import pytest
 
 # Add paths for imports
-# 1. jeeves-infra root (for jeeves_infra package)
-jeeves_infra_root = Path(__file__).parent.parent
-if str(jeeves_infra_root) not in sys.path:
-    sys.path.insert(0, str(jeeves_infra_root))
+# 1. jeeves-airframe root (for jeeves_airframe package)
+jeeves_airframe_root = Path(__file__).parent.parent
+if str(jeeves_airframe_root) not in sys.path:
+    sys.path.insert(0, str(jeeves_airframe_root))
 
 # 2. tests directory (for config.* and fixtures.*)
 tests_root = Path(__file__).parent
@@ -30,7 +30,7 @@ if str(tests_root) not in sys.path:
 # =============================================================================
 # IMPORT FIXTURES FROM FIXTURES PACKAGE
 # =============================================================================
-# Note: Some fixtures have complex dependencies (jeeves_infra, shared).
+# Note: Some fixtures have complex dependencies (jeeves_airframe, shared).
 # Import failures are handled gracefully to allow unit tests to run.
 
 try:
