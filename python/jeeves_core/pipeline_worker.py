@@ -9,6 +9,7 @@ that any consumer can call with its own agent dispatch closure.
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import time
 from dataclasses import dataclass, field
@@ -91,16 +92,45 @@ async def run_kernel_loop(
     )
     instruction = await kernel.get_next_instruction(process_id)
 
-    while instruction.kind == "RUN_AGENT":
-        output, success, error, metrics = await run_agent(instruction)
-        instruction = await kernel.report_agent_result(
-            process_id=process_id,
-            agent_name=instruction.agent_name,
-            output=output,
-            metrics=metrics,
-            success=success,
-            error=error,
-        )
+    while instruction.kind in ("RUN_AGENT", "RUN_AGENTS"):
+        if instruction.kind == "RUN_AGENTS":
+            # Parallel fan-out: run all agents concurrently
+            async def _dispatch_one(name: str):
+                single = OrchestratorInstruction(
+                    kind="RUN_AGENT",
+                    agents=[name],
+                    envelope=instruction.envelope,
+                )
+                return name, await run_agent(single)
+
+            results = await asyncio.gather(
+                *(_dispatch_one(name) for name in instruction.agents)
+            )
+            # Report each result sequentially (kernel expects ordered reports)
+            for agent_name, (output, success, error, metrics) in results:
+                instruction = await kernel.report_agent_result(
+                    process_id=process_id,
+                    agent_name=agent_name,
+                    output=output,
+                    metrics=metrics,
+                    success=success,
+                    error=error,
+                )
+                if instruction.kind == "TERMINATE":
+                    return instruction
+            # After all parallel agents reported, get next instruction
+            instruction = await kernel.get_next_instruction(process_id)
+        else:
+            # Single agent
+            output, success, error, metrics = await run_agent(instruction)
+            instruction = await kernel.report_agent_result(
+                process_id=process_id,
+                agent_name=instruction.agents[0] if instruction.agents else "",
+                output=output,
+                metrics=metrics,
+                success=success,
+                error=error,
+            )
 
     return instruction
 
@@ -176,7 +206,7 @@ class PipelineWorker:
             instruction: OrchestratorInstruction,
         ) -> Tuple[Optional[Dict[str, Any]], bool, str, AgentExecutionMetrics]:
             nonlocal envelope
-            agent_name = instruction.agent_name
+            agent_name = instruction.agents[0] if instruction.agents else ""
             agent = self._agents.get(agent_name)
 
             if not agent:
@@ -211,8 +241,6 @@ class PipelineWorker:
             )
         except KernelClientError as e:
             self._logger.error("worker_kernel_loop_failed", error=str(e))
-            envelope.terminated = True
-            envelope.terminal_reason = str(e)
             return WorkerResult(
                 envelope=envelope,
                 terminated=True,
@@ -221,8 +249,6 @@ class PipelineWorker:
 
         # Map terminal instruction to WorkerResult
         if terminal.kind == "TERMINATE":
-            envelope.terminated = True
-            envelope.terminal_reason = terminal.terminal_reason
             self._logger.info(
                 "worker_pipeline_terminated",
                 process_id=process_id,
@@ -256,12 +282,10 @@ class PipelineWorker:
                 process_id=process_id,
                 kind=terminal.kind,
             )
-            envelope.terminated = True
-            envelope.terminal_reason = f"Unknown instruction kind: {terminal.kind}"
             return WorkerResult(
                 envelope=envelope,
                 terminated=True,
-                terminal_reason=envelope.terminal_reason,
+                terminal_reason=f"Unknown instruction kind: {terminal.kind}",
             )
 
     async def execute_streaming(
@@ -338,86 +362,85 @@ class PipelineWorker:
                 })
                 return
 
-            elif instruction.kind == "RUN_AGENT":
-                agent_name = instruction.agent_name
-                agent = self._agents.get(agent_name)
+            elif instruction.kind in ("RUN_AGENT", "RUN_AGENTS"):
+                agents_to_run = instruction.agents if instruction.agents else []
 
-                if not agent:
-                    await self._kernel.report_agent_result(
-                        process_id=process_id,
-                        agent_name=agent_name,
-                        success=False,
-                        error=f"Agent not found: {agent_name}",
-                    )
-                    continue
+                for agent_name in agents_to_run:
+                    agent = self._agents.get(agent_name)
 
-                # Check if agent supports token streaming
-                has_streaming = (
-                    hasattr(agent, 'config')
-                    and hasattr(agent.config, 'token_stream')
-                    and hasattr(agent.config.token_stream, 'value')
-                    and agent.config.token_stream.value != "off"
-                )
-
-                if has_streaming and hasattr(agent, 'stream'):
-                    # Streaming path: yield tokens, then report final output
-                    start_time = time.time()
-                    llm_calls_before = envelope.llm_call_count
-                    outputs_before = (
-                        set(envelope.outputs.keys()) if isinstance(envelope.outputs, dict) else set()
-                    )
-
-                    try:
-                        async for event_type, event in agent.stream(envelope):
-                            yield ("__token__", {"agent": agent_name, "event": event})
-
-                        duration_ms = int((time.time() - start_time) * 1000)
-                        output = self._select_agent_output(envelope, agent_name, outputs_before)
-                        metrics = AgentExecutionMetrics(
-                            llm_calls=envelope.llm_call_count - llm_calls_before,
-                            duration_ms=duration_ms,
+                    if not agent:
+                        await self._kernel.report_agent_result(
+                            process_id=process_id,
+                            agent_name=agent_name,
+                            success=False,
+                            error=f"Agent not found: {agent_name}",
                         )
+                        continue
+
+                    # Check if agent supports token streaming
+                    has_streaming = (
+                        hasattr(agent, 'config')
+                        and hasattr(agent.config, 'token_stream')
+                        and hasattr(agent.config.token_stream, 'value')
+                        and agent.config.token_stream.value != "off"
+                    )
+
+                    if has_streaming and hasattr(agent, 'stream'):
+                        # Streaming path: yield tokens, then report final output
+                        start_time = time.time()
+                        llm_calls_before = envelope.llm_call_count
+
+                        try:
+                            async for event_type, event in agent.stream(envelope):
+                                yield ("__token__", {"agent": agent_name, "event": event})
+
+                            duration_ms = int((time.time() - start_time) * 1000)
+                            output = envelope.outputs.get(agent_name, {})
+                            metrics = AgentExecutionMetrics(
+                                llm_calls=envelope.llm_call_count - llm_calls_before,
+                                duration_ms=duration_ms,
+                            )
+                            await self._kernel.report_agent_result(
+                                process_id=process_id,
+                                agent_name=agent_name,
+                                output=output,
+                                metrics=metrics,
+                                success=True,
+                                error="",
+                            )
+                            if output:
+                                yield (agent_name, output)
+                        except Exception as e:
+                            duration_ms = int((time.time() - start_time) * 1000)
+                            await self._kernel.report_agent_result(
+                                process_id=process_id,
+                                agent_name=agent_name,
+                                output=None,
+                                metrics=AgentExecutionMetrics(duration_ms=duration_ms),
+                                success=False,
+                                error=str(e),
+                            )
+                    else:
+                        # Non-streaming path
+                        envelope, success, error, output, metrics = await self._run_agent(
+                            envelope=envelope,
+                            process_id=process_id,
+                            agent_name=agent_name,
+                            agent=agent,
+                            log_errors=False,
+                        )
+
                         await self._kernel.report_agent_result(
                             process_id=process_id,
                             agent_name=agent_name,
                             output=output,
                             metrics=metrics,
-                            success=True,
-                            error="",
+                            success=success,
+                            error=error,
                         )
-                        if output:
+
+                        if success and output:
                             yield (agent_name, output)
-                    except Exception as e:
-                        duration_ms = int((time.time() - start_time) * 1000)
-                        await self._kernel.report_agent_result(
-                            process_id=process_id,
-                            agent_name=agent_name,
-                            output=None,
-                            metrics=AgentExecutionMetrics(duration_ms=duration_ms),
-                            success=False,
-                            error=str(e),
-                        )
-                else:
-                    # Non-streaming path (original)
-                    envelope, success, error, output, metrics = await self._run_agent(
-                        envelope=envelope,
-                        process_id=process_id,
-                        agent_name=agent_name,
-                        agent=agent,
-                        log_errors=False,
-                    )
-
-                    await self._kernel.report_agent_result(
-                        process_id=process_id,
-                        agent_name=agent_name,
-                        output=output,
-                        metrics=metrics,
-                        success=success,
-                        error=error,
-                    )
-
-                    if success and output:
-                        yield (agent_name, output)
 
                 if self._persistence and thread_id:
                     try:
@@ -437,9 +460,6 @@ class PipelineWorker:
         """Run one agent execution step and return updated envelope/output/metrics."""
         start_time = time.time()
         llm_calls_before = envelope.llm_call_count
-        outputs_before = (
-            set(envelope.outputs.keys()) if isinstance(envelope.outputs, dict) else set()
-        )
 
         try:
             envelope = await agent.process(envelope)
@@ -458,11 +478,7 @@ class PipelineWorker:
 
         duration_ms = int((time.time() - start_time) * 1000)
         llm_calls = envelope.llm_call_count - llm_calls_before
-        agent_output = (
-            self._select_agent_output(envelope, agent_name, outputs_before)
-            if success
-            else {}
-        )
+        agent_output = envelope.outputs.get(agent_name, {}) if success else {}
         agent_metrics = self._extract_agent_metrics(envelope, agent_name, agent_output)
         metrics = AgentExecutionMetrics(
             llm_calls=llm_calls,
@@ -508,27 +524,6 @@ class PipelineWorker:
             "tokens_in": tokens_in,
             "tokens_out": tokens_out,
         }
-
-    def _select_agent_output(
-        self,
-        envelope: Envelope,
-        agent_name: str,
-        outputs_before: set[str],
-    ) -> Dict[str, Any]:
-        if not isinstance(envelope.outputs, dict):
-            return {}
-
-        if isinstance(envelope.outputs.get(agent_name), dict):
-            return envelope.outputs[agent_name]
-
-        new_keys = [k for k in envelope.outputs.keys() if k not in outputs_before]
-        for key in reversed(new_keys):
-            value = envelope.outputs.get(key)
-            if isinstance(value, dict):
-                return value
-
-        return {}
-
 
 __all__ = [
     "run_kernel_loop",

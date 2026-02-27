@@ -93,8 +93,14 @@ pub async fn handle(
                 .await
                 .map_err(|e| Error::internal(format!("CommBus query failed: {}", e)))?;
 
-            let result_str = String::from_utf8(response.result).unwrap_or_default();
-            let result_val: Value = serde_json::from_str(&result_str).unwrap_or(Value::Null);
+            let result_str = String::from_utf8(response.result).unwrap_or_else(|e| {
+                tracing::warn!("CommBus query response contained invalid UTF-8: {}", e);
+                String::new()
+            });
+            let result_val: Value = serde_json::from_str(&result_str).unwrap_or_else(|e| {
+                tracing::warn!("CommBus query response contained invalid JSON: {}", e);
+                Value::Null
+            });
 
             Ok(DispatchResponse::Single(serde_json::json!({
                 "success": response.success,

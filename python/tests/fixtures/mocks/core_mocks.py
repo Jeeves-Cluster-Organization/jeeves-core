@@ -1,7 +1,7 @@
-"""Mock implementations for jeeves_core_engine protocols.
+"""Mock implementations for jeeves_core protocols.
 
 These mocks allow infrastructure tests to run in isolation without
-depending on the actual core engine implementation.
+depending on the actual core implementation.
 
 Centralized Architecture (v4.0):
 - Uses Envelope (not CoreEnvelope)
@@ -19,7 +19,7 @@ class MockEnvelope:
 
     This provides a minimal envelope interface that infrastructure
     components may depend on, without requiring the full
-    jeeves_core_engine implementation.
+    jeeves_core implementation.
 
     Centralized Architecture (v4.0):
     - Uses `outputs` dict instead of per-stage fields
@@ -43,11 +43,8 @@ class MockEnvelope:
     ])
 
     # Control flags
-    terminated: bool = False
     clarification_pending: bool = False
     confirmation_pending: bool = False
-    terminal_reason: Optional[str] = None
-    terminal_message: Optional[str] = None
 
     # Counters
     iteration: int = 0
@@ -70,21 +67,14 @@ class MockEnvelope:
             "session_id": self.session_id,
             "envelope_id": self.envelope_id,
             "current_stage": self.current_stage,
-            "terminated": self.terminated,
             "iteration": self.iteration,
             "llm_call_count": self.llm_call_count,
             "outputs": self.outputs,
         }
 
-    def terminate(self, message: str, reason: str) -> None:
-        """Mark envelope as terminated."""
-        self.terminated = True
-        self.terminal_message = message
-        self.terminal_reason = reason
-
     def can_continue(self) -> bool:
         """Check if pipeline can continue."""
-        return not self.terminated and self.iteration < 10
+        return self.iteration < 10
 
 
 @pytest.fixture

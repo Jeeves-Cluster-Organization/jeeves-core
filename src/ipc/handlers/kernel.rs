@@ -14,7 +14,7 @@ pub async fn handle(kernel: &mut Kernel, method: &str, body: Value) -> Result<Di
     match method {
         "CreateProcess" => {
             let pid_str = str_field(&body, "pid")?;
-            let pid = ProcessId::from_string(pid_str.clone())
+            let pid = ProcessId::from_string(pid_str)
                 .map_err(|e| Error::validation(e.to_string()))?;
 
             let request_id_str = body
@@ -280,6 +280,56 @@ pub async fn handle(kernel: &mut Kernel, method: &str, body: Value) -> Result<Di
             })))
         }
 
+        "RecordUsageAndCheck" => {
+            let pid = parse_pid(&body)?;
+
+            let user_id_str = {
+                let pcb = kernel
+                    .get_process(&pid)
+                    .ok_or_else(|| Error::not_found(format!("Process {} not found", pid)))?;
+                pcb.user_id.as_str().to_string()
+            };
+
+            let llm_calls = parse_non_negative_i32(
+                body.get("llm_calls").and_then(|v| v.as_i64()).unwrap_or(0),
+                "llm_calls",
+            )?;
+            let tool_calls = parse_non_negative_i32(
+                body.get("tool_calls").and_then(|v| v.as_i64()).unwrap_or(0),
+                "tool_calls",
+            )?;
+            let tokens_in = require_non_negative_i64(
+                body.get("tokens_in").and_then(|v| v.as_i64()).unwrap_or(0),
+                "tokens_in",
+            )?;
+            let tokens_out = require_non_negative_i64(
+                body.get("tokens_out").and_then(|v| v.as_i64()).unwrap_or(0),
+                "tokens_out",
+            )?;
+
+            // Record usage atomically
+            kernel.record_usage(&pid, &user_id_str, llm_calls, tool_calls, tokens_in, tokens_out);
+
+            // Check quota in the same round-trip
+            let pcb = kernel
+                .get_process(&pid)
+                .ok_or_else(|| Error::not_found(format!("Process {} not found", pid)))?;
+
+            let result = kernel.check_quota(&pid);
+            let within_bounds = result.is_ok();
+            let exceeded_reason = result.err().map(|e| e.to_string()).unwrap_or_default();
+
+            Ok(DispatchResponse::Single(serde_json::json!({
+                "within_bounds": within_bounds,
+                "exceeded_reason": exceeded_reason,
+                "llm_calls": pcb.usage.llm_calls,
+                "tool_calls": pcb.usage.tool_calls,
+                "agent_hops": pcb.usage.agent_hops,
+                "tokens_in": pcb.usage.tokens_in,
+                "tokens_out": pcb.usage.tokens_out,
+            })))
+        }
+
         "CheckRateLimit" => {
             let user_id = str_field(&body, "user_id")?;
             if user_id.is_empty() {
@@ -441,7 +491,7 @@ async fn emit_lifecycle_event(kernel: &Kernel, event_type: &str, payload: Value)
     let timestamp_ms = chrono::Utc::now().timestamp_millis();
 
     // Emit raw kernel event
-    let payload_bytes = serde_json::to_vec(&payload).unwrap_or_default();
+    let payload_bytes = serde_json::to_vec(&payload).expect("lifecycle event payload must be serializable");
     let event = Event {
         event_type: event_type.to_string(),
         payload: payload_bytes,
@@ -458,7 +508,7 @@ async fn emit_lifecycle_event(kernel: &Kernel, event_type: &str, payload: Value)
             "type": frontend_type,
             "data": frontend_data,
         });
-        let frontend_bytes = serde_json::to_vec(&frontend_payload).unwrap_or_default();
+        let frontend_bytes = serde_json::to_vec(&frontend_payload).expect("frontend event payload must be serializable");
         let frontend_event = Event {
             event_type: format!("frontend.{}", frontend_type),
             payload: frontend_bytes,

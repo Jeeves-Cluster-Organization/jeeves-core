@@ -88,7 +88,7 @@ class InterruptResponse:
     approved: bool = False
     decision: str = ""
     data: Optional[Dict[str, Any]] = None
-    resolved_at: Optional[datetime] = None
+    received_at: Optional[datetime] = None
 
     def to_dict(self) -> Dict[str, Any]:
         return {
@@ -96,7 +96,7 @@ class InterruptResponse:
             "approved": self.approved,
             "decision": self.decision,
             "data": self.data,
-            "resolved_at": self.resolved_at.isoformat() if self.resolved_at else None,
+            "received_at": self.received_at.isoformat() if self.received_at else None,
         }
 
 
@@ -184,6 +184,37 @@ class FlowInterrupt:
         )
 
 
+@dataclass
+class KernelInterrupt:
+    """Kernel-level interrupt for system scope operations.
+
+    Unlike FlowInterrupt (capability/pipeline scope), KernelInterrupt
+    represents system-level interrupts managed by the Rust kernel.
+    """
+    id: str = ""
+    kind: Optional[InterruptKind] = None
+    process_id: str = ""
+    question: str = ""
+    message: str = ""
+    data: Optional[Dict[str, Any]] = None
+    status: InterruptStatus = InterruptStatus.PENDING
+    created_at: Optional[datetime] = None
+    expires_at: Optional[datetime] = None
+
+    def to_dict(self) -> Dict[str, Any]:
+        return {
+            "id": self.id,
+            "kind": self.kind.value if isinstance(self.kind, Enum) else self.kind,
+            "process_id": self.process_id,
+            "question": self.question,
+            "message": self.message,
+            "data": self.data,
+            "status": self.status.value if isinstance(self.status, Enum) else self.status,
+            "created_at": self.created_at.isoformat() if self.created_at else None,
+            "expires_at": self.expires_at.isoformat() if self.expires_at else None,
+        }
+
+
 # =============================================================================
 # RATE LIMITING
 # =============================================================================
@@ -246,10 +277,16 @@ class PipelineEvent:
 
 @dataclass
 class RoutingRule:
-    """Routing rule for conditional transitions."""
-    condition: str
-    value: Any
+    """Routing rule: expression tree + target stage.
+
+    expr: A RoutingExpr dict (built via jeeves_core.protocols.routing builders).
+    target: Name of the target stage to route to when expr evaluates to true.
+    """
+    expr: Dict[str, Any]
     target: str
+
+    def to_kernel_dict(self) -> Dict[str, Any]:
+        return {"expr": self.expr, "target": self.target}
 
 
 @dataclass
@@ -313,11 +350,31 @@ class AgentConfig:
     routing_rules: List[RoutingRule] = field(default_factory=list)
     default_next: Optional[str] = None
     error_next: Optional[str] = None
+    parallel_group: Optional[str] = None
+    max_visits: Optional[int] = None
     timeout_seconds: Optional[int] = None
     max_retries: int = 0
     pre_process: Optional[Callable] = None
     post_process: Optional[Callable] = None
     mock_handler: Optional[Callable] = None
+
+    def to_kernel_dict(self) -> Dict[str, Any]:
+        """Serialize to the dict shape the Rust kernel expects for PipelineStage."""
+        d: Dict[str, Any] = {
+            "name": self.name,
+            "agent": self.name,
+            "routing": [r.to_kernel_dict() for r in self.routing_rules],
+        }
+        if self.default_next is not None:
+            d["default_next"] = self.default_next
+        if self.error_next is not None:
+            d["error_next"] = self.error_next
+        if self.parallel_group is not None:
+            d["parallel_group"] = self.parallel_group
+            d["join_strategy"] = "WaitAll"
+        if self.max_visits is not None:
+            d["max_visits"] = self.max_visits
+        return d
 
 
 @dataclass
@@ -331,40 +388,31 @@ class PipelineConfig:
     max_agent_hops: int = 21
     default_timeout_seconds: int = 300
     edge_limits: List[EdgeLimit] = field(default_factory=list)
+    step_limit: Optional[int] = None
     clarification_resume_stage: Optional[str] = None
     confirmation_resume_stage: Optional[str] = None
     agent_review_resume_stage: Optional[str] = None
 
+    def to_kernel_dict(self) -> Dict[str, Any]:
+        """Serialize to the dict shape the Rust kernel expects for PipelineConfig."""
+        d: Dict[str, Any] = {
+            "name": self.name,
+            "max_iterations": self.max_iterations,
+            "max_llm_calls": self.max_llm_calls,
+            "max_agent_hops": self.max_agent_hops,
+            "edge_limits": [
+                {"from_stage": el.from_stage, "to_stage": el.to_stage, "max_count": el.max_count}
+                for el in self.edge_limits
+            ],
+            "agents": [agent.to_kernel_dict() for agent in self.agents],
+        }
+        if self.step_limit is not None:
+            d["step_limit"] = self.step_limit
+        return d
+
     def get_stage_order(self) -> List[str]:
         return [a.name for a in sorted(self.agents, key=lambda x: x.stage_order)]
 
-    def get_edge_limit(self, from_stage: str, to_stage: str) -> int:
-        for limit in self.edge_limits:
-            if limit.from_stage == from_stage and limit.to_stage == to_stage:
-                return limit.max_count
-        return 0
-
-    def get_ready_stages(self, completed: Dict[str, bool]) -> List[str]:
-        ready = []
-        for agent in self.agents:
-            if completed.get(agent.name):
-                continue
-            requires_ok = all(completed.get(r) for r in agent.requires)
-            after_ok = all(completed.get(a) for a in agent.after)
-            if agent.join_strategy == JoinStrategy.ANY and agent.requires:
-                requires_ok = any(completed.get(r) for r in agent.requires)
-            if requires_ok and after_ok:
-                ready.append(agent.name)
-        return ready
-
-    def get_clarification_resume_stage(self) -> str:
-        return self.clarification_resume_stage or "intent"
-
-    def get_confirmation_resume_stage(self) -> str:
-        return self.confirmation_resume_stage or "execution"
-
-    def get_agent_review_resume_stage(self) -> str:
-        return self.agent_review_resume_stage or "planner"
 
 
 @dataclass
@@ -419,9 +467,6 @@ class Envelope:
     max_llm_calls: int = 10
     agent_hop_count: int = 0
     max_agent_hops: int = 21
-    terminal_reason: Optional[TerminalReason] = None
-    terminated: bool = False
-    termination_reason: Optional[str] = None
     interrupt_pending: bool = False
     interrupt: Optional[FlowInterrupt] = None
     active_stages: Dict[str, bool] = field(default_factory=dict)
@@ -465,13 +510,6 @@ class Envelope:
         else:
             raise TypeError("request_context must be a dict or RequestContext")
 
-        terminal_reason = data.get("terminal_reason")
-        if terminal_reason and isinstance(terminal_reason, str):
-            try:
-                terminal_reason = TerminalReason(terminal_reason)
-            except ValueError:
-                terminal_reason = None
-
         interrupt_data = data.get("interrupt")
         interrupt = None
         if interrupt_data and isinstance(interrupt_data, dict):
@@ -493,9 +531,6 @@ class Envelope:
             max_llm_calls=data.get("max_llm_calls", 10),
             agent_hop_count=data.get("agent_hop_count", 0),
             max_agent_hops=data.get("max_agent_hops", 21),
-            terminal_reason=terminal_reason,
-            terminated=data.get("terminated", False),
-            termination_reason=data.get("termination_reason"),
             interrupt_pending=data.get("interrupt_pending", False),
             interrupt=interrupt,
             active_stages=data.get("active_stages", {}),
@@ -520,9 +555,6 @@ class Envelope:
             self.goal_completion_status[goal] = "complete"
         if goal in self.remaining_goals:
             self.remaining_goals.remove(goal)
-
-    def advance_stage(self) -> None:
-        self.current_stage_number += 1
 
     def get_stage_context(self) -> Dict[str, Any]:
         return {
@@ -560,9 +592,6 @@ class Envelope:
             "max_llm_calls": self.max_llm_calls,
             "agent_hop_count": self.agent_hop_count,
             "max_agent_hops": self.max_agent_hops,
-            "terminal_reason": self.terminal_reason.value if self.terminal_reason else None,
-            "terminated": self.terminated,
-            "termination_reason": self.termination_reason,
             "interrupt_pending": self.interrupt_pending,
             "interrupt": self.interrupt.to_dict() if self.interrupt else None,
             "active_stages": self.active_stages,
@@ -610,9 +639,6 @@ class Envelope:
             "max_llm_calls": self.max_llm_calls,
             "agent_hop_count": self.agent_hop_count,
             "max_agent_hops": self.max_agent_hops,
-            "terminal_reason": self.terminal_reason.value if self.terminal_reason else None,
-            "terminated": self.terminated,
-            "termination_reason": self.termination_reason,
             "interrupt_pending": self.interrupt_pending,
             "interrupt": self.interrupt.to_dict() if self.interrupt else None,
             "active_stages": self.active_stages,
@@ -709,6 +735,7 @@ __all__ = [
     # Interrupt types
     "InterruptResponse",
     "FlowInterrupt",
+    "KernelInterrupt",
     "InterruptServiceProtocol",
     # Rate limiting
     "RateLimitConfig",

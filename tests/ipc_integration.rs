@@ -362,7 +362,7 @@ async fn test_report_agent_result_failure_records_error_and_keeps_unknown_tokens
                 "name": "classify",
                 "agent": "classifier",
                 "routing": [
-                    {"target": "respond", "condition": null, "value": null}
+                    {"expr": {"op": "Always"}, "target": "respond"}
                 ]
             },
             {
@@ -413,7 +413,7 @@ async fn test_report_agent_result_failure_records_error_and_keeps_unknown_tokens
     assert_eq!(response.get("ok").unwrap().as_bool().unwrap(), true);
     let body = response.get("body").unwrap();
     assert_eq!(body.get("kind").unwrap().as_str().unwrap(), "RUN_AGENT");
-    assert_eq!(body.get("agent_name").unwrap().as_str().unwrap(), "responder");
+    assert_eq!(body.get("agents").unwrap().as_array().unwrap()[0].as_str().unwrap(), "responder");
 
     let (msg_type, response) = round_trip(
         &mut stream,

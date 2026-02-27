@@ -111,6 +111,8 @@ from jeeves_core.runtime.persistence import DatabasePersistence
 # UTILITIES
 # =============================================================================
 
+from jeeves_core.protocols import routing  # noqa: F401 — routing builder module
+
 from jeeves_core.utils.json_repair import JSONRepairKit
 from jeeves_core.utils.strings import normalize_string_list
 

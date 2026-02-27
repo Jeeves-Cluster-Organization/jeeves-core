@@ -24,16 +24,16 @@ pub use enums::*;
 /// Response to a flow interrupt.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct InterruptResponse {
-    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub text: Option<String>,
 
-    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub approved: Option<bool>,
 
-    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub decision: Option<String>,
 
-    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub data: Option<HashMap<String, serde_json::Value>>,
 
     pub received_at: DateTime<Utc>,
@@ -45,21 +45,21 @@ pub struct FlowInterrupt {
     pub kind: InterruptKind,
     pub id: String,
 
-    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub question: Option<String>,
 
-    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub message: Option<String>,
 
-    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub data: Option<HashMap<String, serde_json::Value>>,
 
-    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub response: Option<InterruptResponse>,
 
     pub created_at: DateTime<Utc>,
 
-    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub expires_at: Option<DateTime<Utc>>,
 }
 
@@ -93,7 +93,7 @@ impl FlowInterrupt {
     }
 
     pub fn with_expiry(mut self, duration: std::time::Duration) -> Self {
-        self.expires_at = Some(Utc::now() + chrono::Duration::from_std(duration).unwrap_or_default());
+        self.expires_at = Some(Utc::now() + chrono::Duration::from_std(duration).expect("duration must be representable as chrono::Duration"));
         self
     }
 }
@@ -115,13 +115,13 @@ pub struct ProcessingRecord {
     pub stage_order: i32,
     pub started_at: DateTime<Utc>,
 
-    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub completed_at: Option<DateTime<Utc>>,
 
     pub duration_ms: i32,
     pub status: ProcessingStatus,
 
-    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub error: Option<String>,
 
     pub llm_calls: i32,
@@ -172,12 +172,12 @@ pub struct Bounds {
     pub tokens_in: i64,
     pub tokens_out: i64,
 
-    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub terminal_reason: Option<TerminalReason>,
 
     pub terminated: bool,
 
-    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub termination_reason: Option<String>,
 }
 
@@ -186,7 +186,7 @@ pub struct Bounds {
 pub struct InterruptState {
     pub interrupt_pending: bool,
 
-    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub interrupt: Option<FlowInterrupt>,
 }
 
@@ -210,7 +210,7 @@ pub struct Audit {
     pub errors: Vec<HashMap<String, serde_json::Value>>,
     pub created_at: DateTime<Utc>,
 
-    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub completed_at: Option<DateTime<Utc>>,
 
     pub metadata: HashMap<String, serde_json::Value>,
@@ -737,5 +737,82 @@ mod tests {
         assert!(b.identity.request_id.as_str().starts_with("req_"));
         assert_eq!(b.identity.user_id.as_str(), "anonymous");
         assert!(b.identity.session_id.as_str().starts_with("sess_"));
+    }
+
+    // ── 14. merge_updates: empty outputs ─────────────────────────────────
+
+    #[test]
+    fn test_merge_updates_empty_outputs() {
+        let mut env = Envelope::new();
+        // Pre-populate some outputs
+        let mut agent_out = HashMap::new();
+        agent_out.insert("key1".to_string(), serde_json::json!("value1"));
+        env.outputs.insert("agent1".to_string(), agent_out);
+
+        // Merge with empty outputs
+        let updates = HashMap::new();
+        env.merge_updates(updates);
+
+        // Existing outputs unchanged
+        assert_eq!(env.outputs.len(), 1);
+        assert_eq!(
+            env.outputs.get("agent1").unwrap().get("key1").unwrap(),
+            &serde_json::json!("value1")
+        );
+    }
+
+    // ── 15. merge_updates: metadata merge ────────────────────────────────
+
+    #[test]
+    fn test_merge_updates_metadata_merge() {
+        let mut env = Envelope::new();
+        // Pre-populate metadata
+        env.audit.metadata.insert("existing_key".to_string(), serde_json::json!("original"));
+        env.audit.metadata.insert("shared_key".to_string(), serde_json::json!("old_value"));
+
+        // Merge metadata with new and overlapping keys
+        let mut updates = HashMap::new();
+        updates.insert("metadata".to_string(), serde_json::json!({
+            "new_key": "new_value",
+            "shared_key": "overwritten"
+        }));
+        env.merge_updates(updates);
+
+        // Both original and new keys exist
+        assert_eq!(
+            env.audit.metadata.get("existing_key").unwrap(),
+            &serde_json::json!("original")
+        );
+        assert_eq!(
+            env.audit.metadata.get("new_key").unwrap(),
+            &serde_json::json!("new_value")
+        );
+        // Duplicate key overwritten by source
+        assert_eq!(
+            env.audit.metadata.get("shared_key").unwrap(),
+            &serde_json::json!("overwritten")
+        );
+    }
+
+    // ── 16. merge_updates: bounds preservation ───────────────────────────
+
+    #[test]
+    fn test_merge_updates_bounds_preservation() {
+        let mut env = Envelope::new();
+        env.bounds.llm_call_count = 5;
+        env.bounds.max_llm_calls = 10;
+
+        // Merge raw_input (a supported field)
+        let mut updates = HashMap::new();
+        updates.insert("raw_input".to_string(), serde_json::json!("new input text"));
+
+        env.merge_updates(updates);
+
+        // raw_input updated
+        assert_eq!(env.raw_input, "new input text");
+
+        // Bounds unchanged (merge_updates doesn't touch bounds)
+        assert_eq!(env.bounds.llm_call_count, 5);
+        assert_eq!(env.bounds.max_llm_calls, 10);
     }
 }

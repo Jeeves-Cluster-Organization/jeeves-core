@@ -449,10 +449,11 @@ impl Kernel {
         &mut self,
         process_id: &ProcessId,
         metrics: orchestrator::AgentExecutionMetrics,
+        agent_failed: bool,
     ) -> Result<()> {
         let envelope = self.process_envelopes.get_mut(process_id)
             .ok_or_else(|| Error::not_found(format!("Envelope not found for process: {}", process_id)))?;
-        self.orchestrator.report_agent_result(process_id, metrics, envelope)
+        self.orchestrator.report_agent_result(process_id, metrics, envelope, agent_failed)
     }
 
     /// Get orchestration session state.
@@ -541,17 +542,17 @@ impl Kernel {
 
     /// Record a tool call for a process (PCB is the single source of truth).
     pub fn record_tool_call(&mut self, pid: &ProcessId) -> Result<()> {
-        if let Some(pcb) = self.lifecycle.get_mut(pid) {
-            pcb.usage.tool_calls += 1;
-        }
+        let pcb = self.lifecycle.get_mut(pid)
+            .ok_or_else(|| Error::not_found(format!("Process {} not found in record_tool_call", pid)))?;
+        pcb.usage.tool_calls += 1;
         Ok(())
     }
 
     /// Record an agent hop for a process (PCB is the single source of truth).
     pub fn record_agent_hop(&mut self, pid: &ProcessId) -> Result<()> {
-        if let Some(pcb) = self.lifecycle.get_mut(pid) {
-            pcb.usage.agent_hops += 1;
-        }
+        let pcb = self.lifecycle.get_mut(pid)
+            .ok_or_else(|| Error::not_found(format!("Process {} not found in record_agent_hop", pid)))?;
+        pcb.usage.agent_hops += 1;
         Ok(())
     }
 
@@ -772,5 +773,99 @@ mod tests {
                 .unwrap(),
             1
         );
+    }
+
+    #[test]
+    fn test_record_tool_call_missing_pid_returns_err() {
+        let mut kernel = Kernel::new();
+        let result = kernel.record_tool_call(&ProcessId::must("nonexistent"));
+        assert!(result.is_err());
+        assert!(result.unwrap_err().to_string().contains("not found"));
+    }
+
+    #[test]
+    fn test_record_agent_hop_missing_pid_returns_err() {
+        let mut kernel = Kernel::new();
+        let result = kernel.record_agent_hop(&ProcessId::must("nonexistent"));
+        assert!(result.is_err());
+        assert!(result.unwrap_err().to_string().contains("not found"));
+    }
+
+    #[test]
+    fn test_pcb_sync_after_agent_result() {
+        let mut kernel = Kernel::new();
+        let pid = ProcessId::must("p1");
+
+        // Create process
+        kernel.create_process(
+            pid.clone(),
+            RequestId::must("req1"),
+            UserId::must("user1"),
+            SessionId::must("sess1"),
+            SchedulingPriority::Normal,
+            None,
+        ).unwrap();
+
+        // Record usage
+        kernel.record_usage(&pid, "user1", 3, 5, 1000, 500);
+
+        // Verify PCB counters
+        let pcb = kernel.get_process(&pid).unwrap();
+        assert_eq!(pcb.usage.llm_calls, 3);
+        assert_eq!(pcb.usage.tool_calls, 5);
+        assert_eq!(pcb.usage.tokens_in, 1000);
+        assert_eq!(pcb.usage.tokens_out, 500);
+    }
+
+    #[test]
+    fn test_process_lifecycle_create_and_destroy() {
+        let mut kernel = Kernel::new();
+        let pid = ProcessId::must("p1");
+
+        // Create process
+        kernel.create_process(
+            pid.clone(),
+            RequestId::must("req1"),
+            UserId::must("user1"),
+            SessionId::must("sess1"),
+            SchedulingPriority::Normal,
+            None,
+        ).unwrap();
+
+        // Verify it exists
+        assert!(kernel.get_process(&pid).is_some());
+        assert_eq!(kernel.process_count(), 1);
+
+        // Start → Terminate → Cleanup
+        kernel.start_process(&pid).unwrap();
+        kernel.terminate_process(&pid).unwrap();
+        kernel.cleanup_process(&pid).unwrap();
+
+        // Verify it's gone
+        assert!(kernel.get_process(&pid).is_none());
+        assert_eq!(kernel.process_count(), 0);
+    }
+
+    #[test]
+    fn test_record_tool_call_increments_counter() {
+        let mut kernel = Kernel::new();
+        let pid = ProcessId::must("p1");
+
+        kernel.create_process(
+            pid.clone(),
+            RequestId::must("req1"),
+            UserId::must("user1"),
+            SessionId::must("sess1"),
+            SchedulingPriority::Normal,
+            None,
+        ).unwrap();
+
+        // Record tool calls
+        kernel.record_tool_call(&pid).unwrap();
+        kernel.record_tool_call(&pid).unwrap();
+        kernel.record_tool_call(&pid).unwrap();
+
+        let pcb = kernel.get_process(&pid).unwrap();
+        assert_eq!(pcb.usage.tool_calls, 3);
     }
 }

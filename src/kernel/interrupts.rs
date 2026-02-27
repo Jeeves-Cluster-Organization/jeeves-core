@@ -110,12 +110,13 @@ pub struct KernelInterrupt {
     /// Envelope ID
     pub envelope_id: String,
     /// When the interrupt was resolved
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub resolved_at: Option<DateTime<Utc>>,
     /// Trace ID for distributed tracing
-    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub trace_id: Option<String>,
     /// Span ID for distributed tracing
-    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub span_id: Option<String>,
 }
 

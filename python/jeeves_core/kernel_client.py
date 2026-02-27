@@ -91,14 +91,14 @@ class AgentExecutionMetrics:
     duration_ms: int = 0
 
 
-VALID_INSTRUCTION_KINDS = {"RUN_AGENT", "TERMINATE", "WAIT_INTERRUPT"}
+VALID_INSTRUCTION_KINDS = {"RUN_AGENT", "RUN_AGENTS", "WAIT_PARALLEL", "TERMINATE", "WAIT_INTERRUPT"}
 
 
 @dataclass
 class OrchestratorInstruction:
     """Instruction from the kernel orchestrator."""
-    kind: str  # RUN_AGENT, TERMINATE, WAIT_INTERRUPT
-    agent_name: str = ""
+    kind: str  # RUN_AGENT, RUN_AGENTS, WAIT_PARALLEL, TERMINATE, WAIT_INTERRUPT
+    agents: List[str] = field(default_factory=list)
     envelope: Optional[Dict[str, Any]] = None
     terminal_reason: str = ""
     termination_message: str = ""
@@ -727,6 +727,44 @@ class KernelClient:
     # High-Level Convenience Methods
     # =========================================================================
 
+    async def record_and_check(
+        self,
+        pid: str,
+        *,
+        llm_calls: int = 0,
+        tool_calls: int = 0,
+        agent_hops: int = 0,
+        tokens_in: int = 0,
+        tokens_out: int = 0,
+    ) -> QuotaCheckResult:
+        """Atomic record + bounds check in one round-trip.
+
+        Calls the RecordUsageAndCheck IPC handler which records usage
+        and checks bounds atomically.
+        """
+        body = {
+            "pid": pid,
+            "llm_calls": llm_calls,
+            "tool_calls": tool_calls,
+            "agent_hops": agent_hops,
+            "tokens_in": tokens_in,
+            "tokens_out": tokens_out,
+        }
+        try:
+            response = await self._transport.request("kernel", "RecordUsageAndCheck", body)
+            return QuotaCheckResult(
+                within_bounds=response.get("within_bounds", True),
+                exceeded_reason=response.get("exceeded_reason", ""),
+                llm_calls=response.get("llm_calls", 0),
+                tool_calls=response.get("tool_calls", 0),
+                agent_hops=response.get("agent_hops", 0),
+                tokens_in=response.get("tokens_in", 0),
+                tokens_out=response.get("tokens_out", 0),
+            )
+        except IpcError as e:
+            logger.error(f"Failed to record and check for {pid}: {e}")
+            raise KernelClientError(f"RecordUsageAndCheck failed: {e}") from e
+
     async def record_llm_call(
         self,
         pid: str,
@@ -735,33 +773,26 @@ class KernelClient:
     ) -> Optional[str]:
         """Record an LLM call. Returns exceeded reason if quota exceeded."""
         try:
-            await self.record_usage(pid=pid, llm_calls=1, tokens_in=tokens_in, tokens_out=tokens_out)
-            result = await self.check_quota(pid)
-            if not result.within_bounds:
-                return result.exceeded_reason
-            return None
+            result = await self.record_and_check(
+                pid, llm_calls=1, tokens_in=tokens_in, tokens_out=tokens_out,
+            )
+            return result.exceeded_reason if not result.within_bounds else None
         except KernelClientError:
             return None
 
     async def record_tool_call(self, pid: str) -> Optional[str]:
         """Record a tool call. Returns exceeded reason if quota exceeded."""
         try:
-            await self.record_usage(pid=pid, tool_calls=1)
-            result = await self.check_quota(pid)
-            if not result.within_bounds:
-                return result.exceeded_reason
-            return None
+            result = await self.record_and_check(pid, tool_calls=1)
+            return result.exceeded_reason if not result.within_bounds else None
         except KernelClientError:
             return None
 
     async def record_agent_hop(self, pid: str) -> Optional[str]:
         """Record an agent hop. Returns exceeded reason if quota exceeded."""
         try:
-            await self.record_usage(pid=pid, agent_hops=1)
-            result = await self.check_quota(pid)
-            if not result.within_bounds:
-                return result.exceeded_reason
-            return None
+            result = await self.record_and_check(pid, agent_hops=1)
+            return result.exceeded_reason if not result.within_bounds else None
         except KernelClientError:
             return None
 
@@ -1035,7 +1066,7 @@ class KernelClient:
 
         return OrchestratorInstruction(
             kind=kind,
-            agent_name=d.get("agent_name", ""),
+            agents=d.get("agents", []),
             envelope=envelope,
             terminal_reason=d.get("terminal_reason", ""),
             termination_message=d.get("termination_message", ""),

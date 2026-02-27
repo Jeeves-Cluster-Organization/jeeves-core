@@ -27,12 +27,6 @@ ENUM_SOURCES = [
     ("src/kernel/interrupts.rs", "InterruptStatus", "InterruptStatus", "lowercase"),
 ]
 
-# Legacy compat dict for the parametrize IDs
-ENUM_MAP = {
-    rust_name: (py_name, strategy)
-    for _, rust_name, py_name, strategy in ENUM_SOURCES
-}
-
 # No extra Python variants allowed — generated enums must match Rust exactly
 ALLOWED_PYTHON_EXTRAS: set[str] = set()
 
