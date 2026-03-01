@@ -126,6 +126,18 @@ class AppContext:
     envelope_id: Optional[str] = None
     user_id: Optional[str] = None
 
+    def __post_init__(self):
+        if self.llm_provider_factory is None:
+            raise ValueError(
+                "AppContext requires llm_provider_factory — cannot be None. "
+                "Use create_app_context() from bootstrap to construct."
+            )
+        if self.kernel_client is None:
+            raise ValueError(
+                "AppContext requires kernel_client — cannot be None. "
+                "Use create_app_context() from bootstrap to construct."
+            )
+
     def with_request(
         self,
         request_id: str,
@@ -201,6 +213,8 @@ def _check_protocol_compliance() -> None:
             settings=None,  # type: ignore
             feature_flags=None,  # type: ignore
             logger=None,  # type: ignore
+            llm_provider_factory=lambda role: None,  # type: ignore
+            kernel_client=None,  # type: ignore  # TYPE_CHECKING only, never runs
         )
 
 

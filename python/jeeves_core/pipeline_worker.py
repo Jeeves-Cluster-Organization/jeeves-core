@@ -320,20 +320,19 @@ class PipelineWorker:
                 force=force,
             )
         except KernelClientError as e:
-            error_msg = str(e)
-            if "already exists" in error_msg.lower():
+            if e.code == "ALREADY_EXISTS":
                 self._logger.error(
                     "worker_session_already_exists",
                     process_id=process_id,
                     hint="Use force=True to replace existing session",
                 )
-            elif "deadline" in error_msg.lower():
+            elif e.code == "TIMEOUT":
                 self._logger.error(
                     "worker_session_deadline_exceeded",
                     process_id=process_id,
                 )
             else:
-                self._logger.error("worker_session_init_failed", error=error_msg)
+                self._logger.error("worker_session_init_failed", error=str(e))
             yield ("__error__", {"error": str(e)})
             return
 
@@ -388,7 +387,6 @@ class PipelineWorker:
                     if has_streaming and hasattr(agent, 'stream'):
                         # Streaming path: yield tokens, then report final output
                         start_time = time.time()
-                        llm_calls_before = envelope.llm_call_count
 
                         try:
                             async for event_type, event in agent.stream(envelope):
@@ -397,7 +395,7 @@ class PipelineWorker:
                             duration_ms = int((time.time() - start_time) * 1000)
                             output = envelope.outputs.get(agent_name, {})
                             metrics = AgentExecutionMetrics(
-                                llm_calls=envelope.llm_call_count - llm_calls_before,
+                                llm_calls=getattr(agent, "_llm_calls_this_run", 0),
                                 duration_ms=duration_ms,
                             )
                             await self._kernel.report_agent_result(
@@ -445,8 +443,8 @@ class PipelineWorker:
                 if self._persistence and thread_id:
                     try:
                         await self._persistence.save_state(thread_id, envelope.to_state_dict())
-                    except Exception:
-                        pass
+                    except Exception as e:
+                        self._logger.warning("worker_persistence_failed_streaming", error=str(e))
 
     async def _run_agent(
         self,
@@ -459,7 +457,6 @@ class PipelineWorker:
     ) -> Tuple[Envelope, bool, str, Optional[Dict[str, Any]], AgentExecutionMetrics]:
         """Run one agent execution step and return updated envelope/output/metrics."""
         start_time = time.time()
-        llm_calls_before = envelope.llm_call_count
 
         try:
             envelope = await agent.process(envelope)
@@ -477,7 +474,7 @@ class PipelineWorker:
             error = str(e)
 
         duration_ms = int((time.time() - start_time) * 1000)
-        llm_calls = envelope.llm_call_count - llm_calls_before
+        llm_calls = getattr(agent, "_llm_calls_this_run", 0)
         agent_output = envelope.outputs.get(agent_name, {}) if success else {}
         agent_metrics = self._extract_agent_metrics(envelope, agent_name, agent_output)
         metrics = AgentExecutionMetrics(

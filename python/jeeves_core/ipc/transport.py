@@ -75,7 +75,7 @@ class IpcTransport:
             try:
                 await self._writer.wait_closed()
             except Exception:
-                pass
+                logger.debug("ipc_close_error", exc_info=True)
         # Fail all pending requests
         for fut in self._pending.values():
             if not fut.done():

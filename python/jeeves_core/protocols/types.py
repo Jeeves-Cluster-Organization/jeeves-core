@@ -358,6 +358,10 @@ class AgentConfig:
     post_process: Optional[Callable] = None
     mock_handler: Optional[Callable] = None
 
+    def __post_init__(self):
+        if not self.output_key:
+            self.output_key = self.name
+
     def to_kernel_dict(self) -> Dict[str, Any]:
         """Serialize to the dict shape the Rust kernel expects for PipelineStage."""
         d: Dict[str, Any] = {
