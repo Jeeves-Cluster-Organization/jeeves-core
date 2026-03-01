@@ -79,10 +79,6 @@ def request_pid_context(pid: str):
     return _ctx()
 
 
-def _parse_bool(value: str, default: bool = True) -> bool:
-    """Parse boolean from environment variable string."""
-    return value.lower() == "true" if value else default
-
 
 
 def create_core_config_from_env() -> ExecutionConfig:
@@ -92,9 +88,6 @@ def create_core_config_from_env() -> ExecutionConfig:
         CORE_MAX_ITERATIONS: Max pipeline iterations
         CORE_MAX_LLM_CALLS: Max LLM calls per request
         CORE_MAX_AGENT_HOPS: Max agent transitions
-        CORE_ENABLE_TELEMETRY: Enable telemetry
-        CORE_ENABLE_CHECKPOINTS: Enable checkpointing
-        CORE_DEBUG_MODE: Enable debug mode
         CORE_MAX_INPUT_TOKENS: Max input tokens
         CORE_MAX_OUTPUT_TOKENS: Max output tokens
         CORE_MAX_CONTEXT_TOKENS: Max context window tokens
@@ -107,8 +100,6 @@ def create_core_config_from_env() -> ExecutionConfig:
         max_iterations=int(os.getenv("CORE_MAX_ITERATIONS", "3")),
         max_llm_calls=int(os.getenv("CORE_MAX_LLM_CALLS", "10")),
         max_agent_hops=int(os.getenv("CORE_MAX_AGENT_HOPS", "21")),
-        enable_telemetry=_parse_bool(os.getenv("CORE_ENABLE_TELEMETRY", "true")),
-        debug_mode=_parse_bool(os.getenv("CORE_DEBUG_MODE", "false"), default=False),
         context_bounds=ContextBounds(
             max_input_tokens=int(os.getenv("CORE_MAX_INPUT_TOKENS", "4096")),
             max_output_tokens=int(os.getenv("CORE_MAX_OUTPUT_TOKENS", "2048")),
@@ -122,18 +113,12 @@ def create_orchestration_flags_from_env() -> OrchestrationFlags:
     """Create OrchestrationFlags from environment variables.
 
     Environment Variables:
-        ORCH_ENABLE_PARALLEL_AGENTS: Enable parallel agent execution
-        ORCH_ENABLE_DISTRIBUTED: Enable distributed mode
-        ORCH_ENABLE_TELEMETRY: Enable telemetry
         ORCH_MAX_CONCURRENT_AGENTS: Max concurrent agents
 
     Returns:
         OrchestrationFlags with environment-parsed values
     """
     return OrchestrationFlags(
-        enable_parallel_agents=_parse_bool(os.getenv("ORCH_ENABLE_PARALLEL_AGENTS", "false"), default=False),
-        enable_distributed=_parse_bool(os.getenv("ORCH_ENABLE_DISTRIBUTED", "false"), default=False),
-        enable_telemetry=_parse_bool(os.getenv("ORCH_ENABLE_TELEMETRY", "true")),
         max_concurrent_agents=int(os.getenv("ORCH_MAX_CONCURRENT_AGENTS", "4")),
     )
 

@@ -71,16 +71,16 @@ impl Default for ObservabilityConfig {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct DefaultLimits {
     /// Maximum LLM calls per envelope.
-    pub max_llm_calls: u32,
+    pub max_llm_calls: i32,
 
     /// Maximum tool calls per envelope.
-    pub max_tool_calls: u32,
+    pub max_tool_calls: i32,
 
     /// Maximum agent hops per envelope.
-    pub max_agent_hops: u32,
+    pub max_agent_hops: i32,
 
     /// Maximum iterations per envelope.
-    pub max_iterations: u32,
+    pub max_iterations: i32,
 
     /// Default process timeout.
     #[serde(with = "humantime_serde")]

@@ -9,23 +9,10 @@ use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
-// =============================================================================
-// Service Status
-// =============================================================================
+use crate::envelope::HealthStatus;
 
-/// Health status of a service.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "lowercase")]
-pub enum ServiceStatus {
-    /// Service is healthy and accepting requests
-    Healthy,
-    /// Service is running but with reduced capacity
-    Degraded,
-    /// Service is not accepting requests
-    Unhealthy,
-    /// Service status is unknown
-    Unknown,
-}
+/// Type alias: `ServiceStatus` is `HealthStatus` from the canonical enum module.
+pub type ServiceStatus = HealthStatus;
 
 // =============================================================================
 // Service Types

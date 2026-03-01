@@ -30,7 +30,7 @@ _NESTED_FIELDS = [
     "active_stages", "completed_stage_set", "failed_stages",
     "stage_order", "all_goals", "remaining_goals",
     "goal_completion_status", "errors",
-    "processing_history", "prior_plans", "loop_feedback", "completed_stages",
+    "processing_history", "completed_stages",
 ]
 
 PIPELINE_STATE_DDL = """
@@ -70,8 +70,6 @@ CREATE TABLE IF NOT EXISTS pipeline_state (
     goal_completion_status TEXT,
     errors TEXT,
     processing_history TEXT,
-    prior_plans TEXT,
-    loop_feedback TEXT,
     completed_stages TEXT,
     stored_at TEXT NOT NULL DEFAULT (datetime('now')),
     modified_at TEXT NOT NULL DEFAULT (datetime('now'))

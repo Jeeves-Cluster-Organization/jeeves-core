@@ -394,8 +394,11 @@ class PipelineWorker:
 
                             duration_ms = int((time.time() - start_time) * 1000)
                             output = envelope.outputs.get(agent_name, {})
+                            run_metrics = agent.get_run_metrics() if hasattr(agent, "get_run_metrics") else {}
                             metrics = AgentExecutionMetrics(
-                                llm_calls=getattr(agent, "_llm_calls_this_run", 0),
+                                llm_calls=run_metrics.get("llm_calls", 0),
+                                tokens_in=run_metrics.get("tokens_in"),
+                                tokens_out=run_metrics.get("tokens_out"),
                                 duration_ms=duration_ms,
                             )
                             await self._kernel.report_agent_result(
@@ -474,53 +477,28 @@ class PipelineWorker:
             error = str(e)
 
         duration_ms = int((time.time() - start_time) * 1000)
-        llm_calls = getattr(agent, "_llm_calls_this_run", 0)
         agent_output = envelope.outputs.get(agent_name, {}) if success else {}
-        agent_metrics = self._extract_agent_metrics(envelope, agent_name, agent_output)
-        metrics = AgentExecutionMetrics(
-            llm_calls=llm_calls,
-            tool_calls=agent_metrics["tool_calls"],
-            tokens_in=agent_metrics["tokens_in"],
-            tokens_out=agent_metrics["tokens_out"],
-            duration_ms=duration_ms,
-        )
+
+        # Get metrics directly from agent if it supports get_run_metrics()
+        if hasattr(agent, "get_run_metrics"):
+            run_metrics = agent.get_run_metrics()
+            tool_calls = 0
+            if isinstance(agent_output, dict):
+                calls = agent_output.get("tool_calls", [])
+                if isinstance(calls, list):
+                    tool_calls = len(calls)
+            metrics = AgentExecutionMetrics(
+                llm_calls=run_metrics.get("llm_calls", 0),
+                tool_calls=tool_calls,
+                tokens_in=run_metrics.get("tokens_in"),
+                tokens_out=run_metrics.get("tokens_out"),
+                duration_ms=duration_ms,
+            )
+        else:
+            metrics = AgentExecutionMetrics(duration_ms=duration_ms)
+
         output = agent_output if success else None
         return envelope, success, error, output, metrics
-
-    def _extract_agent_metrics(
-        self,
-        envelope: Envelope,
-        agent_name: str,
-        agent_output: Dict[str, Any],
-    ) -> Dict[str, Optional[int]]:
-        has_tool_calls = False
-        tool_calls = 0
-
-        tokens_in: Optional[int] = None
-        tokens_out: Optional[int] = None
-        meta = envelope.metadata if isinstance(envelope.metadata, dict) else {}
-        by_agent = meta.get("_agent_run_metrics", {})
-        if isinstance(by_agent, dict):
-            run_metrics = by_agent.get(agent_name, {})
-            if isinstance(run_metrics, dict):
-                if isinstance(run_metrics.get("tool_calls"), int):
-                    tool_calls = run_metrics["tool_calls"]
-                    has_tool_calls = True
-                if isinstance(run_metrics.get("tokens_in"), int):
-                    tokens_in = run_metrics["tokens_in"]
-                if isinstance(run_metrics.get("tokens_out"), int):
-                    tokens_out = run_metrics["tokens_out"]
-
-        if not has_tool_calls and isinstance(agent_output, dict):
-            calls = agent_output.get("tool_calls", [])
-            if isinstance(calls, list):
-                tool_calls = len(calls)
-
-        return {
-            "tool_calls": tool_calls,
-            "tokens_in": tokens_in,
-            "tokens_out": tokens_out,
-        }
 
 __all__ = [
     "run_kernel_loop",

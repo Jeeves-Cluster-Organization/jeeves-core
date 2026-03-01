@@ -158,10 +158,9 @@ async fn test_missing_id_returns_error_and_connection_stays_open() {
 
 #[tokio::test]
 async fn test_queue_full_returns_resource_exhausted_and_connection_stays_open() {
-    let kernel = Kernel::new();
+    let mut kernel = Kernel::new();
     let mut query_rx = kernel
         .register_query_handler("slow.query".to_string())
-        .await
         .unwrap();
 
     tokio::spawn(async move {
@@ -357,7 +356,7 @@ async fn test_report_agent_result_failure_records_error_and_keeps_unknown_tokens
 
     let pipeline_config = serde_json::json!({
         "name": "test-pipeline",
-        "agents": [
+        "stages": [
             {
                 "name": "classify",
                 "agent": "classifier",

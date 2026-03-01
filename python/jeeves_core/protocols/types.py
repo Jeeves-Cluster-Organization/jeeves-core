@@ -330,7 +330,6 @@ class AgentConfig:
     name: str
     stage_order: int = 0
     requires: List[str] = field(default_factory=list)
-    after: List[str] = field(default_factory=list)
     join_strategy: JoinStrategy = JoinStrategy.ALL
     has_llm: bool = False
     has_tools: bool = False
@@ -352,8 +351,6 @@ class AgentConfig:
     error_next: Optional[str] = None
     parallel_group: Optional[str] = None
     max_visits: Optional[int] = None
-    timeout_seconds: Optional[int] = None
-    max_retries: int = 0
     pre_process: Optional[Callable] = None
     post_process: Optional[Callable] = None
     mock_handler: Optional[Callable] = None
@@ -408,7 +405,7 @@ class PipelineConfig:
                 {"from_stage": el.from_stage, "to_stage": el.to_stage, "max_count": el.max_count}
                 for el in self.edge_limits
             ],
-            "agents": [agent.to_kernel_dict() for agent in self.agents],
+            "stages": [agent.to_kernel_dict() for agent in self.agents],
         }
         if self.step_limit is not None:
             d["step_limit"] = self.step_limit
@@ -435,16 +432,11 @@ class ExecutionConfig:
     max_llm_calls: int = 10
     max_agent_hops: int = 21
     context_bounds: ContextBounds = field(default_factory=ContextBounds)
-    enable_telemetry: bool = True
-    debug_mode: bool = False
 
 
 @dataclass
 class OrchestrationFlags:
     """Runtime orchestration flags."""
-    enable_parallel_agents: bool = False
-    enable_distributed: bool = False
-    enable_telemetry: bool = True
     max_concurrent_agents: int = 4
 
 
@@ -483,8 +475,6 @@ class Envelope:
     all_goals: List[str] = field(default_factory=list)
     remaining_goals: List[str] = field(default_factory=list)
     goal_completion_status: Dict[str, str] = field(default_factory=dict)
-    prior_plans: List[Dict[str, Any]] = field(default_factory=list)
-    loop_feedback: List[str] = field(default_factory=list)
     processing_history: List[ProcessingRecord] = field(default_factory=list)
     errors: List[Dict[str, Any]] = field(default_factory=list)
     completed_at: Optional[datetime] = None
@@ -655,8 +645,6 @@ class Envelope:
             "all_goals": self.all_goals,
             "remaining_goals": self.remaining_goals,
             "goal_completion_status": self.goal_completion_status,
-            "prior_plans": self.prior_plans,
-            "loop_feedback": self.loop_feedback,
             "processing_history": serialized_history,
             "errors": self.errors,
             "completed_at": self.completed_at.isoformat() if self.completed_at else None,
