@@ -299,6 +299,40 @@ impl LifecycleManager {
         if overrides.max_inference_requests > 0 { q.max_inference_requests = overrides.max_inference_requests; }
         if overrides.max_inference_input_chars > 0 { q.max_inference_input_chars = overrides.max_inference_input_chars; }
     }
+
+    /// Cleanup zombie processes older than `max_age_seconds`.
+    /// Returns the number of zombies removed.
+    pub fn cleanup_zombies(&mut self, max_age_seconds: i64) -> usize {
+        let cutoff = chrono::Utc::now() - chrono::TimeDelta::seconds(max_age_seconds);
+        let mut to_remove = Vec::new();
+
+        for (pid, pcb) in &self.processes {
+            if pcb.state == ProcessState::Zombie {
+                if let Some(completed_at) = pcb.completed_at {
+                    if completed_at < cutoff {
+                        to_remove.push(pid.clone());
+                    }
+                }
+            }
+        }
+
+        let count = to_remove.len();
+        for pid in to_remove {
+            if let Err(e) = self.remove(&pid) {
+                tracing::warn!("failed_to_remove_zombie: pid={}, error={}", pid, e);
+            }
+        }
+        count
+    }
+
+    /// Get user IDs that have active (non-terminal) processes.
+    pub fn get_active_user_ids(&self) -> std::collections::HashSet<String> {
+        self.processes
+            .values()
+            .filter(|pcb| !matches!(pcb.state, ProcessState::Terminated | ProcessState::Zombie))
+            .map(|pcb| pcb.user_id.to_string())
+            .collect()
+    }
 }
 
 impl Default for LifecycleManager {

@@ -1,6 +1,7 @@
 //! Interrupt service handler — create, resolve, cancel, query interrupts.
 
 use crate::envelope::{InterruptKind, InterruptResponse};
+use crate::ipc::handlers::validation::parse_enum;
 use crate::ipc::router::{str_field, DispatchResponse};
 use crate::kernel::interrupts::CreateInterruptParams;
 use crate::kernel::Kernel;
@@ -140,14 +141,5 @@ pub async fn handle(kernel: &mut Kernel, method: &str, body: Value) -> Result<Di
 }
 
 fn parse_interrupt_kind(s: &str) -> Result<InterruptKind> {
-    match s {
-        "clarification" => Ok(InterruptKind::Clarification),
-        "confirmation" => Ok(InterruptKind::Confirmation),
-        "agent_review" => Ok(InterruptKind::AgentReview),
-        "checkpoint" => Ok(InterruptKind::Checkpoint),
-        "resource_exhausted" => Ok(InterruptKind::ResourceExhausted),
-        "timeout" => Ok(InterruptKind::Timeout),
-        "system_error" => Ok(InterruptKind::SystemError),
-        _ => Err(Error::validation(format!("Invalid interrupt kind: {}", s))),
-    }
+    parse_enum::<InterruptKind>(s, "interrupt kind")
 }

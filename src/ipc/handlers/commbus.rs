@@ -32,7 +32,6 @@ pub async fn handle(
 
             let delivered = kernel
                 .publish_event(event)
-                .await
                 .map_err(|e| Error::internal(format!("CommBus publish failed: {}", e)))?;
 
             Ok(DispatchResponse::Single(serde_json::json!({
@@ -58,7 +57,6 @@ pub async fn handle(
 
             kernel
                 .send_command(command)
-                .await
                 .map_err(|e| Error::internal(format!("CommBus send failed: {}", e)))?;
 
             Ok(DispatchResponse::Single(serde_json::json!({
@@ -134,7 +132,6 @@ pub async fn handle(
 
             let (_subscription, event_rx) = kernel
                 .subscribe_events(sub_id, event_types)
-                .await
                 .map_err(|e| Error::internal(format!("Subscribe failed: {}", e)))?;
 
             // Bridge UnboundedReceiver<Event> → bounded mpsc::Receiver<Value>

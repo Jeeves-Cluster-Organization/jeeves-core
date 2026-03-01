@@ -196,8 +196,34 @@ pub async fn handle(kernel: &mut Kernel, method: &str, body: Value) -> Result<Di
 }
 
 // =============================================================================
-// Conversion helpers
+// DTO structs — derive(Serialize) replaces manual json! construction
 // =============================================================================
+
+/// DTO for Instruction → JSON, matching `kernel_client.py._dict_to_instruction`.
+#[derive(serde::Serialize)]
+struct InstructionResponse<'a> {
+    kind: InstructionKind,
+    agents: &'a [String],
+    #[serde(skip_serializing_if = "Option::is_none")]
+    envelope: Option<Value>,
+    terminal_reason: &'a str,
+    termination_message: &'a str,
+    interrupt_pending: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    interrupt: Option<Value>,
+}
+
+/// DTO for SessionState → JSON, matching `kernel_client.py._dict_to_session_state`.
+#[derive(serde::Serialize)]
+struct SessionStateResponse<'a> {
+    process_id: &'a str,
+    current_stage: &'a str,
+    stage_order: &'a [String],
+    envelope: &'a Value,
+    edge_traversals: &'a HashMap<String, i32>,
+    terminated: bool,
+    terminal_reason: &'a str,
+}
 
 /// Convert Instruction to the dict shape expected by `kernel_client.py._dict_to_instruction`.
 ///
@@ -207,11 +233,6 @@ pub fn instruction_to_value(
     instr: &crate::kernel::orchestrator::Instruction,
     envelope: Option<&crate::envelope::Envelope>,
 ) -> Value {
-    let kind_str = serde_json::to_value(&instr.kind)
-        .ok()
-        .and_then(|v| v.as_str().map(|s| s.to_string()))
-        .unwrap_or_else(|| "UNKNOWN".to_string());
-
     let terminal_reason_str = instr
         .terminal_reason
         .as_ref()
@@ -219,18 +240,17 @@ pub fn instruction_to_value(
         .and_then(|v| v.as_str().map(|s| s.to_string()))
         .unwrap_or_default();
 
-    let envelope_val = envelope
-        .and_then(|e| serde_json::to_value(e).ok());
+    let dto = InstructionResponse {
+        kind: instr.kind.clone(),
+        agents: &instr.agents,
+        envelope: envelope.and_then(|e| serde_json::to_value(e).ok()),
+        terminal_reason: &terminal_reason_str,
+        termination_message: instr.termination_message.as_deref().unwrap_or(""),
+        interrupt_pending: instr.interrupt_pending,
+        interrupt: instr.interrupt.as_ref().and_then(|i| serde_json::to_value(i).ok()),
+    };
 
-    serde_json::json!({
-        "kind": kind_str,
-        "agents": instr.agents,
-        "envelope": envelope_val,
-        "terminal_reason": terminal_reason_str,
-        "termination_message": instr.termination_message.as_deref().unwrap_or(""),
-        "interrupt_pending": instr.interrupt_pending,
-        "interrupt": instr.interrupt.as_ref().and_then(|i| serde_json::to_value(i).ok()),
-    })
+    serde_json::to_value(dto).expect("InstructionResponse serialization cannot fail")
 }
 
 /// Convert SessionState to the dict shape expected by `kernel_client.py._dict_to_session_state`.
@@ -242,13 +262,15 @@ pub fn session_state_to_value(state: &crate::kernel::orchestrator::SessionState)
         .and_then(|v| v.as_str().map(|s| s.to_string()))
         .unwrap_or_default();
 
-    serde_json::json!({
-        "process_id": state.process_id.as_str(),
-        "current_stage": state.current_stage,
-        "stage_order": state.stage_order,
-        "envelope": state.envelope.clone(),
-        "edge_traversals": state.edge_traversals,
-        "terminated": state.terminated,
-        "terminal_reason": terminal_reason_str,
-    })
+    let dto = SessionStateResponse {
+        process_id: state.process_id.as_str(),
+        current_stage: &state.current_stage,
+        stage_order: &state.stage_order,
+        envelope: &state.envelope,
+        edge_traversals: &state.edge_traversals,
+        terminated: state.terminated,
+        terminal_reason: &terminal_reason_str,
+    };
+
+    serde_json::to_value(dto).expect("SessionStateResponse serialization cannot fail")
 }

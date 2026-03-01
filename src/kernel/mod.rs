@@ -14,9 +14,11 @@ pub mod cleanup;
 pub mod interrupts;
 pub mod lifecycle;
 pub mod orchestrator;
+pub mod orchestrator_types;
 pub mod rate_limiter;
 pub mod recovery;
 pub mod resources;
+pub mod routing;
 pub mod services;
 
 // Re-export key types
@@ -489,38 +491,38 @@ impl Kernel {
     // =============================================================================
 
     /// Publish an event to subscribers.
-    pub async fn publish_event(&self, event: crate::commbus::Event) -> Result<usize> {
-        self.commbus.publish(event).await
+    pub fn publish_event(&mut self, event: crate::commbus::Event) -> Result<usize> {
+        self.commbus.publish(event)
     }
 
     /// Send a command to a registered command handler.
-    pub async fn send_command(&self, command: crate::commbus::Command) -> Result<()> {
-        self.commbus.send_command(command).await
+    pub fn send_command(&mut self, command: crate::commbus::Command) -> Result<()> {
+        self.commbus.send_command(command)
     }
 
     /// Execute a request/response query through CommBus.
     pub async fn execute_query(
-        &self,
+        &mut self,
         query: crate::commbus::Query,
     ) -> Result<crate::commbus::QueryResponse> {
         self.commbus.query(query).await
     }
 
     /// Subscribe to event types.
-    pub async fn subscribe_events(
-        &self,
+    pub fn subscribe_events(
+        &mut self,
         subscriber_id: String,
         event_types: Vec<String>,
     ) -> Result<(
         crate::commbus::Subscription,
         tokio::sync::mpsc::UnboundedReceiver<crate::commbus::Event>,
     )> {
-        self.commbus.subscribe(subscriber_id, event_types).await
+        self.commbus.subscribe(subscriber_id, event_types)
     }
 
     /// Register a query handler (used by integration tests and service bootstrap).
-    pub async fn register_query_handler(
-        &self,
+    pub fn register_query_handler(
+        &mut self,
         query_type: String,
     ) -> Result<
         tokio::sync::mpsc::UnboundedReceiver<(
@@ -528,12 +530,12 @@ impl Kernel {
             tokio::sync::oneshot::Sender<crate::commbus::QueryResponse>,
         )>,
     > {
-        self.commbus.register_query_handler(query_type).await
+        self.commbus.register_query_handler(query_type)
     }
 
     /// Snapshot CommBus statistics.
-    pub async fn get_commbus_stats(&self) -> crate::commbus::BusStats {
-        self.commbus.get_stats().await
+    pub fn get_commbus_stats(&self) -> crate::commbus::BusStats {
+        self.commbus.get_stats()
     }
 
     // =============================================================================
@@ -602,6 +604,47 @@ impl Kernel {
     /// Get a mutable reference to the tool health tracker.
     pub fn tool_health_mut(&mut self) -> &mut crate::tools::ToolHealthTracker {
         &mut self.tool_health
+    }
+
+    // =============================================================================
+    // Cleanup Facade Methods
+    // =============================================================================
+
+    /// Cleanup zombie processes older than `max_age_seconds`.
+    pub fn cleanup_zombie_processes(&mut self, max_age_seconds: i64) -> usize {
+        self.lifecycle.cleanup_zombies(max_age_seconds)
+    }
+
+    /// Cleanup stale orchestration sessions and their envelopes.
+    /// Returns the number of sessions removed.
+    pub fn cleanup_stale_sessions(&mut self, max_age_seconds: i64) -> usize {
+        let removed_pids = self.orchestrator.cleanup_stale_sessions(max_age_seconds);
+        let count = removed_pids.len();
+        for pid in &removed_pids {
+            self.process_envelopes.remove(pid);
+        }
+        count
+    }
+
+    /// Cleanup resolved interrupts older than the given duration.
+    pub fn cleanup_resolved_interrupts(&mut self, max_age: chrono::Duration) -> usize {
+        self.interrupts.cleanup_resolved(max_age)
+    }
+
+    /// Cleanup expired rate limit windows.
+    pub fn cleanup_expired_rate_windows(&mut self) {
+        self.rate_limiter.cleanup_expired();
+    }
+
+    /// Cleanup stale user usage entries (users with no active processes).
+    pub fn cleanup_stale_user_usage(&mut self, max_entries: usize) -> usize {
+        let active_user_ids = self.lifecycle.get_active_user_ids();
+        self.resources.cleanup_stale_users(&active_user_ids, max_entries)
+    }
+
+    /// Remove a process envelope by PID (used during cleanup).
+    pub fn remove_process_envelope(&mut self, pid: &ProcessId) -> Option<Envelope> {
+        self.process_envelopes.remove(pid)
     }
 
     // =============================================================================

@@ -143,7 +143,7 @@ def pipeline_config():
         "max_iterations": 10,
         "max_llm_calls": 100,
         "max_agent_hops": 20,
-        "agents": [
+        "stages": [
             {
                 "name": "understand",
                 "stage_order": 0,
@@ -300,6 +300,11 @@ async def test_pipeline_worker_reports_agent_metrics(
 
     agent = MagicMock()
     agent.name = "understand"
+    agent.get_run_metrics = MagicMock(return_value={
+        "llm_calls": 1,
+        "tokens_in": 123,
+        "tokens_out": 45,
+    })
 
     async def process(envelope):
         envelope.outputs["understand"] = {
@@ -308,12 +313,6 @@ async def test_pipeline_worker_reports_agent_metrics(
                 {"name": "summarize"},
             ],
             "response": "ok",
-        }
-        envelope.metadata["_agent_run_metrics"] = {
-            "understand": {
-                "tokens_in": 123,
-                "tokens_out": 45,
-            }
         }
         return envelope
 

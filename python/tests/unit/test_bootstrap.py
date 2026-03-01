@@ -75,8 +75,6 @@ class TestCreateCoreConfigFromEnv:
         assert config.max_iterations == 3
         assert config.max_llm_calls == 10
         assert config.max_agent_hops == 21
-        assert config.enable_telemetry is True
-        assert config.debug_mode is False
 
         assert isinstance(config.context_bounds, ContextBounds)
         assert config.context_bounds.max_input_tokens == 4096
@@ -89,8 +87,6 @@ class TestCreateCoreConfigFromEnv:
             "CORE_MAX_ITERATIONS": "5",
             "CORE_MAX_LLM_CALLS": "20",
             "CORE_MAX_AGENT_HOPS": "10",
-            "CORE_ENABLE_TELEMETRY": "false",
-            "CORE_DEBUG_MODE": "true",
             "CORE_MAX_INPUT_TOKENS": "8192",
             "CORE_MAX_OUTPUT_TOKENS": "4096",
             "CORE_MAX_CONTEXT_TOKENS": "32768",
@@ -102,8 +98,6 @@ class TestCreateCoreConfigFromEnv:
         assert config.max_iterations == 5
         assert config.max_llm_calls == 20
         assert config.max_agent_hops == 10
-        assert config.enable_telemetry is False
-        assert config.debug_mode is True
         assert config.context_bounds.max_input_tokens == 8192
         assert config.context_bounds.max_output_tokens == 4096
         assert config.context_bounds.max_context_tokens == 32768
@@ -148,17 +142,6 @@ class TestCreateCoreConfigFromEnv:
         assert bounds.max_context_tokens == 2000
         assert bounds.reserved_tokens == 100
 
-    def test_boolean_telemetry_default_true(self):
-        """CORE_ENABLE_TELEMETRY defaults to true when not set."""
-        with patch.dict(os.environ, {}, clear=True):
-            config = create_core_config_from_env()
-        assert config.enable_telemetry is True
-
-    def test_boolean_debug_mode_default_false(self):
-        """CORE_DEBUG_MODE defaults to false when not set."""
-        with patch.dict(os.environ, {}, clear=True):
-            config = create_core_config_from_env()
-        assert config.debug_mode is False
 
 
 # =============================================================================
@@ -172,38 +155,25 @@ class TestCreateOrchestrationFlagsFromEnv:
             flags = create_orchestration_flags_from_env()
 
         assert isinstance(flags, OrchestrationFlags)
-        assert flags.enable_parallel_agents is False
-        assert flags.enable_distributed is False
-        assert flags.enable_telemetry is True
         assert flags.max_concurrent_agents == 4
 
     def test_custom_env_vars(self):
         env = {
-            "ORCH_ENABLE_PARALLEL_AGENTS": "true",
-            "ORCH_ENABLE_DISTRIBUTED": "true",
-            "ORCH_ENABLE_TELEMETRY": "false",
             "ORCH_MAX_CONCURRENT_AGENTS": "8",
         }
         with patch.dict(os.environ, env, clear=True):
             flags = create_orchestration_flags_from_env()
 
-        assert flags.enable_parallel_agents is True
-        assert flags.enable_distributed is True
-        assert flags.enable_telemetry is False
         assert flags.max_concurrent_agents == 8
 
     def test_partial_env_vars(self):
         env = {
-            "ORCH_ENABLE_PARALLEL_AGENTS": "true",
             "ORCH_MAX_CONCURRENT_AGENTS": "16",
         }
         with patch.dict(os.environ, env, clear=True):
             flags = create_orchestration_flags_from_env()
 
-        assert flags.enable_parallel_agents is True
         assert flags.max_concurrent_agents == 16
-        # Other fields use defaults
-        assert flags.enable_distributed is False
 
     def test_invalid_integer_raises(self):
         env = {"ORCH_MAX_CONCURRENT_AGENTS": "not_a_number"}
@@ -326,7 +296,7 @@ class TestCreateAppContext:
 
     def test_accepts_injected_orchestration_flags(self):
         """Verify that passing orchestration_flags skips env parsing."""
-        custom_flags = OrchestrationFlags(enable_parallel_agents=True, max_concurrent_agents=16)
+        custom_flags = OrchestrationFlags(max_concurrent_agents=16)
 
         mock_logger = MagicMock()
         mock_logger.bind = MagicMock(return_value=mock_logger)
@@ -358,7 +328,6 @@ class TestCreateAppContext:
             ctx = create_app_context(orchestration_flags=custom_flags)
 
         assert ctx.orchestration_flags is custom_flags
-        assert ctx.orchestration_flags.enable_parallel_agents is True
         assert ctx.orchestration_flags.max_concurrent_agents == 16
 
     def test_configures_logging_with_settings(self):

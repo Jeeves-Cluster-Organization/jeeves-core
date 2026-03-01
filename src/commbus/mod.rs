@@ -15,8 +15,7 @@
 use crate::types::{Error, Result};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
-use std::sync::Arc;
-use tokio::sync::{mpsc, oneshot, RwLock};
+use tokio::sync::{mpsc, oneshot};
 use tokio::time::{timeout, Duration};
 
 // =============================================================================
@@ -91,19 +90,20 @@ type QueryHandlerSender = mpsc::UnboundedSender<(Query, oneshot::Sender<QueryRes
 ///   - Query/response (request-response with timeout)
 ///
 /// All messages flow through the kernel for observability and control.
+/// Owned by the Kernel (single-actor model) — no concurrent access.
 #[derive(Debug)]
 pub struct CommBus {
     /// Event subscribers: event_type -> list of subscribers
-    subscribers: Arc<RwLock<HashMap<String, Vec<Subscriber>>>>,
+    subscribers: HashMap<String, Vec<Subscriber>>,
 
     /// Command handlers: command_type -> handler channel
-    command_handlers: Arc<RwLock<HashMap<String, mpsc::UnboundedSender<Command>>>>,
+    command_handlers: HashMap<String, mpsc::UnboundedSender<Command>>,
 
     /// Query handlers: query_type -> handler channel
-    query_handlers: Arc<RwLock<HashMap<String, QueryHandlerSender>>>,
+    query_handlers: HashMap<String, QueryHandlerSender>,
 
     /// Statistics
-    stats: Arc<RwLock<BusStats>>,
+    stats: BusStats,
 }
 
 /// Statistics about bus usage.
@@ -121,10 +121,10 @@ impl CommBus {
     /// Create a new CommBus instance.
     pub fn new() -> Self {
         Self {
-            subscribers: Arc::new(RwLock::new(HashMap::new())),
-            command_handlers: Arc::new(RwLock::new(HashMap::new())),
-            query_handlers: Arc::new(RwLock::new(HashMap::new())),
-            stats: Arc::new(RwLock::new(BusStats::default())),
+            subscribers: HashMap::new(),
+            command_handlers: HashMap::new(),
+            query_handlers: HashMap::new(),
+            stats: BusStats::default(),
         }
     }
 
@@ -136,15 +136,9 @@ impl CommBus {
     ///
     /// This is a fan-out operation - the event is delivered to ALL subscribers
     /// that have registered interest in this event_type.
-    ///
-    /// # Errors
-    ///
-    /// Returns error if serialization fails.
-    pub async fn publish(&self, event: Event) -> Result<usize> {
-        let subscribers = self.subscribers.read().await;
-
+    pub fn publish(&mut self, event: Event) -> Result<usize> {
         // Find all subscribers interested in this event type
-        let interested = subscribers
+        let interested = self.subscribers
             .get(&event.event_type)
             .map(|subs| subs.as_slice())
             .unwrap_or(&[]);
@@ -159,8 +153,7 @@ impl CommBus {
         }
 
         // Update stats
-        let mut stats = self.stats.write().await;
-        stats.events_published += 1;
+        self.stats.events_published += 1;
 
         tracing::debug!(
             "Published event type={} to {} subscribers",
@@ -174,12 +167,8 @@ impl CommBus {
     /// Subscribe to event types.
     ///
     /// Returns (subscription handle, receiver channel) for receiving events.
-    ///
-    /// # Errors
-    ///
-    /// Returns error if `event_types` is empty.
-    pub async fn subscribe(
-        &self,
+    pub fn subscribe(
+        &mut self,
         subscriber_id: String,
         event_types: Vec<String>,
     ) -> Result<(Subscription, mpsc::UnboundedReceiver<Event>)> {
@@ -192,9 +181,8 @@ impl CommBus {
         };
 
         // Register subscriber for each event type
-        let mut subscribers = self.subscribers.write().await;
         for event_type in &event_types {
-            subscribers
+            self.subscribers
                 .entry(event_type.clone())
                 .or_insert_with(Vec::new)
                 .push(Subscriber {
@@ -205,8 +193,7 @@ impl CommBus {
         }
 
         // Update stats
-        let mut stats = self.stats.write().await;
-        stats.active_subscribers = subscribers.values().map(|v| v.len()).sum();
+        self.stats.active_subscribers = self.subscribers.values().map(|v| v.len()).sum();
 
         tracing::debug!(
             "Subscriber {} registered for events: {:?}",
@@ -224,22 +211,15 @@ impl CommBus {
     }
 
     /// Unsubscribe from events.
-    ///
-    /// # Errors
-    ///
-    /// Returns error if subscription not found.
-    pub async fn unsubscribe(&self, subscription: &Subscription) -> Result<()> {
-        let mut subscribers = self.subscribers.write().await;
-
+    pub fn unsubscribe(&mut self, subscription: &Subscription) -> Result<()> {
         for event_type in &subscription.event_types {
-            if let Some(subs) = subscribers.get_mut(event_type) {
+            if let Some(subs) = self.subscribers.get_mut(event_type) {
                 subs.retain(|s| s.id != subscription.id);
             }
         }
 
         // Update stats
-        let mut stats = self.stats.write().await;
-        stats.active_subscribers = subscribers.values().map(|v| v.len()).sum();
+        self.stats.active_subscribers = self.subscribers.values().map(|v| v.len()).sum();
 
         tracing::debug!("Unsubscribed: {}", subscription.id);
 
@@ -255,10 +235,8 @@ impl CommBus {
     /// # Errors
     ///
     /// Returns error if no handler registered for this command type.
-    pub async fn send_command(&self, command: Command) -> Result<()> {
-        let handlers = self.command_handlers.read().await;
-
-        let handler = handlers
+    pub fn send_command(&mut self, command: Command) -> Result<()> {
+        let handler = self.command_handlers
             .get(&command.command_type)
             .ok_or_else(|| {
                 Error::validation(format!(
@@ -276,8 +254,7 @@ impl CommBus {
         })?;
 
         // Update stats
-        let mut stats = self.stats.write().await;
-        stats.commands_sent += 1;
+        self.stats.commands_sent += 1;
 
         tracing::debug!("Sent command type={}", command.command_type);
 
@@ -291,26 +268,23 @@ impl CommBus {
     /// # Errors
     ///
     /// Returns error if handler already registered for this command type.
-    pub async fn register_command_handler(
-        &self,
+    pub fn register_command_handler(
+        &mut self,
         command_type: String,
     ) -> Result<mpsc::UnboundedReceiver<Command>> {
         let (tx, rx) = mpsc::unbounded_channel();
 
-        let mut handlers = self.command_handlers.write().await;
-
-        if handlers.contains_key(&command_type) {
+        if self.command_handlers.contains_key(&command_type) {
             return Err(Error::validation(format!(
                 "Command handler already registered: {}",
                 command_type
             )));
         }
 
-        handlers.insert(command_type.clone(), tx);
+        self.command_handlers.insert(command_type.clone(), tx);
 
         // Update stats
-        let mut stats = self.stats.write().await;
-        stats.registered_command_handlers = handlers.len();
+        self.stats.registered_command_handlers = self.command_handlers.len();
 
         tracing::debug!("Registered command handler: {}", command_type);
 
@@ -318,17 +292,11 @@ impl CommBus {
     }
 
     /// Unregister a command handler.
-    ///
-    /// # Errors
-    ///
-    /// Returns error if no handler registered for this command type.
-    pub async fn unregister_command_handler(&self, command_type: &str) -> Result<()> {
-        let mut handlers = self.command_handlers.write().await;
-        handlers.remove(command_type);
+    pub fn unregister_command_handler(&mut self, command_type: &str) -> Result<()> {
+        self.command_handlers.remove(command_type);
 
         // Update stats
-        let mut stats = self.stats.write().await;
-        stats.registered_command_handlers = handlers.len();
+        self.stats.registered_command_handlers = self.command_handlers.len();
 
         tracing::debug!("Unregistered command handler: {}", command_type);
 
@@ -344,10 +312,8 @@ impl CommBus {
     /// # Errors
     ///
     /// Returns error if no handler registered or query times out.
-    pub async fn query(&self, query: Query) -> Result<QueryResponse> {
-        let handlers = self.query_handlers.read().await;
-
-        let handler = handlers
+    pub async fn query(&mut self, query: Query) -> Result<QueryResponse> {
+        let handler = self.query_handlers
             .get(&query.query_type)
             .ok_or_else(|| {
                 Error::validation(format!(
@@ -382,8 +348,7 @@ impl CommBus {
             })?;
 
         // Update stats
-        let mut stats = self.stats.write().await;
-        stats.queries_executed += 1;
+        self.stats.queries_executed += 1;
 
         tracing::debug!("Executed query type={}", query.query_type);
 
@@ -398,26 +363,23 @@ impl CommBus {
     /// # Errors
     ///
     /// Returns error if handler already registered for this query type.
-    pub async fn register_query_handler(
-        &self,
+    pub fn register_query_handler(
+        &mut self,
         query_type: String,
     ) -> Result<mpsc::UnboundedReceiver<(Query, oneshot::Sender<QueryResponse>)>> {
         let (tx, rx) = mpsc::unbounded_channel();
 
-        let mut handlers = self.query_handlers.write().await;
-
-        if handlers.contains_key(&query_type) {
+        if self.query_handlers.contains_key(&query_type) {
             return Err(Error::validation(format!(
                 "Query handler already registered: {}",
                 query_type
             )));
         }
 
-        handlers.insert(query_type.clone(), tx);
+        self.query_handlers.insert(query_type.clone(), tx);
 
         // Update stats
-        let mut stats = self.stats.write().await;
-        stats.registered_query_handlers = handlers.len();
+        self.stats.registered_query_handlers = self.query_handlers.len();
 
         tracing::debug!("Registered query handler: {}", query_type);
 
@@ -425,17 +387,11 @@ impl CommBus {
     }
 
     /// Unregister a query handler.
-    ///
-    /// # Errors
-    ///
-    /// Returns error if no handler registered for this query type.
-    pub async fn unregister_query_handler(&self, query_type: &str) -> Result<()> {
-        let mut handlers = self.query_handlers.write().await;
-        handlers.remove(query_type);
+    pub fn unregister_query_handler(&mut self, query_type: &str) -> Result<()> {
+        self.query_handlers.remove(query_type);
 
         // Update stats
-        let mut stats = self.stats.write().await;
-        stats.registered_query_handlers = handlers.len();
+        self.stats.registered_query_handlers = self.query_handlers.len();
 
         tracing::debug!("Unregistered query handler: {}", query_type);
 
@@ -447,16 +403,15 @@ impl CommBus {
     // =========================================================================
 
     /// Get current bus statistics.
-    pub async fn get_stats(&self) -> BusStats {
-        self.stats.read().await.clone()
+    pub fn get_stats(&self) -> BusStats {
+        self.stats.clone()
     }
 
     /// Reset statistics counters.
-    pub async fn reset_stats(&self) {
-        let mut stats = self.stats.write().await;
-        stats.events_published = 0;
-        stats.commands_sent = 0;
-        stats.queries_executed = 0;
+    pub fn reset_stats(&mut self) {
+        self.stats.events_published = 0;
+        self.stats.commands_sent = 0;
+        self.stats.queries_executed = 0;
     }
 }
 
@@ -479,9 +434,9 @@ mod tests {
     // Event Pub/Sub Tests
     // =========================================================================
 
-    #[tokio::test]
-    async fn test_publish_to_zero_subscribers() {
-        let bus = CommBus::new();
+    #[test]
+    fn test_publish_to_zero_subscribers() {
+        let mut bus = CommBus::new();
 
         let event = Event {
             event_type: "test.event".to_string(),
@@ -490,17 +445,17 @@ mod tests {
             source: "test_process".to_string(),
         };
 
-        let result = bus.publish(event).await;
+        let result = bus.publish(event);
         assert!(result.is_ok());
         assert_eq!(result.unwrap(), 0); // No subscribers
 
-        let stats = bus.get_stats().await;
+        let stats = bus.get_stats();
         assert_eq!(stats.events_published, 1);
     }
 
-    #[tokio::test]
-    async fn test_subscribe_and_publish() {
-        let bus = CommBus::new();
+    #[test]
+    fn test_subscribe_and_publish() {
+        let mut bus = CommBus::new();
 
         // Subscribe to event
         let (subscription, mut rx) = bus
@@ -508,7 +463,6 @@ mod tests {
                 "subscriber1".to_string(),
                 vec!["test.event".to_string()],
             )
-            .await
             .unwrap();
 
         // Publish event
@@ -519,31 +473,29 @@ mod tests {
             source: "publisher".to_string(),
         };
 
-        let delivered = bus.publish(event.clone()).await.unwrap();
+        let delivered = bus.publish(event.clone()).unwrap();
         assert_eq!(delivered, 1);
 
         // Receive event
-        let received = rx.recv().await.unwrap();
+        let received = rx.try_recv().unwrap();
         assert_eq!(received.event_type, "test.event");
         assert_eq!(received.source, "publisher");
 
         // Cleanup
-        bus.unsubscribe(&subscription).await.unwrap();
+        bus.unsubscribe(&subscription).unwrap();
     }
 
-    #[tokio::test]
-    async fn test_multiple_subscribers_fan_out() {
-        let bus = CommBus::new();
+    #[test]
+    fn test_multiple_subscribers_fan_out() {
+        let mut bus = CommBus::new();
 
         // Subscribe two subscribers to same event
         let (_sub1, mut rx1) = bus
             .subscribe("sub1".to_string(), vec!["test.event".to_string()])
-            .await
             .unwrap();
 
         let (_sub2, mut rx2) = bus
             .subscribe("sub2".to_string(), vec!["test.event".to_string()])
-            .await
             .unwrap();
 
         // Publish event
@@ -554,32 +506,31 @@ mod tests {
             source: "publisher".to_string(),
         };
 
-        let delivered = bus.publish(event).await.unwrap();
+        let delivered = bus.publish(event).unwrap();
         assert_eq!(delivered, 2); // Both subscribers received
 
         // Both subscribers can receive
-        assert!(rx1.recv().await.is_some());
-        assert!(rx2.recv().await.is_some());
+        assert!(rx1.try_recv().is_ok());
+        assert!(rx2.try_recv().is_ok());
     }
 
-    #[tokio::test]
-    async fn test_unsubscribe() {
-        let bus = CommBus::new();
+    #[test]
+    fn test_unsubscribe() {
+        let mut bus = CommBus::new();
 
         let (subscription, _rx) = bus
             .subscribe("sub1".to_string(), vec!["test.event".to_string()])
-            .await
             .unwrap();
 
         // Check stats
-        let stats = bus.get_stats().await;
+        let stats = bus.get_stats();
         assert_eq!(stats.active_subscribers, 1);
 
         // Unsubscribe
-        bus.unsubscribe(&subscription).await.unwrap();
+        bus.unsubscribe(&subscription).unwrap();
 
         // Check stats updated
-        let stats = bus.get_stats().await;
+        let stats = bus.get_stats();
         assert_eq!(stats.active_subscribers, 0);
 
         // Publishing now delivers to no one
@@ -590,20 +541,19 @@ mod tests {
             source: "publisher".to_string(),
         };
 
-        let delivered = bus.publish(event).await.unwrap();
+        let delivered = bus.publish(event).unwrap();
         assert_eq!(delivered, 0);
     }
 
-    #[tokio::test]
-    async fn test_subscribe_multiple_event_types() {
-        let bus = CommBus::new();
+    #[test]
+    fn test_subscribe_multiple_event_types() {
+        let mut bus = CommBus::new();
 
         let (_sub, mut rx) = bus
             .subscribe(
                 "sub1".to_string(),
                 vec!["event.a".to_string(), "event.b".to_string()],
             )
-            .await
             .unwrap();
 
         // Publish event A
@@ -613,7 +563,7 @@ mod tests {
             timestamp_ms: Utc::now().timestamp_millis(),
             source: "test".to_string(),
         };
-        bus.publish(event_a).await.unwrap();
+        bus.publish(event_a).unwrap();
 
         // Publish event B
         let event_b = Event {
@@ -622,13 +572,13 @@ mod tests {
             timestamp_ms: Utc::now().timestamp_millis(),
             source: "test".to_string(),
         };
-        bus.publish(event_b).await.unwrap();
+        bus.publish(event_b).unwrap();
 
         // Subscriber receives both
-        let recv_a = rx.recv().await.unwrap();
+        let recv_a = rx.try_recv().unwrap();
         assert_eq!(recv_a.event_type, "event.a");
 
-        let recv_b = rx.recv().await.unwrap();
+        let recv_b = rx.try_recv().unwrap();
         assert_eq!(recv_b.event_type, "event.b");
     }
 
@@ -636,9 +586,9 @@ mod tests {
     // Command Tests
     // =========================================================================
 
-    #[tokio::test]
-    async fn test_send_command_no_handler() {
-        let bus = CommBus::new();
+    #[test]
+    fn test_send_command_no_handler() {
+        let mut bus = CommBus::new();
 
         let command = Command {
             command_type: "test.command".to_string(),
@@ -646,19 +596,18 @@ mod tests {
             source: "test".to_string(),
         };
 
-        let result = bus.send_command(command).await;
+        let result = bus.send_command(command);
         assert!(result.is_err());
         assert!(result.unwrap_err().to_string().contains("No handler registered"));
     }
 
-    #[tokio::test]
-    async fn test_register_and_send_command() {
-        let bus = CommBus::new();
+    #[test]
+    fn test_register_and_send_command() {
+        let mut bus = CommBus::new();
 
         // Register handler
         let mut rx = bus
             .register_command_handler("test.command".to_string())
-            .await
             .unwrap();
 
         // Send command
@@ -668,49 +617,46 @@ mod tests {
             source: "sender".to_string(),
         };
 
-        bus.send_command(command.clone()).await.unwrap();
+        bus.send_command(command.clone()).unwrap();
 
         // Handler receives command
-        let received = rx.recv().await.unwrap();
+        let received = rx.try_recv().unwrap();
         assert_eq!(received.command_type, "test.command");
         assert_eq!(received.source, "sender");
 
         // Check stats
-        let stats = bus.get_stats().await;
+        let stats = bus.get_stats();
         assert_eq!(stats.commands_sent, 1);
         assert_eq!(stats.registered_command_handlers, 1);
     }
 
-    #[tokio::test]
-    async fn test_register_duplicate_command_handler() {
-        let bus = CommBus::new();
+    #[test]
+    fn test_register_duplicate_command_handler() {
+        let mut bus = CommBus::new();
 
         // Register first handler
         let _rx1 = bus
             .register_command_handler("test.command".to_string())
-            .await
             .unwrap();
 
         // Try to register duplicate
         let result = bus
-            .register_command_handler("test.command".to_string())
-            .await;
+            .register_command_handler("test.command".to_string());
 
         assert!(result.is_err());
         assert!(result.unwrap_err().to_string().contains("already registered"));
     }
 
-    #[tokio::test]
-    async fn test_unregister_command_handler() {
-        let bus = CommBus::new();
+    #[test]
+    fn test_unregister_command_handler() {
+        let mut bus = CommBus::new();
 
         let _rx = bus
             .register_command_handler("test.command".to_string())
-            .await
             .unwrap();
 
         // Unregister
-        bus.unregister_command_handler("test.command").await.unwrap();
+        bus.unregister_command_handler("test.command").unwrap();
 
         // Sending command now fails
         let command = Command {
@@ -719,7 +665,7 @@ mod tests {
             source: "test".to_string(),
         };
 
-        let result = bus.send_command(command).await;
+        let result = bus.send_command(command);
         assert!(result.is_err());
     }
 
@@ -729,7 +675,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_query_no_handler() {
-        let bus = CommBus::new();
+        let mut bus = CommBus::new();
 
         let query = Query {
             query_type: "test.query".to_string(),
@@ -745,12 +691,11 @@ mod tests {
 
     #[tokio::test]
     async fn test_register_and_execute_query() {
-        let bus = CommBus::new();
+        let mut bus = CommBus::new();
 
         // Register handler
         let mut rx = bus
             .register_query_handler("test.query".to_string())
-            .await
             .unwrap();
 
         // Spawn handler task
@@ -779,19 +724,18 @@ mod tests {
         assert_eq!(response.result, b"{\"answer\":42}");
 
         // Check stats
-        let stats = bus.get_stats().await;
+        let stats = bus.get_stats();
         assert_eq!(stats.queries_executed, 1);
         assert_eq!(stats.registered_query_handlers, 1);
     }
 
     #[tokio::test]
     async fn test_query_timeout() {
-        let bus = CommBus::new();
+        let mut bus = CommBus::new();
 
         // Register handler that never responds
         let mut _rx = bus
             .register_query_handler("test.query".to_string())
-            .await
             .unwrap();
 
         // Query with short timeout
@@ -810,11 +754,10 @@ mod tests {
 
     #[tokio::test]
     async fn test_query_error_response() {
-        let bus = CommBus::new();
+        let mut bus = CommBus::new();
 
         let mut rx = bus
             .register_query_handler("test.query".to_string())
-            .await
             .unwrap();
 
         // Handler returns error response
@@ -841,39 +784,31 @@ mod tests {
         assert_eq!(response.error, "Something went wrong");
     }
 
-    #[tokio::test]
-    async fn test_unregister_query_handler() {
-        let bus = CommBus::new();
+    #[test]
+    fn test_unregister_query_handler() {
+        let mut bus = CommBus::new();
 
         let _rx = bus
             .register_query_handler("test.query".to_string())
-            .await
             .unwrap();
 
         // Unregister
-        bus.unregister_query_handler("test.query").await.unwrap();
+        bus.unregister_query_handler("test.query").unwrap();
 
-        // Query now fails
-        let query = Query {
-            query_type: "test.query".to_string(),
-            payload: b"{}".to_vec(),
-            timeout_ms: 1000,
-            source: "test".to_string(),
-        };
-
-        let result = bus.query(query).await;
-        assert!(result.is_err());
+        // Stats reflect removal
+        let stats = bus.get_stats();
+        assert_eq!(stats.registered_query_handlers, 0);
     }
 
     // =========================================================================
     // Statistics Tests
     // =========================================================================
 
-    #[tokio::test]
-    async fn test_get_stats() {
-        let bus = CommBus::new();
+    #[test]
+    fn test_get_stats() {
+        let mut bus = CommBus::new();
 
-        let initial_stats = bus.get_stats().await;
+        let initial_stats = bus.get_stats();
         assert_eq!(initial_stats.events_published, 0);
         assert_eq!(initial_stats.commands_sent, 0);
         assert_eq!(initial_stats.queries_executed, 0);
@@ -881,16 +816,15 @@ mod tests {
         // Subscribe
         let (_sub, _rx) = bus
             .subscribe("sub1".to_string(), vec!["test.event".to_string()])
-            .await
             .unwrap();
 
-        let stats = bus.get_stats().await;
+        let stats = bus.get_stats();
         assert_eq!(stats.active_subscribers, 1);
     }
 
-    #[tokio::test]
-    async fn test_reset_stats() {
-        let bus = CommBus::new();
+    #[test]
+    fn test_reset_stats() {
+        let mut bus = CommBus::new();
 
         // Publish some events
         for _ in 0..5 {
@@ -900,16 +834,16 @@ mod tests {
                 timestamp_ms: Utc::now().timestamp_millis(),
                 source: "test".to_string(),
             };
-            bus.publish(event).await.unwrap();
+            bus.publish(event).unwrap();
         }
 
-        let stats = bus.get_stats().await;
+        let stats = bus.get_stats();
         assert_eq!(stats.events_published, 5);
 
         // Reset
-        bus.reset_stats().await;
+        bus.reset_stats();
 
-        let stats = bus.get_stats().await;
+        let stats = bus.get_stats();
         assert_eq!(stats.events_published, 0);
     }
 }

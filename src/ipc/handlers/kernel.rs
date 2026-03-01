@@ -4,7 +4,7 @@
 //! enabling downstream consumers (EventBridge → WebSocket → Frontend).
 
 use crate::commbus::Event;
-use crate::ipc::handlers::validation::{parse_non_negative_i32, require_non_negative_i64};
+use crate::ipc::handlers::validation::{parse_enum, parse_non_negative_i32, require_non_negative_i64};
 use crate::ipc::router::{str_field, DispatchResponse};
 use crate::kernel::{Kernel, ProcessState, ResourceQuota, SchedulingPriority};
 use crate::types::{Error, ProcessId, RequestId, Result, SessionId, UserId};
@@ -61,8 +61,7 @@ pub async fn handle(kernel: &mut Kernel, method: &str, body: Value) -> Result<Di
                     "user_id": pcb.user_id.as_str(),
                     "session_id": pcb.session_id.as_str(),
                 }),
-            )
-            .await;
+            );
 
             Ok(DispatchResponse::Single(pcb_to_value(&pcb)))
         }
@@ -136,8 +135,7 @@ pub async fn handle(kernel: &mut Kernel, method: &str, body: Value) -> Result<Di
                     "reason": reason,
                     "session_id": session_id_str,
                 }),
-            )
-            .await;
+            );
 
             let pcb = kernel
                 .get_process(&pid)
@@ -152,18 +150,19 @@ pub async fn handle(kernel: &mut Kernel, method: &str, body: Value) -> Result<Di
             let pcb = kernel
                 .get_process(&pid)
                 .ok_or_else(|| Error::not_found(format!("Process {} not found", pid)))?;
+            let session_id_str = pcb.session_id.as_str().to_string();
+            let response_value = pcb_to_value(pcb);
 
             emit_lifecycle_event(
                 kernel,
                 "process.terminated",
                 serde_json::json!({
                     "pid": pid.as_str(),
-                    "session_id": pcb.session_id.as_str(),
+                    "session_id": session_id_str,
                 }),
-            )
-            .await;
+            );
 
-            Ok(DispatchResponse::Single(pcb_to_value(pcb)))
+            Ok(DispatchResponse::Single(response_value))
         }
 
         "ResumeProcess" => {
@@ -183,18 +182,19 @@ pub async fn handle(kernel: &mut Kernel, method: &str, body: Value) -> Result<Di
             let pcb = kernel
                 .get_process(&pid)
                 .ok_or_else(|| Error::not_found(format!("Process {} not found", pid)))?;
+            let session_id_str = pcb.session_id.as_str().to_string();
+            let response_value = pcb_to_value(pcb);
 
             emit_lifecycle_event(
                 kernel,
                 "process.resumed",
                 serde_json::json!({
                     "pid": pid.as_str(),
-                    "session_id": pcb.session_id.as_str(),
+                    "session_id": session_id_str,
                 }),
-            )
-            .await;
+            );
 
-            Ok(DispatchResponse::Single(pcb_to_value(pcb)))
+            Ok(DispatchResponse::Single(response_value))
         }
 
         "CheckQuota" => {
@@ -202,6 +202,14 @@ pub async fn handle(kernel: &mut Kernel, method: &str, body: Value) -> Result<Di
             let pcb = kernel
                 .get_process(&pid)
                 .ok_or_else(|| Error::not_found(format!("Process {} not found", pid)))?;
+
+            // Extract fields before mutable borrow for emit
+            let session_id_str = pcb.session_id.as_str().to_string();
+            let llm_calls = pcb.usage.llm_calls;
+            let tool_calls = pcb.usage.tool_calls;
+            let agent_hops = pcb.usage.agent_hops;
+            let tokens_in = pcb.usage.tokens_in;
+            let tokens_out = pcb.usage.tokens_out;
 
             let result = kernel.check_quota(&pid);
             let within_bounds = result.is_ok();
@@ -213,28 +221,27 @@ pub async fn handle(kernel: &mut Kernel, method: &str, body: Value) -> Result<Di
                     "resource.exhausted",
                     serde_json::json!({
                         "pid": pid.as_str(),
-                        "session_id": pcb.session_id.as_str(),
+                        "session_id": session_id_str,
                         "reason": exceeded_reason,
                         "usage": {
-                            "llm_calls": pcb.usage.llm_calls,
-                            "tool_calls": pcb.usage.tool_calls,
-                            "agent_hops": pcb.usage.agent_hops,
-                            "tokens_in": pcb.usage.tokens_in,
-                            "tokens_out": pcb.usage.tokens_out,
+                            "llm_calls": llm_calls,
+                            "tool_calls": tool_calls,
+                            "agent_hops": agent_hops,
+                            "tokens_in": tokens_in,
+                            "tokens_out": tokens_out,
                         },
                     }),
-                )
-                .await;
+                );
             }
 
             Ok(DispatchResponse::Single(serde_json::json!({
                 "within_bounds": within_bounds,
                 "exceeded_reason": exceeded_reason,
-                "llm_calls": pcb.usage.llm_calls,
-                "tool_calls": pcb.usage.tool_calls,
-                "agent_hops": pcb.usage.agent_hops,
-                "tokens_in": pcb.usage.tokens_in,
-                "tokens_out": pcb.usage.tokens_out,
+                "llm_calls": llm_calls,
+                "tool_calls": tool_calls,
+                "agent_hops": agent_hops,
+                "tokens_in": tokens_in,
+                "tokens_out": tokens_out,
             })))
         }
 
@@ -446,8 +453,7 @@ pub async fn handle(kernel: &mut Kernel, method: &str, body: Value) -> Result<Di
                 by_state.insert(key, Value::Number((*count as i64).into()));
             }
 
-            // Gather commbus stats (async)
-            let commbus_stats = kernel.get_commbus_stats().await;
+            let commbus_stats = kernel.get_commbus_stats();
 
             Ok(DispatchResponse::Single(serde_json::json!({
                 "processes": {
@@ -487,7 +493,7 @@ pub async fn handle(kernel: &mut Kernel, method: &str, body: Value) -> Result<Di
 ///
 /// Also emits a pre-translated frontend event (event_type prefixed with
 /// "frontend.") so Python EventBridge can forward without translation.
-async fn emit_lifecycle_event(kernel: &Kernel, event_type: &str, payload: Value) {
+fn emit_lifecycle_event(kernel: &mut Kernel, event_type: &str, payload: Value) {
     let timestamp_ms = chrono::Utc::now().timestamp_millis();
 
     // Emit raw kernel event
@@ -498,7 +504,7 @@ async fn emit_lifecycle_event(kernel: &Kernel, event_type: &str, payload: Value)
         timestamp_ms,
         source: "kernel".to_string(),
     };
-    let _ = kernel.publish_event(event).await;
+    let _ = kernel.publish_event(event);
 
     // Emit pre-translated frontend event (if translatable)
     if let Some((frontend_type, frontend_data)) =
@@ -515,7 +521,7 @@ async fn emit_lifecycle_event(kernel: &Kernel, event_type: &str, payload: Value)
             timestamp_ms,
             source: "kernel".to_string(),
         };
-        let _ = kernel.publish_event(frontend_event).await;
+        let _ = kernel.publish_event(frontend_event);
     }
 }
 
@@ -533,27 +539,11 @@ fn parse_priority(body: &Value) -> Result<SchedulingPriority> {
         .get("priority")
         .and_then(|v| v.as_str())
         .unwrap_or("NORMAL");
-    match s.to_uppercase().as_str() {
-        "REALTIME" => Ok(SchedulingPriority::Realtime),
-        "HIGH" => Ok(SchedulingPriority::High),
-        "NORMAL" => Ok(SchedulingPriority::Normal),
-        "LOW" => Ok(SchedulingPriority::Low),
-        "IDLE" => Ok(SchedulingPriority::Idle),
-        _ => Err(Error::validation(format!("Invalid priority: {}", s))),
-    }
+    parse_enum::<SchedulingPriority>(s, "priority")
 }
 
 pub fn parse_process_state(s: &str) -> Result<ProcessState> {
-    match s.to_uppercase().as_str() {
-        "NEW" => Ok(ProcessState::New),
-        "READY" => Ok(ProcessState::Ready),
-        "RUNNING" => Ok(ProcessState::Running),
-        "WAITING" => Ok(ProcessState::Waiting),
-        "BLOCKED" => Ok(ProcessState::Blocked),
-        "TERMINATED" => Ok(ProcessState::Terminated),
-        "ZOMBIE" => Ok(ProcessState::Zombie),
-        _ => Err(Error::validation(format!("Invalid process state: {}", s))),
-    }
+    parse_enum::<ProcessState>(s, "process state")
 }
 
 fn parse_quota(body: &Value) -> Result<Option<ResourceQuota>> {
@@ -585,42 +575,60 @@ fn parse_quota(body: &Value) -> Result<Option<ResourceQuota>> {
     }))
 }
 
+// =============================================================================
+// DTO structs — derive(Serialize) replaces manual json! construction
+// =============================================================================
+
+/// DTO for PCB → JSON, matching `kernel_client.py._dict_to_process_info`.
+#[derive(serde::Serialize)]
+struct ProcessInfoResponse<'a> {
+    pid: &'a str,
+    request_id: &'a str,
+    user_id: &'a str,
+    session_id: &'a str,
+    state: ProcessState,
+    priority: SchedulingPriority,
+    usage: UsageResponse,
+    current_stage: &'a str,
+}
+
+#[derive(serde::Serialize)]
+struct UsageResponse {
+    llm_calls: i32,
+    tool_calls: i32,
+    agent_hops: i32,
+    tokens_in: i64,
+    tokens_out: i64,
+}
+
+impl<'a> From<&'a crate::kernel::ProcessControlBlock> for ProcessInfoResponse<'a> {
+    fn from(pcb: &'a crate::kernel::ProcessControlBlock) -> Self {
+        Self {
+            pid: pcb.pid.as_str(),
+            request_id: pcb.request_id.as_str(),
+            user_id: pcb.user_id.as_str(),
+            session_id: pcb.session_id.as_str(),
+            state: pcb.state,
+            priority: pcb.priority,
+            usage: UsageResponse {
+                llm_calls: pcb.usage.llm_calls,
+                tool_calls: pcb.usage.tool_calls,
+                agent_hops: pcb.usage.agent_hops,
+                tokens_in: pcb.usage.tokens_in,
+                tokens_out: pcb.usage.tokens_out,
+            },
+            current_stage: "",
+        }
+    }
+}
+
 /// Convert PCB to the dict shape expected by `kernel_client.py._dict_to_process_info`.
 pub fn pcb_to_value(pcb: &crate::kernel::ProcessControlBlock) -> Value {
-    serde_json::json!({
-        "pid": pcb.pid.as_str(),
-        "request_id": pcb.request_id.as_str(),
-        "user_id": pcb.user_id.as_str(),
-        "session_id": pcb.session_id.as_str(),
-        "state": serde_json::to_value(&pcb.state).unwrap_or(Value::String("UNKNOWN".to_string())),
-        "priority": serde_json::to_value(&pcb.priority).unwrap_or(Value::String("NORMAL".to_string())),
-        "usage": {
-            "llm_calls": pcb.usage.llm_calls,
-            "tool_calls": pcb.usage.tool_calls,
-            "agent_hops": pcb.usage.agent_hops,
-            "tokens_in": pcb.usage.tokens_in,
-            "tokens_out": pcb.usage.tokens_out,
-        },
-        "current_stage": "",
-    })
+    serde_json::to_value(ProcessInfoResponse::from(pcb))
+        .expect("ProcessInfoResponse serialization cannot fail")
 }
 
 /// Convert ResourceQuota to JSON value.
 fn quota_to_value(q: &ResourceQuota) -> Value {
-    serde_json::json!({
-        "max_llm_calls": q.max_llm_calls,
-        "max_tool_calls": q.max_tool_calls,
-        "max_agent_hops": q.max_agent_hops,
-        "max_iterations": q.max_iterations,
-        "timeout_seconds": q.timeout_seconds,
-        "soft_timeout_seconds": q.soft_timeout_seconds,
-        "max_input_tokens": q.max_input_tokens,
-        "max_output_tokens": q.max_output_tokens,
-        "max_context_tokens": q.max_context_tokens,
-        "rate_limit_rpm": q.rate_limit_rpm,
-        "rate_limit_rph": q.rate_limit_rph,
-        "rate_limit_burst": q.rate_limit_burst,
-        "max_inference_requests": q.max_inference_requests,
-        "max_inference_input_chars": q.max_inference_input_chars,
-    })
+    serde_json::to_value(q).expect("ResourceQuota serialization cannot fail")
 }

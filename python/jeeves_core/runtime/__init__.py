@@ -9,7 +9,13 @@ Usage:
 """
 
 from jeeves_core.runtime.agents import (
-    # Protocols
+    # Agent-scoped protocols (canonical names)
+    AgentToolExecutor,
+    AgentLogger,
+    AgentPersistence,
+    AgentPromptRegistry,
+    AgentEventContext,
+    # Legacy aliases (backward compat)
     ToolExecutor,
     Logger,
     Persistence,
@@ -31,7 +37,13 @@ from jeeves_core.runtime.agents import (
 )
 
 __all__ = [
-    # Protocols
+    # Agent-scoped protocols (canonical names)
+    "AgentToolExecutor",
+    "AgentLogger",
+    "AgentPersistence",
+    "AgentPromptRegistry",
+    "AgentEventContext",
+    # Legacy aliases (backward compat)
     "ToolExecutor",
     "Logger",
     "Persistence",

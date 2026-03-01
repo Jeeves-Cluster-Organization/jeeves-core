@@ -6,6 +6,16 @@
 use crate::types::{Error, Result};
 use serde_json::Value;
 
+/// Parse a string into a serde-deserializable enum.
+///
+/// Uses serde_json round-trip: wraps the string in a JSON `Value::String`,
+/// then deserializes. This means the string must match the enum's serde
+/// rename (e.g. `"SCREAMING_SNAKE_CASE"` or `"snake_case"`).
+pub fn parse_enum<T: serde::de::DeserializeOwned>(s: &str, field_name: &str) -> Result<T> {
+    serde_json::from_value::<T>(Value::String(s.to_string()))
+        .map_err(|_| Error::validation(format!("invalid {}: {}", field_name, s)))
+}
+
 /// Safely convert an i64 (from JSON) to i32, rejecting out-of-range values.
 pub fn safe_i64_to_i32(value: i64, field: &str) -> Result<i32> {
     i32::try_from(value).map_err(|_| {

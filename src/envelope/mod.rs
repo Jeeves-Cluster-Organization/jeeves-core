@@ -100,7 +100,7 @@ impl FlowInterrupt {
 
 /// Status of a processing record.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Hash)]
-#[serde(rename_all = "lowercase")]
+#[serde(rename_all = "snake_case")]
 pub enum ProcessingStatus {
     Running,
     Success,

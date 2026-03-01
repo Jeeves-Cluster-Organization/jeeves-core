@@ -17,7 +17,7 @@ use std::collections::HashMap;
 
 /// Status of an interrupt.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "lowercase")]
+#[serde(rename_all = "snake_case")]
 pub enum InterruptStatus {
     /// Interrupt is awaiting response
     Pending,

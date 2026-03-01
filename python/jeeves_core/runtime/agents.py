@@ -20,33 +20,33 @@ if TYPE_CHECKING:
 # PROTOCOLS
 # =============================================================================
 
-class ToolExecutor(Protocol):
-    """Protocol for tool execution."""
+class AgentToolExecutor(Protocol):
+    """Protocol for tool execution (agent-scoped)."""
     async def execute(self, tool_name: str, params: Dict[str, Any]) -> Dict[str, Any]:
         ...
 
 
-class Logger(Protocol):
-    """Protocol for structured logging."""
+class AgentLogger(Protocol):
+    """Protocol for structured logging (agent-scoped)."""
     def info(self, event: str, **kwargs) -> None: ...
     def warn(self, event: str, **kwargs) -> None: ...
     def error(self, event: str, **kwargs) -> None: ...
-    def bind(self, **kwargs) -> "Logger": ...
+    def bind(self, **kwargs) -> "AgentLogger": ...
 
 
-class Persistence(Protocol):
-    """Protocol for state persistence."""
+class AgentPersistence(Protocol):
+    """Protocol for state persistence (agent-scoped)."""
     async def save_state(self, thread_id: str, state: Dict[str, Any]) -> None: ...
     async def load_state(self, thread_id: str) -> Optional[Dict[str, Any]]: ...
 
 
-class PromptRegistry(Protocol):
-    """Protocol for prompt retrieval."""
+class AgentPromptRegistry(Protocol):
+    """Protocol for prompt retrieval (agent-scoped)."""
     def get(self, key: str, **kwargs) -> str: ...
 
 
-class EventContext(Protocol):
-    """Protocol for event emission."""
+class AgentEventContext(Protocol):
+    """Protocol for event emission (agent-scoped)."""
     async def emit_agent_started(self, agent_name: str) -> None: ...
     async def emit_agent_completed(self, agent_name: str, status: str, **kwargs) -> None: ...
 
@@ -54,6 +54,13 @@ class EventContext(Protocol):
 # =============================================================================
 # TYPE ALIASES
 # =============================================================================
+
+# Legacy aliases for backward compatibility with external consumers
+ToolExecutor = AgentToolExecutor
+Logger = AgentLogger
+Persistence = AgentPersistence
+PromptRegistry = AgentPromptRegistry
+EventContext = AgentEventContext
 
 LLMProviderFactory = Callable[[str], LLMProviderProtocol]
 PreProcessHook = Callable[["Envelope", Optional["Agent"]], "Envelope"]
@@ -84,11 +91,11 @@ class Agent:
     Behavior determined by config flags and hooks.
     """
     config: AgentConfig
-    logger: Logger
+    logger: AgentLogger
     llm: Optional[LLMProviderProtocol] = None
-    tools: Optional[ToolExecutor] = None
-    prompt_registry: Optional[PromptRegistry] = None
-    event_context: Optional[EventContext] = None
+    tools: Optional[AgentToolExecutor] = None
+    prompt_registry: Optional[AgentPromptRegistry] = None
+    event_context: Optional[AgentEventContext] = None
     use_mock: bool = False
 
     pre_process: Optional[PreProcessHook] = None
@@ -101,7 +108,7 @@ class Agent:
     def name(self) -> str:
         return self.config.name
 
-    def set_event_context(self, ctx: EventContext) -> None:
+    def set_event_context(self, ctx: AgentEventContext) -> None:
         self.event_context = ctx
 
     async def process(self, envelope: Envelope) -> Envelope:
@@ -129,8 +136,6 @@ class Agent:
         # Tool execution
         if self.config.has_tools and self.tools and output.get("tool_calls"):
             output = await self._execute_tools(envelope, output)
-
-        self._record_run_metrics(envelope, output)
 
         # Debug log output structure for diagnostics
         output_keys = list(output.keys()) if isinstance(output, dict) else []
@@ -213,7 +218,6 @@ class Agent:
         else:
             if usage is not None:
                 self.logger.debug("agent_usage_parse_skipped", agent=self.config.name, usage_type=type(usage).__name__)
-        envelope.llm_call_count += 1
         self._llm_calls_this_run += 1
 
         # Use JSONRepairKit for robust parsing of LLM output
@@ -274,28 +278,13 @@ class Agent:
             return tool_name in self.config.allowed_tools
         return True
 
-    def _record_run_metrics(self, envelope: Envelope, output: Dict[str, Any]) -> None:
-        tool_calls = 0
-        if isinstance(output, dict):
-            calls = output.get("tool_calls", [])
-            if isinstance(calls, list):
-                tool_calls = len(calls)
-
-        metrics = {
-            "tool_calls": tool_calls,
-        }
-        if isinstance(self._last_llm_usage, dict):
-            if isinstance(self._last_llm_usage.get("tokens_in"), int):
-                metrics["tokens_in"] = self._last_llm_usage["tokens_in"]
-            if isinstance(self._last_llm_usage.get("tokens_out"), int):
-                metrics["tokens_out"] = self._last_llm_usage["tokens_out"]
-
-        if not isinstance(envelope.metadata, dict):
-            envelope.metadata = {}
-        envelope.metadata.setdefault("_agent_run_metrics", {})
-        by_agent = envelope.metadata["_agent_run_metrics"]
-        if isinstance(by_agent, dict):
-            by_agent[self.name] = metrics
+    def get_run_metrics(self) -> Dict[str, Any]:
+        """Return metrics from the most recent process()/stream() call."""
+        metrics: Dict[str, Any] = {"llm_calls": self._llm_calls_this_run}
+        if self._last_llm_usage:
+            metrics["tokens_in"] = self._last_llm_usage.get("tokens_in", 0)
+            metrics["tokens_out"] = self._last_llm_usage.get("tokens_out", 0)
+        return metrics
 
     async def stream(self, envelope: Envelope) -> AsyncIterator[Tuple[str, Any]]:
         """Streaming execution (token/event emission).
@@ -312,6 +301,7 @@ class Agent:
         from jeeves_core.protocols import TokenStreamMode
 
         self.logger.info(f"{self.name}_stream_started", envelope_id=envelope.envelope_id)
+        self._last_llm_usage = None
         self._llm_calls_this_run = 0
 
         # Pre-process hook
@@ -393,7 +383,6 @@ class Agent:
             if chunk.text:
                 yield chunk.text
 
-        envelope.llm_call_count += 1
         self._llm_calls_this_run += 1
 
     def _build_prompt_context(self, envelope: Envelope) -> Dict[str, Any]:
@@ -479,14 +468,14 @@ class PipelineRunner:
     """
     config: PipelineConfig
     llm_factory: Optional[LLMProviderFactory] = None
-    tool_executor: Optional[ToolExecutor] = None
-    logger: Optional[Logger] = None
-    persistence: Optional[Persistence] = None
-    prompt_registry: Optional[PromptRegistry] = None
+    tool_executor: Optional[AgentToolExecutor] = None
+    logger: Optional[AgentLogger] = None
+    persistence: Optional[AgentPersistence] = None
+    prompt_registry: Optional[AgentPromptRegistry] = None
     use_mock: bool = False
 
     agents: Dict[str, Agent] = field(default_factory=dict)
-    event_context: Optional[EventContext] = None
+    event_context: Optional[AgentEventContext] = None
     _initialized: bool = field(default=False)
 
     def __post_init__(self):
@@ -534,7 +523,7 @@ class PipelineRunner:
         if self.logger:
             self.logger.info("runtime_initialized", pipeline=self.config.name, agents=list(self.agents.keys()))
 
-    def set_event_context(self, ctx: EventContext) -> None:
+    def set_event_context(self, ctx: AgentEventContext) -> None:
         self.event_context = ctx
         for agent in self.agents.values():
             agent.set_event_context(ctx)
@@ -561,10 +550,10 @@ class PipelineRunner:
 def create_pipeline_runner(
     config: PipelineConfig,
     llm_provider_factory: Optional[LLMProviderFactory] = None,
-    tool_executor: Optional[ToolExecutor] = None,
-    logger: Optional[Logger] = None,
-    persistence: Optional[Persistence] = None,
-    prompt_registry: Optional[PromptRegistry] = None,
+    tool_executor: Optional[AgentToolExecutor] = None,
+    logger: Optional[AgentLogger] = None,
+    persistence: Optional[AgentPersistence] = None,
+    prompt_registry: Optional[AgentPromptRegistry] = None,
     use_mock: bool = False,
 ) -> PipelineRunner:
     """Factory to create PipelineRunner from pipeline config."""
