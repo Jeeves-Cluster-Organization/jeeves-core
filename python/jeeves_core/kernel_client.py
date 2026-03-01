@@ -252,7 +252,7 @@ class KernelClient:
             return self._dict_to_process_info(response)
         except IpcError as e:
             logger.error(f"Failed to create process {pid}: {e}")
-            raise KernelClientError(f"CreateProcess failed: {e}") from e
+            raise KernelClientError(f"CreateProcess failed: {e}", code=e.code) from e
 
     async def get_process(self, pid: str) -> Optional[ProcessInfo]:
         """Get process information by PID. Returns None if not found."""
@@ -263,7 +263,7 @@ class KernelClient:
             if e.code == "NOT_FOUND":
                 return None
             logger.error(f"Failed to get process {pid}: {e}")
-            raise KernelClientError(f"GetProcess failed: {e}") from e
+            raise KernelClientError(f"GetProcess failed: {e}", code=e.code) from e
 
     async def schedule_process(self, pid: str) -> ProcessInfo:
         """Schedule a process (transition NEW -> READY)."""
@@ -272,7 +272,7 @@ class KernelClient:
             return self._dict_to_process_info(response)
         except IpcError as e:
             logger.error(f"Failed to schedule process {pid}: {e}")
-            raise KernelClientError(f"ScheduleProcess failed: {e}") from e
+            raise KernelClientError(f"ScheduleProcess failed: {e}", code=e.code) from e
 
     async def get_next_runnable(self) -> Optional[ProcessInfo]:
         """Get the next runnable process (transitions READY -> RUNNING)."""
@@ -285,7 +285,7 @@ class KernelClient:
             if e.code == "NOT_FOUND":
                 return None
             logger.error(f"Failed to get next runnable: {e}")
-            raise KernelClientError(f"GetNextRunnable failed: {e}") from e
+            raise KernelClientError(f"GetNextRunnable failed: {e}", code=e.code) from e
 
     async def transition_state(
         self,
@@ -300,7 +300,7 @@ class KernelClient:
             return self._dict_to_process_info(response)
         except IpcError as e:
             logger.error(f"Failed to transition process {pid}: {e}")
-            raise KernelClientError(f"TransitionState failed: {e}") from e
+            raise KernelClientError(f"TransitionState failed: {e}", code=e.code) from e
 
     async def terminate_process(
         self,
@@ -315,7 +315,7 @@ class KernelClient:
             return self._dict_to_process_info(response)
         except IpcError as e:
             logger.error(f"Failed to terminate process {pid}: {e}")
-            raise KernelClientError(f"TerminateProcess failed: {e}") from e
+            raise KernelClientError(f"TerminateProcess failed: {e}", code=e.code) from e
 
     async def resume_process(
         self,
@@ -338,7 +338,7 @@ class KernelClient:
             return self._dict_to_process_info(response)
         except IpcError as e:
             logger.error(f"Failed to resume process {pid}: {e}")
-            raise KernelClientError(f"ResumeProcess failed: {e}") from e
+            raise KernelClientError(f"ResumeProcess failed: {e}", code=e.code) from e
 
     # =========================================================================
     # Resource Management (KernelService)
@@ -375,7 +375,7 @@ class KernelClient:
             )
         except IpcError as e:
             logger.error(f"Failed to record usage for {pid}: {e}")
-            raise KernelClientError(f"RecordUsage failed: {e}") from e
+            raise KernelClientError(f"RecordUsage failed: {e}", code=e.code) from e
 
     async def check_quota(self, pid: str) -> QuotaCheckResult:
         """Check if a process is within its resource quota."""
@@ -392,7 +392,7 @@ class KernelClient:
             )
         except IpcError as e:
             logger.error(f"Failed to check quota for {pid}: {e}")
-            raise KernelClientError(f"CheckQuota failed: {e}") from e
+            raise KernelClientError(f"CheckQuota failed: {e}", code=e.code) from e
 
     async def check_rate_limit(
         self,
@@ -406,7 +406,7 @@ class KernelClient:
             return await self._transport.request("kernel", "CheckRateLimit", body)
         except IpcError as e:
             logger.error(f"Failed to check rate limit for {user_id}: {e}")
-            raise KernelClientError(f"CheckRateLimit failed: {e}") from e
+            raise KernelClientError(f"CheckRateLimit failed: {e}", code=e.code) from e
 
     # =========================================================================
     # Quota Defaults (Single Source of Truth)
@@ -427,7 +427,7 @@ class KernelClient:
             return self._dict_to_quota_defaults(response)
         except IpcError as e:
             logger.error(f"Failed to set quota defaults: {e}")
-            raise KernelClientError(f"SetQuotaDefaults failed: {e}") from e
+            raise KernelClientError(f"SetQuotaDefaults failed: {e}", code=e.code) from e
 
     async def get_quota_defaults(self) -> QuotaDefaults:
         """Get the kernel's current default quota."""
@@ -436,7 +436,7 @@ class KernelClient:
             return self._dict_to_quota_defaults(response)
         except IpcError as e:
             logger.error(f"Failed to get quota defaults: {e}")
-            raise KernelClientError(f"GetQuotaDefaults failed: {e}") from e
+            raise KernelClientError(f"GetQuotaDefaults failed: {e}", code=e.code) from e
 
     # =========================================================================
     # System Status
@@ -464,7 +464,7 @@ class KernelClient:
             )
         except IpcError as e:
             logger.error(f"Failed to get system status: {e}")
-            raise KernelClientError(f"GetSystemStatus failed: {e}") from e
+            raise KernelClientError(f"GetSystemStatus failed: {e}", code=e.code) from e
 
     # =========================================================================
     # CommBus Event Subscription
@@ -515,7 +515,7 @@ class KernelClient:
             return [self._dict_to_process_info(p) for p in response.get("processes", [])]
         except IpcError as e:
             logger.error(f"Failed to list processes: {e}")
-            raise KernelClientError(f"ListProcesses failed: {e}") from e
+            raise KernelClientError(f"ListProcesses failed: {e}", code=e.code) from e
 
     async def get_process_counts(self) -> Dict[str, int]:
         """Get process counts by state."""
@@ -527,7 +527,7 @@ class KernelClient:
             return counts
         except IpcError as e:
             logger.error(f"Failed to get process counts: {e}")
-            raise KernelClientError(f"GetProcessCounts failed: {e}") from e
+            raise KernelClientError(f"GetProcessCounts failed: {e}", code=e.code) from e
 
     # =========================================================================
     # Orchestration (OrchestrationService)
@@ -551,14 +551,17 @@ class KernelClient:
             response = await self._transport.request("orchestration", "InitializeSession", body)
             return self._dict_to_session_state(response)
         except IpcError as e:
-            if e.code == "ALREADY_EXISTS":
+            if e.code == "ALREADY_EXISTS" or "already exists" in e.message.lower():
                 logger.warning(f"Session already exists for {process_id}")
-                raise KernelClientError(f"Session already exists for process {process_id}") from e
+                raise KernelClientError(
+                    f"Session already exists for process {process_id}",
+                    code="ALREADY_EXISTS",
+                ) from e
             if e.code == "TIMEOUT":
                 logger.error(f"Deadline exceeded initializing session {process_id}")
-                raise KernelClientError("Request deadline exceeded") from e
+                raise KernelClientError("Request deadline exceeded", code="TIMEOUT") from e
             logger.error(f"Failed to initialize orchestration session {process_id}: {e}")
-            raise KernelClientError(f"InitializeSession failed: {e}") from e
+            raise KernelClientError(f"InitializeSession failed: {e}", code=e.code) from e
 
     async def get_next_instruction(
         self,
@@ -573,9 +576,9 @@ class KernelClient:
         except IpcError as e:
             if e.code == "TIMEOUT":
                 logger.error(f"Deadline exceeded getting next instruction for {process_id}")
-                raise KernelClientError("Request deadline exceeded") from e
+                raise KernelClientError("Request deadline exceeded", code="TIMEOUT") from e
             logger.error(f"Failed to get next instruction for {process_id}: {e}")
-            raise KernelClientError(f"GetNextInstruction failed: {e}") from e
+            raise KernelClientError(f"GetNextInstruction failed: {e}", code=e.code) from e
 
     async def report_agent_result(
         self,
@@ -611,9 +614,9 @@ class KernelClient:
         except IpcError as e:
             if e.code == "TIMEOUT":
                 logger.error(f"Deadline exceeded reporting agent result for {process_id}/{agent_name}")
-                raise KernelClientError("Request deadline exceeded") from e
+                raise KernelClientError("Request deadline exceeded", code="TIMEOUT") from e
             logger.error(f"Failed to report agent result for {process_id}/{agent_name}: {e}")
-            raise KernelClientError(f"ReportAgentResult failed: {e}") from e
+            raise KernelClientError(f"ReportAgentResult failed: {e}", code=e.code) from e
 
     async def get_orchestration_session_state(
         self,
@@ -628,9 +631,9 @@ class KernelClient:
         except IpcError as e:
             if e.code == "TIMEOUT":
                 logger.error(f"Deadline exceeded getting session state for {process_id}")
-                raise KernelClientError("Request deadline exceeded") from e
+                raise KernelClientError("Request deadline exceeded", code="TIMEOUT") from e
             logger.error(f"Failed to get session state for {process_id}: {e}")
-            raise KernelClientError(f"GetSessionState failed: {e}") from e
+            raise KernelClientError(f"GetSessionState failed: {e}", code=e.code) from e
 
     # =========================================================================
     # Interrupt Service (InterruptService)
@@ -665,7 +668,7 @@ class KernelClient:
         try:
             return await self._transport.request("interrupt", "CreateInterrupt", body)
         except IpcError as e:
-            raise KernelClientError(f"CreateInterrupt failed: {e}") from e
+            raise KernelClientError(f"CreateInterrupt failed: {e}", code=e.code) from e
 
     async def resolve_interrupt(
         self,
@@ -684,7 +687,7 @@ class KernelClient:
             result = await self._transport.request("interrupt", "ResolveInterrupt", body)
             return result.get("success", False)
         except IpcError as e:
-            raise KernelClientError(f"ResolveInterrupt failed: {e}") from e
+            raise KernelClientError(f"ResolveInterrupt failed: {e}", code=e.code) from e
 
     async def cancel_interrupt(
         self,
@@ -697,7 +700,7 @@ class KernelClient:
             result = await self._transport.request("interrupt", "CancelInterrupt", body)
             return result.get("success", False)
         except IpcError as e:
-            raise KernelClientError(f"CancelInterrupt failed: {e}") from e
+            raise KernelClientError(f"CancelInterrupt failed: {e}", code=e.code) from e
 
     async def get_interrupt(self, interrupt_id: str) -> Dict[str, Any]:
         """Get an interrupt by ID."""
@@ -706,7 +709,7 @@ class KernelClient:
                 "interrupt", "GetInterrupt", {"interrupt_id": interrupt_id},
             )
         except IpcError as e:
-            raise KernelClientError(f"GetInterrupt failed: {e}") from e
+            raise KernelClientError(f"GetInterrupt failed: {e}", code=e.code) from e
 
     async def get_pending_interrupts_for_session(
         self,
@@ -721,7 +724,7 @@ class KernelClient:
             result = await self._transport.request("interrupt", "GetPendingForSession", body)
             return result.get("interrupts", [])
         except IpcError as e:
-            raise KernelClientError(f"GetPendingForSession failed: {e}") from e
+            raise KernelClientError(f"GetPendingForSession failed: {e}", code=e.code) from e
 
     # =========================================================================
     # High-Level Convenience Methods
@@ -763,7 +766,7 @@ class KernelClient:
             )
         except IpcError as e:
             logger.error(f"Failed to record and check for {pid}: {e}")
-            raise KernelClientError(f"RecordUsageAndCheck failed: {e}") from e
+            raise KernelClientError(f"RecordUsageAndCheck failed: {e}", code=e.code) from e
 
     async def record_llm_call(
         self,
@@ -854,7 +857,7 @@ class KernelClient:
             response = await self._transport.request("tools", "RegisterTool", tool_entry)
             return response.get("registered", False)
         except IpcError as e:
-            raise KernelClientError(f"RegisterTool failed: {e}") from e
+            raise KernelClientError(f"RegisterTool failed: {e}", code=e.code) from e
 
     async def validate_tool_params(
         self, tool_id: str, params: Dict[str, Any]
@@ -869,7 +872,7 @@ class KernelClient:
             response = await self._transport.request("tools", "ValidateToolParams", body)
             return response.get("errors", [])
         except IpcError as e:
-            raise KernelClientError(f"ValidateToolParams failed: {e}") from e
+            raise KernelClientError(f"ValidateToolParams failed: {e}", code=e.code) from e
 
     async def fill_tool_defaults(
         self, tool_id: str, params: Dict[str, Any]
@@ -884,7 +887,7 @@ class KernelClient:
             response = await self._transport.request("tools", "FillDefaults", body)
             return response.get("params", params)
         except IpcError as e:
-            raise KernelClientError(f"FillDefaults failed: {e}") from e
+            raise KernelClientError(f"FillDefaults failed: {e}", code=e.code) from e
 
     async def generate_tool_prompt(
         self, allowed_tools: Optional[List[str]] = None
@@ -901,7 +904,7 @@ class KernelClient:
             response = await self._transport.request("tools", "GenerateToolPrompt", body)
             return response.get("prompt", "")
         except IpcError as e:
-            raise KernelClientError(f"GenerateToolPrompt failed: {e}") from e
+            raise KernelClientError(f"GenerateToolPrompt failed: {e}", code=e.code) from e
 
     async def get_tool_entry(self, tool_id: str) -> Optional[Dict[str, Any]]:
         """Get tool metadata from Rust catalog."""
@@ -911,7 +914,7 @@ class KernelClient:
         except IpcError as e:
             if "not found" in str(e).lower():
                 return None
-            raise KernelClientError(f"GetToolEntry failed: {e}") from e
+            raise KernelClientError(f"GetToolEntry failed: {e}", code=e.code) from e
 
     async def list_tools(self) -> List[Dict[str, Any]]:
         """List all registered tools."""
@@ -919,7 +922,7 @@ class KernelClient:
             response = await self._transport.request("tools", "ListTools", {})
             return response.get("tools", [])
         except IpcError as e:
-            raise KernelClientError(f"ListTools failed: {e}") from e
+            raise KernelClientError(f"ListTools failed: {e}", code=e.code) from e
 
     async def check_tool_access(self, agent_name: str, tool_id: str) -> bool:
         """Check if an agent has access to a tool."""
@@ -928,7 +931,7 @@ class KernelClient:
             response = await self._transport.request("tools", "CheckToolAccess", body)
             return response.get("allowed", False)
         except IpcError as e:
-            raise KernelClientError(f"CheckToolAccess failed: {e}") from e
+            raise KernelClientError(f"CheckToolAccess failed: {e}", code=e.code) from e
 
     async def grant_tool_access(
         self, agent_name: str, tool_ids: List[str]
@@ -939,7 +942,7 @@ class KernelClient:
             response = await self._transport.request("tools", "GrantToolAccess", body)
             return response.get("granted", False)
         except IpcError as e:
-            raise KernelClientError(f"GrantToolAccess failed: {e}") from e
+            raise KernelClientError(f"GrantToolAccess failed: {e}", code=e.code) from e
 
     # =========================================================================
     # Tool Health & Circuit Breaking (tools service)
@@ -964,7 +967,7 @@ class KernelClient:
             response = await self._transport.request("tools", "RecordToolExecution", body)
             return response.get("recorded", False)
         except IpcError as e:
-            raise KernelClientError(f"RecordToolExecution failed: {e}") from e
+            raise KernelClientError(f"RecordToolExecution failed: {e}", code=e.code) from e
 
     async def check_tool_health(self, tool_name: str) -> Dict[str, Any]:
         """Check health of a single tool."""
@@ -972,14 +975,14 @@ class KernelClient:
         try:
             return await self._transport.request("tools", "CheckToolHealth", body)
         except IpcError as e:
-            raise KernelClientError(f"CheckToolHealth failed: {e}") from e
+            raise KernelClientError(f"CheckToolHealth failed: {e}", code=e.code) from e
 
     async def get_system_tool_health(self) -> Dict[str, Any]:
         """Get system-wide tool health report."""
         try:
             return await self._transport.request("tools", "GetSystemToolHealth", {})
         except IpcError as e:
-            raise KernelClientError(f"GetSystemToolHealth failed: {e}") from e
+            raise KernelClientError(f"GetSystemToolHealth failed: {e}", code=e.code) from e
 
     async def should_circuit_break(self, tool_name: str) -> bool:
         """Check if a tool's circuit breaker is open."""
@@ -988,7 +991,7 @@ class KernelClient:
             response = await self._transport.request("tools", "ShouldCircuitBreak", body)
             return response.get("circuit_broken", False)
         except IpcError as e:
-            raise KernelClientError(f"ShouldCircuitBreak failed: {e}") from e
+            raise KernelClientError(f"ShouldCircuitBreak failed: {e}", code=e.code) from e
 
     async def get_error_patterns(self, tool_name: str) -> List[Dict[str, Any]]:
         """Get error patterns for a tool."""
@@ -997,7 +1000,7 @@ class KernelClient:
             response = await self._transport.request("tools", "GetErrorPatterns", body)
             return response.get("patterns", [])
         except IpcError as e:
-            raise KernelClientError(f"GetErrorPatterns failed: {e}") from e
+            raise KernelClientError(f"GetErrorPatterns failed: {e}", code=e.code) from e
 
     # =========================================================================
     # Internal Helpers
@@ -1021,11 +1024,11 @@ class KernelClient:
         """Convert response dict to ProcessInfo."""
         usage = d.get("usage", {})
         return ProcessInfo(
-            pid=d.get("pid", ""),
+            pid=d["pid"],
             request_id=d.get("request_id", ""),
             user_id=d.get("user_id", ""),
             session_id=d.get("session_id", ""),
-            state=d.get("state", "NEW"),
+            state=d["state"],
             priority=d.get("priority", "NORMAL"),
             llm_calls=usage.get("llm_calls", 0),
             tool_calls=usage.get("tool_calls", 0),
@@ -1058,15 +1061,9 @@ class KernelClient:
         """Convert response dict to OrchestratorInstruction."""
         envelope = self._parse_optional_json_object(d.get("envelope"))
 
-        kind = d.get("kind", "")
-        if not kind:
-            raise KernelClientError(
-                f"Instruction missing 'kind' field. Got keys: {sorted(d.keys())}"
-            )
-
         return OrchestratorInstruction(
-            kind=kind,
-            agents=d.get("agents", []),
+            kind=d["kind"],
+            agents=d["agents"],
             envelope=envelope,
             terminal_reason=d.get("terminal_reason", ""),
             termination_message=d.get("termination_message", ""),
@@ -1080,7 +1077,7 @@ class KernelClient:
         envelope = self._parse_optional_json_object(d.get("envelope"))
 
         return OrchestrationSessionState(
-            process_id=d.get("process_id", ""),
+            process_id=d["process_id"],
             current_stage=d.get("current_stage", ""),
             stage_order=d.get("stage_order", []),
             envelope=envelope,
@@ -1092,7 +1089,10 @@ class KernelClient:
 
 class KernelClientError(Exception):
     """Exception raised for kernel client errors."""
-    pass
+
+    def __init__(self, message: str, code: Optional[str] = None):
+        super().__init__(message)
+        self.code = code
 
 
 __all__ = [

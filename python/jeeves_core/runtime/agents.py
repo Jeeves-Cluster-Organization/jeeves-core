@@ -95,6 +95,7 @@ class Agent:
     post_process: Optional[PostProcessHook] = None
     mock_handler: Optional[MockHandler] = None
     _last_llm_usage: Optional[Dict[str, int]] = field(default=None, init=False, repr=False)
+    _llm_calls_this_run: int = field(default=0, init=False, repr=False)
 
     @property
     def name(self) -> str:
@@ -107,6 +108,7 @@ class Agent:
         """Process envelope through this agent."""
         self.logger.info(f"{self.name}_started", envelope_id=envelope.envelope_id)
         self._last_llm_usage = None
+        self._llm_calls_this_run = 0
 
         if self.event_context:
             await self.event_context.emit_agent_started(self.name)
@@ -208,7 +210,11 @@ class Agent:
                     "tokens_in": prompt_tokens,
                     "tokens_out": completion_tokens,
                 }
+        else:
+            if usage is not None:
+                self.logger.debug("agent_usage_parse_skipped", agent=self.config.name, usage_type=type(usage).__name__)
         envelope.llm_call_count += 1
+        self._llm_calls_this_run += 1
 
         # Use JSONRepairKit for robust parsing of LLM output
         # Handles: code fences, text + embedded JSON, trailing commas, single quotes, etc.
@@ -218,18 +224,27 @@ class Agent:
         result = JSONRepairKit.parse_lenient(response)
         if result is not None:
             return result
+        self.logger.warning("agent_json_parse_failed", agent=self.config.name, envelope_id=envelope.envelope_id, response_preview=response[:200])
         return {"response": response}
 
     async def _execute_tools(self, envelope: Envelope, output: Dict[str, Any]) -> Dict[str, Any]:
         """Execute tool calls from LLM output."""
         tool_calls = output.get("tool_calls", [])
         results = []
+        denied_tools = []
 
         for call in tool_calls:
             tool_name = call.get("name")
             params = call.get("params", {})
 
             if not self._can_access_tool(tool_name):
+                self.logger.warning(
+                    "tool_access_denied",
+                    agent=self.name,
+                    tool=tool_name,
+                    envelope_id=envelope.envelope_id,
+                )
+                denied_tools.append(tool_name)
                 results.append({"tool": tool_name, "error": f"Access denied for {self.name}"})
                 continue
 
@@ -240,6 +255,12 @@ class Agent:
                 results.append({"tool": tool_name, "error": str(e)})
 
         output["tool_results"] = results
+
+        if denied_tools:
+            raise PermissionError(
+                f"Agent '{self.name}' denied access to tools: {denied_tools}"
+            )
+
         return output
 
     def _can_access_tool(self, tool_name: str) -> bool:
@@ -291,6 +312,7 @@ class Agent:
         from jeeves_core.protocols import TokenStreamMode
 
         self.logger.info(f"{self.name}_stream_started", envelope_id=envelope.envelope_id)
+        self._llm_calls_this_run = 0
 
         # Pre-process hook
         if self.pre_process:
@@ -372,6 +394,7 @@ class Agent:
                 yield chunk.text
 
         envelope.llm_call_count += 1
+        self._llm_calls_this_run += 1
 
     def _build_prompt_context(self, envelope: Envelope) -> Dict[str, Any]:
         """Build context for prompt template interpolation.
@@ -473,7 +496,15 @@ class PipelineRunner:
 
     def _build_agents(self):
         """Build agents from pipeline config."""
+        seen_output_keys: Dict[str, str] = {}
         for agent_config in self.config.agents:
+            ok = agent_config.output_key
+            if ok in seen_output_keys:
+                raise ValueError(
+                    f"Duplicate output_key '{ok}': agents '{seen_output_keys[ok]}' and "
+                    f"'{agent_config.name}' in pipeline '{self.config.name}'"
+                )
+            seen_output_keys[ok] = agent_config.name
             if agent_config.has_llm and not self.llm_factory:
                 raise ValueError(
                     f"Agent '{agent_config.name}' requires LLM but no llm_factory provided "

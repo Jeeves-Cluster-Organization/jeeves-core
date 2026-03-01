@@ -273,8 +273,12 @@ class HealthServicer:
             try:
                 await self.db.fetch_one(f"SELECT 1 FROM {table} LIMIT 1")
                 tables_ok += 1
-            except Exception:
-                pass
+            except Exception as e:
+                error_msg = str(e).lower()
+                if "no such table" in error_msg or "doesn't exist" in error_msg or "table not found" in error_msg:
+                    pass  # Expected — table not yet created
+                else:
+                    return "error"
 
         if tables_ok == tables_total:
             return "active"
