@@ -55,13 +55,6 @@ class AgentEventContext(Protocol):
 # TYPE ALIASES
 # =============================================================================
 
-# Legacy aliases for backward compatibility with external consumers
-ToolExecutor = AgentToolExecutor
-Logger = AgentLogger
-Persistence = AgentPersistence
-PromptRegistry = AgentPromptRegistry
-EventContext = AgentEventContext
-
 LLMProviderFactory = Callable[[str], LLMProviderProtocol]
 PreProcessHook = Callable[["Envelope", Optional["Agent"]], "Envelope"]
 PostProcessHook = Callable[["Envelope", Dict[str, Any], Optional["Agent"]], "Envelope"]

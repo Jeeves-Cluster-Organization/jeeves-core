@@ -9,18 +9,12 @@ Usage:
 """
 
 from jeeves_core.runtime.agents import (
-    # Agent-scoped protocols (canonical names)
+    # Agent-scoped protocols
     AgentToolExecutor,
     AgentLogger,
     AgentPersistence,
     AgentPromptRegistry,
     AgentEventContext,
-    # Legacy aliases (backward compat)
-    ToolExecutor,
-    Logger,
-    Persistence,
-    PromptRegistry,
-    EventContext,
     # Type aliases
     LLMProviderFactory,
     PreProcessHook,
@@ -36,19 +30,18 @@ from jeeves_core.runtime.agents import (
     create_envelope,
 )
 
+from jeeves_core.runtime.capability_service import (
+    CapabilityService,
+    CapabilityResult,
+)
+
 __all__ = [
-    # Agent-scoped protocols (canonical names)
+    # Agent-scoped protocols
     "AgentToolExecutor",
     "AgentLogger",
     "AgentPersistence",
     "AgentPromptRegistry",
     "AgentEventContext",
-    # Legacy aliases (backward compat)
-    "ToolExecutor",
-    "Logger",
-    "Persistence",
-    "PromptRegistry",
-    "EventContext",
     # Type aliases
     "LLMProviderFactory",
     "PreProcessHook",
@@ -59,6 +52,9 @@ __all__ = [
     "Agent",
     "PipelineRunner",
     "OptionalCheckpoint",
+    # Capability service base
+    "CapabilityService",
+    "CapabilityResult",
     # Factories
     "create_pipeline_runner",
     "create_envelope",
