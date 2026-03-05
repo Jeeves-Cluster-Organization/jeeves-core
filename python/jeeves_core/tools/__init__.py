@@ -28,6 +28,8 @@ from jeeves_core.tools.catalog import (
     ToolCatalog,
 )
 
+from jeeves_core.tools.decorator import tool
+
 
 __all__ = [
     # Classification
@@ -39,4 +41,6 @@ __all__ = [
     "ToolDefinition",
     # Catalog
     "ToolCatalog",
+    # Decorator
+    "tool",
 ]

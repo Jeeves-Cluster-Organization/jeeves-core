@@ -414,6 +414,87 @@ class PipelineConfig:
     def get_stage_order(self) -> List[str]:
         return [a.name for a in sorted(self.agents, key=lambda x: x.stage_order)]
 
+    @classmethod
+    def chain(
+        cls,
+        name: str,
+        agents: List["AgentConfig"],
+        *,
+        max_iterations: int = 3,
+        max_llm_calls: int = 10,
+        max_agent_hops: int = 21,
+        error_next: Optional[str] = None,
+        **kwargs,
+    ) -> "PipelineConfig":
+        """Build sequential pipeline with auto-wired routing.
+
+        Auto-wires:
+        - stage_order from list position
+        - default_next chains to next element, last gets None
+        - error_next global applied to all non-terminal stages
+          (only where agent.error_next is None)
+
+        Args:
+            name: Pipeline name.
+            agents: Ordered list of AgentConfig (stage_order will be overwritten).
+            max_iterations: Pipeline iteration limit.
+            max_llm_calls: LLM call limit.
+            max_agent_hops: Agent hop limit.
+            error_next: Global error_next stage (applied to all non-terminal stages
+                       where error_next is not already set).
+            **kwargs: Additional PipelineConfig fields (edge_limits, etc.).
+
+        Returns:
+            Fully wired PipelineConfig.
+        """
+        wired = []
+        for i, agent in enumerate(agents):
+            is_last = (i == len(agents) - 1)
+            next_name = None if is_last else agents[i + 1].name
+
+            # Build new agent with auto-wired fields
+            wired.append(AgentConfig(
+                name=agent.name,
+                stage_order=i,
+                requires=agent.requires,
+                join_strategy=agent.join_strategy,
+                has_llm=agent.has_llm,
+                has_tools=agent.has_tools,
+                has_policies=agent.has_policies,
+                tool_access=agent.tool_access,
+                allowed_tools=agent.allowed_tools,
+                model_role=agent.model_role,
+                prompt_key=agent.prompt_key,
+                temperature=agent.temperature,
+                max_tokens=agent.max_tokens,
+                generation=agent.generation,
+                output_key=agent.output_key,
+                required_output_fields=agent.required_output_fields,
+                output_mode=agent.output_mode,
+                token_stream=agent.token_stream,
+                streaming_prompt_key=agent.streaming_prompt_key,
+                routing_rules=agent.routing_rules,
+                default_next=agent.default_next if agent.default_next is not None else next_name,
+                error_next=(
+                    agent.error_next if agent.error_next is not None
+                    else (error_next if not is_last else None)
+                ),
+                parallel_group=agent.parallel_group,
+                max_visits=agent.max_visits,
+                pre_process=agent.pre_process,
+                post_process=agent.post_process,
+                mock_handler=agent.mock_handler,
+            ))
+
+        return cls(
+            name=name,
+            agents=wired,
+            max_iterations=max_iterations,
+            max_llm_calls=max_llm_calls,
+            max_agent_hops=max_agent_hops,
+            **kwargs,
+        )
+
 
 
 @dataclass

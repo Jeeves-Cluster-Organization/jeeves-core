@@ -210,10 +210,33 @@ class CapabilityToolCatalog:
             lines.append(f"- {entry.id}({params}): {entry.description}")
         return "\n".join(lines)
     
+    @classmethod
+    def from_decorated(cls, capability_id: str, *modules) -> "CapabilityToolCatalog":
+        """Build catalog from @tool-decorated functions in given modules.
+
+        Scans each module for functions with a _tool_meta attribute
+        (set by jeeves_core.tools.decorator.tool) and registers them.
+
+        Args:
+            capability_id: Capability identifier for the catalog.
+            *modules: Modules to scan for decorated functions.
+
+        Returns:
+            Populated CapabilityToolCatalog instance.
+        """
+        catalog = cls(capability_id)
+        for module in modules:
+            for attr_name in dir(module):
+                obj = getattr(module, attr_name)
+                meta = getattr(obj, "_tool_meta", None)
+                if meta is not None and callable(obj):
+                    catalog.register(func=obj, **meta)
+        return catalog
+
     def __len__(self) -> int:
         """Return number of registered tools."""
         return len(self._entries)
-    
+
     def __contains__(self, tool_id: str) -> bool:
         """Check if tool_id is in catalog."""
         return tool_id in self._entries
@@ -293,9 +316,9 @@ class CapabilityContractsConfig:
 
 @dataclass
 class DomainServiceConfig:
-    """Configuration for a capability service (Control Tower registration).
+    """Configuration for a capability service (kernel registration).
 
-    Services define how capabilities are registered with the Control Tower
+    Services define how capabilities are registered with the kernel
     for request dispatch and resource management.
 
     The additional metadata fields (is_readonly, requires_confirmation, etc.)
@@ -306,7 +329,7 @@ class DomainServiceConfig:
     service_type: str = "flow"  # "flow", "tool", "query"
     capabilities: List[str] = field(default_factory=list)
     max_concurrent: int = 10
-    is_default: bool = False  # If True, this is the default service for the Control Tower
+    is_default: bool = False  # If True, this is the default service for the kernel
 
     # Capability behavior metadata (enables generic mission system behavior)
     is_readonly: bool = True  # Whether this capability only reads (no modifications)
