@@ -372,7 +372,7 @@ class AgentConfig:
             d["error_next"] = self.error_next
         if self.parallel_group is not None:
             d["parallel_group"] = self.parallel_group
-            d["join_strategy"] = "WaitAll"
+            d["join_strategy"] = "WaitAll" if self.join_strategy == JoinStrategy.ALL else "WaitFirst"
         if self.max_visits is not None:
             d["max_visits"] = self.max_visits
         return d
