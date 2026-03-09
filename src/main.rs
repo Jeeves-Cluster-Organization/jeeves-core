@@ -6,10 +6,10 @@ use jeeves_core::Config;
 
 #[tokio::main]
 async fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
-    let config = Config::default();
+    let config = Config::from_env();
     jeeves_core::observability::init_tracing();
 
-    let kernel = Kernel::new();
+    let kernel = Kernel::from_config(&config);
     let addr = config.server.listen_addr.parse()?;
 
     tracing::info!("Jeeves Kernel IPC server starting on {}", addr);

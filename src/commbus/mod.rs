@@ -184,7 +184,7 @@ impl CommBus {
         for event_type in &event_types {
             self.subscribers
                 .entry(event_type.clone())
-                .or_insert_with(Vec::new)
+                .or_default()
                 .push(Subscriber {
                     id: subscriber.id.clone(),
                     event_types: subscriber.event_types.clone(),

@@ -250,7 +250,7 @@ pub fn instruction_to_value(
         interrupt: instr.interrupt.as_ref().and_then(|i| serde_json::to_value(i).ok()),
     };
 
-    serde_json::to_value(dto).expect("InstructionResponse serialization cannot fail")
+    serde_json::to_value(dto).unwrap_or_default()
 }
 
 /// Convert SessionState to the dict shape expected by `kernel_client.py._dict_to_session_state`.
@@ -272,5 +272,5 @@ pub fn session_state_to_value(state: &crate::kernel::orchestrator::SessionState)
         terminal_reason: &terminal_reason_str,
     };
 
-    serde_json::to_value(dto).expect("SessionStateResponse serialization cannot fail")
+    serde_json::to_value(dto).unwrap_or_default()
 }

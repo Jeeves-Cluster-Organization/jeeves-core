@@ -52,3 +52,18 @@ pub fn parse_optional_non_negative_i64(value: Option<&Value>, field: &str) -> Re
         }
     }
 }
+
+/// Validate that an envelope update from Python doesn't violate kernel invariants.
+pub fn validate_envelope_update(update: &Value) -> Result<()> {
+    // Python must never set terminated=true — that's kernel's authority
+    if let Some(bounds) = update.get("bounds") {
+        if let Some(terminated) = bounds.get("terminated") {
+            if terminated.as_bool() == Some(true) {
+                return Err(Error::validation(
+                    "Python worker cannot set bounds.terminated=true. Kernel is sole termination authority."
+                ));
+            }
+        }
+    }
+    Ok(())
+}

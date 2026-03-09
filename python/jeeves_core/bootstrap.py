@@ -123,6 +123,38 @@ def create_orchestration_flags_from_env() -> OrchestrationFlags:
     )
 
 
+def _validate_bootstrap_env(logger) -> None:
+    """Warn on missing configuration that will cause runtime failures."""
+    adapter = os.getenv("AIRFRAME_LLM_ADAPTER")
+    if not adapter:
+        logger.warning(
+            "bootstrap_env_missing",
+            var="AIRFRAME_LLM_ADAPTER",
+            detail="No LLM adapter configured. Set AIRFRAME_LLM_ADAPTER (openai_http|litellm|mock)",
+        )
+
+    kernel_addr = os.getenv("AIRFRAME_KERNEL_ADDRESS", DEFAULT_KERNEL_ADDRESS)
+    if ":" not in kernel_addr:
+        raise ValueError(
+            f"Invalid AIRFRAME_KERNEL_ADDRESS='{kernel_addr}'. Expected host:port format."
+        )
+
+
+def _check_kernel_reachable(host: str, port: int, logger) -> None:
+    """Quick TCP connectivity check to the kernel. Warns on failure."""
+    import socket
+    try:
+        with socket.create_connection((host, port), timeout=2):
+            pass
+    except (OSError, ConnectionRefusedError):
+        logger.warning(
+            "kernel_unreachable",
+            host=host,
+            port=port,
+            detail="Kernel not reachable at startup. It may start later.",
+        )
+
+
 def create_app_context(
     settings: Optional[Settings] = None,
     feature_flags: Optional[FeatureFlags] = None,
@@ -179,6 +211,9 @@ def create_app_context(
     from jeeves_core.logging import create_logger
     root_logger = create_logger("jeeves")
 
+    # Eager validation: warn on missing env, reject malformed kernel address
+    _validate_bootstrap_env(root_logger)
+
     # Get default service from capability registry (layer extraction support, Constitution R4)
     capability_registry = get_capability_resource_registry()
     default_service = capability_registry.get_default_service() or "jeeves"
@@ -219,6 +254,9 @@ def create_app_context(
     transport = IpcTransport(host=host or "127.0.0.1", port=int(port_str or 50051))
     kernel_client = KernelClient(transport)
     root_logger.info("kernel_client_provisioned", address=kernel_address)
+
+    # Lightweight connectivity check (non-blocking — warns on failure)
+    _check_kernel_reachable(host or "127.0.0.1", int(port_str or 50051), root_logger)
 
     # Wire state backend (sync constructors — async init deferred to gateway lifespan)
     state_backend = None

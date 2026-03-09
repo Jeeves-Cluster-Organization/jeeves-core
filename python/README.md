@@ -34,6 +34,43 @@ app_context = create_app_context()
 | `jeeves_core.protocols` | Type definitions and interfaces |
 | `jeeves_core.runtime` | Agent and pipeline execution |
 
+## Creating a Capability
+
+```python
+from jeeves_core import (
+    PipelineConfig, AgentConfig, RoutingRule,
+    DomainServiceConfig, create_app_context, CapabilityService,
+)
+from jeeves_core.protocols.routing import eq, always
+
+# 1. Define your pipeline
+config = PipelineConfig(
+    name="my_pipeline",
+    agents=[
+        AgentConfig(
+            name="understand",
+            agent="understand_agent",
+            routing=[RoutingRule(expr=always(), target="respond")],
+        ),
+        AgentConfig(
+            name="respond",
+            agent="respond_agent",
+        ),
+    ],
+)
+
+# 2. Register your capability
+service_config = DomainServiceConfig(
+    name="my_capability",
+    pipeline_configs={"default": config},
+)
+
+# 3. Bootstrap and run
+app_context = create_app_context()
+```
+
+See `jeeves_core.protocols.routing` for expression builders (`eq()`, `not_()`, `and_()`, `agent()`, `meta()`).
+
 ## License
 
 Apache License 2.0

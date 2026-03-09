@@ -120,7 +120,7 @@ pub async fn handle(kernel: &mut Kernel, method: &str, body: Value) -> Result<Di
                 _ => {}
             }
 
-            let old_state_str = serde_json::to_value(&old_state)
+            let old_state_str = serde_json::to_value(old_state)
                 .ok()
                 .and_then(|v| v.as_str().map(|s| s.to_string()))
                 .unwrap_or_else(|| format!("{:?}", old_state));
@@ -497,7 +497,7 @@ fn emit_lifecycle_event(kernel: &mut Kernel, event_type: &str, payload: Value) {
     let timestamp_ms = chrono::Utc::now().timestamp_millis();
 
     // Emit raw kernel event
-    let payload_bytes = serde_json::to_vec(&payload).expect("lifecycle event payload must be serializable");
+    let Ok(payload_bytes) = serde_json::to_vec(&payload) else { return; };
     let event = Event {
         event_type: event_type.to_string(),
         payload: payload_bytes,
@@ -514,7 +514,7 @@ fn emit_lifecycle_event(kernel: &mut Kernel, event_type: &str, payload: Value) {
             "type": frontend_type,
             "data": frontend_data,
         });
-        let frontend_bytes = serde_json::to_vec(&frontend_payload).expect("frontend event payload must be serializable");
+        let Ok(frontend_bytes) = serde_json::to_vec(&frontend_payload) else { return; };
         let frontend_event = Event {
             event_type: format!("frontend.{}", frontend_type),
             payload: frontend_bytes,
@@ -625,10 +625,10 @@ impl<'a> From<&'a crate::kernel::ProcessControlBlock> for ProcessInfoResponse<'a
 /// Convert PCB to the dict shape expected by `kernel_client.py._dict_to_process_info`.
 pub fn pcb_to_value(pcb: &crate::kernel::ProcessControlBlock) -> Value {
     serde_json::to_value(ProcessInfoResponse::from(pcb))
-        .expect("ProcessInfoResponse serialization cannot fail")
+        .unwrap_or_default()
 }
 
 /// Convert ResourceQuota to JSON value.
 fn quota_to_value(q: &ResourceQuota) -> Value {
-    serde_json::to_value(q).expect("ResourceQuota serialization cannot fail")
+    serde_json::to_value(q).unwrap_or_default()
 }

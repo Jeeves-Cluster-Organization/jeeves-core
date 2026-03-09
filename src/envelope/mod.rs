@@ -93,7 +93,7 @@ impl FlowInterrupt {
     }
 
     pub fn with_expiry(mut self, duration: std::time::Duration) -> Self {
-        self.expires_at = Some(Utc::now() + chrono::Duration::from_std(duration).expect("duration must be representable as chrono::Duration"));
+        self.expires_at = Some(Utc::now() + chrono::Duration::from_std(duration).unwrap_or(chrono::TimeDelta::MAX));
         self
     }
 }

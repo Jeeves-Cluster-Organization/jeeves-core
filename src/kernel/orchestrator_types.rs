@@ -154,6 +154,31 @@ impl PipelineConfig {
             }
         }
 
+        // Validate parallel group topology
+        let mut groups: HashMap<&str, Vec<&PipelineStage>> = HashMap::new();
+        for stage in &self.stages {
+            if let Some(ref pg) = stage.parallel_group {
+                groups.entry(pg.as_str()).or_default().push(stage);
+            }
+        }
+        for (group_name, stages) in &groups {
+            if stages.len() < 2 {
+                return Err(Error::validation(format!(
+                    "Parallel group '{}' has only {} stage(s), need at least 2",
+                    group_name, stages.len()
+                )));
+            }
+            let first_strategy = stages[0].join_strategy;
+            for s in &stages[1..] {
+                if s.join_strategy != first_strategy {
+                    return Err(Error::validation(format!(
+                        "Parallel group '{}': stage '{}' has join_strategy {:?} but '{}' has {:?}. All stages in a group must agree.",
+                        group_name, stages[0].name, first_strategy, s.name, s.join_strategy
+                    )));
+                }
+            }
+        }
+
         Ok(())
     }
 }

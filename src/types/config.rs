@@ -99,6 +99,42 @@ impl Default for DefaultLimits {
     }
 }
 
+impl Config {
+    /// Load configuration from environment variables.
+    ///
+    /// Falls back to defaults for any unset variable.
+    pub fn from_env() -> Self {
+        let mut config = Self::default();
+
+        if let Ok(addr) = std::env::var("AIRFRAME_KERNEL_ADDRESS") {
+            config.server.listen_addr = addr;
+        }
+        if let Ok(addr) = std::env::var("JEEVES_METRICS_ADDR") {
+            config.server.metrics_addr = addr;
+        }
+        if let Ok(level) = std::env::var("RUST_LOG") {
+            config.observability.log_level = level;
+        }
+        if let Ok(fmt) = std::env::var("JEEVES_LOG_FORMAT") {
+            config.observability.json_logs = fmt.eq_ignore_ascii_case("json");
+        }
+        if let Ok(ep) = std::env::var("OTEL_EXPORTER_OTLP_ENDPOINT") {
+            config.observability.otlp_endpoint = Some(ep);
+        }
+        if let Ok(v) = std::env::var("CORE_MAX_LLM_CALLS") {
+            if let Ok(n) = v.parse() { config.defaults.max_llm_calls = n; }
+        }
+        if let Ok(v) = std::env::var("CORE_MAX_ITERATIONS") {
+            if let Ok(n) = v.parse() { config.defaults.max_iterations = n; }
+        }
+        if let Ok(v) = std::env::var("CORE_MAX_AGENT_HOPS") {
+            if let Ok(n) = v.parse() { config.defaults.max_agent_hops = n; }
+        }
+
+        config
+    }
+}
+
 /// IPC transport configuration.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct IpcConfig {

@@ -16,6 +16,7 @@ use crate::envelope::{Envelope, TerminalReason};
 use crate::types::{Error, ProcessId, Result};
 use chrono::{DateTime, Utc};
 use std::collections::{HashMap, HashSet};
+use tracing::instrument;
 
 // Re-export types from split modules so existing `orchestrator::X` paths keep working.
 pub use super::orchestrator_types::*;
@@ -74,6 +75,7 @@ impl Orchestrator {
     /// Takes a mutable envelope reference to set pipeline bounds (kernel owns the envelope).
     /// If force is false and a session already exists, returns an error.
     /// If force is true, replaces any existing session.
+    #[instrument(skip(self, pipeline_config, envelope), fields(process_id = %process_id))]
     pub fn initialize_session(
         &mut self,
         process_id: ProcessId,
@@ -126,6 +128,7 @@ impl Orchestrator {
     ///
     /// Envelope is passed in by the Kernel (which owns it). The envelope may be
     /// mutated (e.g., bounds termination) — the Kernel re-stores it afterward.
+    #[instrument(skip(self, envelope), fields(process_id = %process_id))]
     pub fn get_next_instruction(
         &mut self,
         process_id: &ProcessId,
@@ -165,6 +168,7 @@ impl Orchestrator {
 
         // Check bounds
         if let Some(reason) = check_bounds(envelope) {
+            tracing::warn!(reason = ?reason, "bounds_terminated");
             session.terminated = true;
             session.terminal_reason = Some(reason);
             envelope.bounds.terminated = true;
@@ -196,6 +200,7 @@ impl Orchestrator {
             if !parallel.pending_agents.is_empty() {
                 // Parallel group started — dispatch all pending agents
                 let agents: Vec<String> = parallel.pending_agents.drain().collect();
+                tracing::info!(group = %parallel.group_name, ?agents, "parallel_fanout");
                 return Ok(Instruction {
                     kind: InstructionKind::RunAgents,
                     agents,
@@ -246,6 +251,7 @@ impl Orchestrator {
     /// 2. Evaluate routing rules (first match wins)
     /// 3. If no match AND default_next set → route to default_next
     /// 4. If no match AND no default_next → terminate (COMPLETED)
+    #[instrument(skip(self, metrics, envelope), fields(process_id = %process_id, agent_failed))]
     pub fn report_agent_result(
         &mut self,
         process_id: &ProcessId,
@@ -281,36 +287,35 @@ impl Orchestrator {
         }
 
         // ===== PARALLEL GROUP HANDLING =====
-        if session.active_parallel.is_some() {
+        // Step 1: Mark agent completed/failed (needs &mut)
+        if let Some(parallel) = session.active_parallel.as_mut() {
             let current_stage = envelope.pipeline.current_stage.clone();
             let agent_name_for_parallel = get_agent_for_stage(&session.pipeline_config, &current_stage)
                 .unwrap_or_default();
-
-            // Mark agent as completed/failed in the parallel group
-            {
-                let parallel = session.active_parallel.as_mut().unwrap();
-                parallel.pending_agents.remove(&agent_name_for_parallel);
-                if agent_failed {
-                    parallel.failed_agents.insert(
-                        agent_name_for_parallel.clone(),
-                        "agent failed".to_string(),
-                    );
-                } else {
-                    parallel.completed_agents.insert(agent_name_for_parallel.clone());
-                }
+            parallel.pending_agents.remove(&agent_name_for_parallel);
+            if agent_failed {
+                parallel.failed_agents.insert(
+                    agent_name_for_parallel.clone(),
+                    "agent failed".to_string(),
+                );
+            } else {
+                parallel.completed_agents.insert(agent_name_for_parallel.clone());
             }
+        }
 
-            // Check if join condition is met
-            let join_met = is_parallel_join_met(session.active_parallel.as_ref().unwrap());
+        // Step 2: Check join condition (needs &ref — reborrow fine after mut released)
+        let join_met = session.active_parallel.as_ref()
+            .map(is_parallel_join_met)
+            .unwrap_or(false);
 
-            if !join_met {
-                // More agents pending — wait
-                session.last_activity_at = Utc::now();
-                return Ok(());
-            }
+        if session.active_parallel.is_some() && !join_met {
+            // More agents pending — wait
+            session.last_activity_at = Utc::now();
+            return Ok(());
+        }
 
-            // Join met — resolve routing using FIRST stage in the parallel group
-            let parallel = session.active_parallel.take().unwrap();
+        // Step 3: Take ownership if join met
+        if let Some(parallel) = session.active_parallel.take() {
             envelope.pipeline.parallel_mode = false;
             envelope.pipeline.active_stages.clear();
 
@@ -493,11 +498,13 @@ impl Orchestrator {
                 }
 
                 // Normal advance to target stage
+                tracing::info!(from = %from_stage, to = %target, "stage_transition");
                 envelope.pipeline.current_stage = target;
                 session.last_activity_at = Utc::now();
             }
             None => {
                 // No routing matched, no default_next — pipeline complete (Temporal pattern)
+                tracing::info!(reason = ?TerminalReason::Completed, "pipeline_completed");
                 session.terminated = true;
                 session.terminal_reason = Some(TerminalReason::Completed);
                 envelope.bounds.terminated = true;
@@ -567,7 +574,7 @@ impl Orchestrator {
     /// Build external session state representation.
     fn build_session_state(&self, session: &PipelineSession, envelope: &Envelope) -> SessionState {
         let envelope_value = serde_json::to_value(envelope)
-            .expect("envelope must be serializable to JSON");
+            .unwrap_or_default();
 
         SessionState {
             process_id: session.process_id.clone(),

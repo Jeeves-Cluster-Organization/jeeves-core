@@ -42,3 +42,48 @@ Usage:
 """
 
 __version__ = "1.0.0"
+
+# =============================================================================
+# Top-level re-exports for capability authors
+# =============================================================================
+
+from jeeves_core.protocols import (
+    # Core types
+    PipelineConfig, AgentConfig, Envelope, RoutingRule, EdgeLimit,
+    ContextBounds, ExecutionConfig, OrchestrationFlags, GenerationParams,
+    # Enums
+    TerminalReason, JoinStrategy, AgentOutputMode, RunMode,
+    # Routing builders
+    routing,
+    # Interfaces
+    AppContextProtocol, LLMProviderProtocol, ToolRegistryProtocol,
+    # Capability registration
+    DomainServiceConfig, DomainAgentConfig,
+    CapabilityOrchestratorConfig, CapabilityToolsConfig, CapabilityPromptConfig,
+)
+from jeeves_core.runtime import (
+    Agent, PipelineRunner, create_pipeline_runner, create_envelope,
+    CapabilityService, CapabilityResult,
+)
+from jeeves_core.bootstrap import create_app_context
+
+__all__ = [
+    "__version__",
+    # Core types
+    "PipelineConfig", "AgentConfig", "Envelope", "RoutingRule", "EdgeLimit",
+    "ContextBounds", "ExecutionConfig", "OrchestrationFlags", "GenerationParams",
+    # Enums
+    "TerminalReason", "JoinStrategy", "AgentOutputMode", "RunMode",
+    # Routing builders
+    "routing",
+    # Interfaces
+    "AppContextProtocol", "LLMProviderProtocol", "ToolRegistryProtocol",
+    # Capability registration
+    "DomainServiceConfig", "DomainAgentConfig",
+    "CapabilityOrchestratorConfig", "CapabilityToolsConfig", "CapabilityPromptConfig",
+    # Runtime
+    "Agent", "PipelineRunner", "create_pipeline_runner", "create_envelope",
+    "CapabilityService", "CapabilityResult",
+    # Bootstrap
+    "create_app_context",
+]

@@ -124,12 +124,12 @@ pub fn evaluate_expr(
 
         RoutingExpr::Eq { field, value } => {
             resolve_field(field, agent_outputs, current_agent, metadata, interrupt_response)
-                .map_or(false, |v| v == *value)
+                .is_some_and(|v| v == *value)
         }
 
         RoutingExpr::Neq { field, value } => {
             resolve_field(field, agent_outputs, current_agent, metadata, interrupt_response)
-                .map_or(false, |v| v != *value)
+                .is_some_and(|v| v != *value)
         }
 
         RoutingExpr::Gt { field, value } => {
@@ -158,7 +158,7 @@ pub fn evaluate_expr(
 
         RoutingExpr::Contains { field, value } => {
             resolve_field(field, agent_outputs, current_agent, metadata, interrupt_response)
-                .map_or(false, |v| {
+                .is_some_and(|v| {
                     // String contains substring
                     if let (Some(s), Some(substr)) = (v.as_str(), value.as_str()) {
                         return s.contains(substr);
@@ -173,7 +173,7 @@ pub fn evaluate_expr(
 
         RoutingExpr::Exists { field } => {
             resolve_field(field, agent_outputs, current_agent, metadata, interrupt_response)
-                .map_or(false, |v| !v.is_null())
+                .is_some_and(|v| !v.is_null())
         }
 
         RoutingExpr::NotExists { field } => {

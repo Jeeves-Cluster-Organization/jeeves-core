@@ -38,6 +38,7 @@ pub use types::{
 
 use crate::envelope::{Envelope, FlowInterrupt, InterruptResponse};
 use crate::types::{Error, ProcessId, RequestId, Result, SessionId, UserId};
+use tracing::instrument;
 
 /// Kernel - the main orchestrator.
 ///
@@ -98,6 +99,31 @@ impl Kernel {
         }
     }
 
+    /// Create a Kernel wired from a Config struct.
+    pub fn from_config(config: &crate::Config) -> Self {
+        let default_quota = ResourceQuota {
+            max_llm_calls: config.defaults.max_llm_calls,
+            max_tool_calls: config.defaults.max_tool_calls,
+            max_agent_hops: config.defaults.max_agent_hops,
+            max_iterations: config.defaults.max_iterations,
+            timeout_seconds: config.defaults.process_timeout.as_secs() as i32,
+            ..ResourceQuota::default()
+        };
+        Self {
+            lifecycle: LifecycleManager::new(Some(default_quota)),
+            resources: ResourceTracker::new(),
+            rate_limiter: RateLimiter::default(),
+            interrupts: interrupts::InterruptService::new(),
+            services: services::ServiceRegistry::new(),
+            orchestrator: orchestrator::Orchestrator::new(),
+            commbus: crate::commbus::CommBus::new(),
+            process_envelopes: HashMap::new(),
+            tool_catalog: crate::tools::ToolCatalog::new(),
+            tool_access: crate::tools::ToolAccessPolicy::new(),
+            tool_health: crate::tools::ToolHealthTracker::default(),
+        }
+    }
+
     pub fn with_config(
         default_quota: Option<ResourceQuota>,
         rate_limit_config: Option<RateLimitConfig>,
@@ -122,6 +148,7 @@ impl Kernel {
     /// # Errors
     ///
     /// Returns error if rate limit exceeded or process submission/scheduling fails.
+    #[instrument(skip(self), fields(pid = %pid))]
     pub fn create_process(
         &mut self,
         pid: ProcessId,
@@ -408,6 +435,7 @@ impl Kernel {
     /// # Errors
     ///
     /// Returns error if session already exists (unless `force`) or config is invalid.
+    #[instrument(skip(self, pipeline_config, envelope), fields(process_id = %process_id))]
     pub fn initialize_orchestration(
         &mut self,
         process_id: ProcessId,
@@ -429,6 +457,7 @@ impl Kernel {
     /// # Errors
     ///
     /// Returns error if no orchestration session or envelope exists for this process.
+    #[instrument(skip(self), fields(process_id = %process_id))]
     pub fn get_next_instruction(
         &mut self,
         process_id: &ProcessId,
@@ -447,6 +476,7 @@ impl Kernel {
     /// # Errors
     ///
     /// Returns error if no orchestration session or envelope exists for this process.
+    #[instrument(skip(self, metrics), fields(process_id = %process_id, agent_failed))]
     pub fn report_agent_result(
         &mut self,
         process_id: &ProcessId,

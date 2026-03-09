@@ -12,8 +12,12 @@ pub type Result<T> = std::result::Result<T, Error>;
 #[derive(Error, Debug)]
 pub enum Error {
     /// Validation errors.
-    #[error("validation error: {0}")]
-    Validation(String),
+    #[error("validation error: {message}")]
+    Validation {
+        message: String,
+        #[source]
+        source: Option<Box<dyn std::error::Error + Send + Sync>>,
+    },
 
     /// Resource not found.
     #[error("not found: {0}")]
@@ -28,8 +32,12 @@ pub enum Error {
     StateTransition(String),
 
     /// Internal errors.
-    #[error("internal error: {0}")]
-    Internal(String),
+    #[error("internal error: {message}")]
+    Internal {
+        message: String,
+        #[source]
+        source: Option<Box<dyn std::error::Error + Send + Sync>>,
+    },
 
     /// Cancellation.
     #[error("operation cancelled: {0}")]
@@ -52,13 +60,13 @@ impl Error {
     /// Convert to IPC error code string for wire protocol.
     pub fn to_ipc_error_code(&self) -> &str {
         match self {
-            Error::Validation(_) => "INVALID_ARGUMENT",
+            Error::Validation { .. } => "INVALID_ARGUMENT",
             Error::NotFound(_) => "NOT_FOUND",
             Error::QuotaExceeded(_) => "RESOURCE_EXHAUSTED",
             Error::StateTransition(_) => "FAILED_PRECONDITION",
             Error::Cancelled(_) => "CANCELLED",
             Error::Timeout(_) => "TIMEOUT",
-            Error::Internal(_) | Error::Serialization(_) | Error::Io(_) => "INTERNAL",
+            Error::Internal { .. } | Error::Serialization(_) | Error::Io(_) => "INTERNAL",
         }
     }
 }
@@ -66,7 +74,14 @@ impl Error {
 // Convenience constructors
 impl Error {
     pub fn validation(msg: impl Into<String>) -> Self {
-        Self::Validation(msg.into())
+        Self::Validation { message: msg.into(), source: None }
+    }
+
+    pub fn validation_with_source(
+        msg: impl Into<String>,
+        source: impl std::error::Error + Send + Sync + 'static,
+    ) -> Self {
+        Self::Validation { message: msg.into(), source: Some(Box::new(source)) }
     }
 
     pub fn not_found(msg: impl Into<String>) -> Self {
@@ -82,7 +97,14 @@ impl Error {
     }
 
     pub fn internal(msg: impl Into<String>) -> Self {
-        Self::Internal(msg.into())
+        Self::Internal { message: msg.into(), source: None }
+    }
+
+    pub fn internal_with_source(
+        msg: impl Into<String>,
+        source: impl std::error::Error + Send + Sync + 'static,
+    ) -> Self {
+        Self::Internal { message: msg.into(), source: Some(Box::new(source)) }
     }
 
     pub fn cancelled(msg: impl Into<String>) -> Self {

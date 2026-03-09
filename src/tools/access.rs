@@ -49,7 +49,7 @@ impl ToolAccessPolicy {
     pub fn check_access(&self, agent_name: &str, tool_id: &str) -> bool {
         self.grants
             .get(agent_name)
-            .map_or(false, |set| set.contains(tool_id))
+            .is_some_and(|set| set.contains(tool_id))
     }
 
     /// Get all tool ids an agent has access to.
