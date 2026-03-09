@@ -109,10 +109,15 @@ impl Kernel {
             timeout_seconds: config.defaults.process_timeout.as_secs() as i32,
             ..ResourceQuota::default()
         };
+        let rate_limit_config = RateLimitConfig {
+            requests_per_minute: config.rate_limit.requests_per_minute,
+            requests_per_hour: config.rate_limit.requests_per_hour,
+            burst_size: config.rate_limit.burst_size,
+        };
         Self {
             lifecycle: LifecycleManager::new(Some(default_quota)),
             resources: ResourceTracker::new(),
-            rate_limiter: RateLimiter::default(),
+            rate_limiter: RateLimiter::new(Some(rate_limit_config)),
             interrupts: interrupts::InterruptService::new(),
             services: services::ServiceRegistry::new(),
             orchestrator: orchestrator::Orchestrator::new(),

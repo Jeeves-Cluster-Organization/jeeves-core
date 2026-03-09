@@ -7,15 +7,25 @@ static TRACING_INIT: OnceLock<()> = OnceLock::new();
 
 /// Initialize tracing subscriber once for the process.
 ///
-/// Log format defaults to plain text and can be switched to JSON via
-/// `JEEVES_LOG_FORMAT=json`. Filter defaults to `info` if `RUST_LOG` is unset.
+/// Reads `RUST_LOG` for filter level and `JEEVES_LOG_FORMAT` for output format.
+/// If a `Config` is available, prefer `init_tracing_from_config` which uses
+/// the config values directly (falling back to env vars).
 pub fn init_tracing() {
+    init_tracing_with("info", false);
+}
+
+/// Initialize tracing from parsed config values.
+pub fn init_tracing_from_config(config: &crate::types::ObservabilityConfig) {
+    init_tracing_with(&config.log_level, config.json_logs);
+}
+
+fn init_tracing_with(default_level: &str, json_from_config: bool) {
     TRACING_INIT.get_or_init(|| {
         let env_filter =
-            EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("info"));
+            EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new(default_level));
         let json = std::env::var("JEEVES_LOG_FORMAT")
             .map(|v| v.eq_ignore_ascii_case("json"))
-            .unwrap_or(false);
+            .unwrap_or(json_from_config);
 
         let result = if json {
             tracing_subscriber::registry()

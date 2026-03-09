@@ -7,20 +7,28 @@ The kernel provides process lifecycle, IPC, interrupt handling, and resource quo
 ## Quick Start
 
 ```bash
-# Build kernel
-cargo build --release
+# 1. Build and test the Rust kernel
+cargo build
+cargo test                          # 240+ tests
+cargo clippy -- -D warnings         # lint-clean
 
-# Run kernel (IPC on :50051)
-cargo run --release
+# 2. Run the kernel (IPC on :50051)
+cp .env.example .env                # edit for your env
+cargo run
 
-# Install Python infrastructure
+# 3. Install Python infrastructure
 cd python && pip install -e ".[dev,all]"
 
-# Run Python tests
-cd python && pytest
+# 4. Verify Python can import
+python -c "from jeeves_core import PipelineConfig, create_app_context; print('OK')"
+```
 
-# Docker (kernel + wheel)
-docker build -t jeeves-core .
+If you have [just](https://github.com/casey/just) installed:
+
+```bash
+just check     # cargo check + clippy + test
+just run       # start the kernel
+just fmt       # cargo fmt
 ```
 
 ## Repository Structure

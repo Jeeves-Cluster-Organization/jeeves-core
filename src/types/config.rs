@@ -23,6 +23,59 @@ pub struct Config {
     /// IPC transport configuration.
     #[serde(default)]
     pub ipc: IpcConfig,
+
+    /// Rate limiting configuration.
+    #[serde(default)]
+    pub rate_limit: RateLimitConfig,
+
+    /// Background cleanup configuration.
+    #[serde(default)]
+    pub cleanup: CleanupConfig,
+}
+
+/// Rate limiting configuration.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct RateLimitConfig {
+    /// Maximum requests per minute per user.
+    pub requests_per_minute: u32,
+    /// Maximum requests per hour per user.
+    pub requests_per_hour: u32,
+    /// Maximum burst size (requests per 10-second window).
+    pub burst_size: u32,
+}
+
+impl Default for RateLimitConfig {
+    fn default() -> Self {
+        Self {
+            requests_per_minute: 60,
+            requests_per_hour: 1000,
+            burst_size: 10,
+        }
+    }
+}
+
+/// Background cleanup configuration.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CleanupConfig {
+    /// How often to run cleanup in seconds.
+    pub interval_seconds: u64,
+    /// How long to keep zombie processes in seconds.
+    pub process_retention_seconds: i64,
+    /// How long to keep stale sessions in seconds.
+    pub session_retention_seconds: i64,
+    /// How long to keep resolved interrupts in seconds.
+    pub interrupt_retention_seconds: i64,
+}
+
+impl Default for CleanupConfig {
+    fn default() -> Self {
+        Self {
+            interval_seconds: 300,
+            process_retention_seconds: 86400,
+            session_retention_seconds: 3600,
+            interrupt_retention_seconds: 86400,
+        }
+    }
 }
 
 /// Server configuration.
@@ -129,6 +182,21 @@ impl Config {
         }
         if let Ok(v) = std::env::var("CORE_MAX_AGENT_HOPS") {
             if let Ok(n) = v.parse() { config.defaults.max_agent_hops = n; }
+        }
+        if let Ok(v) = std::env::var("CORE_RATE_LIMIT_RPM") {
+            if let Ok(n) = v.parse() { config.rate_limit.requests_per_minute = n; }
+        }
+        if let Ok(v) = std::env::var("CORE_RATE_LIMIT_RPH") {
+            if let Ok(n) = v.parse() { config.rate_limit.requests_per_hour = n; }
+        }
+        if let Ok(v) = std::env::var("CORE_RATE_LIMIT_BURST") {
+            if let Ok(n) = v.parse() { config.rate_limit.burst_size = n; }
+        }
+        if let Ok(v) = std::env::var("CORE_CLEANUP_INTERVAL") {
+            if let Ok(n) = v.parse() { config.cleanup.interval_seconds = n; }
+        }
+        if let Ok(v) = std::env::var("CORE_SESSION_RETENTION") {
+            if let Ok(n) = v.parse() { config.cleanup.session_retention_seconds = n; }
         }
 
         config

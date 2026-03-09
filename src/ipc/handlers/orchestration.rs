@@ -30,6 +30,7 @@ pub async fn handle(kernel: &mut Kernel, method: &str, body: Value) -> Result<Di
                 .ok_or_else(|| Error::validation("Missing field: envelope"))?;
             let envelope: Envelope = serde_json::from_value(envelope_val.clone())
                 .map_err(|e| Error::validation(format!("Invalid envelope: {}", e)))?;
+            envelope.validate()?;
 
             let force = body.get("force").and_then(|v| v.as_bool()).unwrap_or(false);
 

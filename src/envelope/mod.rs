@@ -382,6 +382,81 @@ impl Envelope {
         self.interrupts.interrupt = None;
     }
 
+    /// Validate envelope invariants.
+    ///
+    /// Called after deserialization from external input (Python IPC) to catch
+    /// malformed state before it enters the kernel.
+    pub fn validate(&self) -> crate::types::Result<()> {
+        // Identity: must be non-empty
+        if self.identity.envelope_id.as_str().is_empty() {
+            return Err(crate::types::Error::validation("envelope_id must not be empty"));
+        }
+        if self.identity.request_id.as_str().is_empty() {
+            return Err(crate::types::Error::validation("request_id must not be empty"));
+        }
+        if self.identity.user_id.as_str().is_empty() {
+            return Err(crate::types::Error::validation("user_id must not be empty"));
+        }
+        if self.identity.session_id.as_str().is_empty() {
+            return Err(crate::types::Error::validation("session_id must not be empty"));
+        }
+
+        // Bounds: terminated ↔ terminal_reason coherence
+        if self.bounds.terminated && self.bounds.terminal_reason.is_none() {
+            return Err(crate::types::Error::validation(
+                "bounds.terminated=true but bounds.terminal_reason is None",
+            ));
+        }
+        if self.bounds.terminal_reason.is_some() && !self.bounds.terminated {
+            return Err(crate::types::Error::validation(
+                "bounds.terminal_reason is set but bounds.terminated=false",
+            ));
+        }
+
+        // Bounds: non-negative counters
+        if self.bounds.llm_call_count < 0 {
+            return Err(crate::types::Error::validation("bounds.llm_call_count must be non-negative"));
+        }
+        if self.bounds.tool_call_count < 0 {
+            return Err(crate::types::Error::validation("bounds.tool_call_count must be non-negative"));
+        }
+        if self.bounds.agent_hop_count < 0 {
+            return Err(crate::types::Error::validation("bounds.agent_hop_count must be non-negative"));
+        }
+
+        // Bounds: positive maximums
+        if self.bounds.max_llm_calls <= 0 {
+            return Err(crate::types::Error::validation("bounds.max_llm_calls must be positive"));
+        }
+        if self.bounds.max_agent_hops <= 0 {
+            return Err(crate::types::Error::validation("bounds.max_agent_hops must be positive"));
+        }
+
+        // Pipeline: current_stage must be in stage_order (if stage_order is populated)
+        if !self.pipeline.stage_order.is_empty()
+            && !self.pipeline.stage_order.contains(&self.pipeline.current_stage)
+        {
+            return Err(crate::types::Error::validation(format!(
+                "pipeline.current_stage '{}' not in stage_order",
+                self.pipeline.current_stage
+            )));
+        }
+
+        // Pipeline: positive max_iterations
+        if self.pipeline.max_iterations <= 0 {
+            return Err(crate::types::Error::validation("pipeline.max_iterations must be positive"));
+        }
+
+        // Interrupt: pending ↔ interrupt coherence
+        if self.interrupts.interrupt_pending && self.interrupts.interrupt.is_none() {
+            return Err(crate::types::Error::validation(
+                "interrupts.interrupt_pending=true but interrupts.interrupt is None",
+            ));
+        }
+
+        Ok(())
+    }
+
     /// Merge key-value updates into the envelope.
     ///
     /// Supports updating well-known fields: `raw_input`, `metadata` (merged into
@@ -814,5 +889,77 @@ mod tests {
         // Bounds unchanged (merge_updates doesn't touch bounds)
         assert_eq!(env.bounds.llm_call_count, 5);
         assert_eq!(env.bounds.max_llm_calls, 10);
+    }
+
+    // ── 17. validate: valid envelope passes ───────────────────────────────
+
+    #[test]
+    fn test_validate_default_passes() {
+        let env = Envelope::new();
+        assert!(env.validate().is_ok());
+    }
+
+    // ── 18. validate: terminated coherence ────────────────────────────────
+
+    #[test]
+    fn test_validate_terminated_without_reason_fails() {
+        let mut env = Envelope::new();
+        env.bounds.terminated = true;
+        // terminal_reason is None → should fail
+        assert!(env.validate().is_err());
+    }
+
+    #[test]
+    fn test_validate_reason_without_terminated_fails() {
+        let mut env = Envelope::new();
+        env.bounds.terminal_reason = Some(TerminalReason::Completed);
+        // terminated is false → should fail
+        assert!(env.validate().is_err());
+    }
+
+    // ── 19. validate: negative counters ───────────────────────────────────
+
+    #[test]
+    fn test_validate_negative_llm_count_fails() {
+        let mut env = Envelope::new();
+        env.bounds.llm_call_count = -1;
+        assert!(env.validate().is_err());
+    }
+
+    // ── 20. validate: zero max fails ──────────────────────────────────────
+
+    #[test]
+    fn test_validate_zero_max_llm_calls_fails() {
+        let mut env = Envelope::new();
+        env.bounds.max_llm_calls = 0;
+        assert!(env.validate().is_err());
+    }
+
+    // ── 21. validate: interrupt coherence ─────────────────────────────────
+
+    #[test]
+    fn test_validate_interrupt_pending_without_interrupt_fails() {
+        let mut env = Envelope::new();
+        env.interrupts.interrupt_pending = true;
+        // interrupt is None → should fail
+        assert!(env.validate().is_err());
+    }
+
+    // ── 22. validate: pipeline stage_order ────────────────────────────────
+
+    #[test]
+    fn test_validate_current_stage_not_in_order_fails() {
+        let mut env = Envelope::new();
+        env.pipeline.stage_order = vec!["understand".to_string(), "respond".to_string()];
+        env.pipeline.current_stage = "missing_stage".to_string();
+        assert!(env.validate().is_err());
+    }
+
+    #[test]
+    fn test_validate_current_stage_in_order_passes() {
+        let mut env = Envelope::new();
+        env.pipeline.stage_order = vec!["understand".to_string(), "respond".to_string()];
+        env.pipeline.current_stage = "understand".to_string();
+        assert!(env.validate().is_ok());
     }
 }

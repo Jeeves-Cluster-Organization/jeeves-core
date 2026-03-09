@@ -9,6 +9,6 @@ mod config;
 mod errors;
 mod ids;
 
-pub use config::{Config, IpcConfig};
+pub use config::{CleanupConfig, Config, IpcConfig, ObservabilityConfig, RateLimitConfig};
 pub use errors::{Error, Result};
 pub use ids::{EnvelopeId, ProcessId, RequestId, SessionId, UserId};
