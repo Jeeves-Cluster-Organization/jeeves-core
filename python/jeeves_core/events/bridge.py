@@ -138,12 +138,15 @@ class EventBridge:
         data = event.data
 
         # Process lifecycle events
+        # NOTE: always include session_id from raw data so downstream adapters
+        # (e.g. GameEventBridgeAdapter) can route to the correct client.
         if event_type == "process.created":
             return {
                 "type": "orchestrator.started",
                 "data": {
                     "request_id": data.get("request_id"),
                     "pid": event.pid,
+                    "session_id": data.get("session_id"),
                 },
             }
 
@@ -157,6 +160,7 @@ class EventBridge:
                     "data": {
                         "request_id": event.pid,
                         "status": "completed",
+                        "session_id": data.get("session_id"),
                     },
                 }
             elif new_state == "WAITING":
@@ -170,6 +174,7 @@ class EventBridge:
                     "resource": data.get("resource"),
                     "usage": data.get("usage"),
                     "quota": data.get("quota"),
+                    "session_id": data.get("session_id"),
                 },
             }
 
@@ -179,6 +184,7 @@ class EventBridge:
                 "data": {
                     "request_id": event.pid,
                     "reason": data.get("reason"),
+                    "session_id": data.get("session_id"),
                 },
             }
 

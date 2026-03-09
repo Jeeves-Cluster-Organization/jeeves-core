@@ -186,7 +186,7 @@ impl IpcServer {
                         }
                     };
 
-                    tracing::debug!("IPC connection from {} (active={})",
+                    tracing::info!("IPC connection accepted from {} (active={})",
                         peer,
                         self.ipc_config.max_connections - conn_semaphore.available_permits(),
                     );
@@ -223,22 +223,55 @@ async fn handle_connection(
     let read_timeout = Duration::from_secs(ipc_config.read_timeout_secs);
     let write_timeout = Duration::from_secs(ipc_config.write_timeout_secs);
 
+    tracing::info!("handle_connection: starting frame read loop");
+
+    // Track whether the first frame has been received. Before the first frame,
+    // wait indefinitely (persistent connections may be idle between creation
+    // and first request). After the first frame, apply read_timeout to detect
+    // stale connections that stopped mid-conversation.
+    let mut received_first_frame = false;
+
     loop {
-        tokio::select! {
-            _ = cancel.cancelled() => break,
-            frame_result = tokio::time::timeout(read_timeout, read_frame(&mut reader, ipc_config.max_frame_bytes)) => {
+        // After the first frame, apply read timeout; before it, wait indefinitely
+        // (only cancellation token can break out).
+        let read_future = read_frame(&mut reader, ipc_config.max_frame_bytes);
+        let frame_result = if received_first_frame {
+            tokio::select! {
+                _ = cancel.cancelled() => break,
+                result = tokio::time::timeout(read_timeout, read_future) => {
+                    match result {
+                        Err(_elapsed) => {
+                            tracing::warn!("Read timeout ({}s), dropping connection", ipc_config.read_timeout_secs);
+                            break;
+                        }
+                        Ok(r) => r,
+                    }
+                }
+            }
+        } else {
+            tokio::select! {
+                _ = cancel.cancelled() => break,
+                result = read_future => result,
+            }
+        };
+
+        {
                 let frame = match frame_result {
-                    Err(_elapsed) => {
-                        tracing::debug!("Read timeout ({}s), dropping connection", ipc_config.read_timeout_secs);
+                    Ok(Some(f)) => f,
+                    Ok(None) => {
+                        tracing::info!("handle_connection: clean EOF, closing");
                         break;
                     }
-                    Ok(result) => match result? {
-                        Some(f) => f,
-                        None => break, // clean EOF
-                    },
+                    Err(e) => return Err(e),
                 };
+                received_first_frame = true;
 
                 let (msg_type, payload_bytes) = frame;
+                tracing::info!(
+                    msg_type = format!("0x{:02X}", msg_type),
+                    payload_size = payload_bytes.len(),
+                    "handle_connection: frame received"
+                );
 
                 if msg_type != MSG_REQUEST {
                     send_error(
@@ -254,8 +287,12 @@ async fn handle_connection(
 
                 // Decode msgpack request
                 let request: serde_json::Value = match rmp_serde::from_slice(&payload_bytes) {
-                    Ok(v) => v,
+                    Ok(v) => {
+                        tracing::info!("handle_connection: msgpack decode succeeded");
+                        v
+                    }
                     Err(e) => {
+                        tracing::error!("handle_connection: msgpack decode FAILED: {}", e);
                         send_error(
                             &mut writer,
                             "",
@@ -274,8 +311,20 @@ async fn handle_connection(
                     method,
                     body,
                 } = match parse_request(&request) {
-                    Ok(parsed) => parsed,
+                    Ok(parsed) => {
+                        tracing::info!(
+                            request_id = %parsed.request_id,
+                            service = %parsed.service,
+                            method = %parsed.method,
+                            "handle_connection: parse_request succeeded"
+                        );
+                        parsed
+                    }
                     Err(validation_error) => {
+                        tracing::error!(
+                            "handle_connection: parse_request FAILED: {}",
+                            validation_error.message
+                        );
                         send_error(
                             &mut writer,
                             &validation_error.request_id,
@@ -290,15 +339,22 @@ async fn handle_connection(
 
                 let (response_tx, response_rx) = oneshot::channel();
                 let command = KernelCommand {
-                    service,
-                    method,
+                    service: service.clone(),
+                    method: method.clone(),
                     body,
                     response_tx,
                 };
 
                 match kernel_tx.try_send(command) {
-                    Ok(()) => {}
+                    Ok(()) => {
+                        tracing::info!(
+                            service = %service,
+                            method = %method,
+                            "handle_connection: kernel_tx.try_send succeeded"
+                        );
+                    }
                     Err(tokio::sync::mpsc::error::TrySendError::Full(_)) => {
+                        tracing::error!("handle_connection: kernel_tx.try_send FAILED: queue full");
                         let response = serde_json::json!({
                             "id": request_id,
                             "ok": false,
@@ -313,6 +369,7 @@ async fn handle_connection(
                         continue;
                     }
                     Err(tokio::sync::mpsc::error::TrySendError::Closed(_)) => {
+                        tracing::error!("handle_connection: kernel_tx.try_send FAILED: channel closed (kernel actor dead)");
                         send_error(
                             &mut writer,
                             &request_id,
@@ -376,7 +433,6 @@ async fn handle_connection(
                         .await?;
                     }
                 }
-            }
         }
     }
 
@@ -389,6 +445,7 @@ async fn run_kernel_actor(
     cancel: CancellationToken,
     ipc_config: IpcConfig,
 ) {
+    tracing::info!("run_kernel_actor: started, waiting for commands");
     loop {
         tokio::select! {
             _ = cancel.cancelled() => {
@@ -401,6 +458,12 @@ async fn run_kernel_actor(
                     break;
                 };
 
+                tracing::info!(
+                    service = %command.service,
+                    method = %command.method,
+                    "run_kernel_actor: received command, dispatching to router"
+                );
+
                 let result = router::route_request(
                     &mut kernel,
                     &command.service,
@@ -408,6 +471,11 @@ async fn run_kernel_actor(
                     command.body,
                     &ipc_config,
                 ).await;
+
+                tracing::info!(
+                    ok = result.is_ok(),
+                    "run_kernel_actor: route_request returned"
+                );
 
                 if command.response_tx.send(result).is_err() {
                     tracing::warn!("Dropped kernel actor response: requester closed channel");
