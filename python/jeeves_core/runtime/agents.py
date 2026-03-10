@@ -15,6 +15,15 @@ from jeeves_core.protocols.interfaces import LLMProviderProtocol
 if TYPE_CHECKING:
     from jeeves_core.protocols import Envelope, AgentConfig, PipelineConfig
 
+from jeeves_core.tools.decorator import _INJECTED_DEPS
+
+
+def _inject_services(params: dict, metadata: dict) -> None:
+    """Auto-inject services from envelope.metadata into tool params."""
+    for dep in _INJECTED_DEPS:
+        if dep not in params and dep in metadata:
+            params[dep] = metadata[dep]
+
 
 # =============================================================================
 # PROTOCOLS
@@ -106,66 +115,78 @@ class Agent:
 
     async def process(self, envelope: Envelope) -> Envelope:
         """Process envelope through this agent."""
+        from contextlib import nullcontext
+        from jeeves_core.observability import get_global_otel_adapter
+
         self.logger.info(f"{self.name}_started", envelope_id=envelope.envelope_id)
         self._last_llm_usage = None
         self._llm_calls_this_run = 0
 
-        if self.event_context:
-            await self.event_context.emit_agent_started(self.name)
+        otel = get_global_otel_adapter()
+        span_ctx = otel.start_span(f"agent.{self.name}", attributes={
+            "envelope_id": envelope.envelope_id,
+            "has_llm": self.config.has_llm,
+        }) if otel and otel.enabled else nullcontext()
 
-        # Pre-process hook
-        if self.pre_process:
-            result = self.pre_process(envelope, self)
-            envelope = await result if asyncio.iscoroutine(result) else result
+        with span_ctx:
+            if self.event_context:
+                await self.event_context.emit_agent_started(self.name)
 
-        # Get output
-        if self.use_mock and self.mock_handler:
-            output = self.mock_handler(envelope)
-        elif self.config.has_llm and self.llm:
-            output = await self._call_llm(envelope)
-        else:
-            output = envelope.outputs.get(self.config.output_key, {})
+            # Pre-process hook
+            if self.pre_process:
+                result = self.pre_process(envelope, self)
+                envelope = await result if asyncio.iscoroutine(result) else result
 
-        # Tool execution
-        if self.config.has_tools and self.tools and output.get("tool_calls"):
-            output = await self._execute_tools(envelope, output)
+            # Get output
+            if self.use_mock and self.mock_handler:
+                output = self.mock_handler(envelope)
+            elif self.config.tool_dispatch == "auto":
+                output = await self._dispatch_tool(envelope)
+            elif self.config.has_llm and self.llm:
+                output = await self._call_llm(envelope)
+            else:
+                output = envelope.outputs.get(self.config.output_key, {})
 
-        # Debug log output structure for diagnostics
-        output_keys = list(output.keys()) if isinstance(output, dict) else []
-        self.logger.debug(
-            f"{self.name}_output_received",
-            envelope_id=envelope.envelope_id,
-            output_keys=output_keys,
-            output_type=type(output).__name__,
-            has_response_key="response" in output_keys,
-            has_final_response_key="final_response" in output_keys,
-        )
+            # Tool execution
+            if self.config.has_tools and self.tools and output.get("tool_calls"):
+                output = await self._execute_tools(envelope, output)
 
-        # Validate required output fields
-        if self.config.required_output_fields and isinstance(output, dict):
-            missing_fields = [f for f in self.config.required_output_fields if f not in output]
-            if missing_fields:
-                self.logger.warning(
-                    f"{self.name}_missing_required_fields",
-                    envelope_id=envelope.envelope_id,
-                    missing_fields=missing_fields,
-                    required_fields=self.config.required_output_fields,
-                    actual_fields=output_keys,
-                )
+            # Debug log output structure for diagnostics
+            output_keys = list(output.keys()) if isinstance(output, dict) else []
+            self.logger.debug(
+                f"{self.name}_output_received",
+                envelope_id=envelope.envelope_id,
+                output_keys=output_keys,
+                output_type=type(output).__name__,
+                has_response_key="response" in output_keys,
+                has_final_response_key="final_response" in output_keys,
+            )
 
-        # Post-process hook
-        if self.post_process:
-            result = self.post_process(envelope, output, self)
-            envelope = await result if asyncio.iscoroutine(result) else result
+            # Validate required output fields
+            if self.config.required_output_fields and isinstance(output, dict):
+                missing_fields = [f for f in self.config.required_output_fields if f not in output]
+                if missing_fields:
+                    self.logger.warning(
+                        f"{self.name}_missing_required_fields",
+                        envelope_id=envelope.envelope_id,
+                        missing_fields=missing_fields,
+                        required_fields=self.config.required_output_fields,
+                        actual_fields=output_keys,
+                    )
 
-        # Store output
-        envelope.outputs[self.config.output_key] = output
-        # Note: agent_hop_count and current_stage are now managed by the kernel orchestrator
+            # Post-process hook
+            if self.post_process:
+                result = self.post_process(envelope, output, self)
+                envelope = await result if asyncio.iscoroutine(result) else result
 
-        self.logger.info(f"{self.name}_completed", envelope_id=envelope.envelope_id)
+            # Store output
+            envelope.outputs[self.config.output_key] = output
+            # Note: agent_hop_count and current_stage are now managed by the kernel orchestrator
 
-        if self.event_context:
-            await self.event_context.emit_agent_completed(self.name, status="success")
+            self.logger.info(f"{self.name}_completed", envelope_id=envelope.envelope_id)
+
+            if self.event_context:
+                await self.event_context.emit_agent_completed(self.name, status="success")
 
         return envelope
 
@@ -245,6 +266,8 @@ class Agent:
                 results.append({"tool": tool_name, "error": f"Access denied for {self.name}"})
                 continue
 
+            _inject_services(params, envelope.metadata)
+
             try:
                 result = await self.tools.execute(tool_name, params)
                 results.append({"tool": tool_name, "result": result})
@@ -259,6 +282,29 @@ class Agent:
             )
 
         return output
+
+    async def _dispatch_tool(self, envelope: Envelope) -> Dict[str, Any]:
+        """Deterministic tool dispatch — framework-handled."""
+        source_key = self.config.tool_source_agent or ""
+        source = envelope.outputs.get(source_key, {})
+        if not source:
+            source = envelope.metadata  # fallback: metadata-based selection
+
+        tool_name = source.get(self.config.tool_name_field)
+        params = dict(source.get(self.config.tool_params_field, {}))
+
+        if not tool_name:
+            return {"status": "skipped", "message": "No tool selected"}
+        if not self.tools:
+            return {"status": "error", "error": f"No tool executor for {self.name}"}
+
+        _inject_services(params, envelope.metadata)
+
+        try:
+            result = await self.tools.execute(tool_name, params)
+            return {"status": "success", "tool": tool_name, "result": result}
+        except Exception as e:
+            return {"status": "error", "tool": tool_name, "error": str(e)}
 
     def _can_access_tool(self, tool_name: str) -> bool:
         """Check tool access based on config."""
@@ -497,7 +543,7 @@ class PipelineRunner:
             if agent_config.has_llm and self.llm_factory and agent_config.model_role:
                 llm = self.llm_factory(agent_config.model_role)
 
-            tools = self.tool_executor if agent_config.has_tools else None
+            tools = self.tool_executor if (agent_config.has_tools or agent_config.tool_dispatch) else None
 
             agent = Agent(
                 config=agent_config,

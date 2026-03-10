@@ -354,6 +354,11 @@ class AgentConfig:
     pre_process: Optional[Callable] = None
     post_process: Optional[Callable] = None
     mock_handler: Optional[Callable] = None
+    # Tool dispatch mode (deterministic, no LLM) — Python-only, not serialized to kernel
+    tool_dispatch: Optional[str] = None        # "auto" = framework handles dispatch
+    tool_source_agent: Optional[str] = None    # output_key of agent with tool selection
+    tool_name_field: str = "tool"              # field in source output with tool name
+    tool_params_field: str = "params"          # field in source output with params dict
 
     def __post_init__(self):
         if not self.output_key:
@@ -376,6 +381,14 @@ class AgentConfig:
         if self.max_visits is not None:
             d["max_visits"] = self.max_visits
         return d
+
+
+@dataclass
+class Edge:
+    """Directed edge in a pipeline graph."""
+    source: str
+    target: str
+    when: Optional[Dict[str, Any]] = None  # RoutingExpr dict, None = default/unconditional
 
 
 @dataclass
@@ -484,6 +497,105 @@ class PipelineConfig:
                 pre_process=agent.pre_process,
                 post_process=agent.post_process,
                 mock_handler=agent.mock_handler,
+                tool_dispatch=agent.tool_dispatch,
+                tool_source_agent=agent.tool_source_agent,
+                tool_name_field=agent.tool_name_field,
+                tool_params_field=agent.tool_params_field,
+            ))
+
+        return cls(
+            name=name,
+            agents=wired,
+            max_iterations=max_iterations,
+            max_llm_calls=max_llm_calls,
+            max_agent_hops=max_agent_hops,
+            **kwargs,
+        )
+
+    @classmethod
+    def graph(
+        cls,
+        name: str,
+        stages: Dict[str, "AgentConfig"],
+        edges: List["Edge"],
+        *,
+        error_next: Optional[str] = None,
+        max_iterations: int = 3,
+        max_llm_calls: int = 10,
+        max_agent_hops: int = 21,
+        **kwargs,
+    ) -> "PipelineConfig":
+        """Build routed pipeline from stages and edges.
+
+        Auto-wires:
+        - stage_order from dict insertion order
+        - routing_rules from conditional edges (when != None)
+        - default_next from unconditional edges (first match)
+        - error_next applied globally unless stage overrides
+        """
+        stage_names = set(stages.keys())
+
+        # Validate edge targets
+        for edge in edges:
+            if edge.source not in stage_names:
+                raise ValueError(f"Edge source '{edge.source}' not in stages")
+            if edge.target not in stage_names:
+                raise ValueError(f"Edge target '{edge.target}' not in stages")
+
+        # Collect edges per source
+        conditional: Dict[str, List[RoutingRule]] = {s: [] for s in stages}
+        unconditional: Dict[str, Optional[str]] = {s: None for s in stages}
+
+        for edge in edges:
+            if edge.when is not None:
+                conditional[edge.source].append(
+                    RoutingRule(expr=edge.when, target=edge.target)
+                )
+            else:
+                if unconditional[edge.source] is not None:
+                    raise ValueError(
+                        f"Multiple unconditional edges from '{edge.source}': "
+                        f"'{unconditional[edge.source]}' and '{edge.target}'"
+                    )
+                unconditional[edge.source] = edge.target
+
+        wired = []
+        for i, (stage_name, agent_config) in enumerate(stages.items()):
+            wired.append(AgentConfig(
+                name=agent_config.name,
+                stage_order=i,
+                requires=agent_config.requires,
+                join_strategy=agent_config.join_strategy,
+                has_llm=agent_config.has_llm,
+                has_tools=agent_config.has_tools,
+                has_policies=agent_config.has_policies,
+                tool_access=agent_config.tool_access,
+                allowed_tools=agent_config.allowed_tools,
+                model_role=agent_config.model_role,
+                prompt_key=agent_config.prompt_key,
+                temperature=agent_config.temperature,
+                max_tokens=agent_config.max_tokens,
+                generation=agent_config.generation,
+                output_key=agent_config.output_key,
+                required_output_fields=agent_config.required_output_fields,
+                output_mode=agent_config.output_mode,
+                token_stream=agent_config.token_stream,
+                streaming_prompt_key=agent_config.streaming_prompt_key,
+                routing_rules=conditional[stage_name],
+                default_next=unconditional[stage_name],
+                error_next=(
+                    agent_config.error_next if agent_config.error_next is not None
+                    else error_next
+                ),
+                parallel_group=agent_config.parallel_group,
+                max_visits=agent_config.max_visits,
+                pre_process=agent_config.pre_process,
+                post_process=agent_config.post_process,
+                mock_handler=agent_config.mock_handler,
+                tool_dispatch=agent_config.tool_dispatch,
+                tool_source_agent=agent_config.tool_source_agent,
+                tool_name_field=agent_config.tool_name_field,
+                tool_params_field=agent_config.tool_params_field,
             ))
 
         return cls(
@@ -821,6 +933,7 @@ __all__ = [
     "EdgeLimit",
     "GenerationParams",
     "AgentConfig",
+    "Edge",
     "PipelineConfig",
     "ContextBounds",
     "ExecutionConfig",

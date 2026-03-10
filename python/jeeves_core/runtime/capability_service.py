@@ -19,6 +19,7 @@ Usage:
 """
 
 import asyncio
+import time
 from dataclasses import dataclass, field
 from typing import Any, AsyncIterator, Dict, Optional, TYPE_CHECKING
 from uuid import uuid4
@@ -181,6 +182,8 @@ class CapabilityService:
         metadata: Optional[Dict[str, Any]] = None,
     ) -> CapabilityResult:
         """Process a user message through the kernel-driven pipeline."""
+        from jeeves_core.observability.metrics import orchestrator_started, orchestrator_completed
+
         await self._maybe_ensure_ready()
 
         envelope = self._build_envelope(message, user_id, session_id, metadata)
@@ -188,6 +191,9 @@ class CapabilityService:
             envelope.metadata, message, user_id, session_id,
         )
         request_id = envelope.request_id
+
+        orchestrator_started()
+        _start = time.time()
 
         try:
             result = await self._run_pipeline(envelope, thread_id=session_id)
@@ -199,8 +205,13 @@ class CapabilityService:
                     request_id=request_id,
                     error=capability_result.error,
                 )
+            orchestrator_completed(
+                "success" if capability_result.status == "success" else "error",
+                (time.time() - _start) * 1000,
+            )
             return capability_result
         except Exception as e:
+            orchestrator_completed("error", (time.time() - _start) * 1000)
             self._logger.error(
                 f"{self.capability_id}_processing_error",
                 request_id=request_id,
@@ -340,6 +351,18 @@ class CapabilityService:
             error=reason or "Pipeline failed",
             request_id=request_id,
         )
+
+    async def resume_pipeline(self, thread_id: str) -> Optional[CapabilityResult]:
+        """Resume pipeline from persisted state. Returns None if no state found."""
+        if not self._persistence:
+            return None
+        state = await self._persistence.load_state(thread_id)
+        if not state:
+            return None
+        envelope = Envelope.from_dict(state)
+        request_id = envelope.request_id
+        result = await self._run_pipeline(envelope, thread_id=thread_id)
+        return self._build_result(result, request_id)
 
     async def handle_dispatch(self, envelope: Envelope) -> Envelope:
         """Kernel dispatch handler."""

@@ -284,10 +284,10 @@ class CapabilityToolsConfig:
     
     def get_catalog(self, **kwargs) -> Optional["CapabilityToolCatalog"]:
         """Get or initialize the tool catalog.
-        
+
         Args:
             **kwargs: Arguments passed to initializer (e.g., db=connection)
-            
+
         Returns:
             CapabilityToolCatalog instance or None
         """
@@ -297,6 +297,13 @@ class CapabilityToolsConfig:
             self.catalog = self.initializer(**kwargs)
             return self.catalog
         return None
+
+    def get_tool_ids(self) -> List[str]:
+        """Get tool IDs — from explicit list or by querying catalog."""
+        if self.tool_ids:
+            return self.tool_ids
+        catalog = self.get_catalog()
+        return catalog.list_tools() if catalog else []
 
 
 @dataclass

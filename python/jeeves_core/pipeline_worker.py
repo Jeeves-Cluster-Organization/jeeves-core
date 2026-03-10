@@ -494,11 +494,44 @@ class PipelineWorker:
                 tokens_out=run_metrics.get("tokens_out"),
                 duration_ms=duration_ms,
             )
+
+            # Wire Prometheus metrics
+            from jeeves_core.observability.metrics import record_llm_call, record_llm_tokens
+            if metrics.llm_calls > 0:
+                record_llm_call(
+                    "pipeline", agent_name,
+                    "success" if success else "error",
+                    duration_ms / 1000,
+                )
+            if metrics.tokens_in and metrics.tokens_out:
+                record_llm_tokens("pipeline", agent_name, metrics.tokens_in, metrics.tokens_out)
         else:
             metrics = AgentExecutionMetrics(duration_ms=duration_ms)
 
         output = agent_output if success else None
         return envelope, success, error, output, metrics
+
+    async def resume(
+        self,
+        process_id: str,
+        pipeline_config: Dict[str, Any],
+        thread_id: str,
+    ) -> WorkerResult:
+        """Resume pipeline from persisted state."""
+        if not self._persistence:
+            raise RuntimeError("Cannot resume without persistence layer")
+        state = await self._persistence.load_state(thread_id)
+        if not state:
+            raise RuntimeError(f"No persisted state for thread {thread_id}")
+        envelope = Envelope.from_dict(state)
+        return await self.execute(
+            process_id=process_id,
+            pipeline_config=pipeline_config,
+            envelope=envelope,
+            thread_id=thread_id,
+            force=True,
+        )
+
 
 __all__ = [
     "run_kernel_loop",

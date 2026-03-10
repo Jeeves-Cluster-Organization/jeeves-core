@@ -1,0 +1,201 @@
+"""MockKernelClient — Pure-Python kernel for testing.
+
+Replicates routing + bounds logic from the Rust kernel without TCP/IPC.
+Sufficient for pipeline unit tests.
+"""
+
+from dataclasses import dataclass, field
+from typing import Any, Dict, List, Optional
+
+from jeeves_core.kernel_client import (
+    AgentExecutionMetrics,
+    OrchestratorInstruction,
+    OrchestrationSessionState,
+)
+from jeeves_core.testing.routing_eval import evaluate_routing
+
+
+@dataclass
+class _SessionState:
+    """Internal state for a mock kernel session."""
+    pipeline_config: Dict[str, Any]
+    envelope: Dict[str, Any]
+    stages: Dict[str, Dict[str, Any]]  # name -> stage dict
+    stage_order: List[str]
+    current_stage_idx: int = 0
+    iteration: int = 0
+    llm_calls: int = 0
+    agent_hops: int = 0
+    stage_visits: Dict[str, int] = field(default_factory=dict)
+    terminated: bool = False
+    terminal_reason: str = ""
+    outputs: Dict[str, Dict] = field(default_factory=dict)
+    last_agent_failed: bool = False
+    last_agent_name: str = ""
+    pending_agent: Optional[str] = None
+
+
+class MockKernelClient:
+    """Pure-Python kernel for testing — replicates routing + bounds logic."""
+
+    def __init__(self):
+        self._sessions: Dict[str, _SessionState] = {}
+
+    async def initialize_orchestration_session(
+        self,
+        process_id: str,
+        pipeline_config: Dict[str, Any],
+        envelope: Dict[str, Any],
+        force: bool = False,
+    ) -> OrchestrationSessionState:
+        if process_id in self._sessions and not force:
+            raise RuntimeError(f"Session already exists: {process_id}")
+
+        stages_list = pipeline_config.get("stages", [])
+        stages = {s["name"]: s for s in stages_list}
+        stage_order = [s["name"] for s in stages_list]
+
+        self._sessions[process_id] = _SessionState(
+            pipeline_config=pipeline_config,
+            envelope=envelope,
+            stages=stages,
+            stage_order=stage_order,
+            outputs=dict(envelope.get("outputs", {})),
+        )
+
+        return OrchestrationSessionState(
+            process_id=process_id,
+            current_stage=stage_order[0] if stage_order else "",
+            stage_order=stage_order,
+            envelope=envelope,
+        )
+
+    async def get_next_instruction(self, process_id: str) -> OrchestratorInstruction:
+        session = self._sessions.get(process_id)
+        if not session:
+            raise RuntimeError(f"No session: {process_id}")
+
+        if session.terminated:
+            return OrchestratorInstruction(
+                kind="TERMINATE",
+                terminal_reason=session.terminal_reason,
+            )
+
+        if session.pending_agent:
+            agent_name = session.pending_agent
+            session.pending_agent = None
+            return OrchestratorInstruction(
+                kind="RUN_AGENT",
+                agents=[agent_name],
+                envelope=session.envelope,
+            )
+
+        # First call — start with first stage
+        if session.iteration == 0 and session.agent_hops == 0:
+            first_stage = session.stage_order[0] if session.stage_order else None
+            if not first_stage:
+                session.terminated = True
+                session.terminal_reason = "COMPLETED"
+                return OrchestratorInstruction(kind="TERMINATE", terminal_reason="COMPLETED")
+            session.pending_agent = first_stage
+            return await self.get_next_instruction(process_id)
+
+        # Should not reach here — routing happens in report_agent_result
+        session.terminated = True
+        session.terminal_reason = "COMPLETED"
+        return OrchestratorInstruction(kind="TERMINATE", terminal_reason="COMPLETED")
+
+    async def report_agent_result(
+        self,
+        process_id: str,
+        agent_name: str,
+        output: Optional[Dict[str, Any]] = None,
+        metrics: Optional[AgentExecutionMetrics] = None,
+        success: bool = True,
+        error: str = "",
+    ) -> OrchestratorInstruction:
+        session = self._sessions.get(process_id)
+        if not session:
+            raise RuntimeError(f"No session: {process_id}")
+
+        # Store output
+        if output:
+            session.outputs[agent_name] = output
+
+        # Accumulate metrics
+        if metrics:
+            session.llm_calls += metrics.llm_calls
+        session.agent_hops += 1
+        session.iteration += 1
+
+        # Track visits
+        session.stage_visits[agent_name] = session.stage_visits.get(agent_name, 0) + 1
+        session.last_agent_failed = not success
+        session.last_agent_name = agent_name
+
+        config = session.pipeline_config
+
+        # --- Bounds checking (>= semantics, before routing) ---
+        max_iterations = config.get("max_iterations", 100)
+        if session.iteration >= max_iterations:
+            session.terminated = True
+            session.terminal_reason = "MAX_ITERATIONS_EXCEEDED"
+            return OrchestratorInstruction(kind="TERMINATE", terminal_reason="MAX_ITERATIONS_EXCEEDED")
+
+        max_llm_calls = config.get("max_llm_calls", 100)
+        if session.llm_calls >= max_llm_calls:
+            session.terminated = True
+            session.terminal_reason = "MAX_LLM_CALLS_EXCEEDED"
+            return OrchestratorInstruction(kind="TERMINATE", terminal_reason="MAX_LLM_CALLS_EXCEEDED")
+
+        max_agent_hops = config.get("max_agent_hops", 100)
+        if session.agent_hops >= max_agent_hops:
+            session.terminated = True
+            session.terminal_reason = "MAX_AGENT_HOPS_EXCEEDED"
+            return OrchestratorInstruction(kind="TERMINATE", terminal_reason="MAX_AGENT_HOPS_EXCEEDED")
+
+        # Check per-stage visit limit
+        stage = session.stages.get(agent_name, {})
+        max_visits = stage.get("max_visits")
+        if max_visits is not None and session.stage_visits[agent_name] >= max_visits:
+            session.terminated = True
+            session.terminal_reason = "MAX_STAGE_VISITS_EXCEEDED"
+            return OrchestratorInstruction(kind="TERMINATE", terminal_reason="MAX_STAGE_VISITS_EXCEEDED")
+
+        # --- Routing ---
+        # 1. Agent failed + error_next
+        if not success and stage.get("error_next"):
+            next_stage = stage["error_next"]
+            session.pending_agent = next_stage
+            return await self.get_next_instruction(process_id)
+
+        # 2. Evaluate routing rules (first match wins)
+        routing_rules = stage.get("routing", [])
+        current_output = output or {}
+        next_stage = evaluate_routing(
+            routing_rules,
+            session.outputs,
+            session.envelope.get("metadata", {}),
+            current_agent_output=current_output,
+        )
+
+        if next_stage:
+            session.pending_agent = next_stage
+            return await self.get_next_instruction(process_id)
+
+        # 3. default_next fallback
+        default_next = stage.get("default_next")
+        if default_next:
+            session.pending_agent = default_next
+            return await self.get_next_instruction(process_id)
+
+        # 4. No match + no default_next → terminate COMPLETED
+        session.terminated = True
+        session.terminal_reason = "COMPLETED"
+        return OrchestratorInstruction(kind="TERMINATE", terminal_reason="COMPLETED")
+
+    async def terminate_process(self, process_id: str, reason: str = "") -> None:
+        session = self._sessions.get(process_id)
+        if session:
+            session.terminated = True
+            session.terminal_reason = reason or "USER_CANCELLED"

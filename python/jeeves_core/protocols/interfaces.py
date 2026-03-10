@@ -357,6 +357,33 @@ class AgentLLMConfig:
     timeout_seconds: int = 120
     context_window: int = 16384
 
+    @classmethod
+    def from_env(
+        cls,
+        agent_name: str,
+        *,
+        default_model: str = "gpt-4o-mini",
+        temperature: Optional[float] = 0.3,
+        max_tokens: int = 2000,
+        context_window: int = 16384,
+        timeout_seconds: int = 120,
+    ) -> "AgentLLMConfig":
+        """Create config with model resolved from environment.
+
+        Looks up JEEVES_LLM_{AGENT_NAME}_MODEL, falling back to default_model.
+        """
+        import os
+
+        env_key = f"JEEVES_LLM_{agent_name.upper()}_MODEL"
+        return cls(
+            agent_name=agent_name,
+            model=os.getenv(env_key, default_model),
+            temperature=temperature,
+            max_tokens=max_tokens,
+            context_window=context_window,
+            timeout_seconds=timeout_seconds,
+        )
+
 
 
 # =============================================================================
