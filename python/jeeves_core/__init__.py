@@ -41,7 +41,7 @@ Usage:
     app_context = create_app_context()
 """
 
-__version__ = "1.0.0"
+__version__ = "0.0.1"
 
 # =============================================================================
 # Top-level re-exports for capability authors

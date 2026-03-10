@@ -427,6 +427,59 @@ impl Kernel {
         self.services.unregister_service(service_name)
     }
 
+    /// Get a service by name.
+    pub fn get_service(&self, name: &str) -> Option<services::ServiceInfo> {
+        self.services.get_service(name)
+    }
+
+    /// List services matching criteria.
+    pub fn list_services(
+        &self,
+        service_type: Option<&str>,
+        healthy_only: bool,
+    ) -> Vec<services::ServiceInfo> {
+        self.services.list_services(service_type, healthy_only)
+    }
+
+    /// Get all service names.
+    pub fn get_service_names(&self) -> Vec<String> {
+        self.services.get_service_names()
+    }
+
+    /// Increment load for a service.
+    pub fn increment_service_load(&mut self, name: &str) -> bool {
+        self.services.increment_load(name)
+    }
+
+    /// Decrement load for a service.
+    pub fn decrement_service_load(&mut self, name: &str) -> bool {
+        self.services.decrement_load(name)
+    }
+
+    /// Get current load for a service.
+    pub fn get_service_load(&self, name: &str) -> i32 {
+        self.services.get_load(name)
+    }
+
+    /// Update health status for a service.
+    pub fn update_service_health(
+        &mut self,
+        name: &str,
+        status: services::ServiceStatus,
+    ) -> bool {
+        self.services.update_health(name, status)
+    }
+
+    /// Get statistics for a specific service.
+    pub fn get_service_stats(&self, name: &str) -> Option<services::ServiceStats> {
+        self.services.get_service_stats(name)
+    }
+
+    /// Get overall registry statistics.
+    pub fn get_registry_stats(&self) -> services::RegistryStats {
+        self.services.get_stats()
+    }
+
     // =============================================================================
     // Orchestrator Methods (Microkernel: kernel owns envelope, orchestrator processes)
     // =============================================================================

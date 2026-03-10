@@ -160,6 +160,42 @@ class SystemStatusResult:
     commbus_active_subscribers: int = 0
 
 
+@dataclass
+class ServiceInfoResult:
+    """Service information from the registry."""
+    name: str
+    service_type: str
+    version: str = ""
+    capabilities: List[str] = field(default_factory=list)
+    max_concurrent: int = 10
+    current_load: int = 0
+    status: str = "Healthy"
+    metadata: Dict[str, Any] = field(default_factory=dict)
+
+
+@dataclass
+class ServiceStatsResult:
+    """Statistics for a specific service."""
+    name: str
+    service_type: str
+    status: str = "Healthy"
+    current_load: int = 0
+    max_concurrent: int = 10
+    utilization: float = 0.0
+
+
+@dataclass
+class RegistryStatsResult:
+    """Overall registry statistics."""
+    total_services: int = 0
+    healthy_services: int = 0
+    degraded_services: int = 0
+    unhealthy_services: int = 0
+    total_load: int = 0
+    total_capacity: int = 0
+    services_by_type: Dict[str, int] = field(default_factory=dict)
+
+
 class KernelClient:
     """Async IPC client for the Rust kernel.
 
@@ -167,6 +203,7 @@ class KernelClient:
     - KernelService: Process lifecycle and resource management
     - EngineService: Envelope operations and pipeline execution
     - OrchestrationService: Kernel-driven pipeline orchestration
+    - ServiceRegistry: Service discovery, health, and load management
 
     Usage:
         async with KernelClient.connect("localhost:50051") as client:
@@ -1003,6 +1040,164 @@ class KernelClient:
             raise KernelClientError(f"GetErrorPatterns failed: {e}", code=e.code) from e
 
     # =========================================================================
+    # Service Registry (services service)
+    # =========================================================================
+
+    async def register_service(
+        self,
+        name: str,
+        service_type: str,
+        *,
+        version: str = "",
+        capabilities: Optional[List[str]] = None,
+        max_concurrent: int = 10,
+        metadata: Optional[Dict[str, Any]] = None,
+    ) -> bool:
+        """Register a service with the kernel registry."""
+        body: Dict[str, Any] = {
+            "name": name,
+            "service_type": service_type,
+        }
+        if version:
+            body["version"] = version
+        if capabilities:
+            body["capabilities"] = capabilities
+        if max_concurrent != 10:
+            body["max_concurrent"] = max_concurrent
+        if metadata:
+            body["metadata"] = metadata
+        try:
+            response = await self._transport.request("services", "RegisterService", body)
+            return response.get("registered", False)
+        except IpcError as e:
+            raise KernelClientError(f"RegisterService failed: {e}", code=e.code) from e
+
+    async def unregister_service(self, name: str) -> bool:
+        """Unregister a service from the kernel registry."""
+        try:
+            response = await self._transport.request(
+                "services", "UnregisterService", {"name": name},
+            )
+            return response.get("unregistered", False)
+        except IpcError as e:
+            raise KernelClientError(f"UnregisterService failed: {e}", code=e.code) from e
+
+    async def get_service(self, name: str) -> Optional[ServiceInfoResult]:
+        """Get service information by name. Returns None if not found."""
+        try:
+            response = await self._transport.request(
+                "services", "GetService", {"name": name},
+            )
+            if response is None:
+                return None
+            return self._dict_to_service_info(response)
+        except IpcError as e:
+            raise KernelClientError(f"GetService failed: {e}", code=e.code) from e
+
+    async def list_services(
+        self,
+        service_type: Optional[str] = None,
+        healthy_only: bool = False,
+    ) -> List[ServiceInfoResult]:
+        """List services matching optional filters."""
+        body: Dict[str, Any] = {}
+        if service_type is not None:
+            body["service_type"] = service_type
+        if healthy_only:
+            body["healthy_only"] = True
+        try:
+            response = await self._transport.request("services", "ListServices", body)
+            return [
+                self._dict_to_service_info(s)
+                for s in response.get("services", [])
+            ]
+        except IpcError as e:
+            raise KernelClientError(f"ListServices failed: {e}", code=e.code) from e
+
+    async def get_service_names(self) -> List[str]:
+        """Get all registered service names."""
+        try:
+            response = await self._transport.request("services", "GetServiceNames", {})
+            return response.get("names", [])
+        except IpcError as e:
+            raise KernelClientError(f"GetServiceNames failed: {e}", code=e.code) from e
+
+    async def update_service_health(self, name: str, status: str) -> bool:
+        """Update health status for a service."""
+        try:
+            response = await self._transport.request(
+                "services", "UpdateHealth", {"name": name, "status": status},
+            )
+            return response.get("updated", False)
+        except IpcError as e:
+            raise KernelClientError(f"UpdateHealth failed: {e}", code=e.code) from e
+
+    async def increment_service_load(self, name: str) -> bool:
+        """Increment load for a service."""
+        try:
+            response = await self._transport.request(
+                "services", "IncrementLoad", {"name": name},
+            )
+            return response.get("success", False)
+        except IpcError as e:
+            raise KernelClientError(f"IncrementLoad failed: {e}", code=e.code) from e
+
+    async def decrement_service_load(self, name: str) -> bool:
+        """Decrement load for a service."""
+        try:
+            response = await self._transport.request(
+                "services", "DecrementLoad", {"name": name},
+            )
+            return response.get("success", False)
+        except IpcError as e:
+            raise KernelClientError(f"DecrementLoad failed: {e}", code=e.code) from e
+
+    async def get_service_load(self, name: str) -> int:
+        """Get current load for a service."""
+        try:
+            response = await self._transport.request(
+                "services", "GetLoad", {"name": name},
+            )
+            return response.get("load", 0)
+        except IpcError as e:
+            raise KernelClientError(f"GetLoad failed: {e}", code=e.code) from e
+
+    async def get_service_stats(self, name: str) -> Optional[ServiceStatsResult]:
+        """Get statistics for a specific service."""
+        try:
+            response = await self._transport.request(
+                "services", "GetServiceStats", {"name": name},
+            )
+            if response is None:
+                return None
+            return ServiceStatsResult(
+                name=response.get("name", ""),
+                service_type=response.get("service_type", ""),
+                status=response.get("status", "Healthy"),
+                current_load=response.get("current_load", 0),
+                max_concurrent=response.get("max_concurrent", 10),
+                utilization=response.get("utilization", 0.0),
+            )
+        except IpcError as e:
+            raise KernelClientError(f"GetServiceStats failed: {e}", code=e.code) from e
+
+    async def get_registry_stats(self) -> RegistryStatsResult:
+        """Get overall registry statistics."""
+        try:
+            response = await self._transport.request("services", "GetRegistryStats", {})
+            return RegistryStatsResult(
+                total_services=response.get("total_services", 0),
+                healthy_services=response.get("healthy_services", 0),
+                degraded_services=response.get("degraded_services", 0),
+                unhealthy_services=response.get("unhealthy_services", 0),
+                total_load=response.get("total_load", 0),
+                total_capacity=response.get("total_capacity", 0),
+                services_by_type=dict(response.get("services_by_type", {})),
+            )
+        except IpcError as e:
+            raise KernelClientError(f"GetRegistryStats failed: {e}", code=e.code) from e
+
+    # =========================================================================
     # Internal Helpers
     # =========================================================================
 
@@ -1072,6 +1267,19 @@ class KernelClient:
             agent_config=d.get("agent_config", {}),
         )
 
+    def _dict_to_service_info(self, d: Dict[str, Any]) -> ServiceInfoResult:
+        """Convert response dict to ServiceInfoResult."""
+        return ServiceInfoResult(
+            name=d.get("name", ""),
+            service_type=d.get("service_type", ""),
+            version=d.get("version", ""),
+            capabilities=d.get("capabilities", []),
+            max_concurrent=d.get("max_concurrent", 10),
+            current_load=d.get("current_load", 0),
+            status=d.get("status", "Healthy"),
+            metadata=d.get("metadata", {}),
+        )
+
     def _dict_to_session_state(self, d: Dict[str, Any]) -> OrchestrationSessionState:
         """Convert response dict to OrchestrationSessionState."""
         envelope = self._parse_optional_json_object(d.get("envelope"))
@@ -1105,5 +1313,8 @@ __all__ = [
     "AgentExecutionMetrics",
     "OrchestratorInstruction",
     "OrchestrationSessionState",
+    "ServiceInfoResult",
+    "ServiceStatsResult",
+    "RegistryStatsResult",
     "DEFAULT_KERNEL_ADDRESS",
 ]

@@ -10,7 +10,7 @@ strip = true
 
 [project]
 name = "jeeves-core"
-version = "1.0.1"
+version = "0.0.1"
 description = "Jeeves Core - kernel binary + Python orchestration infrastructure"
 readme = "python/README.md"
 license = "Apache-2.0"
@@ -20,7 +20,7 @@ authors = [
 ]
 keywords = ["llm", "inference", "orchestration", "ipc", "agents", "kernel"]
 classifiers = [
-    "Development Status :: 4 - Beta",
+    "Development Status :: 1 - Planning",
     "Intended Audience :: Developers",
     "License :: OSI Approved :: Apache Software License",
     "Programming Language :: Python :: 3.11",

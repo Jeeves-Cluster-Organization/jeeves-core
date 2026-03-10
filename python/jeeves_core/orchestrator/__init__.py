@@ -4,7 +4,7 @@ Provides EventOrchestrator for agent/tool lifecycle events.
 Capabilities register their orchestrators via CapabilityResourceRegistry.
 """
 
-__version__ = "0.1.0"
+__version__ = "0.0.1"
 
 # Phase 7: Unified Event Orchestrator (retained)
 from jeeves_core.orchestrator.events import (

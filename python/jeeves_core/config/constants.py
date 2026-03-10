@@ -4,9 +4,6 @@ Configuration constants for Jeeves Infrastructure.
 Centralizes operational constants. Product identity is capability-specific
 and should be queried from CapabilityResourceRegistry (Constitution R4).
 
-NOTE: LLM parameters and agent thresholds have been moved to:
-- jeeves_core/config/agent_profiles.py (AgentProfile, AgentLLMConfig, ThresholdProfile)
-- jeeves_core/thresholds.py (operational thresholds)
 """
 
 # Import operational thresholds from canonical source (Constitution)
@@ -19,7 +16,7 @@ from jeeves_core.thresholds import (
 # ==============================================================================
 
 PLATFORM_NAME = "Jeeves"
-PLATFORM_VERSION = "4.0.0"
+PLATFORM_VERSION = "0.0.1"
 PLATFORM_DESCRIPTION = "AI-powered agent platform with centralized architecture"
 
 

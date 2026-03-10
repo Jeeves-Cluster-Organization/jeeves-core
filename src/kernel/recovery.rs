@@ -45,37 +45,6 @@ where
     }
 }
 
-/// Execute an async function with panic recovery.
-///
-/// Similar to `with_recovery` but for async operations.
-pub async fn with_recovery_async<F, Fut, T>(
-    operation: F,
-    operation_name: &str,
-) -> Result<T>
-where
-    F: FnOnce() -> Fut,
-    Fut: std::future::Future<Output = Result<T>>,
-{
-    let future = operation();
-
-    match catch_unwind(AssertUnwindSafe(|| future)) {
-        Ok(fut) => fut.await,
-        Err(panic_payload) => {
-            let panic_msg = extract_panic_message(&panic_payload);
-            tracing::error!(
-                "async_panic_recovered: operation={}, panic={}",
-                operation_name,
-                panic_msg
-            );
-
-            Err(Error::internal(format!(
-                "Async panic in {}: {}",
-                operation_name, panic_msg
-            )))
-        }
-    }
-}
-
 /// Extract panic message from panic payload.
 fn extract_panic_message(payload: &Box<dyn std::any::Any + Send>) -> String {
     if let Some(s) = payload.downcast_ref::<&str>() {
@@ -182,24 +151,6 @@ mod tests {
             }
             Ok(_) => panic!("Expected panic"),
         }
-    }
-
-    #[tokio::test]
-    async fn test_with_recovery_async_success() {
-        let result = with_recovery_async(|| async { Ok(42) }, "async_test").await;
-        assert!(result.is_ok());
-        assert_eq!(result.unwrap(), 42);
-    }
-
-    #[tokio::test]
-    async fn test_with_recovery_async_error() {
-        let result: Result<()> = with_recovery_async(
-            || async { Err(Error::validation("async error".to_string())) },
-            "async_test",
-        )
-        .await;
-
-        assert!(result.is_err());
     }
 
     #[test]

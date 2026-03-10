@@ -57,7 +57,7 @@ impl ServiceInfo {
         Self {
             name,
             service_type,
-            version: "1.0.0".to_string(),
+            version: "0.0.1".to_string(),
             capabilities: Vec::new(),
             max_concurrent: 10,
             current_load: 0,

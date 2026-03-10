@@ -5,10 +5,8 @@ Config ownership map:
   feature_flags.py  — runtime feature toggles from env vars (tracing, distributed mode)
   constants.py      — static operational constants (timeouts, limits, fuzzy weights)
   thresholds.py     — governance thresholds (risk levels, token budgets, rate limits)
-  agent_profiles.py — generic agent LLM/threshold/latency profiles
   registry.py       — ConfigRegistry for runtime config lookup
 
-Capability-specific agent profiles have been moved to capability layer.
 """
 
 from jeeves_core.config.constants import (
@@ -36,16 +34,6 @@ from jeeves_core.config.constants import (
     RETRY_INITIAL_DELAY,
     # Response Limits
     VALIDATOR_RESPONSE_WORD_LIMIT,
-)
-
-from jeeves_core.config.agent_profiles import (
-    AgentLLMConfig,
-    ThresholdProfile,
-    AgentProfile,
-    get_agent_profile,
-    get_llm_profile,
-    get_thresholds,
-    get_latency_budget,
 )
 
 from jeeves_core.config.registry import (
@@ -78,14 +66,6 @@ __all__ = [
     "RETRY_INITIAL_DELAY",
     # Response Limits
     "VALIDATOR_RESPONSE_WORD_LIMIT",
-    # Agent Profile Types (generic)
-    "AgentLLMConfig",
-    "ThresholdProfile",
-    "AgentProfile",
-    "get_agent_profile",
-    "get_llm_profile",
-    "get_thresholds",
-    "get_latency_budget",
     # Config Registry
     "ConfigRegistry",
     "ConfigKeys",

@@ -204,11 +204,6 @@ impl ToolHealthTracker {
         }
     }
 
-    /// Register tool names for dashboard display.
-    pub fn set_registered_tools(&mut self, tool_names: Vec<String>) {
-        self.registered_tools = tool_names;
-    }
-
     /// Record a tool execution.
     pub fn record_execution(
         &mut self,
@@ -389,10 +384,6 @@ impl ToolHealthTracker {
             .unwrap_or_default()
     }
 
-    /// Number of tracked tools.
-    pub fn tool_count(&self) -> usize {
-        self.metrics.len()
-    }
 }
 
 impl Default for ToolHealthTracker {
@@ -545,22 +536,6 @@ mod tests {
         }
         let report = tracker.check_tool_health("search_web");
         assert!((report.success_rate - 1.0).abs() < f64::EPSILON);
-    }
-
-    #[test]
-    fn test_system_health_report() {
-        let mut tracker = default_tracker();
-        tracker.set_registered_tools(vec!["tool_a".into(), "tool_b".into()]);
-
-        for _ in 0..5 {
-            tracker.record_execution("tool_a", true, 100, None);
-        }
-        // tool_b has no executions
-
-        let report = tracker.check_system_health();
-        assert_eq!(report.tool_reports.len(), 2);
-        assert_eq!(report.summary.healthy, 1);
-        assert_eq!(report.summary.unknown, 1);
     }
 
     #[test]
