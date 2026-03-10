@@ -95,6 +95,23 @@ impl PipelineConfig {
             return Err(Error::validation("Pipeline must have at least one stage"));
         }
 
+        // Validate bounds are positive (fail fast on pipeline-level config)
+        if self.max_iterations <= 0 {
+            return Err(Error::validation(format!(
+                "max_iterations must be > 0, got {}", self.max_iterations
+            )));
+        }
+        if self.max_llm_calls <= 0 {
+            return Err(Error::validation(format!(
+                "max_llm_calls must be > 0, got {}", self.max_llm_calls
+            )));
+        }
+        if self.max_agent_hops <= 0 {
+            return Err(Error::validation(format!(
+                "max_agent_hops must be > 0, got {}", self.max_agent_hops
+            )));
+        }
+
         let stage_names: HashSet<&str> =
             self.stages.iter().map(|s| s.name.as_str()).collect();
 
@@ -150,6 +167,12 @@ impl PipelineConfig {
             if !stage_names.contains(limit.to_stage.as_str()) {
                 return Err(Error::validation(format!(
                     "Edge limit to_stage '{}' does not exist", limit.to_stage
+                )));
+            }
+            if limit.max_count <= 0 {
+                return Err(Error::validation(format!(
+                    "Edge limit {}->{} has max_count {} which must be > 0",
+                    limit.from_stage, limit.to_stage, limit.max_count
                 )));
             }
         }

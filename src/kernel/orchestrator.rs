@@ -1065,6 +1065,86 @@ mod tests {
         assert!(pipeline.validate().is_err());
     }
 
+    #[test]
+    fn test_validation_zero_max_iterations_rejected() {
+        let pipeline = PipelineConfig {
+            name: "test".to_string(),
+            stages: vec![stage("s1", "a1", vec![], None)],
+            max_iterations: 0,
+            max_llm_calls: 10,
+            max_agent_hops: 10,
+            edge_limits: vec![],
+            step_limit: None,
+        };
+        assert!(pipeline.validate().is_err());
+    }
+
+    #[test]
+    fn test_validation_negative_bounds_rejected() {
+        // Negative values can arrive via JSON deserialization — verify <= 0 catches them
+        for (iterations, llm, hops) in [(-1, 10, 10), (10, -5, 10), (10, 10, -3)] {
+            let pipeline = PipelineConfig {
+                name: "test".to_string(),
+                stages: vec![stage("s1", "a1", vec![], None)],
+                max_iterations: iterations,
+                max_llm_calls: llm,
+                max_agent_hops: hops,
+                edge_limits: vec![],
+                step_limit: None,
+            };
+            assert!(pipeline.validate().is_err(), "Expected error for ({}, {}, {})", iterations, llm, hops);
+        }
+    }
+
+    #[test]
+    fn test_validation_zero_max_llm_calls_rejected() {
+        let pipeline = PipelineConfig {
+            name: "test".to_string(),
+            stages: vec![stage("s1", "a1", vec![], None)],
+            max_iterations: 10,
+            max_llm_calls: 0,
+            max_agent_hops: 10,
+            edge_limits: vec![],
+            step_limit: None,
+        };
+        assert!(pipeline.validate().is_err());
+    }
+
+    #[test]
+    fn test_validation_zero_max_agent_hops_rejected() {
+        let pipeline = PipelineConfig {
+            name: "test".to_string(),
+            stages: vec![stage("s1", "a1", vec![], None)],
+            max_iterations: 10,
+            max_llm_calls: 10,
+            max_agent_hops: 0,
+            edge_limits: vec![],
+            step_limit: None,
+        };
+        assert!(pipeline.validate().is_err());
+    }
+
+    #[test]
+    fn test_validation_zero_edge_limit_max_count_rejected() {
+        let pipeline = PipelineConfig {
+            name: "test".to_string(),
+            stages: vec![
+                stage("s1", "a1", vec![always_to("s2")], None),
+                stage("s2", "a2", vec![], None),
+            ],
+            max_iterations: 10,
+            max_llm_calls: 10,
+            max_agent_hops: 10,
+            edge_limits: vec![EdgeLimit {
+                from_stage: "s1".to_string(),
+                to_stage: "s2".to_string(),
+                max_count: 0,
+            }],
+            step_limit: None,
+        };
+        assert!(pipeline.validate().is_err());
+    }
+
     // =========================================================================
     // Routing — integrated tests
     // =========================================================================
