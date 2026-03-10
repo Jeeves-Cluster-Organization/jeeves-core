@@ -30,9 +30,12 @@ Constitutional Alignment:
 - No backward compat: one path, no dual fields, no shims
 """
 
+import logging
 import os
+from importlib.metadata import entry_points as _entry_points
 from typing import Any, Callable, Dict, List, Optional
 
+from jeeves_core.logging import create_logger
 from jeeves_core.protocols import (
     get_capability_resource_registry,
     DomainServiceConfig,
@@ -44,6 +47,116 @@ from jeeves_core.protocols import (
     PipelineConfig,
 )
 
+logger = logging.getLogger("jeeves_core.capability_wiring")
+
+
+# =============================================================================
+# PYTHON-ONLY VALIDATION
+# =============================================================================
+
+def _validate_pipeline_config(pipeline_config: PipelineConfig) -> None:
+    """Validate Python-only pipeline config fields at registration time.
+
+    Kernel-side validation (routing targets, parallel groups, bounds) is
+    handled by Rust PipelineConfig::validate(). This checks only fields
+    that stay in Python and never cross IPC.
+    """
+    errors = []
+
+    # 1. Tool dispatch consistency (Python-only dispatch, not in Rust)
+    for agent in pipeline_config.agents:
+        if agent.tool_dispatch and not agent.tool_source_agent:
+            errors.append(
+                f"Stage '{agent.name}': tool_dispatch='{agent.tool_dispatch}' "
+                f"requires tool_source_agent"
+            )
+        if agent.tool_source_agent:
+            all_output_keys = {a.output_key for a in pipeline_config.agents}
+            if agent.tool_source_agent not in all_output_keys:
+                errors.append(
+                    f"Stage '{agent.name}': tool_source_agent='{agent.tool_source_agent}' "
+                    f"not found in output_keys {sorted(all_output_keys)}"
+                )
+
+    if errors:
+        raise ValueError(
+            f"Pipeline '{pipeline_config.name}' validation failed:\n"
+            + "\n".join(f"  - {e}" for e in errors)
+        )
+
+    # 2. Warnings (non-fatal, logged)
+    seen_keys: set[str] = set()
+    for agent in pipeline_config.agents:
+        if agent.output_key in seen_keys:
+            logger.warning(
+                "Stage '%s': duplicate output_key '%s' — "
+                "ensure these stages are mutually exclusive (conditional routing), "
+                "not concurrent. Concurrent writers to the same envelope slot "
+                "cause data races.",
+                agent.name, agent.output_key,
+            )
+        seen_keys.add(agent.output_key)
+
+    for agent in pipeline_config.agents:
+        if agent.has_llm and not agent.prompt_key:
+            logger.warning(
+                "Stage '%s': has_llm=True but no prompt_key — "
+                "agent will receive no system prompt",
+                agent.name,
+            )
+
+
+# =============================================================================
+# CONVENIENCE DEFAULTS
+# =============================================================================
+
+def _default_agent_metadata(pipeline_config: PipelineConfig) -> list[DomainAgentConfig]:
+    """Generate minimal governance metadata from pipeline stages.
+
+    Returns basic DomainAgentConfig entries with neutral defaults.
+    Capabilities wanting descriptions, layer semantics, or tool lists
+    should pass agents= explicitly to register_capability().
+    """
+    return [
+        DomainAgentConfig(
+            name=ac.name,
+            description=ac.name,
+            layer="agent",
+            tools=sorted(ac.allowed_tools) if ac.allowed_tools else [],
+        )
+        for ac in pipeline_config.agents
+    ]
+
+
+def _default_llm_configs(pipeline_config: PipelineConfig) -> dict[str, AgentLLMConfig]:
+    """Generate default LLM configs from pipeline agent configs.
+
+    Uses AgentLLMConfig.from_env() for LLM agents (reads model from env),
+    and a null config for non-LLM agents.
+    """
+    configs: dict[str, AgentLLMConfig] = {}
+    for ac in pipeline_config.agents:
+        if ac.has_llm:
+            configs[ac.name] = AgentLLMConfig.from_env(
+                ac.name,
+                temperature=ac.temperature or 0.3,
+                max_tokens=ac.max_tokens or 2000,
+            )
+        else:
+            configs[ac.name] = AgentLLMConfig(
+                agent_name=ac.name,
+                model="",
+                temperature=0.0,
+                max_tokens=0,
+                context_window=0,
+                timeout_seconds=60,
+            )
+    return configs
+
+
+# =============================================================================
+# REGISTRATION
+# =============================================================================
 
 def register_capability(
     capability_id: str,
@@ -83,14 +196,29 @@ def register_capability(
         create_from_app_context factory if service_class provided, else None.
 
     Raises:
-        ValueError: If both orchestrator_config and service_class are provided.
+        ValueError: If both orchestrator_config and service_class are provided,
+                    or if pipeline validation fails.
     """
     if orchestrator_config is not None and service_class is not None:
         raise ValueError(
-            "Cannot provide both orchestrator_config and service_class. "
-            "Use orchestrator_config for custom factories, or "
-            "service_class + pipeline_config for CapabilityService subclasses."
+            f"Capability '{capability_id}': cannot provide both orchestrator_config "
+            f"and service_class. Use orchestrator_config for custom factories, or "
+            f"service_class + pipeline_config for CapabilityService subclasses."
         )
+
+    # Validate Python-only fields before any registry calls
+    if pipeline_config is not None:
+        _validate_pipeline_config(pipeline_config)
+
+    # Apply convenience defaults
+    if not service_config.pipeline_stages and pipeline_config is not None:
+        service_config.pipeline_stages = [a.name for a in pipeline_config.agents]
+
+    if agents is None and pipeline_config is not None:
+        agents = _default_agent_metadata(pipeline_config)
+
+    if agent_llm_configs is None and pipeline_config is not None:
+        agent_llm_configs = _default_llm_configs(pipeline_config)
 
     registry = get_capability_resource_registry()
 
@@ -197,6 +325,10 @@ def get_agent_config(capability_id: str, agent_name: str) -> AgentLLMConfig:
     return config
 
 
+# =============================================================================
+# DISCOVERY
+# =============================================================================
+
 def _discover_capabilities() -> List[str]:
     """Discover capabilities from environment or entry points.
 
@@ -212,6 +344,30 @@ def _discover_capabilities() -> List[str]:
     return []
 
 
+def _discover_entry_points() -> list[tuple[str, Callable]]:
+    """Discover capabilities via jeeves_core.capabilities entry points.
+
+    Entry points are defined in pyproject.toml as:
+        [project.entry-points."jeeves_core.capabilities"]
+        hello_world = "jeeves_capability_hello_world.capability.wiring:register_capability"
+
+    Returns:
+        List of (name, callable) tuples.
+    """
+    eps = list(_entry_points(group="jeeves_core.capabilities"))
+    result = []
+    for ep in eps:
+        try:
+            func = ep.load()
+            result.append((ep.name, func))
+        except Exception:
+            logger.exception(
+                "Failed to load entry point '%s' (%s)",
+                ep.name, ep.value,
+            )
+    return result
+
+
 def _try_import_capability(module_path: str) -> bool:
     """Try to import and register a capability module.
 
@@ -225,12 +381,16 @@ def _try_import_capability(module_path: str) -> bool:
     if "." not in module_path:
         raise ValueError(
             f"Capability module path must be dotted (got {module_path!r}). "
-            f"Example: 'game_capability.wiring'"
+            f"Example: 'my_capability.wiring' or 'my_capability.capability.wiring'"
         )
     try:
         __import__(module_path)
         return True
     except ImportError:
+        logger.exception(
+            "Failed to import capability module '%s'",
+            module_path,
+        )
         return False
 
 
@@ -240,38 +400,67 @@ def wire_capabilities() -> None:
     Call this during application startup before the API server
     queries the registry.
 
-    Discovery: AIRFRAME_CAPABILITIES environment variable (comma-separated module paths).
-    Fails loud if no capabilities are discovered.
+    Discovery (in order):
+    1. AIRFRAME_CAPABILITIES env var (comma-separated dotted module paths, import-based)
+    2. jeeves_core.capabilities entry points (callable-based, module:register_func)
+
+    At least one mechanism must succeed.
     """
-    discovered = _discover_capabilities()
     registered = []
 
+    # 1. AIRFRAME_CAPABILITIES env var (import-based)
+    discovered = _discover_capabilities()
     for module_path in discovered:
         if _try_import_capability(module_path):
             registered.append(module_path)
 
+    # 2. Entry points (callable-based)
+    entry_points_found = _discover_entry_points()
+    for ep_name, register_fn in entry_points_found:
+        try:
+            register_fn()
+            registered.append(f"entry_point:{ep_name}")
+        except Exception:
+            logger.exception(
+                "Entry point '%s' register function failed",
+                ep_name,
+            )
+
     if not registered:
-        raise RuntimeError(
-            "No capabilities registered. Set AIRFRAME_CAPABILITIES env var "
-            "to a comma-separated list of capability wiring module paths."
-        )
+        # Build a helpful error message
+        if discovered and not entry_points_found:
+            msg = (
+                f"No capabilities registered. "
+                f"AIRFRAME_CAPABILITIES listed {discovered} but none imported successfully. "
+                f"Check module paths and installed packages."
+            )
+        elif not discovered and not entry_points_found:
+            msg = (
+                "No capabilities discovered. Set AIRFRAME_CAPABILITIES env var "
+                "to a comma-separated list of capability wiring module paths, "
+                "or install packages with jeeves_core.capabilities entry points."
+            )
+        else:
+            msg = (
+                f"No capabilities registered. "
+                f"Discovered {len(discovered)} env modules and "
+                f"{len(entry_points_found)} entry points, but all failed."
+            )
+        raise RuntimeError(msg)
 
     # Log registration
     registry = get_capability_resource_registry()
     capabilities = registry.list_capabilities()
 
-    try:
-        from jeeves_core.logging import create_logger
-        logger = create_logger("capability_wiring")
-        logger.info(
-            "capabilities_wired",
-            discovered=discovered,
-            registered=registered,
-            capabilities=capabilities,
-            default_service=registry.get_default_service(),
-        )
-    except ImportError:
-        pass
+    _wire_logger = create_logger("capability_wiring")
+    _wire_logger.info(
+        "capabilities_wired",
+        discovered_env=discovered,
+        discovered_entry_points=[name for name, _ in entry_points_found],
+        registered=registered,
+        capabilities=capabilities,
+        default_service=registry.get_default_service(),
+    )
 
 
 def wire_infra_routers(app_context) -> None:

@@ -115,7 +115,8 @@ def tool(description: str, category: str, risk: str) -> Callable:
     parts = risk.split("/", 1)
     if len(parts) != 2:
         raise ValueError(
-            f"risk must be 'semantic/severity' format, got: {risk!r}"
+            f"risk must be 'semantic/severity' format, got: {risk!r}. "
+            f"Examples: 'read_only/low', 'write/low', 'write/high', 'delete/high'"
         )
     risk_semantic, risk_severity = parts
 

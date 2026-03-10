@@ -383,6 +383,79 @@ class AgentConfig:
         return d
 
 
+def stage(
+    name: str,
+    *,
+    prompt_key: str | None = None,
+    output_key: str | None = None,
+    required_output_fields: list[str] | None = None,
+    model_role: str | None = None,
+    temperature: float | None = None,
+    max_tokens: int | None = None,
+    generation: GenerationParams | None = None,
+    tools: bool = False,
+    tool_dispatch: str | None = None,
+    tool_source_agent: str | None = None,
+    tool_name_field: str = "tool",
+    tool_params_field: str = "params",
+    routing_rules: list[RoutingRule] | None = None,
+    default_next: str | None = None,
+    error_next: str | None = None,
+    parallel_group: str | None = None,
+    join_strategy: JoinStrategy = JoinStrategy.ALL,
+    max_visits: int | None = None,
+    pre_process: Callable | None = None,
+    post_process: Callable | None = None,
+    mock_handler: Callable | None = None,
+    output_mode: AgentOutputMode = AgentOutputMode.STRUCTURED,
+    token_stream: TokenStreamMode = TokenStreamMode.OFF,
+    streaming_prompt_key: str | None = None,
+    allowed_tools: Set[str] | None = None,
+) -> AgentConfig:
+    """Shorthand for AgentConfig with inference.
+
+    Infers:
+    - has_llm=True if prompt_key is set
+    - has_tools=True if tools=True or tool_dispatch is set
+    - output_key defaults to name
+    - model_role defaults to name when has_llm and no explicit model_role
+    """
+    has_llm = prompt_key is not None
+    has_tools = tools or tool_dispatch is not None
+    tool_access = ToolAccess.ALL if has_tools else ToolAccess.NONE
+
+    return AgentConfig(
+        name=name,
+        has_llm=has_llm,
+        has_tools=has_tools,
+        tool_access=tool_access,
+        model_role=model_role or (name if has_llm else None),
+        prompt_key=prompt_key,
+        output_key=output_key or name,
+        required_output_fields=required_output_fields or [],
+        temperature=temperature,
+        max_tokens=max_tokens,
+        generation=generation,
+        routing_rules=routing_rules or [],
+        default_next=default_next,
+        error_next=error_next,
+        parallel_group=parallel_group,
+        join_strategy=join_strategy,
+        max_visits=max_visits,
+        pre_process=pre_process,
+        post_process=post_process,
+        mock_handler=mock_handler,
+        output_mode=output_mode,
+        token_stream=token_stream,
+        streaming_prompt_key=streaming_prompt_key,
+        tool_dispatch=tool_dispatch,
+        tool_source_agent=tool_source_agent,
+        tool_name_field=tool_name_field,
+        tool_params_field=tool_params_field,
+        allowed_tools=allowed_tools,
+    )
+
+
 @dataclass
 class Edge:
     """Directed edge in a pipeline graph."""
@@ -933,6 +1006,7 @@ __all__ = [
     "EdgeLimit",
     "GenerationParams",
     "AgentConfig",
+    "stage",
     "Edge",
     "PipelineConfig",
     "ContextBounds",
