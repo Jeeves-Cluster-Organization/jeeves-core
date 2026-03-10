@@ -67,3 +67,148 @@ pub fn validate_envelope_update(update: &Value) -> Result<()> {
     }
     Ok(())
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::envelope::TerminalReason;
+
+    // ── parse_enum ──────────────────────────────────────────────────────
+
+    #[test]
+    fn test_parse_enum_valid_terminal_reason() {
+        let result: TerminalReason = parse_enum("COMPLETED", "terminal_reason").unwrap();
+        assert_eq!(result, TerminalReason::Completed);
+    }
+
+    #[test]
+    fn test_parse_enum_invalid_string() {
+        let result = parse_enum::<TerminalReason>("NOT_A_REASON", "terminal_reason");
+        assert!(result.is_err());
+        assert!(result.unwrap_err().to_string().contains("invalid terminal_reason"));
+    }
+
+    #[test]
+    fn test_parse_enum_empty_string() {
+        let result = parse_enum::<TerminalReason>("", "terminal_reason");
+        assert!(result.is_err());
+    }
+
+    // ── safe_i64_to_i32 ────────────────────────────────────────────────
+
+    #[test]
+    fn test_safe_i64_to_i32_normal() {
+        assert_eq!(safe_i64_to_i32(42, "field").unwrap(), 42);
+    }
+
+    #[test]
+    fn test_safe_i64_to_i32_at_max() {
+        assert_eq!(safe_i64_to_i32(i32::MAX as i64, "field").unwrap(), i32::MAX);
+    }
+
+    #[test]
+    fn test_safe_i64_to_i32_overflow() {
+        let result = safe_i64_to_i32(i32::MAX as i64 + 1, "field");
+        assert!(result.is_err());
+        assert!(result.unwrap_err().to_string().contains("exceeds i32 range"));
+    }
+
+    #[test]
+    fn test_safe_i64_to_i32_i64_max() {
+        let result = safe_i64_to_i32(i64::MAX, "field");
+        assert!(result.is_err());
+    }
+
+    // ── require_non_negative_i64 ────────────────────────────────────────
+
+    #[test]
+    fn test_require_non_negative_i64_zero() {
+        assert_eq!(require_non_negative_i64(0, "field").unwrap(), 0);
+    }
+
+    #[test]
+    fn test_require_non_negative_i64_positive() {
+        assert_eq!(require_non_negative_i64(1, "field").unwrap(), 1);
+    }
+
+    #[test]
+    fn test_require_non_negative_i64_negative() {
+        let result = require_non_negative_i64(-1, "field");
+        assert!(result.is_err());
+        assert!(result.unwrap_err().to_string().contains("non-negative"));
+    }
+
+    // ── parse_non_negative_i32 ──────────────────────────────────────────
+
+    #[test]
+    fn test_parse_non_negative_i32_zero() {
+        assert_eq!(parse_non_negative_i32(0, "field").unwrap(), 0);
+    }
+
+    #[test]
+    fn test_parse_non_negative_i32_valid() {
+        assert_eq!(parse_non_negative_i32(5, "field").unwrap(), 5);
+    }
+
+    #[test]
+    fn test_parse_non_negative_i32_negative() {
+        let result = parse_non_negative_i32(-1, "field");
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_parse_non_negative_i32_overflow() {
+        let result = parse_non_negative_i32(i32::MAX as i64 + 1, "field");
+        assert!(result.is_err());
+    }
+
+    // ── parse_optional_non_negative_i64 ─────────────────────────────────
+
+    #[test]
+    fn test_parse_optional_non_negative_i64_none() {
+        assert_eq!(parse_optional_non_negative_i64(None, "field").unwrap(), None);
+    }
+
+    #[test]
+    fn test_parse_optional_non_negative_i64_valid() {
+        let val = Value::from(5);
+        assert_eq!(parse_optional_non_negative_i64(Some(&val), "field").unwrap(), Some(5));
+    }
+
+    #[test]
+    fn test_parse_optional_non_negative_i64_negative() {
+        let val = Value::from(-1);
+        let result = parse_optional_non_negative_i64(Some(&val), "field");
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_parse_optional_non_negative_i64_non_integer() {
+        let val = Value::String("not_a_number".to_string());
+        let result = parse_optional_non_negative_i64(Some(&val), "field");
+        assert!(result.is_err());
+        assert!(result.unwrap_err().to_string().contains("must be an integer"));
+    }
+
+    // ── validate_envelope_update ────────────────────────────────────────
+
+    #[test]
+    fn test_validate_envelope_update_no_bounds() {
+        let update = serde_json::json!({"raw_input": "hello"});
+        assert!(validate_envelope_update(&update).is_ok());
+    }
+
+    #[test]
+    fn test_validate_envelope_update_terminated_false_ok() {
+        let update = serde_json::json!({"bounds": {"terminated": false}});
+        assert!(validate_envelope_update(&update).is_ok());
+    }
+
+    #[test]
+    fn test_validate_envelope_update_terminated_true_rejected() {
+        let update = serde_json::json!({"bounds": {"terminated": true}});
+        let result = validate_envelope_update(&update);
+        assert!(result.is_err());
+        assert!(result.unwrap_err().to_string().contains("sole termination authority"));
+    }
+}

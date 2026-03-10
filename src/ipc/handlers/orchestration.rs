@@ -114,69 +114,12 @@ pub async fn handle(kernel: &mut Kernel, method: &str, body: Value) -> Result<Di
                     )?,
                 }
             } else {
-                AgentExecutionMetrics {
-                    llm_calls: 0,
-                    tool_calls: 0,
-                    tokens_in: None,
-                    tokens_out: None,
-                    duration_ms: 0,
-                }
+                AgentExecutionMetrics::default()
             };
 
-            // Mutate envelope in-place (never extracted from HashMap — impossible to lose)
-            {
-                let envelope = kernel
-                    .get_process_envelope_mut(&process_id)
-                    .ok_or_else(|| Error::not_found(format!("Envelope not found: {}", process_id)))?;
-
-                let mut agent_output = HashMap::new();
-                if let Value::Object(output_map) = output {
-                    for (key, value) in output_map {
-                        agent_output.insert(key, value);
-                    }
-                }
-                if !success {
-                    agent_output.insert("success".to_string(), Value::Bool(false));
-                    if !error_message.is_empty() {
-                        agent_output.insert("error".to_string(), Value::String(error_message.clone()));
-                    }
-                    envelope.audit.metadata.insert(
-                        "last_agent_failure".to_string(),
-                        serde_json::json!({
-                            "agent_name": agent_name,
-                            "error": error_message,
-                        }),
-                    );
-                }
-                envelope.outputs.insert(agent_name.clone(), agent_output);
-            }
-
-            // Report metrics and advance pipeline (envelope stays in HashMap)
-            kernel.report_agent_result(&process_id, metrics, !success)?;
-
-            // Sync PCB counters from envelope after report_agent_result
-            if let Some(envelope) = kernel.get_process_envelope(&process_id) {
-                let llm_delta = envelope.bounds.llm_call_count;
-                let tool_delta = envelope.bounds.tool_call_count;
-                let tokens_in = envelope.bounds.tokens_in;
-                let tokens_out = envelope.bounds.tokens_out;
-                if let Some(pcb) = kernel.get_process(&process_id) {
-                    let user_id_str = pcb.user_id.as_str().to_string();
-                    // Reconcile PCB usage with envelope counters
-                    kernel.record_usage(
-                        &process_id,
-                        &user_id_str,
-                        llm_delta.saturating_sub(pcb.usage.llm_calls).max(0),
-                        tool_delta.saturating_sub(pcb.usage.tool_calls).max(0),
-                        (tokens_in - pcb.usage.tokens_in).max(0),
-                        (tokens_out - pcb.usage.tokens_out).max(0),
-                    );
-                }
-            }
-
-            kernel.emit_envelope_snapshot(&process_id, "agent_completed");
-
-            let instruction = kernel.get_next_instruction(&process_id)?;
+            let instruction = kernel.process_agent_result(
+                &process_id, &agent_name, output, metrics, success, &error_message,
+            )?;
             let envelope = kernel.get_process_envelope(&process_id);
             Ok(DispatchResponse::Single(instruction_to_value(&instruction, envelope)))
         }

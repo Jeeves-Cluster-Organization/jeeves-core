@@ -50,7 +50,7 @@ pub struct Instruction {
 }
 
 /// AgentExecutionMetrics contains metrics from agent execution.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct AgentExecutionMetrics {
     pub llm_calls: i32,
     pub tool_calls: i32,

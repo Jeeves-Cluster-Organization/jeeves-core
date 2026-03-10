@@ -546,6 +546,77 @@ impl Kernel {
         self.orchestrator.report_agent_result(process_id, metrics, envelope, agent_failed)
     }
 
+    /// Process a complete agent result: merge output, report to orchestrator,
+    /// sync PCB counters, emit snapshot, and return the next instruction.
+    ///
+    /// Replaces the fragile multi-step coordination in the IPC handler.
+    /// `metrics` is the delta — applied directly to both envelope (via orchestrator)
+    /// and PCB (via record_usage), eliminating backwards reconciliation arithmetic.
+    ///
+    /// # Errors
+    ///
+    /// Returns error if no orchestration session or envelope exists for this process.
+    #[instrument(skip(self, output, metrics), fields(process_id = %process_id))]
+    pub fn process_agent_result(
+        &mut self,
+        process_id: &ProcessId,
+        agent_name: &str,
+        output: serde_json::Value,
+        metrics: orchestrator::AgentExecutionMetrics,
+        success: bool,
+        error_message: &str,
+    ) -> Result<orchestrator::Instruction> {
+        // Extract scalars before passing metrics by value (avoids clone)
+        let llm_calls = metrics.llm_calls;
+        let tool_calls = metrics.tool_calls;
+        let tokens_in = metrics.tokens_in.unwrap_or(0);
+        let tokens_out = metrics.tokens_out.unwrap_or(0);
+
+        // Phase 1: Merge output into envelope + run orchestrator
+        // Scoped block so &mut envelope borrow drops before Phase 2 calls &mut self
+        {
+            let envelope = self.process_envelopes.get_mut(process_id)
+                .ok_or_else(|| Error::not_found(format!("Envelope not found: {}", process_id)))?;
+
+            // Build agent output map
+            let mut agent_output = std::collections::HashMap::new();
+            if let serde_json::Value::Object(output_map) = output {
+                for (key, value) in output_map {
+                    agent_output.insert(key, value);
+                }
+            }
+            if !success {
+                agent_output.insert("success".to_string(), serde_json::Value::Bool(false));
+                if !error_message.is_empty() {
+                    agent_output.insert("error".to_string(), serde_json::Value::String(error_message.to_string()));
+                }
+                envelope.audit.metadata.insert(
+                    "last_agent_failure".to_string(),
+                    serde_json::json!({
+                        "agent_name": agent_name,
+                        "error": error_message,
+                    }),
+                );
+            }
+            envelope.outputs.insert(agent_name.to_string(), agent_output);
+
+            // Report to orchestrator (consumes metrics, adds to envelope, evaluates routing)
+            self.orchestrator.report_agent_result(process_id, metrics, envelope, !success)?;
+        } // envelope borrow dropped
+
+        // Phase 2: Apply SAME metrics delta directly to PCB — no reconciliation!
+        {
+            let user_id = self.lifecycle.get(process_id).map(|p| p.user_id.as_str().to_string());
+            if let Some(uid) = user_id {
+                self.record_usage(process_id, &uid, llm_calls, tool_calls, tokens_in, tokens_out);
+            }
+        }
+
+        // Phase 3: Snapshot + next instruction
+        self.emit_envelope_snapshot(process_id, "agent_completed");
+        self.get_next_instruction(process_id)
+    }
+
     /// Get orchestration session state.
     ///
     /// # Errors

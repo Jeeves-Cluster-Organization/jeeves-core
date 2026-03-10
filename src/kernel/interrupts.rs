@@ -605,6 +605,17 @@ impl Default for InterruptService {
 mod tests {
     use super::*;
 
+    /// Build a test InterruptResponse with optional text and approved fields.
+    fn test_response(text: Option<&str>, approved: Option<bool>) -> InterruptResponse {
+        InterruptResponse {
+            text: text.map(|s| s.to_string()),
+            approved,
+            decision: None,
+            data: None,
+            received_at: Utc::now(),
+        }
+    }
+
     #[test]
     fn test_create_clarification_interrupt() {
         let mut service = InterruptService::new();
@@ -657,15 +668,7 @@ mod tests {
         );
 
         let interrupt_id = interrupt.flow_interrupt.id.clone();
-        let response = InterruptResponse {
-            text: Some("Yes, proceed".to_string()),
-            approved: Some(true),
-            decision: None,
-            data: None,
-            received_at: Utc::now(),
-        };
-
-        let success = service.resolve(&interrupt_id, response, Some("user1"));
+        let success = service.resolve(&interrupt_id, test_response(Some("Yes, proceed"), Some(true)), Some("user1"));
         assert!(success);
 
         let resolved = service.get_interrupt(&interrupt_id).unwrap();
@@ -687,16 +690,9 @@ mod tests {
         );
 
         let interrupt_id = interrupt.flow_interrupt.id.clone();
-        let response = InterruptResponse {
-            text: Some("Answer".to_string()),
-            approved: Some(true),
-            decision: None,
-            data: None,
-            received_at: Utc::now(),
-        };
 
         // Try to resolve with wrong user
-        let success = service.resolve(&interrupt_id, response, Some("user2"));
+        let success = service.resolve(&interrupt_id, test_response(Some("Answer"), Some(true)), Some("user2"));
         assert!(!success);
 
         // Interrupt should still be pending
@@ -852,14 +848,7 @@ mod tests {
         );
 
         let interrupt_id = interrupt.flow_interrupt.id.clone();
-        let response = InterruptResponse {
-            text: None,
-            approved: Some(true),
-            decision: None,
-            data: None,
-            received_at: Utc::now(),
-        };
-        service.resolve(&interrupt_id, response, None);
+        service.resolve(&interrupt_id, test_response(None, Some(true)), None);
 
         // Create a pending interrupt (should not be cleaned)
         service.create_clarification(
@@ -920,14 +909,7 @@ mod tests {
         );
 
         // Resolve one
-        let response = InterruptResponse {
-            text: None,
-            approved: Some(true),
-            decision: None,
-            data: None,
-            received_at: Utc::now(),
-        };
-        service.resolve(&int1.flow_interrupt.id, response, None);
+        service.resolve(&int1.flow_interrupt.id, test_response(None, Some(true)), None);
 
         // Cancel one
         service.cancel(&int2.flow_interrupt.id, "Cancelled".to_string());
@@ -948,6 +930,90 @@ mod tests {
         assert_eq!(stats.get("resolved"), Some(&1));
         assert_eq!(stats.get("cancelled"), Some(&1));
         assert_eq!(stats.get("expired"), Some(&0));
+    }
+
+    // =========================================================================
+    // Error path tests (Phase 1d audit)
+    // =========================================================================
+
+    #[test]
+    fn test_resolve_with_invalid_interrupt_id_returns_false() {
+        let mut service = InterruptService::new();
+        // No interrupts exist — resolve returns false
+        assert!(!service.resolve("nonexistent_id", test_response(Some("Answer"), Some(true)), None));
+    }
+
+    #[test]
+    fn test_cancel_with_invalid_interrupt_id_returns_false() {
+        let mut service = InterruptService::new();
+        assert!(!service.cancel("nonexistent_id", "no reason".to_string()));
+    }
+
+    #[test]
+    fn test_multiple_interrupts_for_same_request_id_all_pending() {
+        let mut service = InterruptService::new();
+
+        let i1 = service.create_clarification(
+            "req1".to_string(),
+            "user1".to_string(),
+            "sess1".to_string(),
+            "env1".to_string(),
+            "Question 1?".to_string(),
+            None,
+        );
+        let i2 = service.create_confirmation(
+            "req1".to_string(),
+            "user1".to_string(),
+            "sess1".to_string(),
+            "env2".to_string(),
+            "Confirm?".to_string(),
+            None,
+        );
+        let i3 = service.create_clarification(
+            "req1".to_string(),
+            "user1".to_string(),
+            "sess1".to_string(),
+            "env3".to_string(),
+            "Question 3?".to_string(),
+            None,
+        );
+
+        // All three are pending
+        assert_eq!(service.get_pending_count(), 3);
+
+        // All three are indexed under the same request_id
+        let all_pending = service.get_pending_for_session("sess1", None);
+        assert_eq!(all_pending.len(), 3);
+
+        // get_pending_for_request returns most recent (i3)
+        let most_recent = service.get_pending_for_request("req1").unwrap();
+        assert_eq!(most_recent.flow_interrupt.id, i3.flow_interrupt.id);
+
+        // Verify each has unique ID
+        let ids: std::collections::HashSet<String> = [
+            i1.flow_interrupt.id,
+            i2.flow_interrupt.id,
+            i3.flow_interrupt.id,
+        ].iter().cloned().collect();
+        assert_eq!(ids.len(), 3);
+    }
+
+    #[test]
+    fn test_resolve_already_resolved_returns_false() {
+        let mut service = InterruptService::new();
+        let interrupt = service.create_clarification(
+            "req1".to_string(),
+            "user1".to_string(),
+            "sess1".to_string(),
+            "env1".to_string(),
+            "Question?".to_string(),
+            None,
+        );
+
+        let interrupt_id = interrupt.flow_interrupt.id.clone();
+        assert!(service.resolve(&interrupt_id, test_response(Some("Answer"), None), None));
+        // Second resolve on already-resolved interrupt → false
+        assert!(!service.resolve(&interrupt_id, test_response(Some("Answer"), None), None));
     }
 
     #[test]

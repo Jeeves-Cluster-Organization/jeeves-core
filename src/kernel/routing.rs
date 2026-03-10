@@ -232,7 +232,26 @@ pub fn resolve_field(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::kernel::orchestrator_types::{JoinStrategy, PipelineStage};
     use serde_json::Value;
+
+    // ── Test helpers ─────────────────────────────────────────────────────
+
+    /// Empty outputs and metadata — the common case for routing tests.
+    fn empty_ctx() -> (HashMap<String, HashMap<String, Value>>, HashMap<String, Value>) {
+        (HashMap::new(), HashMap::new())
+    }
+
+    /// Build an outputs map with a single agent's key-value pairs.
+    fn outputs_with(agent: &str, kvs: &[(&str, Value)]) -> HashMap<String, HashMap<String, Value>> {
+        let mut agent_out = HashMap::new();
+        for (k, v) in kvs {
+            agent_out.insert(k.to_string(), v.clone());
+        }
+        let mut outputs = HashMap::new();
+        outputs.insert(agent.to_string(), agent_out);
+        outputs
+    }
 
     // =========================================================================
     // RoutingExpr unit tests (evaluate_expr directly)
@@ -240,8 +259,7 @@ mod tests {
 
     #[test]
     fn test_evaluate_expr_neq() {
-        let outputs: HashMap<String, HashMap<String, Value>> = HashMap::new();
-        let metadata: HashMap<String, Value> = HashMap::new();
+        let (outputs, metadata) = empty_ctx();
 
         // Field doesn't exist → Neq returns false (field must exist)
         let expr = RoutingExpr::Neq {
@@ -251,27 +269,18 @@ mod tests {
         assert!(!evaluate_expr(&expr, &outputs, "a1", &metadata, None));
 
         // Field exists and differs → true
-        let mut agent_out = HashMap::new();
-        agent_out.insert("k".to_string(), serde_json::json!("y"));
-        let mut outputs2 = HashMap::new();
-        outputs2.insert("a1".to_string(), agent_out);
+        let outputs2 = outputs_with("a1", &[("k", serde_json::json!("y"))]);
         assert!(evaluate_expr(&expr, &outputs2, "a1", &metadata, None));
 
         // Field exists and matches → false
-        let mut agent_out2 = HashMap::new();
-        agent_out2.insert("k".to_string(), serde_json::json!("x"));
-        let mut outputs3 = HashMap::new();
-        outputs3.insert("a1".to_string(), agent_out2);
+        let outputs3 = outputs_with("a1", &[("k", serde_json::json!("x"))]);
         assert!(!evaluate_expr(&expr, &outputs3, "a1", &metadata, None));
     }
 
     #[test]
     fn test_evaluate_expr_gt_lt() {
-        let metadata: HashMap<String, Value> = HashMap::new();
-        let mut agent_out = HashMap::new();
-        agent_out.insert("score".to_string(), serde_json::json!(0.8));
-        let mut outputs = HashMap::new();
-        outputs.insert("a1".to_string(), agent_out);
+        let (_, metadata) = empty_ctx();
+        let outputs = outputs_with("a1", &[("score", serde_json::json!(0.8))]);
 
         let gt = RoutingExpr::Gt {
             field: FieldRef::Current { key: "score".to_string() },
@@ -288,11 +297,8 @@ mod tests {
 
     #[test]
     fn test_evaluate_expr_contains_string() {
-        let metadata: HashMap<String, Value> = HashMap::new();
-        let mut agent_out = HashMap::new();
-        agent_out.insert("text".to_string(), serde_json::json!("hello world"));
-        let mut outputs = HashMap::new();
-        outputs.insert("a1".to_string(), agent_out);
+        let (_, metadata) = empty_ctx();
+        let outputs = outputs_with("a1", &[("text", serde_json::json!("hello world"))]);
 
         let expr = RoutingExpr::Contains {
             field: FieldRef::Current { key: "text".to_string() },
@@ -309,11 +315,8 @@ mod tests {
 
     #[test]
     fn test_evaluate_expr_exists_not_exists() {
-        let metadata: HashMap<String, Value> = HashMap::new();
-        let mut agent_out = HashMap::new();
-        agent_out.insert("k".to_string(), serde_json::json!("v"));
-        let mut outputs = HashMap::new();
-        outputs.insert("a1".to_string(), agent_out);
+        let (_, metadata) = empty_ctx();
+        let outputs = outputs_with("a1", &[("k", serde_json::json!("v"))]);
 
         let exists = RoutingExpr::Exists { field: FieldRef::Current { key: "k".to_string() } };
         assert!(evaluate_expr(&exists, &outputs, "a1", &metadata, None));
@@ -327,8 +330,7 @@ mod tests {
 
     #[test]
     fn test_evaluate_expr_and_or_not() {
-        let metadata: HashMap<String, Value> = HashMap::new();
-        let outputs: HashMap<String, HashMap<String, Value>> = HashMap::new();
+        let (outputs, metadata) = empty_ctx();
 
         let t = RoutingExpr::Always;
         let f = RoutingExpr::Not { expr: Box::new(RoutingExpr::Always) };
@@ -348,11 +350,8 @@ mod tests {
 
     #[test]
     fn test_evaluate_expr_field_ref_agent() {
-        let metadata: HashMap<String, Value> = HashMap::new();
-        let mut agent_out = HashMap::new();
-        agent_out.insert("topic".to_string(), serde_json::json!("time"));
-        let mut outputs = HashMap::new();
-        outputs.insert("understand".to_string(), agent_out);
+        let (_, metadata) = empty_ctx();
+        let outputs = outputs_with("understand", &[("topic", serde_json::json!("time"))]);
 
         let expr = RoutingExpr::Eq {
             field: FieldRef::Agent { agent: "understand".to_string(), key: "topic".to_string() },
@@ -370,12 +369,11 @@ mod tests {
 
     #[test]
     fn test_evaluate_expr_field_ref_meta_dot_notation() {
-        let mut metadata: HashMap<String, Value> = HashMap::new();
+        let (outputs, mut metadata) = empty_ctx();
         metadata.insert("session_context".to_string(), serde_json::json!({
             "has_history": true,
             "nested": { "deep": 42 }
         }));
-        let outputs: HashMap<String, HashMap<String, Value>> = HashMap::new();
 
         let expr = RoutingExpr::Eq {
             field: FieldRef::Meta { path: "session_context.has_history".to_string() },
@@ -398,8 +396,7 @@ mod tests {
 
     #[test]
     fn test_evaluate_expr_field_ref_interrupt() {
-        let metadata: HashMap<String, Value> = HashMap::new();
-        let outputs: HashMap<String, HashMap<String, Value>> = HashMap::new();
+        let (outputs, metadata) = empty_ctx();
 
         let interrupt_val = serde_json::json!({
             "approved": true,
@@ -452,6 +449,154 @@ mod tests {
         let v1: serde_json::Value = serde_json::from_str(&json).unwrap();
         let v2: serde_json::Value = serde_json::from_str(&json2).unwrap();
         assert_eq!(v1, v2);
+    }
+
+    // =========================================================================
+    // Edge case tests (Phase 1b audit)
+    // =========================================================================
+
+    #[test]
+    fn test_gt_lt_with_non_numeric_string_returns_false() {
+        let (_, metadata) = empty_ctx();
+        let outputs = outputs_with("a1", &[("val", serde_json::json!("not_a_number"))]);
+
+        let gt = RoutingExpr::Gt {
+            field: FieldRef::Current { key: "val".to_string() },
+            value: serde_json::json!(5),
+        };
+        assert!(!evaluate_expr(&gt, &outputs, "a1", &metadata, None));
+
+        let lt = RoutingExpr::Lt {
+            field: FieldRef::Current { key: "val".to_string() },
+            value: serde_json::json!(5),
+        };
+        assert!(!evaluate_expr(&lt, &outputs, "a1", &metadata, None));
+
+        let gte = RoutingExpr::Gte {
+            field: FieldRef::Current { key: "val".to_string() },
+            value: serde_json::json!(5),
+        };
+        assert!(!evaluate_expr(&gte, &outputs, "a1", &metadata, None));
+
+        let lte = RoutingExpr::Lte {
+            field: FieldRef::Current { key: "val".to_string() },
+            value: serde_json::json!(5),
+        };
+        assert!(!evaluate_expr(&lte, &outputs, "a1", &metadata, None));
+    }
+
+    #[test]
+    fn test_contains_on_json_array_element_membership() {
+        let (_, metadata) = empty_ctx();
+        let outputs = outputs_with("a1", &[("tags", serde_json::json!(["a", "b", "c"]))]);
+
+        let contains = RoutingExpr::Contains {
+            field: FieldRef::Current { key: "tags".to_string() },
+            value: serde_json::json!("b"),
+        };
+        assert!(evaluate_expr(&contains, &outputs, "a1", &metadata, None));
+
+        let not_contains = RoutingExpr::Contains {
+            field: FieldRef::Current { key: "tags".to_string() },
+            value: serde_json::json!("z"),
+        };
+        assert!(!evaluate_expr(&not_contains, &outputs, "a1", &metadata, None));
+    }
+
+    #[test]
+    fn test_contains_on_non_string_non_array_returns_false() {
+        let (_, metadata) = empty_ctx();
+        let outputs = outputs_with("a1", &[("count", serde_json::json!(42))]);
+
+        let contains = RoutingExpr::Contains {
+            field: FieldRef::Current { key: "count".to_string() },
+            value: serde_json::json!(4),
+        };
+        assert!(!evaluate_expr(&contains, &outputs, "a1", &metadata, None));
+    }
+
+    #[test]
+    fn test_deeply_nested_meta_with_missing_intermediate() {
+        let (outputs, mut metadata) = empty_ctx();
+        metadata.insert("a".to_string(), serde_json::json!({"b": {"c": 99}}));
+
+        // Valid deep path
+        let expr = RoutingExpr::Eq {
+            field: FieldRef::Meta { path: "a.b.c".to_string() },
+            value: serde_json::json!(99),
+        };
+        assert!(evaluate_expr(&expr, &outputs, "a1", &metadata, None));
+
+        // Missing intermediate "x" → resolves to None, Exists returns false
+        let missing = RoutingExpr::Exists {
+            field: FieldRef::Meta { path: "a.x.c".to_string() },
+        };
+        assert!(!evaluate_expr(&missing, &outputs, "a1", &metadata, None));
+    }
+
+    #[test]
+    fn test_field_ref_agent_nonexistent_agent_resolves_to_null() {
+        let (outputs, metadata) = empty_ctx();
+
+        // Nonexistent agent → resolve returns None → Exists returns false
+        let expr = RoutingExpr::Exists {
+            field: FieldRef::Agent { agent: "ghost".to_string(), key: "k".to_string() },
+        };
+        assert!(!evaluate_expr(&expr, &outputs, "a1", &metadata, None));
+
+        // NotExists on nonexistent agent → true
+        let not_exists = RoutingExpr::NotExists {
+            field: FieldRef::Agent { agent: "ghost".to_string(), key: "k".to_string() },
+        };
+        assert!(evaluate_expr(&not_exists, &outputs, "a1", &metadata, None));
+    }
+
+    #[test]
+    fn test_eq_type_mismatch_string_vs_number() {
+        let (_, metadata) = empty_ctx();
+        let outputs = outputs_with("a1", &[("val", serde_json::json!("5"))]);
+
+        // String "5" != number 5 → no match
+        let expr = RoutingExpr::Eq {
+            field: FieldRef::Current { key: "val".to_string() },
+            value: serde_json::json!(5),
+        };
+        assert!(!evaluate_expr(&expr, &outputs, "a1", &metadata, None));
+    }
+
+    #[test]
+    fn test_neq_missing_field_returns_false() {
+        // Neq requires field to exist — missing field → false (not true)
+        let (outputs, metadata) = empty_ctx();
+
+        let expr = RoutingExpr::Neq {
+            field: FieldRef::Current { key: "missing".to_string() },
+            value: serde_json::json!("anything"),
+        };
+        assert!(!evaluate_expr(&expr, &outputs, "a1", &metadata, None));
+    }
+
+    #[test]
+    fn test_evaluate_routing_error_next_on_failure() {
+        let stage = PipelineStage {
+            name: "s1".to_string(),
+            agent: "a1".to_string(),
+            routing: vec![],
+            default_next: Some("s2".to_string()),
+            error_next: Some("s_err".to_string()),
+            max_visits: None,
+            parallel_group: None,
+            join_strategy: JoinStrategy::default(),
+        };
+        let (outputs, metadata) = empty_ctx();
+
+        // agent_failed=true → routes to error_next, not default_next
+        let result = evaluate_routing(&stage, &outputs, "a1", true, &metadata, None);
+        assert_eq!(result, Some("s_err".to_string()));
+
+        // agent_failed=false → falls through to default_next
+        let result = evaluate_routing(&stage, &outputs, "a1", false, &metadata, None);
+        assert_eq!(result, Some("s2".to_string()));
     }
 
     #[test]

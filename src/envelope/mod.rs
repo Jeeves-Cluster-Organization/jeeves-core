@@ -342,10 +342,27 @@ impl Envelope {
         self.pipeline.failed_stages.contains_key(stage_name)
     }
 
-    /// Check if at any bound limit.
+    /// Check if envelope exceeds any bound. Returns the reason if so.
+    ///
+    /// Single source of truth for bounds checking. Called by the Orchestrator at:
+    /// 1. `get_next_instruction()` — pre-flight check
+    /// 2. `report_agent_result()` — post-iteration check
+    pub fn check_bounds(&self) -> Option<TerminalReason> {
+        if self.bounds.llm_call_count >= self.bounds.max_llm_calls {
+            return Some(TerminalReason::MaxLlmCallsExceeded);
+        }
+        if self.pipeline.iteration >= self.pipeline.max_iterations {
+            return Some(TerminalReason::MaxIterationsExceeded);
+        }
+        if self.bounds.agent_hop_count >= self.bounds.max_agent_hops {
+            return Some(TerminalReason::MaxAgentHopsExceeded);
+        }
+        None
+    }
+
+    /// Check if at any bound limit (thin wrapper over `check_bounds()`).
     pub fn at_limit(&self) -> bool {
-        self.bounds.llm_call_count >= self.bounds.max_llm_calls
-            || self.bounds.agent_hop_count >= self.bounds.max_agent_hops
+        self.check_bounds().is_some()
     }
 
     /// Increment LLM call counter.
@@ -627,6 +644,21 @@ mod tests {
         }
         assert_eq!(env.bounds.agent_hop_count, 21);
         assert!(env.at_limit());
+    }
+
+    // ── 5b. at_limit: iterations ─────────────────────────────────────────
+
+    #[test]
+    fn test_at_limit_iterations() {
+        let mut env = Envelope::new();
+        assert!(!env.at_limit());
+
+        // Increment iterations to max (default 3)
+        env.pipeline.iteration = 3;
+        assert!(env.at_limit());
+
+        // check_bounds returns the specific reason
+        assert_eq!(env.check_bounds(), Some(TerminalReason::MaxIterationsExceeded));
     }
 
     // ── 6. not at limit when below max ──────────────────────────────────

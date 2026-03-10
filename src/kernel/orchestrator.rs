@@ -36,11 +36,10 @@ pub struct PipelineSession {
     pub process_id: ProcessId,
     pub pipeline_config: PipelineConfig,
     // NOTE: No envelope field — kernel owns it via `process_envelopes`
+    // NOTE: No terminated/terminal_reason — lives exclusively in envelope.bounds
     pub edge_traversals: HashMap<String, i32>, // "from->to" -> count
     pub stage_visits: HashMap<String, i32>,    // stage_name -> visit count
     pub active_parallel: Option<ParallelGroupState>,
-    pub terminated: bool,
-    pub terminal_reason: Option<TerminalReason>,
     pub created_at: DateTime<Utc>,
     pub last_activity_at: DateTime<Utc>,
 }
@@ -112,8 +111,6 @@ impl Orchestrator {
             edge_traversals: HashMap::new(),
             stage_visits: HashMap::new(),
             active_parallel: None,
-            terminated: false,
-            terminal_reason: None,
             created_at: now,
             last_activity_at: now,
         };
@@ -143,11 +140,11 @@ impl Orchestrator {
         session.last_activity_at = Utc::now();
 
         // Check if already terminated
-        if session.terminated {
+        if envelope.bounds.terminated {
             return Ok(Instruction {
                 kind: InstructionKind::Terminate,
                 agents: vec![],
-                terminal_reason: session.terminal_reason,
+                terminal_reason: envelope.bounds.terminal_reason,
                 termination_message: Some("Session already terminated".to_string()),
                 interrupt_pending: false,
                 interrupt: None,
@@ -167,10 +164,8 @@ impl Orchestrator {
         }
 
         // Check bounds
-        if let Some(reason) = check_bounds(envelope) {
+        if let Some(reason) = envelope.check_bounds() {
             tracing::warn!(reason = ?reason, "bounds_terminated");
-            session.terminated = true;
-            session.terminal_reason = Some(reason);
             envelope.bounds.terminated = true;
             envelope.bounds.terminal_reason = Some(reason);
             return Ok(Instruction {
@@ -278,9 +273,7 @@ impl Orchestrator {
         envelope.pipeline.iteration += 1;
 
         // Check bounds after iteration increment (terminates cycles)
-        if let Some(reason) = check_bounds(envelope) {
-            session.terminated = true;
-            session.terminal_reason = Some(reason);
+        if let Some(reason) = envelope.check_bounds() {
             envelope.bounds.terminated = true;
             envelope.bounds.terminal_reason = Some(reason);
             return Ok(());
@@ -422,8 +415,6 @@ impl Orchestrator {
                     if let Some(max_visits) = target_stage.max_visits {
                         let visits = session.stage_visits.get(&target).copied().unwrap_or(0);
                         if visits >= max_visits {
-                            session.terminated = true;
-                            session.terminal_reason = Some(TerminalReason::MaxStageVisitsExceeded);
                             envelope.bounds.terminated = true;
                             envelope.bounds.terminal_reason = Some(TerminalReason::MaxStageVisitsExceeded);
                             envelope.bounds.termination_reason = Some(format!(
@@ -442,8 +433,6 @@ impl Orchestrator {
                     from_stage,
                     &target,
                 ) {
-                    session.terminated = true;
-                    session.terminal_reason = Some(TerminalReason::MaxAgentHopsExceeded);
                     envelope.bounds.terminated = true;
                     envelope.bounds.terminal_reason = Some(TerminalReason::MaxAgentHopsExceeded);
                     envelope.bounds.termination_reason = Some(format!(
@@ -505,8 +494,6 @@ impl Orchestrator {
             None => {
                 // No routing matched, no default_next — pipeline complete (Temporal pattern)
                 tracing::info!(reason = ?TerminalReason::Completed, "pipeline_completed");
-                session.terminated = true;
-                session.terminal_reason = Some(TerminalReason::Completed);
                 envelope.bounds.terminated = true;
                 envelope.bounds.terminal_reason = Some(TerminalReason::Completed);
                 session.last_activity_at = Utc::now();
@@ -582,8 +569,8 @@ impl Orchestrator {
             stage_order: envelope.pipeline.stage_order.clone(),
             envelope: envelope_value,
             edge_traversals: session.edge_traversals.clone(),
-            terminated: session.terminated,
-            terminal_reason: session.terminal_reason,
+            terminated: envelope.bounds.terminated,
+            terminal_reason: envelope.bounds.terminal_reason,
         }
     }
 }
@@ -597,20 +584,6 @@ impl Default for Orchestrator {
 // =============================================================================
 // Helper Functions (outside impl to avoid borrow checker issues)
 // =============================================================================
-
-/// Check if envelope exceeds bounds.
-fn check_bounds(envelope: &Envelope) -> Option<TerminalReason> {
-    if envelope.bounds.llm_call_count >= envelope.bounds.max_llm_calls {
-        return Some(TerminalReason::MaxLlmCallsExceeded);
-    }
-    if envelope.pipeline.iteration >= envelope.pipeline.max_iterations {
-        return Some(TerminalReason::MaxIterationsExceeded);
-    }
-    if envelope.bounds.agent_hop_count >= envelope.bounds.max_agent_hops {
-        return Some(TerminalReason::MaxAgentHopsExceeded);
-    }
-    None
-}
 
 /// Get agent name for a stage.
 fn get_agent_for_stage(
@@ -693,7 +666,7 @@ mod tests {
     }
 
     fn zero_metrics() -> AgentExecutionMetrics {
-        AgentExecutionMetrics { llm_calls: 0, tool_calls: 0, tokens_in: Some(0), tokens_out: Some(0), duration_ms: 0 }
+        AgentExecutionMetrics::default()
     }
 
     /// Linear 2-stage pipeline: stage1 --(Always)--> stage2 --(no rules, no default)--> terminate
@@ -800,9 +773,9 @@ mod tests {
         orch.initialize_session(ProcessId::must("proc1"), pipeline, &mut envelope, false)
             .unwrap();
 
-        let session = orch.pipelines.get_mut(&ProcessId::must("proc1")).unwrap();
-        session.terminated = true;
-        session.terminal_reason = Some(TerminalReason::MaxIterationsExceeded);
+        // Termination state lives exclusively in envelope.bounds
+        envelope.bounds.terminated = true;
+        envelope.bounds.terminal_reason = Some(TerminalReason::MaxIterationsExceeded);
 
         let instruction = orch.get_next_instruction(&ProcessId::must("proc1"), &mut envelope).unwrap();
 
@@ -1179,7 +1152,7 @@ mod tests {
         orch.report_agent_result(&ProcessId::must("p1"), zero_metrics(), &mut envelope, false).unwrap();
 
         assert_eq!(envelope.pipeline.current_stage, "s3");
-        assert!(!orch.pipelines.get(&ProcessId::must("p1")).unwrap().terminated);
+        assert!(!envelope.bounds.terminated);
     }
 
     #[test]
@@ -1203,7 +1176,7 @@ mod tests {
         orch.report_agent_result(&ProcessId::must("p1"), zero_metrics(), &mut envelope, false).unwrap();
 
         assert_eq!(envelope.pipeline.current_stage, "s2");
-        assert!(!orch.pipelines.get(&ProcessId::must("p1")).unwrap().terminated);
+        assert!(!envelope.bounds.terminated);
     }
 
     #[test]
@@ -1259,7 +1232,7 @@ mod tests {
         orch.report_agent_result(&ProcessId::must("p1"), zero_metrics(), &mut envelope, false).unwrap();
 
         assert_eq!(envelope.pipeline.current_stage, "s2");
-        assert!(!orch.pipelines.get(&ProcessId::must("p1")).unwrap().terminated);
+        assert!(!envelope.bounds.terminated);
     }
 
     #[test]
@@ -1281,9 +1254,8 @@ mod tests {
 
         orch.report_agent_result(&ProcessId::must("p1"), zero_metrics(), &mut envelope, false).unwrap();
 
-        let session = orch.pipelines.get(&ProcessId::must("p1")).unwrap();
-        assert!(session.terminated);
-        assert_eq!(session.terminal_reason, Some(TerminalReason::Completed));
+        assert!(envelope.bounds.terminated);
+        assert_eq!(envelope.bounds.terminal_reason, Some(TerminalReason::Completed));
     }
 
     #[test]
@@ -1369,7 +1341,7 @@ mod tests {
         // First iteration: no output → completed missing → not_(eq) = true → loops
         orch.report_agent_result(&ProcessId::must("p1"), zero_metrics(), &mut envelope, false).unwrap();
         assert_eq!(envelope.pipeline.current_stage, "s1");
-        assert!(!orch.pipelines.get(&ProcessId::must("p1")).unwrap().terminated);
+        assert!(!envelope.bounds.terminated);
 
         // Second iteration: completed=false → not_(eq(false,true)) = true → loops
         let mut output = HashMap::new();
@@ -1377,16 +1349,15 @@ mod tests {
         envelope.outputs.insert("a1".to_string(), output);
         orch.report_agent_result(&ProcessId::must("p1"), zero_metrics(), &mut envelope, false).unwrap();
         assert_eq!(envelope.pipeline.current_stage, "s1");
-        assert!(!orch.pipelines.get(&ProcessId::must("p1")).unwrap().terminated);
+        assert!(!envelope.bounds.terminated);
 
         // Third iteration: completed=true → not_(eq(true,true)) = false → no match → terminate
         let mut output2 = HashMap::new();
         output2.insert("completed".to_string(), serde_json::json!(true));
         envelope.outputs.insert("a1".to_string(), output2);
         orch.report_agent_result(&ProcessId::must("p1"), zero_metrics(), &mut envelope, false).unwrap();
-        let session = orch.pipelines.get(&ProcessId::must("p1")).unwrap();
-        assert!(session.terminated);
-        assert_eq!(session.terminal_reason, Some(TerminalReason::Completed));
+        assert!(envelope.bounds.terminated);
+        assert_eq!(envelope.bounds.terminal_reason, Some(TerminalReason::Completed));
     }
 
     // =========================================================================
@@ -1419,9 +1390,8 @@ mod tests {
         assert_eq!(envelope.pipeline.current_stage, "s3");
 
         orch.report_agent_result(&ProcessId::must("p1"), zero_metrics(), &mut envelope, false).unwrap();
-        let session = orch.pipelines.get(&ProcessId::must("p1")).unwrap();
-        assert!(session.terminated);
-        assert_eq!(session.terminal_reason, Some(TerminalReason::Completed));
+        assert!(envelope.bounds.terminated);
+        assert_eq!(envelope.bounds.terminal_reason, Some(TerminalReason::Completed));
     }
 
     #[test]
@@ -1446,10 +1416,9 @@ mod tests {
         for _ in 0..20 {
             orch.report_agent_result(&ProcessId::must("p1"), zero_metrics(), &mut envelope, false).unwrap();
 
-            let session = orch.pipelines.get(&ProcessId::must("p1")).unwrap();
-            if session.terminated {
+            if envelope.bounds.terminated {
                 terminated = true;
-                assert_eq!(session.terminal_reason, Some(TerminalReason::MaxIterationsExceeded));
+                assert_eq!(envelope.bounds.terminal_reason, Some(TerminalReason::MaxIterationsExceeded));
                 break;
             }
         }
@@ -1480,10 +1449,9 @@ mod tests {
 
         let mut terminated = false;
         for _ in 0..20 {
-            let session = orch.pipelines.get(&ProcessId::must("p1")).unwrap();
-            if session.terminated {
+            if envelope.bounds.terminated {
                 terminated = true;
-                assert_eq!(session.terminal_reason, Some(TerminalReason::MaxAgentHopsExceeded));
+                assert_eq!(envelope.bounds.terminal_reason, Some(TerminalReason::MaxAgentHopsExceeded));
                 break;
             }
             orch.report_agent_result(&ProcessId::must("p1"), zero_metrics(), &mut envelope, false).unwrap();
@@ -1542,9 +1510,8 @@ mod tests {
 
         // s2 tries to route to s1, but s1 has max_visits=2 and visits=2 → terminate
         orch.report_agent_result(&ProcessId::must("p1"), zero_metrics(), &mut envelope, false).unwrap();
-        let session = orch.pipelines.get(&ProcessId::must("p1")).unwrap();
-        assert!(session.terminated);
-        assert_eq!(session.terminal_reason, Some(TerminalReason::MaxStageVisitsExceeded));
+        assert!(envelope.bounds.terminated);
+        assert_eq!(envelope.bounds.terminal_reason, Some(TerminalReason::MaxStageVisitsExceeded));
     }
 
     // =========================================================================
@@ -1617,12 +1584,11 @@ mod tests {
         assert!(!envelope.pipeline.parallel_mode);
         let session = orch.pipelines.get(&ProcessId::must("p1")).unwrap();
         assert!(session.active_parallel.is_none());
-        assert!(!session.terminated);
+        assert!(!envelope.bounds.terminated);
 
         orch.report_agent_result(&ProcessId::must("p1"), zero_metrics(), &mut envelope, false).unwrap();
-        let session = orch.pipelines.get(&ProcessId::must("p1")).unwrap();
-        assert!(session.terminated);
-        assert_eq!(session.terminal_reason, Some(TerminalReason::Completed));
+        assert!(envelope.bounds.terminated);
+        assert_eq!(envelope.bounds.terminal_reason, Some(TerminalReason::Completed));
     }
 
     #[test]
@@ -1773,14 +1739,12 @@ mod tests {
 
         for _ in 0..50 {
             orch.report_agent_result(&ProcessId::must("p1"), zero_metrics(), &mut envelope, false).unwrap();
-            let session = orch.pipelines.get(&ProcessId::must("p1")).unwrap();
-            if session.terminated {
-                assert_ne!(session.terminal_reason, None);
+            if envelope.bounds.terminated {
+                assert_ne!(envelope.bounds.terminal_reason, None);
                 break;
             }
         }
-        let session = orch.pipelines.get(&ProcessId::must("p1")).unwrap();
-        assert!(!session.terminated, "Pipeline should not terminate with step_limit=None after 50 iterations");
+        assert!(!envelope.bounds.terminated, "Pipeline should not terminate with step_limit=None after 50 iterations");
     }
 
     #[test]
@@ -1803,10 +1767,9 @@ mod tests {
         let mut terminated = false;
         for _ in 0..10 {
             orch.report_agent_result(&ProcessId::must("p1"), zero_metrics(), &mut envelope, false).unwrap();
-            let session = orch.pipelines.get(&ProcessId::must("p1")).unwrap();
-            if session.terminated {
+            if envelope.bounds.terminated {
                 terminated = true;
-                assert_eq!(session.terminal_reason, Some(TerminalReason::MaxIterationsExceeded));
+                assert_eq!(envelope.bounds.terminal_reason, Some(TerminalReason::MaxIterationsExceeded));
                 break;
             }
         }
@@ -1946,10 +1909,9 @@ mod tests {
         let mut terminated = false;
         for _ in 0..10 {
             orch.report_agent_result(&ProcessId::must("p1"), zero_metrics(), &mut envelope, false).unwrap();
-            let session = orch.pipelines.get(&ProcessId::must("p1")).unwrap();
-            if session.terminated {
+            if envelope.bounds.terminated {
                 terminated = true;
-                assert_eq!(session.terminal_reason, Some(TerminalReason::MaxStageVisitsExceeded));
+                assert_eq!(envelope.bounds.terminal_reason, Some(TerminalReason::MaxStageVisitsExceeded));
                 break;
             }
         }
@@ -1975,13 +1937,12 @@ mod tests {
 
         for _ in 0..50 {
             orch.report_agent_result(&ProcessId::must("p1"), zero_metrics(), &mut envelope, false).unwrap();
-            let session = orch.pipelines.get(&ProcessId::must("p1")).unwrap();
-            if session.terminated {
-                assert_ne!(session.terminal_reason, Some(TerminalReason::MaxStageVisitsExceeded));
+            if envelope.bounds.terminated {
+                assert_ne!(envelope.bounds.terminal_reason, Some(TerminalReason::MaxStageVisitsExceeded));
                 return;
             }
         }
-        assert!(!orch.pipelines.get(&ProcessId::must("p1")).unwrap().terminated);
+        assert!(!envelope.bounds.terminated);
     }
 
     #[test]
@@ -2069,10 +2030,9 @@ mod tests {
 
         let mut terminated = false;
         for _ in 0..20 {
-            let session = orch.pipelines.get(&ProcessId::must("p1")).unwrap();
-            if session.terminated {
+            if envelope.bounds.terminated {
                 terminated = true;
-                assert_eq!(session.terminal_reason, Some(TerminalReason::MaxAgentHopsExceeded));
+                assert_eq!(envelope.bounds.terminal_reason, Some(TerminalReason::MaxAgentHopsExceeded));
                 break;
             }
             orch.report_agent_result(&ProcessId::must("p1"), zero_metrics(), &mut envelope, false).unwrap();
@@ -2102,6 +2062,85 @@ mod tests {
         assert_eq!(envelope.pipeline.current_stage, "foo");
     }
 
+    // =========================================================================
+    // Phase 1c audit tests
+    // =========================================================================
+
+    #[test]
+    fn test_has_session_true_after_init() {
+        let mut orch = Orchestrator::new();
+        let pid = ProcessId::must("p1");
+        let pipeline = create_test_pipeline();
+        let mut envelope = create_test_envelope();
+        orch.initialize_session(pid.clone(), pipeline, &mut envelope, false).unwrap();
+
+        assert!(orch.has_session(&pid));
+    }
+
+    #[test]
+    fn test_has_session_false_for_unknown_pid() {
+        let orch = Orchestrator::new();
+        assert!(!orch.has_session(&ProcessId::must("unknown")));
+    }
+
+    #[test]
+    fn test_cleanup_stale_sessions_removes_old_keeps_young() {
+        let mut orch = Orchestrator::new();
+
+        // Create two sessions
+        let pid_old = ProcessId::must("old");
+        let pid_young = ProcessId::must("young");
+        let pipeline = create_test_pipeline();
+
+        let mut env1 = create_test_envelope();
+        orch.initialize_session(pid_old.clone(), pipeline.clone(), &mut env1, false).unwrap();
+
+        let mut env2 = create_test_envelope();
+        orch.initialize_session(pid_young.clone(), pipeline, &mut env2, false).unwrap();
+
+        // Manually set the old session's last_activity_at to the past
+        if let Some(session) = orch.pipelines.get_mut(&pid_old) {
+            session.last_activity_at = Utc::now() - chrono::TimeDelta::seconds(3600);
+        }
+
+        // Cleanup sessions older than 60 seconds
+        let removed = orch.cleanup_stale_sessions(60);
+        assert_eq!(removed.len(), 1);
+        assert_eq!(removed[0], pid_old);
+
+        assert!(!orch.has_session(&pid_old));
+        assert!(orch.has_session(&pid_young));
+    }
+
+    #[test]
+    fn test_check_bounds_agent_hops_path() {
+        let mut envelope = create_test_envelope();
+        envelope.bounds.max_agent_hops = 3;
+        envelope.bounds.agent_hop_count = 2;
+
+        // Below limit — no termination
+        assert!(envelope.check_bounds().is_none());
+
+        // At limit — terminates
+        envelope.bounds.agent_hop_count = 3;
+        assert_eq!(envelope.check_bounds(), Some(TerminalReason::MaxAgentHopsExceeded));
+
+        // Above limit — also terminates
+        envelope.bounds.agent_hop_count = 4;
+        assert_eq!(envelope.check_bounds(), Some(TerminalReason::MaxAgentHopsExceeded));
+    }
+
+    #[test]
+    fn test_check_bounds_iteration_path() {
+        let mut envelope = create_test_envelope();
+        envelope.pipeline.max_iterations = 5;
+        envelope.pipeline.iteration = 4;
+        assert!(envelope.check_bounds().is_none());
+
+        envelope.pipeline.iteration = 5;
+        assert_eq!(envelope.check_bounds(), Some(TerminalReason::MaxIterationsExceeded));
+    }
+
     #[test]
     fn test_empty_routing_no_default_terminates() {
         let mut orch = Orchestrator::new();
@@ -2120,8 +2159,7 @@ mod tests {
         orch.initialize_session(ProcessId::must("p1"), pipeline, &mut envelope, false).unwrap();
 
         orch.report_agent_result(&ProcessId::must("p1"), zero_metrics(), &mut envelope, false).unwrap();
-        let session = orch.pipelines.get(&ProcessId::must("p1")).unwrap();
-        assert!(session.terminated);
-        assert_eq!(session.terminal_reason, Some(TerminalReason::Completed));
+        assert!(envelope.bounds.terminated);
+        assert_eq!(envelope.bounds.terminal_reason, Some(TerminalReason::Completed));
     }
 }
