@@ -188,6 +188,18 @@ class EventBridge:
                 },
             }
 
+        elif event_type == "envelope.snapshot":
+            envelope = data.get("envelope", {})
+            return {
+                "type": "orchestrator.pipeline_progress",
+                "data": {
+                    "pid": event.pid,
+                    "trigger": data.get("trigger"),
+                    "envelope": envelope,
+                    "session_id": envelope.get("identity", {}).get("session_id"),
+                },
+            }
+
         # Default: don't forward internal kernel events
         return None
 

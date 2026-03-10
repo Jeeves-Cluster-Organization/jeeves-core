@@ -47,7 +47,8 @@ pub async fn handle(kernel: &mut Kernel, method: &str, body: Value) -> Result<Di
             }
 
             let session_state =
-                kernel.initialize_orchestration(process_id, pipeline_config, envelope, force)?;
+                kernel.initialize_orchestration(process_id.clone(), pipeline_config, envelope, force)?;
+            kernel.emit_envelope_snapshot(&process_id, "initialized");
 
             Ok(DispatchResponse::Single(session_state_to_value(
                 &session_state,
@@ -172,6 +173,8 @@ pub async fn handle(kernel: &mut Kernel, method: &str, body: Value) -> Result<Di
                     );
                 }
             }
+
+            kernel.emit_envelope_snapshot(&process_id, "agent_completed");
 
             let instruction = kernel.get_next_instruction(&process_id)?;
             let envelope = kernel.get_process_envelope(&process_id);

@@ -575,6 +575,31 @@ impl Kernel {
     }
 
     // =============================================================================
+    // Envelope Snapshot Emission
+    // =============================================================================
+
+    /// Emit an envelope snapshot to CommBus subscribers.
+    ///
+    /// Fired at mutation points so capabilities can subscribe and handle
+    /// envelope state changes (persist, forward to UI, etc.).
+    pub fn emit_envelope_snapshot(&mut self, pid: &ProcessId, trigger: &str) {
+        let Some(envelope) = self.process_envelopes.get(pid) else { return; };
+        let payload = serde_json::json!({
+            "pid": pid.as_str(),
+            "trigger": trigger,
+            "envelope": envelope,
+        });
+        let Ok(payload_bytes) = serde_json::to_vec(&payload) else { return; };
+        let event = crate::commbus::Event {
+            event_type: "envelope.snapshot".to_string(),
+            payload: payload_bytes,
+            timestamp_ms: chrono::Utc::now().timestamp_millis(),
+            source: "kernel".to_string(),
+        };
+        let _ = self.publish_event(event);
+    }
+
+    // =============================================================================
     // CommBus Methods (Delegation to CommBus)
     // =============================================================================
 

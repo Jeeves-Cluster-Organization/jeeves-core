@@ -146,6 +146,7 @@ pub async fn handle(kernel: &mut Kernel, method: &str, body: Value) -> Result<Di
         "TerminateProcess" => {
             let pid = parse_pid(&body)?;
             kernel.terminate_process(&pid)?;
+            kernel.emit_envelope_snapshot(&pid, "terminated");
 
             let pcb = kernel
                 .get_process(&pid)
@@ -178,6 +179,7 @@ pub async fn handle(kernel: &mut Kernel, method: &str, body: Value) -> Result<Di
                 });
 
             kernel.resume_process_with_update(&pid, envelope_update)?;
+            kernel.emit_envelope_snapshot(&pid, "resumed");
 
             let pcb = kernel
                 .get_process(&pid)

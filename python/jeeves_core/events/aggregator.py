@@ -26,7 +26,7 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
-# Event types the kernel emits (from ipc/handlers/kernel.rs)
+# Event types the kernel emits (from ipc/handlers/kernel.rs + orchestration.rs)
 LIFECYCLE_EVENT_TYPES = [
     "process.created",
     "process.state_changed",
@@ -34,6 +34,7 @@ LIFECYCLE_EVENT_TYPES = [
     "resource.exhausted",
     "interrupt.raised",
     "process.cancelled",
+    "envelope.snapshot",
 ]
 
 
