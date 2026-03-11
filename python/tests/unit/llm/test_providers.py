@@ -75,21 +75,22 @@ class TestOpenAIHTTPProvider:
         return OpenAIHTTPProvider(**defaults)
 
     # ------------------------------------------------------------------
-    # generate
+    # chat
     # ------------------------------------------------------------------
 
-    async def test_generate_success(self):
-        """Mock httpx.AsyncClient.post returning valid OpenAI response, verify text extraction."""
+    async def test_chat_success(self):
+        """Mock httpx.AsyncClient.post returning valid OpenAI response, verify structured extraction."""
         provider = self._make_provider()
 
         mock_response = _make_httpx_response(200, _openai_success_json())
 
         with patch("httpx.AsyncClient.post", new_callable=AsyncMock, return_value=mock_response):
-            result = await provider.generate("test-model", "Say hello")
+            result = await provider.chat("test-model", [{"role": "user", "content": "Say hello"}])
 
-        assert result == "Hello world"
+        assert result["content"] == "Hello world"
+        assert result["tool_calls"] == []
 
-    async def test_generate_retry_on_transient_error(self):
+    async def test_chat_retry_on_transient_error(self):
         """First call raises HTTPStatusError (500), second call succeeds."""
         provider = self._make_provider(max_retries=2)
 
@@ -105,12 +106,12 @@ class TestOpenAIHTTPProvider:
         mock_post = AsyncMock(side_effect=[error, success_response])
 
         with patch("httpx.AsyncClient.post", mock_post):
-            result = await provider.generate("test-model", "Say hello")
+            result = await provider.chat("test-model", [{"role": "user", "content": "Say hello"}])
 
-        assert result == "Hello world"
+        assert result["content"] == "Hello world"
         assert mock_post.call_count == 2
 
-    async def test_generate_raises_after_max_retries(self):
+    async def test_chat_raises_after_max_retries(self):
         """All calls fail with HTTPStatusError; exception propagates after max_retries."""
         provider = self._make_provider(max_retries=2)
 
@@ -126,7 +127,7 @@ class TestOpenAIHTTPProvider:
 
         with patch("httpx.AsyncClient.post", mock_post):
             with pytest.raises(httpx.HTTPStatusError):
-                await provider.generate("test-model", "Say hello")
+                await provider.chat("test-model", [{"role": "user", "content": "Say hello"}])
 
         assert mock_post.call_count == 3
 
@@ -166,21 +167,23 @@ class TestOpenAIHTTPProvider:
         """Verify payload structure with model, messages, stream."""
         provider = self._make_provider(model="my-model")
 
-        payload = provider._build_payload("Hello", {}, stream=False)
+        messages = [{"role": "user", "content": "Hello"}]
+        payload = provider._build_payload(messages, {}, stream=False)
 
         assert payload["model"] == "my-model"
-        assert payload["messages"] == [{"role": "user", "content": "Hello"}]
+        assert payload["messages"] == messages
         assert payload["stream"] is False
         # No temperature or max_tokens when options empty
         assert "temperature" not in payload
         assert "max_tokens" not in payload
 
     def test_build_payload_with_options(self):
-        """Verify temperature and max_tokens are passed through."""
+        """Verify temperature, max_tokens, and tools are passed through."""
         provider = self._make_provider()
 
+        messages = [{"role": "user", "content": "Hello"}]
         options = {"temperature": 0.7, "max_tokens": 256, "top_p": 0.9}
-        payload = provider._build_payload("Hello", options, stream=True)
+        payload = provider._build_payload(messages, options, stream=True)
 
         assert payload["stream"] is True
         assert payload["temperature"] == 0.7
@@ -249,10 +252,10 @@ class TestLiteLLMProvider:
         return mock_response
 
     # ------------------------------------------------------------------
-    # generate
+    # chat
     # ------------------------------------------------------------------
 
-    async def test_generate_success(self):
+    async def test_chat_success(self):
         """Mock litellm.acompletion returning valid response."""
         mock_response = self._make_litellm_response("Hello world")
 
@@ -262,11 +265,12 @@ class TestLiteLLMProvider:
             return_value=mock_response,
         ):
             provider = self._make_provider()
-            result = await provider.generate("openai/test-model", "Say hello")
+            result = await provider.chat("openai/test-model", [{"role": "user", "content": "Say hello"}])
 
-        assert result == "Hello world"
+        assert result["content"] == "Hello world"
+        assert result["tool_calls"] == []
 
-    async def test_generate_extracts_content(self):
+    async def test_chat_extracts_content(self):
         """Verify correct extraction from response.choices[0].message.content."""
         custom_text = "The quick brown fox jumps over the lazy dog."
         mock_response = self._make_litellm_response(custom_text)
@@ -277,9 +281,9 @@ class TestLiteLLMProvider:
             return_value=mock_response,
         ):
             provider = self._make_provider()
-            result = await provider.generate("openai/test-model", "Tell me a sentence")
+            result = await provider.chat("openai/test-model", [{"role": "user", "content": "Tell me a sentence"}])
 
-        assert result == custom_text
+        assert result["content"] == custom_text
 
     # ------------------------------------------------------------------
     # health_check

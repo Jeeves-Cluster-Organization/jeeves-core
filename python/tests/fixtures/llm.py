@@ -49,7 +49,7 @@ def llm_provider():
 
     Usage:
         def test_something(llm_provider):
-            response = await llm_provider.generate(...)
+            response = await llm_provider.chat(...)
             assert response is not None
     """
     from jeeves_core.settings import get_settings

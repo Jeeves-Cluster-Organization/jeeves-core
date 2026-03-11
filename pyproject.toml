@@ -54,6 +54,9 @@ llm = [
     "litellm>=1.0.0,<2",
     "tiktoken>=0.5.0,<1",
 ]
+mcp = [
+    "mcp>=1.0.0,<2",
+]
 dev = [
     "pytest>=7.0.0,<9",
     "pytest-asyncio>=0.21.0,<1",

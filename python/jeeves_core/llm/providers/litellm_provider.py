@@ -1,9 +1,9 @@
 """
 LiteLLM provider - unified provider for 100+ LLM backends.
 
-Replaces all airframe adapters with direct LiteLLM calls.
+Message-based chat interface with native tool calling.
 LiteLLM handles: HTTP, retries, streaming, provider quirks.
-This provider adds: cost tracking, logging, Infrastructure API translation.
+This provider adds: cost tracking, logging, tool_calls parsing.
 
 Supports:
 - OpenAI, Azure OpenAI, Anthropic, Cohere, etc. (cloud)
@@ -12,16 +12,14 @@ Supports:
 
 Usage:
     provider = LiteLLMProvider(model="claude-3-sonnet-20240229")
-    response = await provider.generate(model="claude-3-sonnet", prompt="Hello")
-
-    # For local llama-server:
-    provider = LiteLLMProvider(
-        model="openai/llama",
-        api_base="http://localhost:8080/v1"
+    result = await provider.chat(
+        model="claude-3-sonnet",
+        messages=[{"role": "user", "content": "Hello"}],
+        options={"tools": [...], "tool_choice": "auto"},
     )
 """
 
-from typing import AsyncIterator, Dict, Any, Optional
+from typing import AsyncIterator, Dict, Any, List, Optional
 
 from .base import LLMProvider, TokenChunk
 from ..cost_calculator import CostCalculator
@@ -34,12 +32,29 @@ except ImportError:
     acompletion = None  # type: ignore
 
 
+def _parse_tool_calls(message) -> list:
+    """Extract tool_calls from a LiteLLM response message into dicts."""
+    raw = getattr(message, "tool_calls", None)
+    if not raw:
+        return []
+    calls = []
+    for tc in raw:
+        calls.append({
+            "id": getattr(tc, "id", ""),
+            "type": "function",
+            "function": {
+                "name": getattr(tc.function, "name", ""),
+                "arguments": getattr(tc.function, "arguments", "{}"),
+            },
+        })
+    return calls
+
+
 class LiteLLMProvider(LLMProvider):
     """
     LLM provider using LiteLLM for unified access to 100+ backends.
 
     This is the recommended provider for all LLM interactions.
-    It replaces the airframe-based adapters with battle-tested LiteLLM.
 
     Attributes:
         model: LiteLLM model string (e.g., "claude-3-sonnet-20240229", "openai/gpt-4")
@@ -59,22 +74,6 @@ class LiteLLMProvider(LLMProvider):
         logger: Optional[LoggerProtocol] = None,
         **extra_params,
     ):
-        """
-        Initialize LiteLLM provider.
-
-        Args:
-            model: LiteLLM model identifier. Examples:
-                - "claude-3-sonnet-20240229" (Anthropic)
-                - "gpt-4-turbo" (OpenAI)
-                - "openai/llama" (local llama-server with OpenAI API)
-                - "bedrock/anthropic.claude-3-sonnet" (AWS Bedrock)
-            api_base: Base URL for OpenAI-compatible endpoints (local models)
-            api_key: API key (optional, uses env vars if not provided)
-            timeout: Request timeout in seconds (default: 120s)
-            max_retries: Retry count for transient failures (default: 3)
-            logger: Logger instance (uses context logger if not provided)
-            **extra_params: Additional LiteLLM params (temperature, etc.)
-        """
         if acompletion is None:
             raise ImportError("litellm is required: pip install litellm")
 
@@ -94,40 +93,26 @@ class LiteLLMProvider(LLMProvider):
             timeout=timeout,
         )
 
-    async def generate(
-        self, model: str, prompt: str, options: Optional[Dict[str, Any]] = None
-    ) -> str:
-        text, _usage = await self.generate_with_usage(model, prompt, options)
-        return text
+    async def chat(
+        self, model: str, messages: List[Dict[str, Any]], options: Optional[Dict[str, Any]] = None
+    ) -> Dict[str, Any]:
+        result, _usage = await self.chat_with_usage(model, messages, options)
+        return result
 
-    async def generate_with_usage(
-        self, model: str, prompt: str, options: Optional[Dict[str, Any]] = None
-    ) -> tuple[str, Optional[Dict[str, int]]]:
-        """
-        Generate text completion via LiteLLM.
-
-        Args:
-            model: Model name (can override instance default)
-            prompt: Input prompt text
-            options: Generation options (temperature, max_tokens, etc.)
-
-        Returns:
-            Generated text string
-
-        Raises:
-            Exception: On LLM errors
-        """
+    async def chat_with_usage(
+        self, model: str, messages: List[Dict[str, Any]], options: Optional[Dict[str, Any]] = None
+    ) -> tuple[Dict[str, Any], Optional[Dict[str, int]]]:
+        """Chat completion via LiteLLM with usage tracking."""
         opts = options or {}
         model_to_use = model or self._model
 
-        # Build LiteLLM kwargs
-        kwargs = self._build_kwargs(prompt, opts, stream=False)
+        kwargs = self._build_kwargs(messages, opts, stream=False)
 
         self._logger.debug(
-            "litellm_generating",
+            "litellm_chat",
             model=model_to_use,
-            prompt_length=len(prompt),
-            max_tokens=opts.get("max_tokens") or opts.get("num_predict"),
+            message_count=len(messages),
+            has_tools=bool(opts.get("tools")),
         )
 
         try:
@@ -136,8 +121,9 @@ class LiteLLMProvider(LLMProvider):
                 **kwargs,
             )
 
-            # Extract text from response
-            text = response.choices[0].message.content or ""
+            message = response.choices[0].message
+            content = message.content or ""
+            tool_calls = _parse_tool_calls(message)
 
             # Extract usage for cost tracking
             usage = getattr(response, "usage", None)
@@ -153,18 +139,21 @@ class LiteLLMProvider(LLMProvider):
             )
 
             self._logger.info(
-                "llm_generation_complete",
+                "llm_chat_complete",
                 provider="litellm",
                 model=model_to_use,
                 prompt_tokens=prompt_tokens,
                 completion_tokens=completion_tokens,
                 cost_usd=cost_metrics.cost_usd,
+                tool_calls_count=len(tool_calls),
             )
 
-            return text, {
+            result = {"content": content, "tool_calls": tool_calls}
+            usage_dict = {
                 "prompt_tokens": int(prompt_tokens),
                 "completion_tokens": int(completion_tokens),
             }
+            return result, usage_dict
 
         except Exception as e:
             self._logger.error(
@@ -174,30 +163,19 @@ class LiteLLMProvider(LLMProvider):
             )
             raise
 
-    async def generate_stream(
-        self, model: str, prompt: str, options: Optional[Dict[str, Any]] = None
+    async def chat_stream(
+        self, model: str, messages: List[Dict[str, Any]], options: Optional[Dict[str, Any]] = None
     ) -> AsyncIterator[TokenChunk]:
-        """
-        Generate text with streaming via LiteLLM.
-
-        Args:
-            model: Model name (can override instance default)
-            prompt: Input prompt text
-            options: Generation options (temperature, max_tokens, etc.)
-
-        Yields:
-            TokenChunk objects with incremental text
-        """
+        """Chat completion with streaming via LiteLLM."""
         opts = options or {}
         model_to_use = model or self._model
 
-        # Build LiteLLM kwargs
-        kwargs = self._build_kwargs(prompt, opts, stream=True)
+        kwargs = self._build_kwargs(messages, opts, stream=True)
 
         self._logger.debug(
             "litellm_streaming",
             model=model_to_use,
-            prompt_length=len(prompt),
+            message_count=len(messages),
         )
 
         try:
@@ -207,7 +185,6 @@ class LiteLLMProvider(LLMProvider):
             )
 
             async for chunk in response:
-                # Extract content from chunk
                 choices = getattr(chunk, "choices", [])
                 if not choices:
                     continue
@@ -242,11 +219,11 @@ class LiteLLMProvider(LLMProvider):
             raise
 
     def _build_kwargs(
-        self, prompt: str, options: Dict[str, Any], stream: bool
+        self, messages: List[Dict[str, Any]], options: Dict[str, Any], stream: bool
     ) -> Dict[str, Any]:
         """Build kwargs for litellm.acompletion."""
         kwargs: Dict[str, Any] = {
-            "messages": [{"role": "user", "content": prompt}],
+            "messages": messages,
             "stream": stream,
             "timeout": self._timeout,
             "num_retries": self._max_retries,
@@ -257,6 +234,12 @@ class LiteLLMProvider(LLMProvider):
             kwargs["api_base"] = self._api_base
         if self._api_key:
             kwargs["api_key"] = self._api_key
+
+        # Tool calling
+        if options.get("tools"):
+            kwargs["tools"] = options["tools"]
+        if options.get("tool_choice"):
+            kwargs["tool_choice"] = options["tool_choice"]
 
         # Generation parameters
         if options.get("temperature") is not None:
@@ -281,16 +264,11 @@ class LiteLLMProvider(LLMProvider):
         return True
 
     async def health_check(self) -> bool:
-        """
-        Check if the LLM endpoint is healthy.
-
-        Makes a minimal request to verify connectivity.
-
-        Returns:
-            True if endpoint is responsive, False otherwise
-        """
+        """Check if the LLM endpoint is healthy."""
         try:
-            kwargs = self._build_kwargs("Hi", {}, stream=False)
+            kwargs = self._build_kwargs(
+                [{"role": "user", "content": "Hi"}], {}, stream=False
+            )
             kwargs["max_tokens"] = 1
 
             response = await acompletion(
@@ -318,5 +296,4 @@ class LiteLLMProvider(LLMProvider):
         }
 
     def __repr__(self) -> str:
-        """String representation."""
         return f"LiteLLMProvider(model={self._model}, api_base={self._api_base})"

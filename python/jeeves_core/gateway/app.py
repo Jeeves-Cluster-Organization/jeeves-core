@@ -299,7 +299,7 @@ async def ready() -> JSONResponse:
 async def root():
     """Root endpoint with API information."""
     service_id = _get_service_identity()
-    return {
+    info = {
         "service": f"{service_id.replace('_', ' ').title()} Gateway",
         "version": "4.0.0",
         "health": "/health",
@@ -314,6 +314,11 @@ async def root():
         },
         "docs": "/docs",
     }
+    if os.getenv("MCP_ENABLED", "false").lower() == "true":
+        info["mcp"] = "/mcp"
+    if os.getenv("A2A_ENABLED", "false").lower() == "true":
+        info["a2a"] = {"agent_card": "/.well-known/agent.json", "tasks": "/a2a/tasks"}
+    return info
 
 
 # =============================================================================
@@ -325,6 +330,16 @@ from jeeves_core.gateway.routers import chat, governance, interrupts
 app.include_router(chat.router, prefix="/api/v1/chat", tags=["chat"])
 app.include_router(governance.router, prefix="/api/v1/governance", tags=["governance"])
 app.include_router(interrupts.router, prefix="/api/v1", tags=["interrupts"])
+
+# MCP Server — expose jeeves tools as MCP-compatible endpoint (conditional)
+if os.getenv("MCP_ENABLED", "false").lower() == "true":
+    from jeeves_core.mcp.server import mcp_router
+    app.include_router(mcp_router, prefix="/mcp", tags=["mcp"])
+
+# A2A Server — expose jeeves pipelines as A2A-compatible agents (conditional)
+if os.getenv("A2A_ENABLED", "false").lower() == "true":
+    from jeeves_core.a2a.server import a2a_router
+    app.include_router(a2a_router, prefix="/a2a", tags=["a2a"])
 
 
 # =============================================================================

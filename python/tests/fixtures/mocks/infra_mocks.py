@@ -21,52 +21,50 @@ class MockLLMAdapter:
         self.call_count = 0
         self.calls: List[Dict[str, Any]] = []
 
-    async def generate(
+    async def chat(
         self,
-        prompt: str,
-        *,
-        model: Optional[str] = None,
-        temperature: Optional[float] = None,
-        max_tokens: Optional[int] = None,
-        stop: Optional[List[str]] = None,
-        seed: Optional[int] = None,
-    ) -> str:
+        model: str,
+        messages: List[Dict[str, Any]],
+        options: Optional[Dict[str, Any]] = None,
+    ) -> Dict[str, Any]:
         self.call_count += 1
+        # Extract prompt text from messages for pattern matching
+        prompt = " ".join(
+            m.get("content", "") for m in messages if isinstance(m.get("content"), str)
+        )
         self.calls.append({
-            "prompt": prompt,
+            "messages": messages,
             "model": model,
-            "temperature": temperature,
+            "options": options,
         })
 
         # Check for pattern matches
         for pattern, response in self.responses.items():
             if pattern.lower() in prompt.lower():
-                return response
+                return {"content": response, "tool_calls": []}
 
         # Default responses based on prompt content
         if "plan" in prompt.lower():
-            return json.dumps({
+            return {"content": json.dumps({
                 "steps": [{"tool": "grep_search", "params": {"pattern": "test"}}],
                 "confidence": 0.9,
-            })
+            }), "tool_calls": []}
         elif "intent" in prompt.lower():
-            return json.dumps({
+            return {"content": json.dumps({
                 "intent": "analyze",
                 "goals": ["understand code"],
                 "confidence": 0.9,
-            })
-        return '{"result": "mock response"}'
+            }), "tool_calls": []}
+        return {"content": '{"result": "mock response"}', "tool_calls": []}
 
-    async def generate_structured(
+    async def chat_with_usage(
         self,
-        prompt: str,
-        schema: Dict[str, Any],
-        *,
-        model: Optional[str] = None,
-        seed: Optional[int] = None,
-    ) -> Dict[str, Any]:
-        self.call_count += 1
-        return {"structured": "response"}
+        model: str,
+        messages: List[Dict[str, Any]],
+        options: Optional[Dict[str, Any]] = None,
+    ) -> tuple:
+        result = await self.chat(model, messages, options)
+        return result, {"prompt_tokens": 10, "completion_tokens": 5}
 
     async def health_check(self) -> bool:
         return True

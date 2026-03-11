@@ -6,7 +6,7 @@ Constitutional Reference: Constitution R1 (Adapter Pattern)
 
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
-from typing import Any, AsyncIterator, Dict, Optional
+from typing import Any, AsyncIterator, Dict, List, Optional
 
 
 @dataclass
@@ -31,49 +31,48 @@ class TokenChunk:
 class LLMProvider(ABC):
     """Abstract base class for LLM providers.
 
-    All providers must implement the generate method which takes a model name,
-    prompt, and options dict, and returns the generated text asynchronously.
-
-    Providers may optionally implement generate_stream for streaming support.
+    Message-based chat interface with native tool calling support.
+    All providers must implement chat() which accepts messages + tools
+    and returns structured responses with optional tool_calls.
     """
 
     @abstractmethod
-    async def generate(
+    async def chat(
         self,
         model: str,
-        prompt: str,
+        messages: List[Dict[str, Any]],
         options: Optional[Dict[str, Any]] = None,
-    ) -> str:
-        """Generate text from a prompt.
+    ) -> Dict[str, Any]:
+        """Chat completion with messages and optional tools.
 
         Args:
             model: Model identifier (e.g., "gpt-4", "llama3.1:8b")
-            prompt: Input prompt text
-            options: Provider-specific options (temperature, max_tokens, etc.)
+            messages: OpenAI-format message list [{"role": ..., "content": ...}]
+            options: Provider-specific options (temperature, max_tokens, tools, tool_choice, etc.)
 
         Returns:
-            Generated text string
+            {"content": str, "tool_calls": [{"id": str, "function": {"name": str, "arguments": str}}]}
 
         Raises:
             Exception: If generation fails
         """
         pass
 
-    async def generate_stream(
+    async def chat_stream(
         self,
         model: str,
-        prompt: str,
+        messages: List[Dict[str, Any]],
         options: Optional[Dict[str, Any]] = None,
     ) -> AsyncIterator[TokenChunk]:
-        """Generate text from a prompt with streaming output.
+        """Chat completion with streaming output.
 
-        Default implementation falls back to non-streaming generate().
+        Default implementation falls back to non-streaming chat().
         Providers should override this for true streaming support.
 
         Args:
-            model: Model identifier (e.g., "gpt-4", "llama3.1:8b")
-            prompt: Input prompt text
-            options: Provider-specific options (temperature, max_tokens, etc.)
+            model: Model identifier
+            messages: OpenAI-format message list
+            options: Provider-specific options
 
         Yields:
             TokenChunk objects containing incremental text
@@ -81,28 +80,29 @@ class LLMProvider(ABC):
         Raises:
             Exception: If generation fails
         """
-        # Default fallback: call generate() and yield entire result
-        result = await self.generate(model, prompt, options)
+        # Default fallback: call chat() and yield entire result
+        result = await self.chat(model, messages, options)
+        content = result.get("content", "")
         yield TokenChunk(
-            text=result,
+            text=content,
             is_final=True,
-            token_count=len(result) // 4,  # Rough estimate
+            token_count=len(content) // 4,  # Rough estimate
         )
 
-    async def generate_with_usage(
+    async def chat_with_usage(
         self,
         model: str,
-        prompt: str,
+        messages: List[Dict[str, Any]],
         options: Optional[Dict[str, Any]] = None,
-    ) -> tuple[str, Optional[Dict[str, int]]]:
-        """Generate text and optional token usage metadata.
+    ) -> tuple[Dict[str, Any], Optional[Dict[str, int]]]:
+        """Chat completion with optional token usage metadata.
 
         Returns:
-            Tuple of (text, usage). `usage` should contain `prompt_tokens` and
+            Tuple of (response_dict, usage). `usage` should contain `prompt_tokens` and
             `completion_tokens` when the provider can report them.
         """
-        text = await self.generate(model, prompt, options)
-        return text, None
+        result = await self.chat(model, messages, options)
+        return result, None
 
     @abstractmethod
     async def health_check(self) -> bool:

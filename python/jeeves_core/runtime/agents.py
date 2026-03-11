@@ -103,6 +103,23 @@ class AgentEventContext(Protocol):
 
 
 # =============================================================================
+# MESSAGE BUILDERS
+# =============================================================================
+
+def _build_messages(prompt: str, envelope: "Envelope") -> List[Dict[str, Any]]:
+    """Convert prompt + envelope context into OpenAI-format message list.
+
+    System message carries the agent prompt template (rendered).
+    User message carries the raw user input.
+    """
+    messages: List[Dict[str, Any]] = [
+        {"role": "system", "content": prompt},
+        {"role": "user", "content": envelope.raw_input},
+    ]
+    return messages
+
+
+# =============================================================================
 # TYPE ALIASES
 # =============================================================================
 
@@ -233,35 +250,32 @@ class Agent:
         return envelope
 
     async def _call_llm(self, envelope: Envelope) -> Dict[str, Any]:
-        """Call LLM with prompt from registry."""
+        """Call LLM via chat() with messages and optional tool schemas."""
         if not self.prompt_registry:
             raise ValueError(f"Agent {self.name} requires prompt_registry")
 
         prompt_key = self.config.prompt_key or f"{envelope.metadata.get('pipeline', 'default')}.{self.name}"
-
         context = self._build_prompt_context(envelope)
-
         prompt = self.prompt_registry.get(prompt_key, context=context)
 
-        # Build options dict for LLM provider
-        options = {}
+        # Build messages from prompt context
+        messages = _build_messages(prompt, envelope)
+
+        # Build options
+        options: Dict[str, Any] = {}
         if self.config.temperature is not None:
             options["temperature"] = self.config.temperature
         if self.config.max_tokens is not None:
-            options["num_predict"] = self.config.max_tokens  # llama-server uses num_predict
+            options["num_predict"] = self.config.max_tokens
 
-        # Call LLM provider's generate() method
-        # model is empty string since llama-server loads a single model
-        response: str
+        # Call LLM provider's chat() method
+        result: Dict[str, Any]
         usage: Optional[Dict[str, int]] = None
-        if hasattr(self.llm, "generate_with_usage"):
-            response, usage = await self.llm.generate_with_usage(
-                model="",
-                prompt=prompt,
-                options=options,
-            )
-        else:
-            response = await self.llm.generate(model="", prompt=prompt, options=options)
+        result, usage = await self.llm.chat_with_usage(
+            model="",
+            messages=messages,
+            options=options,
+        )
 
         if isinstance(usage, dict):
             prompt_tokens = usage.get("prompt_tokens")
@@ -271,21 +285,21 @@ class Agent:
                     "tokens_in": prompt_tokens,
                     "tokens_out": completion_tokens,
                 }
-        else:
-            if usage is not None:
-                self.logger.debug("agent_usage_parse_skipped", agent=self.config.name, usage_type=type(usage).__name__)
         self._llm_calls_this_run += 1
 
-        # Use JSONRepairKit for robust parsing of LLM output
-        # Handles: code fences, text + embedded JSON, trailing commas, single quotes, etc.
-        # This ensures P1 (Accuracy First) by properly extracting structured output
+        # If LLM returned tool_calls, they're already structured — pass through
+        if result.get("tool_calls"):
+            return result
+
+        # Parse content as JSON for structured agent output
+        content = result.get("content", "")
         from jeeves_core.utils import JSONRepairKit
 
-        result = JSONRepairKit.parse_lenient(response)
-        if result is not None:
-            return result
-        self.logger.warning("agent_json_parse_failed", agent=self.config.name, envelope_id=envelope.envelope_id, response_preview=response[:200])
-        return {"response": response}
+        parsed = JSONRepairKit.parse_lenient(content)
+        if parsed is not None:
+            return parsed
+        self.logger.warning("agent_json_parse_failed", agent=self.config.name, envelope_id=envelope.envelope_id, response_preview=content[:200])
+        return {"response": content}
 
     async def _execute_tools(self, envelope: Envelope, output: Dict[str, Any]) -> Dict[str, Any]:
         """Execute tool calls from LLM output."""
@@ -448,8 +462,11 @@ class Agent:
         context = self._build_prompt_context(envelope)
         prompt = self.prompt_registry.get(prompt_key, context=context)
 
+        # Build messages
+        messages = _build_messages(prompt, envelope)
+
         # Build options
-        options = {}
+        options: Dict[str, Any] = {}
         if self.config.temperature is not None:
             options["temperature"] = self.config.temperature
         if self.config.max_tokens is not None:
@@ -459,8 +476,8 @@ class Agent:
         if self.config.generation:
             options.update(self.config.generation.to_dict())
 
-        # Stream tokens directly from LLM
-        async for chunk in self.llm.generate_stream(model="", prompt=prompt, options=options):
+        # Stream tokens directly from LLM via chat_stream()
+        async for chunk in self.llm.chat_stream(model="", messages=messages, options=options):
             if chunk.text:
                 yield chunk.text
 

@@ -39,16 +39,15 @@ class _MockLLM:
     def __init__(self, outputs: Dict[str, Dict]):
         self._outputs = outputs
 
-    async def generate(self, model: str, prompt: str, options: dict = None) -> str:
+    async def chat(self, model: str, messages: list = None, options: dict = None) -> dict:
         import json
-        # Find matching output by checking which agent name appears in the prompt key
         for key, output in self._outputs.items():
-            return json.dumps(output)
-        return "{}"
+            return {"content": json.dumps(output), "tool_calls": []}
+        return {"content": "{}", "tool_calls": []}
 
-    async def generate_with_usage(self, model: str, prompt: str, options: dict = None):
-        response = await self.generate(model, prompt, options)
-        return response, {"prompt_tokens": 10, "completion_tokens": 10}
+    async def chat_with_usage(self, model: str, messages: list = None, options: dict = None):
+        result = await self.chat(model, messages, options)
+        return result, {"prompt_tokens": 10, "completion_tokens": 10}
 
 
 class _MockLLMByAgent:
@@ -58,14 +57,14 @@ class _MockLLMByAgent:
         self._agent_name = agent_name
         self._outputs = outputs
 
-    async def generate(self, model: str, prompt: str, options: dict = None) -> str:
+    async def chat(self, model: str, messages: list = None, options: dict = None) -> dict:
         import json
         output = self._outputs.get(self._agent_name, {})
-        return json.dumps(output)
+        return {"content": json.dumps(output), "tool_calls": []}
 
-    async def generate_with_usage(self, model: str, prompt: str, options: dict = None):
-        response = await self.generate(model, prompt, options)
-        return response, {"prompt_tokens": 10, "completion_tokens": 10}
+    async def chat_with_usage(self, model: str, messages: list = None, options: dict = None):
+        result = await self.chat(model, messages, options)
+        return result, {"prompt_tokens": 10, "completion_tokens": 10}
 
 
 class _MockPromptRegistry:

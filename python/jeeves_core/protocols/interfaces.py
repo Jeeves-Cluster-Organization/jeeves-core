@@ -140,26 +140,27 @@ class DatabaseClientProtocol(Protocol):
 
 @runtime_checkable
 class LLMProviderProtocol(Protocol):
-    """LLM provider interface."""
+    """LLM provider interface — message-based chat with native tool calling."""
 
-    async def generate(
+    async def chat(
         self,
         model: str,
-        prompt: str,
+        messages: List[Dict[str, Any]],
         options: Optional[Dict[str, Any]] = None,
-    ) -> str: ...
+    ) -> Dict[str, Any]: ...
+    """Returns {"content": str, "tool_calls": [...]} """
 
-    async def generate_with_usage(
+    async def chat_with_usage(
         self,
         model: str,
-        prompt: str,
+        messages: List[Dict[str, Any]],
         options: Optional[Dict[str, Any]] = None,
-    ) -> tuple[str, Optional[Dict[str, int]]]: ...
+    ) -> tuple[Dict[str, Any], Optional[Dict[str, int]]]: ...
 
-    async def generate_stream(
+    async def chat_stream(
         self,
         model: str,
-        prompt: str,
+        messages: List[Dict[str, Any]],
         options: Optional[Dict[str, Any]] = None,
     ) -> Any: ...  # AsyncIterator[TokenChunk]
 

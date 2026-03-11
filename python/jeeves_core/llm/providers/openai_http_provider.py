@@ -1,5 +1,6 @@
 """OpenAI-compatible HTTP provider.
 
+Message-based chat interface with native tool calling.
 Direct HTTP adapter for OpenAI-compatible endpoints:
 - llama-server (llama.cpp)
 - vLLM
@@ -9,7 +10,7 @@ Direct HTTP adapter for OpenAI-compatible endpoints:
 No external dependencies beyond httpx (already in jeeves_core deps).
 """
 
-from typing import AsyncIterator, Dict, Any, Optional
+from typing import AsyncIterator, Dict, Any, List, Optional
 import json
 
 import httpx
@@ -17,6 +18,24 @@ import httpx
 from .base import LLMProvider, TokenChunk
 from jeeves_core.logging import get_current_logger
 from jeeves_core.protocols import LoggerProtocol
+
+
+def _parse_tool_calls_from_dict(message: dict) -> list:
+    """Extract tool_calls from an OpenAI-format response message dict."""
+    raw = message.get("tool_calls")
+    if not raw:
+        return []
+    calls = []
+    for tc in raw:
+        calls.append({
+            "id": tc.get("id", ""),
+            "type": "function",
+            "function": {
+                "name": tc.get("function", {}).get("name", ""),
+                "arguments": tc.get("function", {}).get("arguments", "{}"),
+            },
+        })
+    return calls
 
 
 class OpenAIHTTPProvider(LLMProvider):
@@ -50,31 +69,32 @@ class OpenAIHTTPProvider(LLMProvider):
             api_base=self._api_base,
         )
 
-    async def generate(
+    async def chat(
         self,
         model: str,
-        prompt: str,
+        messages: List[Dict[str, Any]],
         options: Optional[Dict[str, Any]] = None,
-    ) -> str:
-        text, _usage = await self.generate_with_usage(model, prompt, options)
-        return text
+    ) -> Dict[str, Any]:
+        result, _usage = await self.chat_with_usage(model, messages, options)
+        return result
 
-    async def generate_with_usage(
+    async def chat_with_usage(
         self,
         model: str,
-        prompt: str,
+        messages: List[Dict[str, Any]],
         options: Optional[Dict[str, Any]] = None,
-    ) -> tuple[str, Optional[Dict[str, int]]]:
-        """Generate completion via OpenAI-compatible API."""
+    ) -> tuple[Dict[str, Any], Optional[Dict[str, int]]]:
+        """Chat completion via OpenAI-compatible API."""
         opts = options or {}
         model_to_use = model or self._model
 
-        payload = self._build_payload(prompt, opts, stream=False)
+        payload = self._build_payload(messages, opts, stream=False)
 
         self._logger.debug(
-            "openai_http_generating",
+            "openai_http_chat",
             model=model_to_use,
-            prompt_length=len(prompt),
+            message_count=len(messages),
+            has_tools=bool(opts.get("tools")),
         )
 
         headers = self._build_headers()
@@ -90,7 +110,10 @@ class OpenAIHTTPProvider(LLMProvider):
                     response.raise_for_status()
 
                     data = response.json()
-                    text = data["choices"][0]["message"]["content"] or ""
+                    message = data["choices"][0]["message"]
+                    content = message.get("content") or ""
+                    tool_calls = _parse_tool_calls_from_dict(message)
+
                     usage = data.get("usage", {})
                     prompt_tokens = usage.get("prompt_tokens")
                     completion_tokens = usage.get("completion_tokens")
@@ -102,12 +125,14 @@ class OpenAIHTTPProvider(LLMProvider):
                         }
 
                     self._logger.info(
-                        "openai_http_generation_complete",
+                        "openai_http_chat_complete",
                         model=model_to_use,
-                        response_length=len(text),
+                        response_length=len(content),
+                        tool_calls_count=len(tool_calls),
                     )
 
-                    return text, usage_payload
+                    result = {"content": content, "tool_calls": tool_calls}
+                    return result, usage_payload
 
                 except httpx.HTTPStatusError as e:
                     if attempt == self._max_retries:
@@ -139,23 +164,23 @@ class OpenAIHTTPProvider(LLMProvider):
 
         raise RuntimeError("Unreachable")
 
-    async def generate_stream(
+    async def chat_stream(
         self,
         model: str,
-        prompt: str,
+        messages: List[Dict[str, Any]],
         options: Optional[Dict[str, Any]] = None,
     ) -> AsyncIterator[TokenChunk]:
-        """Generate completion with streaming via SSE."""
+        """Chat completion with streaming via SSE."""
         opts = options or {}
         model_to_use = model or self._model
 
-        payload = self._build_payload(prompt, opts, stream=True)
+        payload = self._build_payload(messages, opts, stream=True)
         headers = self._build_headers()
 
         self._logger.debug(
             "openai_http_streaming",
             model=model_to_use,
-            prompt_length=len(prompt),
+            message_count=len(messages),
         )
 
         async with httpx.AsyncClient(timeout=self._timeout) as client:
@@ -206,16 +231,22 @@ class OpenAIHTTPProvider(LLMProvider):
 
     def _build_payload(
         self,
-        prompt: str,
+        messages: List[Dict[str, Any]],
         options: Dict[str, Any],
         stream: bool,
     ) -> Dict[str, Any]:
         """Build request payload."""
         payload: Dict[str, Any] = {
             "model": self._model,
-            "messages": [{"role": "user", "content": prompt}],
+            "messages": messages,
             "stream": stream,
         }
+
+        # Tool calling
+        if options.get("tools"):
+            payload["tools"] = options["tools"]
+        if options.get("tool_choice"):
+            payload["tool_choice"] = options["tool_choice"]
 
         if options.get("temperature") is not None:
             payload["temperature"] = options["temperature"]

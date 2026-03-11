@@ -6,7 +6,7 @@ Constitutional Reference: Constitution R4 (Swappable Implementations)
 
 import json
 import re
-from typing import Any, Dict, Optional
+from typing import Any, Dict, List, Optional
 
 from .base import LLMProvider
 
@@ -23,49 +23,52 @@ class MockProvider(LLMProvider):
         self.call_count = 0
         self.call_history = []
 
-    async def generate(
+    async def chat(
         self,
         model: str,
-        prompt: str,
+        messages: List[Dict[str, Any]],
         options: Optional[Dict[str, Any]] = None,
-    ) -> str:
-        """Generate mock response based on prompt content.
+    ) -> Dict[str, Any]:
+        """Chat mock — returns structured response based on message content.
 
-        This implementation provides simple pattern matching to simulate
-        realistic responses for common agent tasks.
+        Returns {"content": str, "tool_calls": [...]}
         """
         self.call_count += 1
         self.call_history.append({
-            'method': 'generate',
+            'method': 'chat',
             'model': model,
-            'prompt': prompt,
+            'messages': messages,
             'options': options
         })
 
+        # Extract prompt text from messages for pattern matching
+        prompt = " ".join(
+            m.get("content", "") for m in messages if isinstance(m.get("content"), str)
+        )
         prompt_lower = prompt.lower()
 
         # Mock intent classification responses
         if "classify its intent" in prompt_lower or "is_task" in prompt_lower:
-            return self._mock_intent_classification(prompt, prompt_lower)
+            return {"content": self._mock_intent_classification(prompt, prompt_lower), "tool_calls": []}
 
         # Mock planner responses
         if self._is_planner_prompt(prompt_lower):
-            return self._mock_planner_response(prompt, prompt_lower)
+            return {"content": self._mock_planner_response(prompt, prompt_lower), "tool_calls": []}
 
         # Mock validator responses
         if "generate natural" in prompt_lower or "tools:" in prompt_lower:
-            return self._mock_validator_response(prompt_lower)
+            return {"content": self._mock_validator_response(prompt_lower), "tool_calls": []}
 
         # Mock confirmation detection responses (v0.14 Phase 4)
         if self._is_confirmation_detection_prompt(prompt_lower):
-            return self._mock_confirmation_detection(prompt, prompt_lower)
+            return {"content": self._mock_confirmation_detection(prompt, prompt_lower), "tool_calls": []}
 
         # Mock confirmation interpretation responses (v0.14 Phase 4)
         if "interpret" in prompt_lower and ("confirmation" in prompt_lower or "user response" in prompt_lower):
-            return self._mock_confirmation_interpretation(prompt, prompt_lower)
+            return {"content": self._mock_confirmation_interpretation(prompt, prompt_lower), "tool_calls": []}
 
         # Default response
-        return "Mock response"
+        return {"content": "Mock response", "tool_calls": []}
 
     async def health_check(self) -> bool:
         """Mock provider is always healthy."""
