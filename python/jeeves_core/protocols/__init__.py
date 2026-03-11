@@ -8,6 +8,10 @@
 # =============================================================================
 
 from jeeves_core.protocols.types import (
+    # LLM result types
+    LLMToolCall,
+    LLMUsage,
+    LLMResult,
     # Enums (string-based)
     TerminalReason,
     InterruptKind,
@@ -40,7 +44,8 @@ from jeeves_core.protocols.types import (
     ContextBounds,
     ExecutionConfig,
     OrchestrationFlags,
-    Envelope,
+    InstructionContext,
+    InstructionConfig,
     AgentContext,
     # Protocols
     InterruptServiceProtocol,
@@ -103,6 +108,10 @@ from jeeves_core.utils.json_repair import JSONRepairKit
 from jeeves_core.utils.strings import normalize_string_list
 
 __all__ = [
+    # LLM result types
+    "LLMToolCall",
+    "LLMUsage",
+    "LLMResult",
     # Enums
     "TerminalReason",
     "InterruptKind",
@@ -135,7 +144,8 @@ __all__ = [
     "ContextBounds",
     "ExecutionConfig",
     "OrchestrationFlags",
-    "Envelope",
+    "InstructionContext",
+    "InstructionConfig",
     "AgentContext",
     # Protocol interfaces
     "RequestContext",

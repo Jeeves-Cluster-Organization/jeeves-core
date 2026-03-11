@@ -94,6 +94,12 @@ class AgentExecutionMetrics:
 VALID_INSTRUCTION_KINDS = {"RUN_AGENT", "RUN_AGENTS", "WAIT_PARALLEL", "TERMINATE", "WAIT_INTERRUPT"}
 
 
+def _empty_instruction_config():
+    """Lazy factory to avoid circular import at module level."""
+    from jeeves_core.protocols.types import InstructionConfig
+    return InstructionConfig()
+
+
 @dataclass
 class OrchestratorInstruction:
     """Instruction from the kernel orchestrator."""
@@ -104,7 +110,7 @@ class OrchestratorInstruction:
     termination_message: str = ""
     interrupt_pending: bool = False
     interrupt: Optional[Dict[str, Any]] = None
-    agent_config: Dict[str, Any] = field(default_factory=dict)
+    agent_config: "InstructionConfig" = field(default_factory=lambda: _empty_instruction_config())
 
     def __post_init__(self):
         if self.kind not in VALID_INSTRUCTION_KINDS:
@@ -124,6 +130,12 @@ class OrchestrationSessionState:
     edge_traversals: Dict[str, int] = field(default_factory=dict)
     terminated: bool = False
     terminal_reason: str = ""
+
+    def get_outputs(self) -> Dict[str, Dict[str, Any]]:
+        """Extract outputs from the raw envelope dict."""
+        if self.envelope is None:
+            return {}
+        return self.envelope.get("outputs", {})
 
 
 @dataclass
@@ -1257,7 +1269,12 @@ class KernelClient:
 
     def _dict_to_instruction(self, d: Dict[str, Any]) -> OrchestratorInstruction:
         """Convert response dict to OrchestratorInstruction."""
+        from jeeves_core.protocols.types import InstructionConfig
+
         envelope = self._parse_optional_json_object(d.get("envelope"))
+
+        raw_config = d.get("agent_config", {})
+        agent_config = InstructionConfig.from_dict(raw_config) if raw_config else InstructionConfig()
 
         return OrchestratorInstruction(
             kind=d["kind"],
@@ -1267,7 +1284,7 @@ class KernelClient:
             termination_message=d.get("termination_message", ""),
             interrupt_pending=d.get("interrupt_pending", False),
             interrupt=d.get("interrupt"),
-            agent_config=d.get("agent_config", {}),
+            agent_config=agent_config,
         )
 
     def _dict_to_service_info(self, d: Dict[str, Any]) -> ServiceInfoResult:

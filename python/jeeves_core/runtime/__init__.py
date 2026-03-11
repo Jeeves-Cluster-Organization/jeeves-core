@@ -5,7 +5,7 @@ and pipelines.
 
 Usage:
     from jeeves_core.runtime import Agent, PipelineRunner
-    from jeeves_core.runtime import create_pipeline_runner, create_envelope
+    from jeeves_core.runtime import create_pipeline_runner
 """
 
 from jeeves_core.runtime.agents import (
@@ -28,7 +28,6 @@ from jeeves_core.runtime.agents import (
     OptionalCheckpoint,
     # Factories
     create_pipeline_runner,
-    create_envelope,
 )
 
 from jeeves_core.runtime.capability_service import (
@@ -59,5 +58,4 @@ __all__ = [
     "CapabilityResult",
     # Factories
     "create_pipeline_runner",
-    "create_envelope",
 ]

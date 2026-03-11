@@ -2,12 +2,16 @@
 
 from jeeves_core.testing.test_pipeline import TestPipeline
 from jeeves_core.testing.mock_kernel import MockKernelClient
-from jeeves_core.testing.helpers import make_envelope, make_agent_context, make_agent_config
+from jeeves_core.testing.helpers import (
+    build_initial_envelope,
+    make_agent_config,
+    make_agent_context,
+)
 
 __all__ = [
     "TestPipeline",
     "MockKernelClient",
-    "make_envelope",
+    "build_initial_envelope",
     "make_agent_context",
     "make_agent_config",
 ]

@@ -19,12 +19,14 @@ Usage:
     )
 """
 
+import json
 from typing import AsyncIterator, Dict, Any, List, Optional
 
 from .base import LLMProvider, TokenChunk
 from ..cost_calculator import CostCalculator
 from jeeves_core.logging import get_current_logger
 from jeeves_core.protocols import LoggerProtocol
+from jeeves_core.protocols.types import LLMResult, LLMToolCall, LLMUsage
 
 try:
     from litellm import acompletion
@@ -32,21 +34,26 @@ except ImportError:
     acompletion = None  # type: ignore
 
 
-def _parse_tool_calls(message) -> list:
-    """Extract tool_calls from a LiteLLM response message into dicts."""
+def _parse_tool_calls(message) -> List[LLMToolCall]:
+    """Extract tool_calls from a LiteLLM response message into LLMToolCall."""
     raw = getattr(message, "tool_calls", None)
     if not raw:
         return []
     calls = []
     for tc in raw:
-        calls.append({
-            "id": getattr(tc, "id", ""),
-            "type": "function",
-            "function": {
-                "name": getattr(tc.function, "name", ""),
-                "arguments": getattr(tc.function, "arguments", "{}"),
-            },
-        })
+        args_raw = getattr(tc.function, "arguments", "{}")
+        if isinstance(args_raw, str):
+            try:
+                args = json.loads(args_raw)
+            except json.JSONDecodeError:
+                args = {}
+        else:
+            args = args_raw or {}
+        calls.append(LLMToolCall(
+            id=getattr(tc, "id", ""),
+            name=getattr(tc.function, "name", ""),
+            arguments=args,
+        ))
     return calls
 
 
@@ -95,13 +102,13 @@ class LiteLLMProvider(LLMProvider):
 
     async def chat(
         self, model: str, messages: List[Dict[str, Any]], options: Optional[Dict[str, Any]] = None
-    ) -> Dict[str, Any]:
+    ) -> LLMResult:
         result, _usage = await self.chat_with_usage(model, messages, options)
         return result
 
     async def chat_with_usage(
         self, model: str, messages: List[Dict[str, Any]], options: Optional[Dict[str, Any]] = None
-    ) -> tuple[Dict[str, Any], Optional[Dict[str, int]]]:
+    ) -> tuple[LLMResult, LLMUsage]:
         """Chat completion via LiteLLM with usage tracking."""
         opts = options or {}
         model_to_use = model or self._model
@@ -126,9 +133,9 @@ class LiteLLMProvider(LLMProvider):
             tool_calls = _parse_tool_calls(message)
 
             # Extract usage for cost tracking
-            usage = getattr(response, "usage", None)
-            prompt_tokens = getattr(usage, "prompt_tokens", 0) if usage else 0
-            completion_tokens = getattr(usage, "completion_tokens", 0) if usage else 0
+            raw_usage = getattr(response, "usage", None)
+            prompt_tokens = getattr(raw_usage, "prompt_tokens", 0) if raw_usage else 0
+            completion_tokens = getattr(raw_usage, "completion_tokens", 0) if raw_usage else 0
 
             # Calculate cost
             cost_metrics = self._cost_calculator.calculate_cost(
@@ -148,12 +155,13 @@ class LiteLLMProvider(LLMProvider):
                 tool_calls_count=len(tool_calls),
             )
 
-            result = {"content": content, "tool_calls": tool_calls}
-            usage_dict = {
-                "prompt_tokens": int(prompt_tokens),
-                "completion_tokens": int(completion_tokens),
-            }
-            return result, usage_dict
+            usage = LLMUsage(
+                prompt_tokens=int(prompt_tokens),
+                completion_tokens=int(completion_tokens),
+                total_tokens=int(prompt_tokens) + int(completion_tokens),
+            )
+            result = LLMResult(content=content, tool_calls=tool_calls, usage=usage)
+            return result, usage
 
         except Exception as e:
             self._logger.error(

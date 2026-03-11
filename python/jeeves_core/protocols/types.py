@@ -15,6 +15,35 @@ from typing import Any, Callable, Dict, List, Optional, Set, TYPE_CHECKING
 
 from jeeves_core.protocols.interfaces import RequestContext
 
+
+# =============================================================================
+# LLM RESULT TYPES (typed boundary — replaces Dict[str, Any] returns)
+# =============================================================================
+
+@dataclass(frozen=True)
+class LLMToolCall:
+    """A tool call from an LLM response."""
+    id: str
+    name: str
+    arguments: Dict[str, Any]
+
+
+@dataclass(frozen=True)
+class LLMUsage:
+    """Token usage from an LLM call."""
+    prompt_tokens: int = 0
+    completion_tokens: int = 0
+    total_tokens: int = 0
+
+
+@dataclass(frozen=True)
+class LLMResult:
+    """Typed result from an LLM provider."""
+    content: str = ""
+    tool_calls: List[LLMToolCall] = field(default_factory=list)
+    usage: LLMUsage = field(default_factory=LLMUsage)
+    raw: Dict[str, Any] = field(default_factory=dict)
+
 # =============================================================================
 # RUST-GENERATED ENUMS (canonical source: Rust serde output)
 # =============================================================================
@@ -699,6 +728,62 @@ class OrchestrationFlags:
 
 
 # =============================================================================
+# INSTRUCTION CONFIG (Typed view of agent_config from kernel)
+# =============================================================================
+
+@dataclass(frozen=True)
+class InstructionContext:
+    """Typed view of agent_config.context from enriched instructions."""
+    envelope_id: str = ""
+    request_id: str = ""
+    user_id: str = ""
+    session_id: str = ""
+    raw_input: str = ""
+    outputs: Dict[str, Dict[str, Any]] = field(default_factory=dict)
+    metadata: Dict[str, Any] = field(default_factory=dict)
+    prompt_context: Dict[str, Any] = field(default_factory=dict)
+    llm_call_count: int = 0
+    agent_hop_count: int = 0
+    tokens_in: int = 0
+    tokens_out: int = 0
+
+    @classmethod
+    def from_dict(cls, d: Dict[str, Any]) -> "InstructionContext":
+        return cls(
+            envelope_id=d.get("envelope_id", ""),
+            request_id=d.get("request_id", ""),
+            user_id=d.get("user_id", ""),
+            session_id=d.get("session_id", ""),
+            raw_input=d.get("raw_input", ""),
+            outputs=d.get("outputs", {}),
+            metadata=dict(d.get("metadata", {})),
+            prompt_context=d.get("prompt_context", {}),
+            llm_call_count=d.get("llm_call_count", 0),
+            agent_hop_count=d.get("agent_hop_count", 0),
+            tokens_in=d.get("tokens_in", 0),
+            tokens_out=d.get("tokens_out", 0),
+        )
+
+
+@dataclass(frozen=True)
+class InstructionConfig:
+    """Typed view of agent_config from enriched instructions."""
+    context: Optional[InstructionContext] = None
+    output_schema: Optional[Dict[str, Any]] = None
+    allowed_tools: Optional[List[str]] = None
+
+    @classmethod
+    def from_dict(cls, d: Dict[str, Any]) -> "InstructionConfig":
+        ctx_data = d.get("context")
+        ctx = InstructionContext.from_dict(ctx_data) if ctx_data else None
+        return cls(
+            context=ctx,
+            output_schema=d.get("output_schema"),
+            allowed_tools=d.get("allowed_tools"),
+        )
+
+
+# =============================================================================
 # AGENT CONTEXT (Thin View of Kernel State)
 # =============================================================================
 
@@ -739,289 +824,24 @@ class AgentContext:
         """Build from enriched kernel instruction.
 
         Args:
-            instruction: OrchestratorInstruction with agent_config.context
+            instruction: OrchestratorInstruction with typed agent_config
         """
-        ctx = instruction.agent_config.get("context", {})
+        config = instruction.agent_config
+        ctx = config.context if config.context else InstructionContext()
         return cls(
-            envelope_id=ctx.get("envelope_id", ""),
-            request_id=ctx.get("request_id", ""),
-            user_id=ctx.get("user_id", ""),
-            session_id=ctx.get("session_id", ""),
-            raw_input=ctx.get("raw_input", ""),
-            outputs=ctx.get("outputs", {}),
-            metadata=dict(ctx.get("metadata", {})),
-            prompt_context=ctx.get("prompt_context", {}),
-            llm_call_count=ctx.get("llm_call_count", 0),
-            agent_hop_count=ctx.get("agent_hop_count", 0),
-            tokens_in=ctx.get("tokens_in", 0),
-            tokens_out=ctx.get("tokens_out", 0),
+            envelope_id=ctx.envelope_id,
+            request_id=ctx.request_id,
+            user_id=ctx.user_id,
+            session_id=ctx.session_id,
+            raw_input=ctx.raw_input,
+            outputs=ctx.outputs,
+            metadata=dict(ctx.metadata),
+            prompt_context=ctx.prompt_context,
+            llm_call_count=ctx.llm_call_count,
+            agent_hop_count=ctx.agent_hop_count,
+            tokens_in=ctx.tokens_in,
+            tokens_out=ctx.tokens_out,
         )
-
-
-# =============================================================================
-# ENVELOPE
-# =============================================================================
-
-@dataclass
-class Envelope:
-    """Envelope with dynamic output slots - mirrors Rust Envelope."""
-    request_context: RequestContext
-    envelope_id: str = ""
-    request_id: str = ""
-    user_id: str = ""
-    session_id: str = ""
-    raw_input: str = ""
-    received_at: Optional[datetime] = None
-    outputs: Dict[str, Dict[str, Any]] = field(default_factory=dict)
-    current_stage: str = "start"
-    stage_order: List[str] = field(default_factory=list)
-    iteration: int = 0
-    max_iterations: int = 3
-    llm_call_count: int = 0
-    max_llm_calls: int = 10
-    tool_call_count: int = 0
-    agent_hop_count: int = 0
-    max_agent_hops: int = 21
-    tokens_in: int = 0
-    tokens_out: int = 0
-    terminated: bool = False
-    interrupt_pending: bool = False
-    interrupt: Optional[FlowInterrupt] = None
-    active_stages: Dict[str, bool] = field(default_factory=dict)
-    completed_stage_set: Dict[str, bool] = field(default_factory=dict)
-    failed_stages: Dict[str, str] = field(default_factory=dict)
-    parallel_mode: bool = False
-    completed_stages: List[Dict[str, Any]] = field(default_factory=list)
-    current_stage_number: int = 1
-    max_stages: int = 5
-    all_goals: List[str] = field(default_factory=list)
-    remaining_goals: List[str] = field(default_factory=list)
-    goal_completion_status: Dict[str, str] = field(default_factory=dict)
-    processing_history: List[ProcessingRecord] = field(default_factory=list)
-    errors: List[Dict[str, Any]] = field(default_factory=list)
-    completed_at: Optional[datetime] = None
-    metadata: Dict[str, Any] = field(default_factory=dict)
-
-    def __post_init__(self) -> None:
-        if self.request_context is None:
-            raise ValueError("request_context is required for Envelope")
-        ctx = self.request_context
-        if not self.request_id:
-            self.request_id = ctx.request_id
-        if not self.user_id and ctx.user_id:
-            self.user_id = ctx.user_id
-        if not self.session_id and ctx.session_id:
-            self.session_id = ctx.session_id
-
-    @classmethod
-    def from_dict(cls, data: Dict[str, Any]) -> "Envelope":
-        """Create envelope from dictionary."""
-        ctx_data = data.get("request_context")
-        if ctx_data is None:
-            raise ValueError("request_context missing in envelope data")
-        if isinstance(ctx_data, RequestContext):
-            ctx = ctx_data
-        elif isinstance(ctx_data, dict):
-            ctx = RequestContext(**ctx_data)
-        else:
-            raise TypeError("request_context must be a dict or RequestContext")
-
-        interrupt_data = data.get("interrupt")
-        interrupt = None
-        if interrupt_data and isinstance(interrupt_data, dict):
-            interrupt = FlowInterrupt.from_db_row(interrupt_data)
-
-        return cls(
-            request_context=ctx,
-            envelope_id=data.get("envelope_id", ""),
-            request_id=data.get("request_id", ""),
-            user_id=data.get("user_id", ""),
-            session_id=data.get("session_id", ""),
-            raw_input=data.get("raw_input", ""),
-            outputs=data.get("outputs", {}),
-            current_stage=data.get("current_stage", "start"),
-            stage_order=data.get("stage_order", []),
-            iteration=data.get("iteration", 0),
-            max_iterations=data.get("max_iterations", 3),
-            llm_call_count=data.get("llm_call_count", 0),
-            max_llm_calls=data.get("max_llm_calls", 10),
-            tool_call_count=data.get("tool_call_count", 0),
-            agent_hop_count=data.get("agent_hop_count", 0),
-            max_agent_hops=data.get("max_agent_hops", 21),
-            tokens_in=data.get("tokens_in", 0),
-            tokens_out=data.get("tokens_out", 0),
-            terminated=data.get("terminated", False),
-            interrupt_pending=data.get("interrupt_pending", False),
-            interrupt=interrupt,
-            active_stages=data.get("active_stages", {}),
-            completed_stage_set=data.get("completed_stage_set", {}),
-            failed_stages=data.get("failed_stages", {}),
-            parallel_mode=data.get("parallel_mode", False),
-            current_stage_number=data.get("current_stage_number", 1),
-            max_stages=data.get("max_stages", 5),
-            all_goals=data.get("all_goals", []),
-            remaining_goals=data.get("remaining_goals", []),
-            goal_completion_status=data.get("goal_completion_status", {}),
-            metadata=data.get("metadata", {}),
-        )
-
-    def initialize_goals(self, goals: List[str]) -> None:
-        self.all_goals = list(goals)
-        self.remaining_goals = list(goals)
-        self.goal_completion_status = {goal: "pending" for goal in goals}
-
-    def mark_goal_complete(self, goal: str) -> None:
-        if goal in self.goal_completion_status:
-            self.goal_completion_status[goal] = "complete"
-        if goal in self.remaining_goals:
-            self.remaining_goals.remove(goal)
-
-    def get_stage_context(self) -> Dict[str, Any]:
-        return {
-            "current_stage_number": self.current_stage_number,
-            "max_stages": self.max_stages,
-            "all_goals": self.all_goals,
-            "remaining_goals": self.remaining_goals,
-            "goal_completion_status": self.goal_completion_status,
-            "completed_stages": self.completed_stages,
-        }
-
-    def is_stuck(self, min_progress_stages: int = 2) -> bool:
-        if self.current_stage_number < min_progress_stages:
-            return False
-        completed_count = sum(
-            1 for status in self.goal_completion_status.values()
-            if status == "complete"
-        )
-        return completed_count == 0
-
-    def to_dict(self) -> Dict[str, Any]:
-        """Serialize to nested dict matching Rust Envelope schema (for IPC).
-
-        Produces the nested JSON structure that the Rust kernel expects:
-        identity, pipeline, bounds, interrupts, execution, audit.
-
-        For flat persistence format, use to_state_dict() instead.
-        """
-        now_iso = self.received_at.isoformat() if self.received_at else datetime.now(timezone.utc).isoformat()
-
-        pipeline: Dict[str, Any] = {
-            "current_stage": self.current_stage,
-            "stage_order": self.stage_order,
-            "iteration": self.iteration,
-            "max_iterations": self.max_iterations,
-            "parallel_mode": self.parallel_mode,
-        }
-        # Rust uses HashSet<String> with serde(default) — only include if non-empty
-        if self.active_stages:
-            pipeline["active_stages"] = [k for k, v in self.active_stages.items() if v]
-        if self.completed_stage_set:
-            pipeline["completed_stage_set"] = [k for k, v in self.completed_stage_set.items() if v]
-        if self.failed_stages:
-            pipeline["failed_stages"] = self.failed_stages
-
-        interrupts: Dict[str, Any] = {
-            "interrupt_pending": self.interrupt_pending,
-        }
-        if self.interrupt:
-            interrupts["interrupt"] = self.interrupt.to_dict()
-
-        d: Dict[str, Any] = {
-            "identity": {
-                "envelope_id": self.envelope_id,
-                "request_id": self.request_id,
-                "user_id": self.user_id,
-                "session_id": self.session_id,
-            },
-            "raw_input": self.raw_input,
-            "received_at": now_iso,
-            "outputs": self.outputs,
-            "pipeline": pipeline,
-            "bounds": {
-                "llm_call_count": self.llm_call_count,
-                "max_llm_calls": self.max_llm_calls,
-                "tool_call_count": self.tool_call_count,
-                "agent_hop_count": self.agent_hop_count,
-                "max_agent_hops": self.max_agent_hops,
-                "tokens_in": self.tokens_in,
-                "tokens_out": self.tokens_out,
-                "terminated": self.terminated,
-            },
-            "interrupts": interrupts,
-            "execution": {
-                "completed_stages": self.completed_stages,
-                "current_stage_number": self.current_stage_number,
-                "max_stages": self.max_stages,
-                "all_goals": self.all_goals,
-                "remaining_goals": self.remaining_goals,
-                "goal_completion_status": self.goal_completion_status,
-                "prior_plans": [],
-                "loop_feedback": [],
-            },
-            "audit": {
-                "processing_history": [],
-                "errors": self.errors,
-                "created_at": now_iso,
-                "metadata": self.metadata,
-            },
-        }
-        if self.completed_at:
-            d["audit"]["completed_at"] = self.completed_at.isoformat()
-        return d
-
-    def to_state_dict(self) -> Dict[str, Any]:
-        """Convert to dictionary with ALL fields for complete state serialization."""
-        serialized_history = []
-        for record in self.processing_history:
-            serialized_history.append({
-                "agent": record.agent,
-                "stage_order": record.stage_order,
-                "started_at": record.started_at.isoformat() if record.started_at else None,
-                "completed_at": record.completed_at.isoformat() if record.completed_at else None,
-                "duration_ms": record.duration_ms,
-                "status": record.status,
-                "error": record.error,
-                "llm_calls": record.llm_calls,
-            })
-
-        return {
-            "request_context": self.request_context.to_dict(),
-            "envelope_id": self.envelope_id,
-            "request_id": self.request_id,
-            "user_id": self.user_id,
-            "session_id": self.session_id,
-            "raw_input": self.raw_input,
-            "received_at": self.received_at.isoformat() if self.received_at else None,
-            "outputs": self.outputs,
-            "current_stage": self.current_stage,
-            "stage_order": self.stage_order,
-            "iteration": self.iteration,
-            "max_iterations": self.max_iterations,
-            "llm_call_count": self.llm_call_count,
-            "max_llm_calls": self.max_llm_calls,
-            "tool_call_count": self.tool_call_count,
-            "agent_hop_count": self.agent_hop_count,
-            "max_agent_hops": self.max_agent_hops,
-            "tokens_in": self.tokens_in,
-            "tokens_out": self.tokens_out,
-            "terminated": self.terminated,
-            "interrupt_pending": self.interrupt_pending,
-            "interrupt": self.interrupt.to_dict() if self.interrupt else None,
-            "active_stages": self.active_stages,
-            "completed_stage_set": self.completed_stage_set,
-            "failed_stages": self.failed_stages,
-            "parallel_mode": self.parallel_mode,
-            "completed_stages": self.completed_stages,
-            "current_stage_number": self.current_stage_number,
-            "max_stages": self.max_stages,
-            "all_goals": self.all_goals,
-            "remaining_goals": self.remaining_goals,
-            "goal_completion_status": self.goal_completion_status,
-            "processing_history": serialized_history,
-            "errors": self.errors,
-            "completed_at": self.completed_at.isoformat() if self.completed_at else None,
-            "metadata": self.metadata,
-        }
 
 
 # =============================================================================
@@ -1077,6 +897,10 @@ class InterruptServiceProtocol(Protocol):
 # =============================================================================
 
 __all__ = [
+    # LLM result types
+    "LLMToolCall",
+    "LLMUsage",
+    "LLMResult",
     # Enums (from _generated.py — Rust canonical)
     "TerminalReason",
     "InterruptKind",
@@ -1116,8 +940,9 @@ __all__ = [
     "ContextBounds",
     "ExecutionConfig",
     "OrchestrationFlags",
+    # Instruction config
+    "InstructionContext",
+    "InstructionConfig",
     # Agent context
     "AgentContext",
-    # Envelope
-    "Envelope",
 ]

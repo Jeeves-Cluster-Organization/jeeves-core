@@ -1,21 +1,10 @@
 """CapabilityService — Base class for kernel-driven capability services.
 
-Extracts the ~90 lines of identical service code that every capability
-copies: __init__, _build_envelope, _run_pipeline, process_message,
-_build_result, handle_dispatch.
-
 Capabilities subclass and override hooks:
 - _ensure_ready(): Async init (DB schema, lazy services). Called once.
 - _enrich_metadata(): Async. Inject db, event_emitter, session context, etc.
 - _on_result(): Post-pipeline side effects (persist messages, etc).
 - _build_result(): Override for custom result mapping.
-
-Usage:
-    class AssistantService(CapabilityService):
-        capability_id = "assistant"
-
-        async def _enrich_metadata(self, meta, message, user_id, session_id):
-            if self._db: meta["db"] = self._db
 """
 
 import asyncio
@@ -25,7 +14,6 @@ from typing import Any, AsyncIterator, Dict, Optional, TYPE_CHECKING
 from uuid import uuid4
 
 from jeeves_core.protocols import (
-    Envelope,
     PipelineConfig,
     PipelineEvent,
     RequestContext,
@@ -36,7 +24,6 @@ from jeeves_core.runtime.agents import (
     AgentToolExecutor,
     LLMProviderFactory,
     create_pipeline_runner,
-    create_envelope,
 )
 from jeeves_core.pipeline_worker import PipelineWorker, WorkerResult
 
@@ -106,10 +93,7 @@ class CapabilityService:
     # =========================================================================
 
     async def _ensure_ready(self) -> None:
-        """Hook: async initialization (DB schema, lazy services).
-
-        Called once before first pipeline execution. Default no-op.
-        """
+        """Hook: async initialization (DB schema, lazy services). Called once."""
 
     async def _enrich_metadata(
         self,
@@ -118,16 +102,15 @@ class CapabilityService:
         user_id: str,
         session_id: str,
     ) -> None:
-        """Hook: inject capability-specific metadata. Default no-op.
-
-        Async to support session loading, DB queries, etc.
-        """
+        """Hook: inject capability-specific metadata. Default no-op."""
 
     async def _on_result(
         self,
         worker_result: WorkerResult,
         capability_result: "CapabilityResult",
-        envelope: Envelope,
+        *,
+        raw_input: str = "",
+        session_id: str = "",
     ) -> None:
         """Hook: post-pipeline side effects. Default no-op."""
 
@@ -141,35 +124,76 @@ class CapabilityService:
             await self._ensure_ready()
             self._ready = True
 
-    def _build_envelope(
+    def _build_initial_envelope(
         self,
         message: str,
         user_id: str,
         session_id: str,
         metadata: Optional[Dict[str, Any]] = None,
-    ) -> Envelope:
-        """Create envelope with request context and metadata."""
+    ) -> Dict[str, Any]:
+        """Build initial envelope dict for kernel initialization."""
+        from datetime import datetime, timezone
         request_id = f"req_{uuid4().hex[:16]}"
-        request_context = RequestContext(
-            request_id=request_id,
-            capability=self.capability_id,
-            session_id=session_id,
-            user_id=user_id,
-        )
-        meta = metadata or {}
-        return create_envelope(
-            raw_input=message,
-            request_context=request_context,
-            metadata=meta,
-        )
+        now_iso = datetime.now(timezone.utc).isoformat()
+        pipeline = self._pipeline_config
 
-    async def _run_pipeline(self, envelope: Envelope, thread_id: str) -> WorkerResult:
+        return {
+            "identity": {
+                "envelope_id": str(uuid4()),
+                "request_id": request_id,
+                "user_id": user_id,
+                "session_id": session_id,
+            },
+            "raw_input": message,
+            "received_at": now_iso,
+            "outputs": {},
+            "pipeline": {
+                "current_stage": "",
+                "stage_order": [],
+                "iteration": 0,
+                "max_iterations": pipeline.max_iterations,
+            },
+            "bounds": {
+                "llm_call_count": 0,
+                "max_llm_calls": pipeline.max_llm_calls,
+                "tool_call_count": 0,
+                "agent_hop_count": 0,
+                "max_agent_hops": pipeline.max_agent_hops,
+                "tokens_in": 0,
+                "tokens_out": 0,
+                "terminated": False,
+            },
+            "interrupts": {"interrupt_pending": False},
+            "execution": {
+                "completed_stages": [],
+                "current_stage_number": 0,
+                "max_stages": len(pipeline.agents),
+                "all_goals": [],
+                "remaining_goals": [],
+                "goal_completion_status": {},
+                "prior_plans": [],
+                "loop_feedback": [],
+            },
+            "audit": {
+                "processing_history": [],
+                "errors": [],
+                "created_at": now_iso,
+                "metadata": metadata or {},
+            },
+        }
+
+    async def _run_pipeline(
+        self,
+        initial_envelope: Dict[str, Any],
+        thread_id: str,
+    ) -> WorkerResult:
         """Execute pipeline under kernel control."""
         pipeline_config_dict = self._pipeline_config.to_kernel_dict()
+        process_id = initial_envelope["identity"]["envelope_id"]
         return await self._worker.execute(
-            process_id=envelope.envelope_id,
+            process_id=process_id,
             pipeline_config=pipeline_config_dict,
-            envelope=envelope,
+            initial_envelope=initial_envelope,
             thread_id=thread_id,
         )
 
@@ -188,11 +212,10 @@ class CapabilityService:
 
         await self._maybe_ensure_ready()
 
-        envelope = self._build_envelope(message, user_id, session_id, metadata)
-        await self._enrich_metadata(
-            envelope.metadata, message, user_id, session_id,
-        )
-        request_id = envelope.request_id
+        meta = metadata or {}
+        await self._enrich_metadata(meta, message, user_id, session_id)
+        initial_envelope = self._build_initial_envelope(message, user_id, session_id, meta)
+        request_id = initial_envelope["identity"]["request_id"]
 
         otel = get_global_otel_adapter()
         span_ctx = otel.start_span(
@@ -209,9 +232,12 @@ class CapabilityService:
 
         with span_ctx:
             try:
-                result = await self._run_pipeline(envelope, thread_id=session_id)
+                result = await self._run_pipeline(initial_envelope, thread_id=session_id)
                 capability_result = self._build_result(result, request_id)
-                await self._on_result(result, capability_result, envelope)
+                await self._on_result(
+                    result, capability_result,
+                    raw_input=message, session_id=session_id,
+                )
                 if capability_result.status == "error" and capability_result.error:
                     self._logger.error(
                         f"{self.capability_id}_pipeline_error",
@@ -241,47 +267,49 @@ class CapabilityService:
         message: str,
         metadata: Optional[Dict[str, Any]] = None,
     ) -> AsyncIterator[PipelineEvent]:
-        """Process message with kernel-driven streaming.
-
-        Uses PipelineWorker.execute_streaming() — the kernel controls
-        routing, bounds, and interrupts. Yields PipelineEvents.
-        """
+        """Process message with kernel-driven streaming."""
         from jeeves_core.observability.metrics import orchestrator_started, orchestrator_completed
 
         await self._maybe_ensure_ready()
 
-        envelope = self._build_envelope(message, user_id, session_id, metadata)
-        await self._enrich_metadata(
-            envelope.metadata, message, user_id, session_id,
-        )
-        request_id = envelope.request_id
+        meta = metadata or {}
+        await self._enrich_metadata(meta, message, user_id, session_id)
+        initial_envelope = self._build_initial_envelope(message, user_id, session_id, meta)
+        request_id = initial_envelope["identity"]["request_id"]
         pipeline_config_dict = self._pipeline_config.to_kernel_dict()
+        process_id = initial_envelope["identity"]["envelope_id"]
 
         orchestrator_started()
         _start = time.time()
 
+        # Collect outputs from streaming for post-stream hook
+        collected_outputs: Dict[str, Dict[str, Any]] = {}
+
         try:
             async for agent_name, output in self._worker.execute_streaming(
-                process_id=envelope.envelope_id,
+                process_id=process_id,
                 pipeline_config=pipeline_config_dict,
-                envelope=envelope,
+                initial_envelope=initial_envelope,
                 thread_id=session_id,
                 force=True,
             ):
-                event = self._map_stream_event(agent_name, output, request_id, envelope)
+                if agent_name not in ("__end__", "__interrupt__", "__error__", "__token__"):
+                    collected_outputs[agent_name] = output
+
+                event = self._map_stream_event(agent_name, output, request_id, collected_outputs)
                 if event is not None:
                     yield event
 
             # Post-streaming result hook
-            final = envelope.outputs.get(self.output_key, {})
+            final = collected_outputs.get(self.output_key, {})
             response = final.get("response", "")
-            result = CapabilityResult(
+            cap_result = CapabilityResult(
                 status="success", response=response, request_id=request_id,
             )
             await self._on_result(
-                WorkerResult(envelope=envelope, terminated=True, terminal_reason="COMPLETED"),
-                result,
-                envelope,
+                WorkerResult(outputs=collected_outputs, metadata={}, terminated=True, terminal_reason="COMPLETED"),
+                cap_result,
+                raw_input=message, session_id=session_id,
             )
             orchestrator_completed("success", (time.time() - _start) * 1000)
 
@@ -299,15 +327,12 @@ class CapabilityService:
         agent_name: str,
         output: Dict[str, Any],
         request_id: str,
-        envelope: Envelope,
+        collected_outputs: Dict[str, Dict[str, Any]],
     ) -> Optional[PipelineEvent]:
-        """Map a streaming (agent_name, output) tuple to a PipelineEvent.
-
-        Override to customize streaming event mapping.
-        """
+        """Map a streaming (agent_name, output) tuple to a PipelineEvent."""
         if agent_name == "__end__":
             return PipelineEvent("done", "__end__", {
-                "final_output": envelope.outputs.get(self.output_key, {}),
+                "final_output": collected_outputs.get(self.output_key, {}),
                 "request_id": request_id,
                 **output,
             })
@@ -326,11 +351,8 @@ class CapabilityService:
             return PipelineEvent("stage", agent_name, {"status": "completed", **(output or {})})
 
     def _build_result(self, worker_result: WorkerResult, request_id: str) -> CapabilityResult:
-        """Convert WorkerResult to CapabilityResult.
-
-        Reads termination status from WorkerResult (kernel is sole authority).
-        """
-        final = worker_result.envelope.outputs.get(self.output_key, {})
+        """Convert WorkerResult to CapabilityResult."""
+        final = worker_result.outputs.get(self.output_key, {})
         reason = worker_result.terminal_reason
 
         if not worker_result.terminated or reason in ("", "COMPLETED"):
@@ -372,28 +394,6 @@ class CapabilityService:
             error=reason or "Pipeline failed",
             request_id=request_id,
         )
-
-    async def resume_pipeline(self, thread_id: str) -> Optional[CapabilityResult]:
-        """Resume pipeline from persisted state. Returns None if no state found."""
-        if not self._persistence:
-            return None
-        state = await self._persistence.load_state(thread_id)
-        if not state:
-            return None
-        envelope = Envelope.from_dict(state)
-        request_id = envelope.request_id
-        result = await self._run_pipeline(envelope, thread_id=thread_id)
-        return self._build_result(result, request_id)
-
-    async def handle_dispatch(self, envelope: Envelope) -> Envelope:
-        """Kernel dispatch handler."""
-        await self._maybe_ensure_ready()
-        result = await self._run_pipeline(envelope, thread_id=envelope.session_id)
-        return result.envelope
-
-    def get_dispatch_handler(self):
-        """Return the dispatch handler for kernel registration."""
-        return self.handle_dispatch
 
 
 __all__ = ["CapabilityService", "CapabilityResult"]

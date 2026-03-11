@@ -5,7 +5,7 @@ Provides centralized fixtures for jeeves-core tests:
 - sqlite_client.py: In-memory SQLite client (DatabaseClientProtocol)
 - llm.py: LLM provider fixtures
 - services.py: Service fixtures
-- agents.py: Envelope fixtures for pipeline testing
+- agents.py: AgentContext fixtures for pipeline testing
 - mocks/: Mock implementations for isolated testing
 
 Fixtures are imported directly by conftest.py — no re-exports here.

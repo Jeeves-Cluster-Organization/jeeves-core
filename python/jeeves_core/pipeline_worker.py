@@ -25,7 +25,7 @@ from jeeves_core.kernel_client import (
     OrchestrationSessionState,
     KernelClientError,
 )
-from jeeves_core.protocols.types import Envelope
+from jeeves_core.protocols.types import AgentContext
 
 if TYPE_CHECKING:
     from jeeves_core.runtime.agents import Agent
@@ -42,15 +42,16 @@ class AgentProtocol(Protocol):
 
     name: str
 
-    async def process(self, envelope: Envelope) -> Envelope:
-        """Execute agent on envelope."""
+    async def process(self, context: AgentContext) -> Tuple[Dict[str, Any], Dict[str, Any]]:
+        """Execute agent on context. Returns (output, metadata_updates)."""
         ...
 
 
 @dataclass
 class WorkerResult:
-    """Result from typed Envelope pipeline execution."""
-    envelope: Envelope
+    """Result from pipeline execution."""
+    outputs: Dict[str, Dict[str, Any]]
+    metadata: Dict[str, Any]
     terminated: bool
     terminal_reason: str = ""
     interrupted: bool = False
@@ -107,6 +108,7 @@ async def run_kernel_loop(
                     kind="RUN_AGENT",
                     agents=[name],
                     envelope=instruction.envelope,
+                    agent_config=instruction.agent_config,
                 )
                 _t0 = time.time()
                 result = await run_agent(single)
@@ -165,15 +167,10 @@ class PipelineWorker:
     This worker has NO orchestration logic - it simply:
     1. Initializes a session with the kernel
     2. Gets instructions from the kernel
-    3. Executes agents as instructed
-    4. Reports results back to the kernel
-    5. Repeats until TERMINATE or WAIT_INTERRUPT
-
-    The kernel makes all decisions about:
-    - Which agent to run next
-    - Whether to continue or terminate
-    - Bounds checking
-    - Routing rule evaluation
+    3. Builds AgentContext from enriched instructions
+    4. Executes agents as instructed
+    5. Reports results (output + metadata_updates) back to the kernel
+    6. Repeats until TERMINATE or WAIT_INTERRUPT
     """
 
     def __init__(
@@ -183,14 +180,6 @@ class PipelineWorker:
         logger: Optional[logging.Logger] = None,
         persistence: Optional[Any] = None,
     ):
-        """Initialize the pipeline worker.
-
-        Args:
-            kernel_client: Connected KernelClient for IPC calls
-            agents: Dict mapping agent names to Agent instances
-            logger: Optional logger for structured logging
-            persistence: Optional persistence layer for state saving
-        """
         self._kernel = kernel_client
         self._agents = agents
         self._logger = logger or logging.getLogger(__name__)
@@ -200,7 +189,7 @@ class PipelineWorker:
         self,
         process_id: str,
         pipeline_config: Dict[str, Any],
-        envelope: Envelope,
+        initial_envelope: Dict[str, Any],
         thread_id: str = "",
         force: bool = False,
     ) -> WorkerResult:
@@ -209,12 +198,12 @@ class PipelineWorker:
         Args:
             process_id: Unique process identifier
             pipeline_config: Pipeline configuration dict
-            envelope: Initial envelope
+            initial_envelope: Initial envelope dict for kernel initialization
             thread_id: Optional thread ID for persistence
             force: If True, terminate any existing session before starting.
 
         Returns:
-            WorkerResult with final envelope and status
+            WorkerResult with collected outputs and termination status
         """
         from contextlib import nullcontext
         from jeeves_core.observability.otel_adapter import get_global_otel_adapter
@@ -234,10 +223,14 @@ class PipelineWorker:
             },
         ) if otel else nullcontext()
 
+        # Accumulated outputs across agent runs
+        all_outputs: Dict[str, Dict[str, Any]] = {}
+        last_metadata: Dict[str, Any] = {}
+
         async def _run_agent_dispatch(
             instruction: OrchestratorInstruction,
         ) -> Tuple[Optional[Dict[str, Any]], bool, str, AgentExecutionMetrics]:
-            nonlocal envelope
+            nonlocal last_metadata
             agent_name = instruction.agents[0] if instruction.agents else ""
             agent = self._agents.get(agent_name)
 
@@ -249,20 +242,16 @@ class PipelineWorker:
                 )
                 return (None, False, f"Agent not found: {agent_name}", AgentExecutionMetrics())
 
-            # Execute agent
-            envelope, success, error, output, metrics = await self._run_agent(
-                envelope=envelope,
+            output, metadata_updates, success, error, metrics = await self._run_agent(
+                instruction=instruction,
                 process_id=process_id,
                 agent_name=agent_name,
                 agent=agent,
             )
 
-            # Persist state if configured
-            if self._persistence and thread_id:
-                try:
-                    await self._persistence.save_state(thread_id, envelope.to_state_dict())
-                except Exception as e:
-                    self._logger.warning("worker_persistence_failed", error=str(e))
+            if success and output:
+                all_outputs[agent_name] = output
+            last_metadata = metadata_updates or {}
 
             return (output, success, error, metrics)
 
@@ -270,12 +259,13 @@ class PipelineWorker:
             try:
                 terminal = await run_kernel_loop(
                     self._kernel, process_id, pipeline_config,
-                    envelope.to_dict(), _run_agent_dispatch,
+                    initial_envelope, _run_agent_dispatch,
                 )
             except KernelClientError as e:
                 self._logger.error("worker_kernel_loop_failed", error=str(e))
                 return WorkerResult(
-                    envelope=envelope,
+                    outputs=all_outputs,
+                    metadata=last_metadata,
                     terminated=True,
                     terminal_reason=str(e),
                 )
@@ -288,7 +278,8 @@ class PipelineWorker:
                     reason=terminal.terminal_reason,
                 )
                 return WorkerResult(
-                    envelope=envelope,
+                    outputs=all_outputs,
+                    metadata=last_metadata,
                     terminated=True,
                     terminal_reason=terminal.terminal_reason,
                 )
@@ -303,7 +294,8 @@ class PipelineWorker:
                     interrupt_kind=interrupt_kind,
                 )
                 return WorkerResult(
-                    envelope=envelope,
+                    outputs=all_outputs,
+                    metadata=last_metadata,
                     terminated=False,
                     interrupted=True,
                     interrupt_kind=interrupt_kind,
@@ -316,7 +308,8 @@ class PipelineWorker:
                     kind=terminal.kind,
                 )
                 return WorkerResult(
-                    envelope=envelope,
+                    outputs=all_outputs,
+                    metadata=last_metadata,
                     terminated=True,
                     terminal_reason=f"Unknown instruction kind: {terminal.kind}",
                 )
@@ -325,31 +318,20 @@ class PipelineWorker:
         self,
         process_id: str,
         pipeline_config: Dict[str, Any],
-        envelope: Envelope,
+        initial_envelope: Dict[str, Any],
         thread_id: str = "",
         force: bool = False,
     ) -> AsyncIterator[Tuple[str, Dict[str, Any]]]:
         """Execute pipeline with streaming outputs.
 
         Yields (agent_name, output) tuples as agents complete.
-
-        Args:
-            process_id: Unique process identifier
-            pipeline_config: Pipeline configuration dict
-            envelope: Initial envelope
-            thread_id: Optional thread ID for persistence
-            force: If True, replace existing session with same process_id.
-                   Default False means error if session already exists.
-
-        Yields:
-            Tuple of (agent_name, output_dict)
         """
         # Initialize session with kernel
         try:
             session_state = await self._kernel.initialize_orchestration_session(
                 process_id=process_id,
                 pipeline_config=pipeline_config,
-                envelope=envelope.to_dict(),
+                envelope=initial_envelope,
                 force=force,
             )
         except KernelClientError as e:
@@ -420,13 +402,14 @@ class PipelineWorker:
                     if has_streaming and hasattr(agent, 'stream'):
                         # Streaming path: yield tokens, then report final output
                         start_time = time.time()
+                        context = AgentContext.from_instruction(instruction)
 
                         try:
-                            async for event_type, event in agent.stream(envelope):
+                            async for event_type, event in agent.stream(context):
                                 yield ("__token__", {"agent": agent_name, "event": event})
 
                             duration_ms = int((time.time() - start_time) * 1000)
-                            output = envelope.outputs.get(agent_name, {})
+                            output, _meta = agent.get_stream_output()
                             run_metrics = agent.get_run_metrics() if hasattr(agent, "get_run_metrics") else {}
                             metrics = AgentExecutionMetrics(
                                 llm_calls=run_metrics.get("llm_calls", 0),
@@ -438,6 +421,7 @@ class PipelineWorker:
                                 process_id=process_id,
                                 agent_name=agent_name,
                                 output=output,
+                                metadata_updates=_meta,
                                 metrics=metrics,
                                 success=True,
                                 error="",
@@ -456,8 +440,8 @@ class PipelineWorker:
                             )
                     else:
                         # Non-streaming path
-                        envelope, success, error, output, metrics = await self._run_agent(
-                            envelope=envelope,
+                        output, metadata_updates, success, error, metrics = await self._run_agent(
+                            instruction=instruction,
                             process_id=process_id,
                             agent_name=agent_name,
                             agent=agent,
@@ -468,6 +452,7 @@ class PipelineWorker:
                             process_id=process_id,
                             agent_name=agent_name,
                             output=output,
+                            metadata_updates=metadata_updates,
                             metrics=metrics,
                             success=success,
                             error=error,
@@ -476,26 +461,28 @@ class PipelineWorker:
                         if success and output:
                             yield (agent_name, output)
 
-                if self._persistence and thread_id:
-                    try:
-                        await self._persistence.save_state(thread_id, envelope.to_state_dict())
-                    except Exception as e:
-                        self._logger.warning("worker_persistence_failed_streaming", error=str(e))
-
     async def _run_agent(
         self,
-        envelope: Envelope,
+        instruction: OrchestratorInstruction,
         process_id: str,
         agent_name: str,
         agent: AgentProtocol,
         *,
         log_errors: bool = True,
-    ) -> Tuple[Envelope, bool, str, Optional[Dict[str, Any]], AgentExecutionMetrics]:
-        """Run one agent execution step and return updated envelope/output/metrics."""
+    ) -> Tuple[Optional[Dict[str, Any]], Optional[Dict[str, Any]], bool, str, AgentExecutionMetrics]:
+        """Run one agent execution step.
+
+        Returns: (output, metadata_updates, success, error, metrics)
+        """
         start_time = time.time()
+        output: Optional[Dict[str, Any]] = None
+        metadata_updates: Optional[Dict[str, Any]] = None
+
+        # Build AgentContext from enriched instruction
+        context = AgentContext.from_instruction(instruction)
 
         try:
-            envelope = await agent.process(envelope)
+            output, metadata_updates = await agent.process(context)
             success = True
             error = ""
         except Exception as e:
@@ -510,14 +497,13 @@ class PipelineWorker:
             error = str(e)
 
         duration_ms = int((time.time() - start_time) * 1000)
-        agent_output = envelope.outputs.get(agent_name, {}) if success else {}
 
         # Get metrics directly from agent if it supports get_run_metrics()
         if hasattr(agent, "get_run_metrics"):
             run_metrics = agent.get_run_metrics()
             tool_calls = 0
-            if isinstance(agent_output, dict):
-                calls = agent_output.get("tool_calls", [])
+            if isinstance(output, dict):
+                calls = output.get("tool_calls", [])
                 if isinstance(calls, list):
                     tool_calls = len(calls)
             metrics = AgentExecutionMetrics(
@@ -541,29 +527,7 @@ class PipelineWorker:
         else:
             metrics = AgentExecutionMetrics(duration_ms=duration_ms)
 
-        output = agent_output if success else None
-        return envelope, success, error, output, metrics
-
-    async def resume(
-        self,
-        process_id: str,
-        pipeline_config: Dict[str, Any],
-        thread_id: str,
-    ) -> WorkerResult:
-        """Resume pipeline from persisted state."""
-        if not self._persistence:
-            raise RuntimeError("Cannot resume without persistence layer")
-        state = await self._persistence.load_state(thread_id)
-        if not state:
-            raise RuntimeError(f"No persisted state for thread {thread_id}")
-        envelope = Envelope.from_dict(state)
-        return await self.execute(
-            process_id=process_id,
-            pipeline_config=pipeline_config,
-            envelope=envelope,
-            thread_id=thread_id,
-            force=True,
-        )
+        return output, metadata_updates, success, error, metrics
 
 
 __all__ = [

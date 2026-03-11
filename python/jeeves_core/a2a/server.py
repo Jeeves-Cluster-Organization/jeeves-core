@@ -119,33 +119,76 @@ async def task_send(request: Request) -> JSONResponse:
     if not pipeline_config:
         raise HTTPException(status_code=400, detail="No pipeline configured")
 
-    # Build envelope
-    from jeeves_core.runtime.agents import create_envelope
-    from jeeves_core.protocols import RequestContext
+    # Build initial envelope dict for kernel initialization
+    from datetime import datetime, timezone
 
-    request_context = RequestContext(
-        request_id=task_id,
-        capability="a2a",
-        session_id=body.get("sessionId", str(uuid.uuid4())),
-    )
+    session_id = body.get("sessionId", str(uuid.uuid4()))
+    now_iso = datetime.now(timezone.utc).isoformat()
 
-    envelope = create_envelope(
-        raw_input=input_text,
-        request_context=request_context,
-        metadata={"a2a_task_id": task_id, "pipeline": pipeline_name or "default"},
-    )
+    pc = pipeline_config if isinstance(pipeline_config, dict) else pipeline_config
+    max_iter = getattr(pc, "max_iterations", 3)
+    max_llm = getattr(pc, "max_llm_calls", 10)
+    max_hops = getattr(pc, "max_agent_hops", 21)
+    num_agents = len(getattr(pc, "agents", []))
+
+    initial_envelope = {
+        "identity": {
+            "envelope_id": str(uuid.uuid4()),
+            "request_id": task_id,
+            "user_id": "",
+            "session_id": session_id,
+        },
+        "raw_input": input_text,
+        "received_at": now_iso,
+        "outputs": {},
+        "pipeline": {
+            "current_stage": "",
+            "stage_order": [],
+            "iteration": 0,
+            "max_iterations": max_iter,
+        },
+        "bounds": {
+            "llm_call_count": 0,
+            "max_llm_calls": max_llm,
+            "tool_call_count": 0,
+            "agent_hop_count": 0,
+            "max_agent_hops": max_hops,
+            "tokens_in": 0,
+            "tokens_out": 0,
+            "terminated": False,
+        },
+        "interrupts": {"interrupt_pending": False},
+        "execution": {
+            "completed_stages": [],
+            "current_stage_number": 0,
+            "max_stages": num_agents,
+            "all_goals": [],
+            "remaining_goals": [],
+            "goal_completion_status": {},
+            "prior_plans": [],
+            "loop_feedback": [],
+        },
+        "audit": {
+            "processing_history": [],
+            "errors": [],
+            "created_at": now_iso,
+            "metadata": {"a2a_task_id": task_id, "pipeline": pipeline_name or "default"},
+        },
+    }
+
+    pipeline_config_dict = pipeline_config if isinstance(pipeline_config, dict) else pipeline_config.to_kernel_dict()
 
     # Execute pipeline
     try:
         worker_result = await pipeline_worker.execute(
             process_id=task_id,
-            pipeline_config=pipeline_config if isinstance(pipeline_config, dict) else pipeline_config.to_kernel_dict(),
-            envelope=envelope,
+            pipeline_config=pipeline_config_dict,
+            initial_envelope=initial_envelope,
         )
 
         # Map result to A2A task response
         artifacts = []
-        for output_key, output_value in worker_result.envelope.outputs.items():
+        for output_key, output_value in worker_result.outputs.items():
             if isinstance(output_value, dict):
                 response_text = output_value.get("response", output_value.get("final_response", ""))
                 if response_text:
@@ -203,8 +246,9 @@ async def task_get(request: Request, task_id: str) -> JSONResponse:
 
         # Build artifacts from envelope outputs
         artifacts = []
-        if state.envelope and hasattr(state.envelope, "outputs"):
-            for key, val in state.envelope.outputs.items():
+        envelope_outputs = state.envelope.get("outputs", {}) if state.envelope else {}
+        if envelope_outputs:
+            for key, val in envelope_outputs.items():
                 if isinstance(val, dict):
                     text = val.get("response", val.get("final_response", ""))
                     if text:
