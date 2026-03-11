@@ -194,7 +194,7 @@ class ToolExecutionCore:
             result = self.normalize_result(raw_result, execution_time_ms)
             await self._record_health(tool_name, result)
             from jeeves_core.observability.metrics import record_tool_execution
-            record_tool_execution(tool_name, result.get("status", "success"))
+            record_tool_execution(tool_name, result.get("status", "success"), execution_time_ms / 1000)
             return result
 
         except TypeError as e:
@@ -206,15 +206,16 @@ class ToolExecutionCore:
                     tool=tool_name,
                     error=error_msg,
                 )
+            execution_time_ms = int((time.perf_counter() - start_time) * 1000)
             result = {
                 "status": "error",
                 "error": f"Parameter error: {error_msg}",
                 "error_type": "parameter_error",
-                "execution_time_ms": int((time.perf_counter() - start_time) * 1000),
+                "execution_time_ms": execution_time_ms,
             }
             await self._record_health(tool_name, result)
             from jeeves_core.observability.metrics import record_tool_execution
-            record_tool_execution(tool_name, "error")
+            record_tool_execution(tool_name, "error", execution_time_ms / 1000)
             return result
         except Exception as e:
             error_type = type(e).__name__
@@ -225,15 +226,16 @@ class ToolExecutionCore:
                     error_type=error_type,
                     error=str(e),
                 )
+            execution_time_ms = int((time.perf_counter() - start_time) * 1000)
             result = {
                 "status": "error",
                 "error": str(e),
                 "error_type": error_type,
-                "execution_time_ms": int((time.perf_counter() - start_time) * 1000),
+                "execution_time_ms": execution_time_ms,
             }
             await self._record_health(tool_name, result)
             from jeeves_core.observability.metrics import record_tool_execution
-            record_tool_execution(tool_name, "error")
+            record_tool_execution(tool_name, "error", execution_time_ms / 1000)
             return result
 
     async def _record_health(self, tool_name: str, result: Dict[str, Any]) -> None:

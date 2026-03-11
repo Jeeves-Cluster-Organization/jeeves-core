@@ -131,22 +131,13 @@ from fixtures.services import (
     tool_registry,
 )
 
-# Envelope and mock fixtures (mission system level - no app imports)
+# Context and mock fixtures (mission system level - no app imports)
 from fixtures.agents import (
-    # Envelope fixtures
-    envelope_factory,
-    sample_envelope,
-    # Mock fixtures
+    agent_context_factory,
+    sample_context,
     mock_db,
     mock_tool_executor,
     mock_llm_provider,
-    # Pre-populated envelope fixtures
-    envelope_with_perception,
-    envelope_with_intent,
-    envelope_with_plan,
-    envelope_with_execution,
-    envelope_with_synthesizer,
-    envelope_with_critic,
 )
 
 
@@ -173,16 +164,10 @@ __all__ = [
     "session_service",
     "tool_health_service",
     "tool_registry",
-    # Envelope fixtures
-    "envelope_factory",
-    "sample_envelope",
+    # Context fixtures
+    "agent_context_factory",
+    "sample_context",
     "mock_db",
     "mock_tool_executor",
     "mock_llm_provider",
-    "envelope_with_perception",
-    "envelope_with_intent",
-    "envelope_with_plan",
-    "envelope_with_execution",
-    "envelope_with_synthesizer",
-    "envelope_with_critic",
 ]

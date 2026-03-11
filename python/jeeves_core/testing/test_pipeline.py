@@ -10,7 +10,6 @@ from uuid import uuid4
 from jeeves_core.protocols.types import PipelineConfig
 from jeeves_core.pipeline_worker import PipelineWorker, WorkerResult
 from jeeves_core.testing.mock_kernel import MockKernelClient
-from jeeves_core.testing.helpers import make_envelope
 from jeeves_core.runtime.agents import (
     Agent,
     PipelineRunner,
@@ -39,15 +38,17 @@ class _MockLLM:
     def __init__(self, outputs: Dict[str, Dict]):
         self._outputs = outputs
 
-    async def chat(self, model: str, messages: list = None, options: dict = None) -> dict:
+    async def chat(self, model: str, messages: list = None, options: dict = None):
         import json
+        from jeeves_core.protocols.types import LLMResult, LLMUsage
         for key, output in self._outputs.items():
-            return {"content": json.dumps(output), "tool_calls": []}
-        return {"content": "{}", "tool_calls": []}
+            return LLMResult(content=json.dumps(output))
+        return LLMResult(content="{}")
 
     async def chat_with_usage(self, model: str, messages: list = None, options: dict = None):
+        from jeeves_core.protocols.types import LLMUsage
         result = await self.chat(model, messages, options)
-        return result, {"prompt_tokens": 10, "completion_tokens": 10}
+        return result, LLMUsage(prompt_tokens=10, completion_tokens=10)
 
 
 class _MockLLMByAgent:
@@ -57,14 +58,16 @@ class _MockLLMByAgent:
         self._agent_name = agent_name
         self._outputs = outputs
 
-    async def chat(self, model: str, messages: list = None, options: dict = None) -> dict:
+    async def chat(self, model: str, messages: list = None, options: dict = None):
         import json
+        from jeeves_core.protocols.types import LLMResult
         output = self._outputs.get(self._agent_name, {})
-        return {"content": json.dumps(output), "tool_calls": []}
+        return LLMResult(content=json.dumps(output))
 
     async def chat_with_usage(self, model: str, messages: list = None, options: dict = None):
+        from jeeves_core.protocols.types import LLMUsage
         result = await self.chat(model, messages, options)
-        return result, {"prompt_tokens": 10, "completion_tokens": 10}
+        return result, LLMUsage(prompt_tokens=10, completion_tokens=10)
 
 
 class _MockPromptRegistry:
@@ -129,20 +132,59 @@ class TestPipeline:
             logger=logger,
         )
 
-        # Build envelope
-        envelope = make_envelope(
-            message=message,
-            user_id=user_id,
-            session_id=session_id,
-            **(metadata or {}),
-        )
-
-        # Execute
+        # Build initial envelope dict
+        from datetime import datetime, timezone
         process_id = f"test-{uuid4().hex[:8]}"
+        now_iso = datetime.now(timezone.utc).isoformat()
+        initial_envelope = {
+            "identity": {
+                "envelope_id": str(uuid4()),
+                "request_id": process_id,
+                "user_id": user_id,
+                "session_id": session_id,
+            },
+            "raw_input": message,
+            "received_at": now_iso,
+            "outputs": {},
+            "pipeline": {
+                "current_stage": "",
+                "stage_order": [],
+                "iteration": 0,
+                "max_iterations": self.config.max_iterations,
+            },
+            "bounds": {
+                "llm_call_count": 0,
+                "max_llm_calls": self.config.max_llm_calls,
+                "tool_call_count": 0,
+                "agent_hop_count": 0,
+                "max_agent_hops": self.config.max_agent_hops,
+                "tokens_in": 0,
+                "tokens_out": 0,
+                "terminated": False,
+            },
+            "interrupts": {"interrupt_pending": False},
+            "execution": {
+                "completed_stages": [],
+                "current_stage_number": 0,
+                "max_stages": len(self.config.agents),
+                "all_goals": [],
+                "remaining_goals": [],
+                "goal_completion_status": {},
+                "prior_plans": [],
+                "loop_feedback": [],
+            },
+            "audit": {
+                "processing_history": [],
+                "errors": [],
+                "created_at": now_iso,
+                "metadata": metadata or {},
+            },
+        }
+
         pipeline_config_dict = self.config.to_kernel_dict()
 
         return await worker.execute(
             process_id=process_id,
             pipeline_config=pipeline_config_dict,
-            envelope=envelope,
+            initial_envelope=initial_envelope,
         )

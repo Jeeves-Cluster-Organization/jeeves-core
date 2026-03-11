@@ -32,7 +32,7 @@ Architecture:
     jeeves-core (Microkernel - Rust)
 
 Usage:
-    from jeeves_core.protocols import PipelineConfig, AgentConfig, Envelope
+    from jeeves_core.protocols import PipelineConfig, AgentConfig, AgentContext
     from jeeves_core.bootstrap import create_app_context
     from jeeves_core.wiring import create_tool_executor
     from jeeves_core.settings import get_settings
@@ -49,7 +49,7 @@ __version__ = "0.0.1"
 
 from jeeves_core.protocols import (
     # Core types
-    PipelineConfig, AgentConfig, Envelope, AgentContext, RoutingRule, EdgeLimit,
+    PipelineConfig, AgentConfig, AgentContext, RoutingRule, EdgeLimit,
     ContextBounds, ExecutionConfig, OrchestrationFlags, GenerationParams,
     # Enums
     TerminalReason, JoinStrategy, RunMode,
@@ -62,7 +62,7 @@ from jeeves_core.protocols import (
     CapabilityOrchestratorConfig, CapabilityToolsConfig, CapabilityPromptConfig,
 )
 from jeeves_core.runtime import (
-    Agent, PipelineRunner, create_pipeline_runner, create_envelope,
+    Agent, PipelineRunner, create_pipeline_runner,
     CapabilityService, CapabilityResult,
 )
 from jeeves_core.bootstrap import create_app_context
@@ -70,7 +70,7 @@ from jeeves_core.bootstrap import create_app_context
 __all__ = [
     "__version__",
     # Core types
-    "PipelineConfig", "AgentConfig", "Envelope", "AgentContext", "RoutingRule", "EdgeLimit",
+    "PipelineConfig", "AgentConfig", "AgentContext", "RoutingRule", "EdgeLimit",
     "ContextBounds", "ExecutionConfig", "OrchestrationFlags", "GenerationParams",
     # Enums
     "TerminalReason", "JoinStrategy", "RunMode",
@@ -82,7 +82,7 @@ __all__ = [
     "DomainServiceConfig", "DomainAgentConfig",
     "CapabilityOrchestratorConfig", "CapabilityToolsConfig", "CapabilityPromptConfig",
     # Runtime
-    "Agent", "PipelineRunner", "create_pipeline_runner", "create_envelope",
+    "Agent", "PipelineRunner", "create_pipeline_runner",
     "CapabilityService", "CapabilityResult",
     # Bootstrap
     "create_app_context",

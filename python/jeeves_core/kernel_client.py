@@ -111,6 +111,7 @@ class OrchestratorInstruction:
     interrupt_pending: bool = False
     interrupt: Optional[Dict[str, Any]] = None
     agent_config: "InstructionConfig" = field(default_factory=lambda: _empty_instruction_config())
+    outputs: Optional[Dict[str, Any]] = None  # populated on TERMINATE — envelope.outputs
 
     def __post_init__(self):
         if self.kind not in VALID_INSTRUCTION_KINDS:
@@ -1285,6 +1286,7 @@ class KernelClient:
             interrupt_pending=d.get("interrupt_pending", False),
             interrupt=d.get("interrupt"),
             agent_config=agent_config,
+            outputs=d.get("outputs"),
         )
 
     def _dict_to_service_info(self, d: Dict[str, Any]) -> ServiceInfoResult:

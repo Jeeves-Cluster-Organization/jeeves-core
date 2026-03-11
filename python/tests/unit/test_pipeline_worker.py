@@ -10,7 +10,6 @@ These tests verify that:
 import logging
 import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
-from dataclasses import dataclass
 from typing import Any, Dict, Optional, Tuple
 
 from jeeves_core.pipeline_worker import PipelineWorker, WorkerResult
@@ -505,24 +504,68 @@ async def test_pipeline_worker_handles_session_init_failure(mock_kernel_client, 
 
 
 # =============================================================================
+# Terminal Outputs Tests (Phase 6)
+# =============================================================================
+
+@pytest.mark.asyncio
+async def test_terminal_instruction_has_outputs(mock_kernel_client, mock_agents, initial_envelope, pipeline_config):
+    """Test that WorkerResult.outputs comes from the terminal instruction, not local accumulation."""
+    mock_kernel_client.initialize_orchestration_session.return_value = OrchestrationSessionState(
+        process_id="test-envelope-1",
+        current_stage="understand",
+        stage_order=["understand"],
+    )
+    mock_kernel_client.get_next_instruction.return_value = OrchestratorInstruction(
+        kind="RUN_AGENT",
+        agents=["understand"],
+        envelope={"current_stage": "understand"},
+    )
+    # Terminal instruction includes outputs from kernel
+    mock_kernel_client.report_agent_result.return_value = OrchestratorInstruction(
+        kind="TERMINATE",
+        terminal_reason="COMPLETED",
+        envelope={"current_stage": "end"},
+        outputs={
+            "understand": {"intent": "greeting"},
+        },
+    )
+
+    worker = PipelineWorker(
+        kernel_client=mock_kernel_client,
+        agents=mock_agents,
+        logger=test_logger,
+    )
+
+    result = await worker.execute(
+        process_id="test-envelope-1",
+        pipeline_config=pipeline_config,
+        initial_envelope=initial_envelope,
+    )
+
+    # Outputs should come from terminal instruction
+    assert result.outputs == {"understand": {"intent": "greeting"}}
+    assert result.terminated is True
+
+
+# =============================================================================
 # Streaming Tests
 # =============================================================================
 
 @pytest.mark.asyncio
 async def test_pipeline_worker_streaming(mock_kernel_client, mock_agents, initial_envelope, pipeline_config):
-    """Test PipelineWorker streaming execution."""
+    """Test PipelineWorker streaming execution (uses run_kernel_loop internally)."""
     mock_kernel_client.initialize_orchestration_session.return_value = OrchestrationSessionState(
         process_id="test-envelope-1",
         current_stage="understand",
         stage_order=["understand", "respond"],
     )
-    # Streaming also calls get_next_instruction in a loop
-    mock_kernel_client.get_next_instruction.side_effect = [
-        OrchestratorInstruction(
-            kind="RUN_AGENT",
-            agents=["understand"],
-            envelope={"current_stage": "understand"},
-        ),
+    # run_kernel_loop: get_next_instruction once, then report_agent_result returns next
+    mock_kernel_client.get_next_instruction.return_value = OrchestratorInstruction(
+        kind="RUN_AGENT",
+        agents=["understand"],
+        envelope={"current_stage": "understand"},
+    )
+    mock_kernel_client.report_agent_result.side_effect = [
         OrchestratorInstruction(
             kind="RUN_AGENT",
             agents=["respond"],
@@ -534,11 +577,6 @@ async def test_pipeline_worker_streaming(mock_kernel_client, mock_agents, initia
             envelope={"current_stage": "end"},
         ),
     ]
-    # report_agent_result return value is not used, just provide a default
-    mock_kernel_client.report_agent_result.return_value = OrchestratorInstruction(
-        kind="RUN_AGENT",
-        agents=[],
-    )
 
     worker = PipelineWorker(
         kernel_client=mock_kernel_client,
@@ -559,3 +597,48 @@ async def test_pipeline_worker_streaming(mock_kernel_client, mock_agents, initia
     assert "understand" in event_names
     assert "respond" in event_names
     assert "__end__" in event_names
+
+
+# =============================================================================
+# Kernel Instruction Timing Tests (W13)
+# =============================================================================
+
+@pytest.mark.asyncio
+async def test_kernel_instruction_timing(mock_kernel_client, mock_agents, initial_envelope, pipeline_config):
+    """Test that kernel IPC calls have timing recorded."""
+    mock_kernel_client.initialize_orchestration_session.return_value = OrchestrationSessionState(
+        process_id="test-envelope-1",
+        current_stage="understand",
+        stage_order=["understand"],
+    )
+    mock_kernel_client.get_next_instruction.return_value = OrchestratorInstruction(
+        kind="RUN_AGENT",
+        agents=["understand"],
+        envelope={"current_stage": "understand"},
+    )
+    mock_kernel_client.report_agent_result.return_value = OrchestratorInstruction(
+        kind="TERMINATE",
+        terminal_reason="COMPLETED",
+        envelope={"current_stage": "end"},
+    )
+
+    worker = PipelineWorker(
+        kernel_client=mock_kernel_client,
+        agents=mock_agents,
+        logger=test_logger,
+    )
+
+    with patch("jeeves_core.observability.metrics.record_kernel_instruction") as mock_record:
+        result = await worker.execute(
+            process_id="test-envelope-1",
+            pipeline_config=pipeline_config,
+            initial_envelope=initial_envelope,
+        )
+
+        # record_kernel_instruction should be called with duration_seconds kwarg
+        assert mock_record.call_count >= 1
+        for call in mock_record.call_args_list:
+            # Each call should have instruction_type and duration_seconds
+            assert len(call.args) >= 1  # instruction_type
+            if len(call.args) >= 2:
+                assert call.args[1] >= 0  # duration_seconds >= 0

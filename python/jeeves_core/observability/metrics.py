@@ -122,6 +122,20 @@ TOOL_EXECUTIONS = Counter(
     labelnames=("tool_name", "status"),
 )
 
+TOOL_EXECUTION_DURATION = Histogram(
+    "jeeves_tool_execution_duration_seconds",
+    "Per-tool execution duration",
+    labelnames=("tool_name",),
+    buckets=(0.01, 0.05, 0.1, 0.25, 0.5, 1, 2, 5, 10),
+)
+
+KERNEL_INSTRUCTION_LATENCY = Histogram(
+    "jeeves_kernel_instruction_latency_seconds",
+    "Latency of kernel IPC calls (get_next_instruction, report_agent_result)",
+    labelnames=("call_type",),
+    buckets=(0.001, 0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1),
+)
+
 
 def orchestrator_started() -> None:
     """Increment in-flight gauge when orchestration begins."""
@@ -213,9 +227,11 @@ def record_pipeline_termination(reason: str) -> None:
     PIPELINE_TERMINATIONS.labels(reason=reason).inc()
 
 
-def record_kernel_instruction(instruction_type: str) -> None:
-    """Record a kernel instruction dispatched by type."""
+def record_kernel_instruction(instruction_type: str, duration_seconds: float = 0.0) -> None:
+    """Record a kernel instruction dispatched by type, with optional latency."""
     KERNEL_INSTRUCTIONS.labels(instruction_type=instruction_type).inc()
+    if duration_seconds > 0:
+        KERNEL_INSTRUCTION_LATENCY.labels(call_type=instruction_type).observe(duration_seconds)
 
 
 def record_agent_duration(agent_name: str, duration_seconds: float) -> None:
@@ -223,6 +239,8 @@ def record_agent_duration(agent_name: str, duration_seconds: float) -> None:
     AGENT_EXECUTION_DURATION.labels(agent_name=agent_name).observe(duration_seconds)
 
 
-def record_tool_execution(tool_name: str, status: str) -> None:
-    """Record a tool execution by tool name and status."""
+def record_tool_execution(tool_name: str, status: str, duration_seconds: float = 0.0) -> None:
+    """Record a tool execution by tool name and status, with optional latency."""
     TOOL_EXECUTIONS.labels(tool_name=tool_name, status=status).inc()
+    if duration_seconds > 0:
+        TOOL_EXECUTION_DURATION.labels(tool_name=tool_name).observe(duration_seconds)

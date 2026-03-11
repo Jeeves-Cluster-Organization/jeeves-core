@@ -162,6 +162,8 @@ struct InstructionResponse<'a> {
     interrupt: Option<Value>,
     #[serde(default)]
     agent_config: Value,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    outputs: Option<Value>,
 }
 
 /// DTO for SessionState → JSON, matching `kernel_client.py._dict_to_session_state`.
@@ -182,7 +184,7 @@ struct SessionStateResponse<'a> {
 /// are populated by the kernel's get_next_instruction enrichment phase.
 pub fn instruction_to_value(
     instr: &crate::kernel::orchestrator::Instruction,
-    _envelope: Option<&crate::envelope::Envelope>,
+    envelope: Option<&crate::envelope::Envelope>,
 ) -> Value {
     let terminal_reason_str = instr
         .terminal_reason
@@ -203,6 +205,13 @@ pub fn instruction_to_value(
         agent_config.insert("allowed_tools".to_string(), serde_json::json!(tools));
     }
 
+    // Include envelope outputs on terminal instructions
+    let outputs = if instr.kind == InstructionKind::Terminate {
+        envelope.and_then(|e| serde_json::to_value(&e.outputs).ok())
+    } else {
+        None
+    };
+
     let dto = InstructionResponse {
         kind: instr.kind.clone(),
         agents: &instr.agents,
@@ -211,6 +220,7 @@ pub fn instruction_to_value(
         interrupt_pending: instr.interrupt_pending,
         interrupt: instr.interrupt.as_ref().and_then(|i| serde_json::to_value(i).ok()),
         agent_config: serde_json::Value::Object(agent_config),
+        outputs,
     };
 
     serde_json::to_value(dto).unwrap_or_default()
