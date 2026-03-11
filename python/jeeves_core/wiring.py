@@ -29,7 +29,6 @@ from dataclasses import dataclass
 from typing import Any, Callable, Dict, List, Optional
 
 from jeeves_core.protocols import (
-    AgentToolAccessProtocol,
     LoggerProtocol,
     LLMProviderProtocol,
     ToolRegistryProtocol,
@@ -77,22 +76,15 @@ class ToolExecutor:
         self,
         registry: ToolRegistryProtocol,
         logger: Optional[LoggerProtocol] = None,
-        access_checker: Optional[AgentToolAccessProtocol] = None,
     ):
         """Initialize with a tool registry.
 
         Args:
             registry: Tool registry implementing ToolRegistryProtocol (required)
             logger: LoggerProtocol for structured logging
-            access_checker: Optional AgentToolAccessProtocol for access control
         """
         self._registry = registry
         self._logger = logger or create_logger("tool_executor")
-        self._access_checker = access_checker
-
-    def _get_access_checker(self) -> Optional[AgentToolAccessProtocol]:
-        """Get access checker if configured."""
-        return self._access_checker
 
     def _validate_params(self, tool_def: Any, params: Dict[str, Any]) -> List[str]:
         """Validate parameters against registered schemas.
@@ -245,35 +237,8 @@ class ToolExecutor:
             - status="error" if tool not found or execution fails
             - status="success" if tool executes successfully
         """
-        start_time = time.perf_counter()
-
-        access_checker = self._get_access_checker()
-
-        if access_checker is not None:
-            if not access_checker.can_access(context.agent_name, tool_name):
-                rejection_msg = (
-                    f"Agent '{context.agent_name}' is not authorized to use tool '{tool_name}'. "
-                    f"Allowed tools: {access_checker.get_allowed_tools(context.agent_name)}"
-                )
-                self._logger.warning(
-                    "tool_access_rejected",
-                    agent=context.agent_name,
-                    tool=tool_name,
-                    request_id=context.request_id,
-                )
-                return {
-                    "status": "rejected",
-                    "error": rejection_msg,
-                    "error_type": "access_denied",
-                    "execution_time_ms": int((time.perf_counter() - start_time) * 1000),
-                }
-
-        self._logger.debug(
-            "tool_access_granted",
-            agent=context.agent_name,
-            tool=tool_name,
-            request_id=context.request_id,
-        )
+        # Tool access is now enforced by the Rust kernel (ToolAccessPolicy).
+        # Python-side access checks removed — kernel validates post-hoc.
         return await self.execute(tool_name, params)
 
     def has_tool(self, name: str) -> bool:

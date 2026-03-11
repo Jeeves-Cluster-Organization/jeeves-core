@@ -501,6 +501,13 @@ impl Kernel {
         mut envelope: Envelope,
         force: bool,
     ) -> Result<orchestrator::SessionState> {
+        // Wire tool access from pipeline stages (before pipeline_config is moved)
+        for stage in &pipeline_config.stages {
+            if let Some(ref tools) = stage.allowed_tools {
+                self.tool_access.grant_many(&stage.agent, tools);
+            }
+        }
+
         let state = self.orchestrator
             .initialize_session(process_id.clone(), pipeline_config, &mut envelope, force)?;
         self.process_envelopes.insert(process_id, envelope);
@@ -520,9 +527,59 @@ impl Kernel {
         &mut self,
         process_id: &ProcessId,
     ) -> Result<orchestrator::Instruction> {
+        // Phase 1: Get instruction (needs &mut envelope)
         let envelope = self.process_envelopes.get_mut(process_id)
             .ok_or_else(|| Error::not_found(format!("Envelope not found for process: {}", process_id)))?;
-        self.orchestrator.get_next_instruction(process_id, envelope)
+        let mut instruction = self.orchestrator.get_next_instruction(process_id, envelope)?;
+        // &mut envelope borrow ends here (we don't use it below)
+
+        // Phase 2: Enrich instruction with context for Python
+        if instruction.kind == orchestrator::InstructionKind::RunAgent
+            || instruction.kind == orchestrator::InstructionKind::RunAgents
+        {
+            if let Some(envelope) = self.process_envelopes.get(process_id) {
+                // Build agent context from envelope
+                let mut prompt_context = serde_json::Map::new();
+                for (agent_name, output) in &envelope.outputs {
+                    for (key, value) in output {
+                        prompt_context.insert(format!("{}_{}", agent_name, key), value.clone());
+                    }
+                }
+                for (key, value) in &envelope.audit.metadata {
+                    prompt_context.insert(key.clone(), value.clone());
+                }
+
+                instruction.agent_context = Some(serde_json::json!({
+                    "envelope_id": envelope.identity.envelope_id.as_str(),
+                    "request_id": envelope.identity.request_id.as_str(),
+                    "user_id": envelope.identity.user_id.as_str(),
+                    "session_id": envelope.identity.session_id.as_str(),
+                    "raw_input": &envelope.raw_input,
+                    "outputs": &envelope.outputs,
+                    "metadata": &envelope.audit.metadata,
+                    "prompt_context": serde_json::Value::Object(prompt_context),
+                    "llm_call_count": envelope.bounds.llm_call_count,
+                    "agent_hop_count": envelope.bounds.agent_hop_count,
+                    "tokens_in": envelope.bounds.tokens_in,
+                    "tokens_out": envelope.bounds.tokens_out,
+                }));
+            }
+
+            // Look up stage-level config
+            if let Some(agent_name) = instruction.agents.first() {
+                let stage_name = self.process_envelopes.get(process_id)
+                    .map(|e| e.pipeline.current_stage.clone())
+                    .unwrap_or_default();
+                instruction.output_schema = self.orchestrator.get_stage_output_schema(process_id, &stage_name);
+
+                let allowed = self.tool_access.tools_for_agent(agent_name);
+                if !allowed.is_empty() {
+                    instruction.allowed_tools = Some(allowed);
+                }
+            }
+        }
+
+        Ok(instruction)
     }
 
     /// Report agent execution result.
@@ -556,12 +613,14 @@ impl Kernel {
     /// # Errors
     ///
     /// Returns error if no orchestration session or envelope exists for this process.
+    #[allow(clippy::too_many_arguments)]
     #[instrument(skip(self, output, metrics), fields(process_id = %process_id))]
     pub fn process_agent_result(
         &mut self,
         process_id: &ProcessId,
         agent_name: &str,
         output: serde_json::Value,
+        metadata_updates: Option<HashMap<String, serde_json::Value>>,
         metrics: orchestrator::AgentExecutionMetrics,
         success: bool,
         error_message: &str,
@@ -574,7 +633,7 @@ impl Kernel {
 
         // Phase 1: Merge output into envelope + run orchestrator
         // Scoped block so &mut envelope borrow drops before Phase 2 calls &mut self
-        {
+        let effective_failed = {
             let envelope = self.process_envelopes.get_mut(process_id)
                 .ok_or_else(|| Error::not_found(format!("Envelope not found: {}", process_id)))?;
 
@@ -600,9 +659,58 @@ impl Kernel {
             }
             envelope.outputs.insert(agent_name.to_string(), agent_output);
 
+            // Merge metadata updates from Python hooks
+            if let Some(meta_updates) = metadata_updates {
+                for (key, value) in meta_updates {
+                    envelope.audit.metadata.insert(key, value);
+                }
+            }
+
+            // Validate output against schema
+            let mut agent_failed_override = false;
+            {
+                let schema = self.orchestrator.get_stage_output_schema(process_id, &envelope.pipeline.current_stage);
+                if let Some(ref schema_val) = schema {
+                    let output_value = serde_json::Value::Object(
+                        envelope.outputs.get(agent_name)
+                            .map(|m| m.iter().map(|(k, v)| (k.clone(), v.clone())).collect())
+                            .unwrap_or_default()
+                    );
+                    if !jsonschema::is_valid(schema_val, &output_value) {
+                        tracing::warn!(agent = %agent_name, "output_schema_validation_failed");
+                        if let Some(agent_out) = envelope.outputs.get_mut(agent_name) {
+                            agent_out.insert("_schema_validation_error".to_string(),
+                                serde_json::Value::String("Output does not match declared output_schema".to_string()));
+                        }
+                        agent_failed_override = true;
+                    }
+                }
+            }
+
+            // Validate tool access
+            if let Some(tool_calls_arr) = envelope.outputs.get(agent_name)
+                .and_then(|out| out.get("tool_calls"))
+                .and_then(|v| v.as_array())
+            {
+                for tc in tool_calls_arr {
+                    if let Some(tool_name) = tc.get("name").or_else(|| tc.get("tool_name")).and_then(|v| v.as_str()) {
+                        if !self.tool_access.check_access(agent_name, tool_name) {
+                            tracing::warn!(agent = %agent_name, tool = %tool_name, "unauthorized_tool_call");
+                            agent_failed_override = true;
+                        }
+                    }
+                }
+            }
+
+            let effective_failed = !success || agent_failed_override;
+
             // Report to orchestrator (consumes metrics, adds to envelope, evaluates routing)
-            self.orchestrator.report_agent_result(process_id, metrics, envelope, !success)?;
-        } // envelope borrow dropped
+            self.orchestrator.report_agent_result(process_id, metrics, envelope, effective_failed)?;
+
+            effective_failed
+        }; // envelope borrow dropped
+
+        let _ = effective_failed; // suppress unused warning
 
         // Phase 2: Apply SAME metrics delta directly to PCB — no reconciliation!
         {

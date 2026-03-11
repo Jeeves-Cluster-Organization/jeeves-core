@@ -587,6 +587,8 @@ mod tests {
             max_visits: None,
             parallel_group: None,
             join_strategy: JoinStrategy::default(),
+            output_schema: None,
+            allowed_tools: None,
         };
         let (outputs, metadata) = empty_ctx();
 

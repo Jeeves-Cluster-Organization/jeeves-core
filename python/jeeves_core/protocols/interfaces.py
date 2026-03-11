@@ -388,18 +388,6 @@ class AgentLLMConfig:
 
 
 # =============================================================================
-# AGENT TOOL ACCESS
-# =============================================================================
-
-@runtime_checkable
-class AgentToolAccessProtocol(Protocol):
-    """Agent tool access control interface."""
-
-    def can_access(self, agent_name: str, tool_name: str) -> bool: ...
-    def get_allowed_tools(self, agent_name: str) -> List[str]: ...
-
-
-# =============================================================================
 # INFRASTRUCTURE PROTOCOLS
 # =============================================================================
 
@@ -454,8 +442,6 @@ __all__ = [
     "ConfigRegistryProtocol",
     # Capability LLM Config
     "AgentLLMConfig",
-    # Agent Tool Access
-    "AgentToolAccessProtocol",
     # Infrastructure Protocols
     "WebSocketManagerProtocol",
     "EventBridgeProtocol",

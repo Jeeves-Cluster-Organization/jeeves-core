@@ -29,7 +29,6 @@ from jeeves_core.protocols._generated import (  # noqa: E402
     HealthStatus,
     LoopVerdict,
     RiskApproval,
-    ToolAccess,
     OperationStatus,
 )
 
@@ -48,12 +47,6 @@ class JoinStrategy(str, Enum):
     """Join strategy for dependencies."""
     ALL = "all"
     ANY = "any"
-
-
-class AgentOutputMode(str, Enum):
-    """Agent output mode."""
-    STRUCTURED = "structured"
-    TEXT = "text"
 
 
 class TokenStreamMode(str, Enum):
@@ -334,16 +327,14 @@ class AgentConfig:
     has_llm: bool = False
     has_tools: bool = False
     has_policies: bool = False
-    tool_access: ToolAccess = ToolAccess.NONE
     allowed_tools: Optional[Set[str]] = None
+    output_schema: Optional[Dict[str, Any]] = None
     model_role: Optional[str] = None
     prompt_key: Optional[str] = None
     temperature: Optional[float] = None
     max_tokens: Optional[int] = None
     generation: Optional[GenerationParams] = None
     output_key: str = ""
-    required_output_fields: List[str] = field(default_factory=list)
-    output_mode: AgentOutputMode = AgentOutputMode.STRUCTURED
     token_stream: TokenStreamMode = TokenStreamMode.OFF
     streaming_prompt_key: Optional[str] = None
     routing_rules: List[RoutingRule] = field(default_factory=list)
@@ -363,6 +354,11 @@ class AgentConfig:
     def __post_init__(self):
         if not self.output_key:
             self.output_key = self.name
+        if self.token_stream == TokenStreamMode.AUTHORITATIVE and self.output_schema is not None:
+            raise ValueError(
+                f"Agent '{self.name}': AUTHORITATIVE streaming + output_schema is forbidden. "
+                "Cannot authoritatively stream structured output."
+            )
 
     def to_kernel_dict(self) -> Dict[str, Any]:
         """Serialize to the dict shape the Rust kernel expects for PipelineStage."""
@@ -380,6 +376,10 @@ class AgentConfig:
             d["join_strategy"] = "WaitAll" if self.join_strategy == JoinStrategy.ALL else "WaitFirst"
         if self.max_visits is not None:
             d["max_visits"] = self.max_visits
+        if self.output_schema is not None:
+            d["output_schema"] = self.output_schema
+        if self.allowed_tools:
+            d["allowed_tools"] = sorted(self.allowed_tools)
         return d
 
 
@@ -388,7 +388,7 @@ def stage(
     *,
     prompt_key: str | None = None,
     output_key: str | None = None,
-    required_output_fields: list[str] | None = None,
+    output_schema: Dict[str, Any] | None = None,
     model_role: str | None = None,
     temperature: float | None = None,
     max_tokens: int | None = None,
@@ -407,7 +407,6 @@ def stage(
     pre_process: Callable | None = None,
     post_process: Callable | None = None,
     mock_handler: Callable | None = None,
-    output_mode: AgentOutputMode = AgentOutputMode.STRUCTURED,
     token_stream: TokenStreamMode = TokenStreamMode.OFF,
     streaming_prompt_key: str | None = None,
     allowed_tools: Set[str] | None = None,
@@ -422,17 +421,15 @@ def stage(
     """
     has_llm = prompt_key is not None
     has_tools = tools or tool_dispatch is not None
-    tool_access = ToolAccess.ALL if has_tools else ToolAccess.NONE
 
     return AgentConfig(
         name=name,
         has_llm=has_llm,
         has_tools=has_tools,
-        tool_access=tool_access,
         model_role=model_role or (name if has_llm else None),
         prompt_key=prompt_key,
         output_key=output_key or name,
-        required_output_fields=required_output_fields or [],
+        output_schema=output_schema,
         temperature=temperature,
         max_tokens=max_tokens,
         generation=generation,
@@ -445,7 +442,6 @@ def stage(
         pre_process=pre_process,
         post_process=post_process,
         mock_handler=mock_handler,
-        output_mode=output_mode,
         token_stream=token_stream,
         streaming_prompt_key=streaming_prompt_key,
         tool_dispatch=tool_dispatch,
@@ -547,16 +543,14 @@ class PipelineConfig:
                 has_llm=agent.has_llm,
                 has_tools=agent.has_tools,
                 has_policies=agent.has_policies,
-                tool_access=agent.tool_access,
                 allowed_tools=agent.allowed_tools,
+                output_schema=agent.output_schema,
                 model_role=agent.model_role,
                 prompt_key=agent.prompt_key,
                 temperature=agent.temperature,
                 max_tokens=agent.max_tokens,
                 generation=agent.generation,
                 output_key=agent.output_key,
-                required_output_fields=agent.required_output_fields,
-                output_mode=agent.output_mode,
                 token_stream=agent.token_stream,
                 streaming_prompt_key=agent.streaming_prompt_key,
                 routing_rules=agent.routing_rules,
@@ -642,16 +636,14 @@ class PipelineConfig:
                 has_llm=agent_config.has_llm,
                 has_tools=agent_config.has_tools,
                 has_policies=agent_config.has_policies,
-                tool_access=agent_config.tool_access,
                 allowed_tools=agent_config.allowed_tools,
+                output_schema=agent_config.output_schema,
                 model_role=agent_config.model_role,
                 prompt_key=agent_config.prompt_key,
                 temperature=agent_config.temperature,
                 max_tokens=agent_config.max_tokens,
                 generation=agent_config.generation,
                 output_key=agent_config.output_key,
-                required_output_fields=agent_config.required_output_fields,
-                output_mode=agent_config.output_mode,
                 token_stream=agent_config.token_stream,
                 streaming_prompt_key=agent_config.streaming_prompt_key,
                 routing_rules=conditional[stage_name],
@@ -704,6 +696,66 @@ class ExecutionConfig:
 class OrchestrationFlags:
     """Runtime orchestration flags."""
     max_concurrent_agents: int = 4
+
+
+# =============================================================================
+# AGENT CONTEXT (Thin View of Kernel State)
+# =============================================================================
+
+@dataclass(frozen=True)
+class AgentContext:
+    """Read-only view of kernel state for agent execution.
+
+    Built from enriched Instruction. Not a parallel envelope —
+    just a structured view of what the kernel sent.
+    Replaces the Python Envelope for agent consumption.
+    """
+    # Identity
+    envelope_id: str = ""
+    request_id: str = ""
+    user_id: str = ""
+    session_id: str = ""
+
+    # Input
+    raw_input: str = ""
+
+    # Prior agent outputs (read-only snapshot)
+    outputs: Dict[str, Dict[str, Any]] = field(default_factory=dict)
+
+    # Capability-provided context (mutable dict — sent back as metadata_updates)
+    metadata: Dict[str, Any] = field(default_factory=dict)
+
+    # Prompt context (kernel-rendered from outputs + metadata)
+    prompt_context: Dict[str, Any] = field(default_factory=dict)
+
+    # Bounds/metrics (read-only, kernel-accumulated)
+    llm_call_count: int = 0
+    agent_hop_count: int = 0
+    tokens_in: int = 0
+    tokens_out: int = 0
+
+    @classmethod
+    def from_instruction(cls, instruction) -> "AgentContext":
+        """Build from enriched kernel instruction.
+
+        Args:
+            instruction: OrchestratorInstruction with agent_config.context
+        """
+        ctx = instruction.agent_config.get("context", {})
+        return cls(
+            envelope_id=ctx.get("envelope_id", ""),
+            request_id=ctx.get("request_id", ""),
+            user_id=ctx.get("user_id", ""),
+            session_id=ctx.get("session_id", ""),
+            raw_input=ctx.get("raw_input", ""),
+            outputs=ctx.get("outputs", {}),
+            metadata=dict(ctx.get("metadata", {})),
+            prompt_context=ctx.get("prompt_context", {}),
+            llm_call_count=ctx.get("llm_call_count", 0),
+            agent_hop_count=ctx.get("agent_hop_count", 0),
+            tokens_in=ctx.get("tokens_in", 0),
+            tokens_out=ctx.get("tokens_out", 0),
+        )
 
 
 # =============================================================================
@@ -1035,12 +1087,10 @@ __all__ = [
     "HealthStatus",
     "LoopVerdict",
     "RiskApproval",
-    "ToolAccess",
     "OperationStatus",
     # Enums (Python-only)
     "RunMode",
     "JoinStrategy",
-    "AgentOutputMode",
     "TokenStreamMode",
     # Operation result
     "OperationResult",
@@ -1066,6 +1116,8 @@ __all__ = [
     "ContextBounds",
     "ExecutionConfig",
     "OrchestrationFlags",
+    # Agent context
+    "AgentContext",
     # Envelope
     "Envelope",
 ]
