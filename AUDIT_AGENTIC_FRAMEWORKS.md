@@ -1,6 +1,6 @@
 # Jeeves-Core: Comprehensive Architectural Audit & Comparative Analysis
 
-**Date**: 2026-03-11
+**Date**: 2026-03-11 (Updated — full re-audit)
 **Scope**: Full codebase audit of jeeves-core (Rust kernel + Python infrastructure) with comparative analysis against major OSS agentic frameworks.
 
 ---
@@ -20,11 +20,18 @@
 
 ## 1. Executive Summary
 
-Jeeves-Core is a **Rust micro-kernel + Python infrastructure** framework for AI agent orchestration. At approximately **14,785 lines of Rust** and **26,129 lines of Python**, it implements a fundamentally different architecture from mainstream agentic frameworks: a Unix-inspired kernel with process lifecycle management, resource quotas, interrupt handling, and kernel-mediated IPC, with Python serving as the orchestration and infrastructure layer.
+Jeeves-Core is a **Rust micro-kernel + Python infrastructure** framework for AI agent orchestration. At approximately **15,748 lines of Rust** and **32,138 lines of Python** (including tests), it implements a fundamentally different architecture from mainstream agentic frameworks: a Unix-inspired kernel with process lifecycle management, resource quotas, interrupt handling, and kernel-mediated IPC, with Python serving as the orchestration and infrastructure layer.
 
 **Key differentiator**: While frameworks like LangChain, CrewAI, and AutoGen treat agents as Python objects with method calls, Jeeves-Core treats agents as **kernel-managed processes** with hard resource bounds, IPC isolation, and a Rust-enforced safety envelope. This is closer to an operating system for AI agents than a library.
 
-**Comparative standing**: Architecturally, Jeeves-Core is among the most sophisticated OSS agentic frameworks in terms of systems design. It trades the quick-start simplicity of LangChain/CrewAI for production-grade guarantees (resource isolation, bounds enforcement, type safety). It sits in a unique niche — no other OSS framework combines a Rust kernel with Python orchestration at this level of rigor.
+**What changed since last audit**: Three critical gaps have been addressed:
+- **MCP support added** (528 lines) — MCP client adapter + server implementation
+- **A2A protocol support added** (437 lines) — Agent-to-agent client/server via HTTP
+- **PromptRegistry concrete implementation** — satisfies the AgentPromptRegistry protocol
+- **CLI scaffold module** (242 lines) — project generation and scaffolding
+- Rust kernel grew +963 lines (6.5%) to 15,748 lines with 289 inline tests
+
+**Comparative standing**: Architecturally, Jeeves-Core remains the most sophisticated OSS agentic framework in terms of systems design. It now matches competitors on MCP and A2A protocol support. It trades the quick-start simplicity of LangChain/CrewAI for production-grade guarantees (resource isolation, bounds enforcement, type safety). No other OSS framework combines a Rust kernel with Python orchestration at this level of rigor.
 
 ---
 
@@ -40,7 +47,7 @@ Jeeves-Core is a **Rust micro-kernel + Python infrastructure** framework for AI 
 ├─────────────────────────────────────────────────────┤
 │          Python Infrastructure (jeeves_core)         │
 │  Gateway │ LLM Providers │ Bootstrap │ Orchestrator  │
-│  IPC Client │ Tools Framework │ Memory │ Events      │
+│  IPC Client │ Tools │ Memory │ MCP │ A2A │ Events   │
 ├─────────────────────────────────────────────────────┤
 │              IPC (TCP + msgpack)                     │
 │  4B length prefix │ 1B type │ msgpack payload        │
@@ -56,7 +63,7 @@ Jeeves-Core is a **Rust micro-kernel + Python infrastructure** framework for AI 
 
 ### 2.2 Rust Kernel — Core Subsystems
 
-#### 2.2.1 Process Lifecycle (`src/kernel/lifecycle.rs`)
+#### 2.2.1 Process Lifecycle (`src/kernel/lifecycle.rs`, 687 lines, 18 tests)
 
 The kernel implements a Unix-inspired process state machine:
 
@@ -74,7 +81,7 @@ The `LifecycleManager` owns a `HashMap` of processes and a `BinaryHeap` ready qu
 
 **Verdict**: This is unique among agentic frameworks. No other OSS framework models agents as OS-level processes with scheduling priorities and resource quotas.
 
-#### 2.2.2 Pipeline Orchestrator (`src/kernel/orchestrator.rs`, ~2,100 lines)
+#### 2.2.2 Pipeline Orchestrator (`src/kernel/orchestrator.rs`, 2,165 lines, 60 tests)
 
 The orchestrator implements a **Temporal/K8s-style routing pattern**:
 
@@ -83,22 +90,20 @@ error_next → routing_rules (first match) → default_next → terminate
 ```
 
 Key features:
-- **Routing Expression Language** (`src/kernel/routing.rs`): Full expression tree with operators (Eq, Neq, Gt, Lt, Gte, Lte, Contains, Exists, And, Or, Not) evaluated against agent outputs
-- **Field References** with scopes: `Current`, `Agent(name)`, `Meta`, `Interrupt`
+- **Routing Expression Language** (`src/kernel/routing.rs`, 619 lines, 18 tests): Full expression tree with 13 operators (Eq, Neq, Gt, Lt, Gte, Lte, Contains, Exists, NotExists, And, Or, Not, Always) evaluated against agent outputs
+- **Field References** with 4 scopes: `Current`, `Agent(name)`, `Meta`, `Interrupt`
 - **Edge Limits**: Per-edge traversal counters prevent infinite routing loops
 - **Parallel Groups**: Fan-out with `JOIN_ALL` / `JOIN_FIRST` strategies
 - **Bounds Enforcement**: max_iterations, max_llm_calls, max_agent_hops, tokens — all checked at the kernel level
 
-The orchestrator produces `Instruction` objects (`src/kernel/orchestrator_types.rs`):
+The orchestrator produces `Instruction` objects (`src/kernel/orchestrator_types.rs`, 274 lines):
 - `RunAgent`: Execute a single agent
 - `RunAgents`: Parallel fan-out
 - `WaitParallel`: Wait for parallel completion
 - `WaitInterrupt`: Human-in-the-loop pause
 - `Terminate`: Pipeline end (with `TerminalReason`)
 
-**Reference**: `src/kernel/orchestrator.rs` has 40+ unit tests covering all routing patterns.
-
-#### 2.2.3 IPC Protocol (`src/ipc/server.rs`, `python/jeeves_core/ipc/protocol.py`)
+#### 2.2.3 IPC Protocol (`src/ipc/`, 2,247 lines across 7 handlers)
 
 Binary wire format:
 ```
@@ -115,46 +120,63 @@ Services exposed via IPC router (`src/ipc/router.rs`):
 - **orchestration**: 4 methods (InitializeSession, GetNextInstruction, ReportAgentResult, GetSessionState)
 - **commbus**: 4 methods (Publish, Send, Query, Subscribe)
 - **interrupt**: 3 methods (Create, Resolve, Cancel)
+- **tools**: Tool catalog, health, access policy validation
+- **services**: Service registry, dispatch
+- **validation**: Input/output schema checks
 
-The Python `KernelClient` (`python/jeeves_core/ipc/kernel_client.py`, ~400 lines) wraps all IPC calls with typed Python methods.
+The Python `KernelClient` (`python/jeeves_core/kernel_client.py`, 1,320 lines) wraps all IPC calls with typed Python methods (27+ RPC methods).
 
-**Protocol parity testing** (`python/tests/protocol/test_ipc_contract.py`) statically extracts Rust DTO field names and compares them against Python dict keys — catching schema drift at CI time.
+**Protocol parity testing** (`python/tests/protocol/`, 674 lines across 5 tests) statically extracts Rust DTO field names and compares them against Python dict keys — catching schema drift at CI time.
 
-#### 2.2.4 CommBus (`src/commbus/mod.rs`, ~350 lines)
+#### 2.2.4 CommBus (`src/commbus/mod.rs`, 849 lines, 12 tests)
 
 Three messaging patterns:
 - **Events**: Pub/sub with fan-out (all subscribers receive)
 - **Commands**: Fire-and-forget to single handler
 - **Queries**: Request/response with configurable timeout
 
-All inter-agent communication is kernel-mediated, enabling message quotas, tracing, access control, and fault isolation.
+All inter-agent communication is kernel-mediated, enabling message quotas, tracing, access control, and fault isolation. Built-in BusStats for monitoring.
 
-#### 2.2.5 Interrupt System (`src/kernel/interrupts.rs`)
+#### 2.2.5 Interrupt System (`src/kernel/interrupts.rs`, 1,041 lines, 16 tests)
 
 Human-in-the-loop via typed interrupts:
-- `InterruptKind`: CLARIFICATION, CONFIRMATION, AGENT_REVIEW, CHECKPOINT, RESOURCE_EXHAUSTED, TIMEOUT, SYSTEM_ERROR
+- `InterruptKind`: CLARIFICATION (24h TTL), CONFIRMATION (1h), AGENT_REVIEW (30min), CHECKPOINT (no TTL), RESOURCE_EXHAUSTED (5min), TIMEOUT (5min), SYSTEM_ERROR (1h)
 - Lifecycle: created → pending → resolved/cancelled → archived
 - Per-request and per-session tracking
 - Python-side: `FlowInterrupt` (`python/jeeves_core/protocols/types.py:104-184`) with full serialization
 
+#### 2.2.6 Tools Subsystem (`src/tools/`, 1,597 lines, 30 tests)
+
+- **Catalog** (`catalog.rs`, 501 lines, 14 tests): Tool metadata registry with search/filter, ParamType validation, risk classifications (critical→benign), severity (destructive→passive)
+- **Health** (`health.rs`, 565 lines, 11 tests): Sliding-window success rate tracking, circuit breaking, tool execution monitoring
+- **Access Control** (`access.rs`, 130 lines, 5 tests): Agent→tool grant/revoke/check via HashMap
+
+#### 2.2.7 Envelope (`src/envelope/`, 1,125 lines, 25 tests)
+
+Bounded pipeline state with semantic sub-structs: Identity, Pipeline, Bounds, Interrupts, Execution, Audit. Source of truth for request state — kernel stores in `process_envelopes: HashMap<ProcessId, Envelope>`.
+
 ### 2.3 Python Infrastructure — Core Subsystems
 
-#### 2.3.1 Protocol-First Design (`protocols/interfaces.py`)
+#### 2.3.1 Protocol-First Design (`protocols/interfaces.py`, 462 lines)
 
-All dependencies are `@runtime_checkable` Protocol classes:
+All dependencies are `@runtime_checkable` Protocol classes — 18 protocols total:
 - `LoggerProtocol` — structured logging
 - `DatabaseClientProtocol` — full CRUD + transactions
 - `LLMProviderProtocol` — generate, generate_with_usage, generate_stream, health_check
-- `ToolProtocol`, `ToolRegistryProtocol` — tool abstraction
+- `ToolProtocol`, `ToolRegistryProtocol`, `ToolDefinitionProtocol` — tool abstraction
 - `SemanticSearchProtocol` — vector search
 - `DistributedBusProtocol` — Redis scaling
 - `ToolExecutorProtocol` — tool execution
 - `ConfigRegistryProtocol` — configuration
+- `AgentToolAccessProtocol` — agent-tool permissions
 - `WebSocketManagerProtocol`, `EventBridgeProtocol` — real-time
+- `InterruptServiceProtocol` — interrupt handling
+- `EventEmitterProtocol` — event emission
+- `ClockProtocol`, `AppContextProtocol`, `RequestContext` — context
 
 This enables full swappability — any implementation satisfying the protocol can be injected.
 
-#### 2.3.2 Configuration-Driven Agents (`runtime/agents.py`)
+#### 2.3.2 Configuration-Driven Agents (`runtime/agents.py`, 764 lines)
 
 **No subclassing required.** Agents are `AgentConfig` dataclasses with:
 - Feature flags: `has_llm`, `has_tools`, `has_policies`
@@ -163,114 +185,83 @@ This enables full swappability — any implementation satisfying the protocol ca
 - Streaming: `token_stream` (OFF/DEBUG/AUTHORITATIVE) modes
 - Output validation: `required_output_fields` with warning on missing fields
 
-The `Agent` dataclass (`runtime/agents.py:88-495`) handles:
-- LLM calling with prompt registry lookup
-- Robust JSON parsing via `JSONRepairKit` (handles code fences, trailing commas, single quotes)
-- Tool access control per `allowed_tools` set
-- Auto-injection of services from envelope metadata into tool params
-- Streaming with citation extraction
+The `Agent` dataclass handles LLM calling with prompt registry lookup, robust JSON parsing via `JSONRepairKit`, tool access control per `allowed_tools` set, auto-injection of services, and streaming with citation extraction.
+
+**NEW**: `PromptRegistry` concrete implementation — satisfies the `AgentPromptRegistry` protocol for template storage and rendering.
 
 The `stage()` shorthand (`protocols/types.py:386-456`) infers `has_llm`, `has_tools`, `model_role` from provided arguments — reducing boilerplate significantly.
 
-#### 2.3.3 Pipeline Configuration (`protocols/types.py`)
+#### 2.3.3 Pipeline Configuration (`protocols/types.py`, 1,071 lines)
 
 Two builder patterns:
 
-1. **`PipelineConfig.chain()`** (line 504-586): Auto-wires sequential pipeline
-   - `stage_order` from list position
-   - `default_next` chains agent[i] → agent[i+1]
-   - Global `error_next` applied to all non-terminal stages
+1. **`PipelineConfig.chain()`**: Auto-wires sequential pipeline — `stage_order` from list position, `default_next` chains agent[i] → agent[i+1], global `error_next` applied to all non-terminal stages.
 
-2. **`PipelineConfig.graph()`** (line 588-681): Builds routed DAG
-   - Stages dict (insertion order = stage_order)
-   - Conditional edges with routing expressions → `routing_rules`
-   - Unconditional edges → `default_next`
-   - Validation of edge sources/targets
+2. **`PipelineConfig.graph()`**: Builds routed DAG — stages dict (insertion order = stage_order), conditional edges with routing expressions → `routing_rules`, unconditional edges → `default_next`, validation of edge sources/targets.
 
 Both builders produce `PipelineConfig` that serializes to the Rust kernel's expected format via `to_kernel_dict()`.
 
-#### 2.3.4 Capability Registration (`protocols/capability.py`)
+#### 2.3.4 MCP Module (NEW — `mcp/`, 528 lines)
 
-The `CapabilityResourceRegistry` is the central extension point:
+**MCPClientAdapter** (`mcp/client.py`, 319 lines): Wraps MCP servers as tool sources. Translates MCP tool schemas to the `ToolProtocol` interface, enabling any MCP-compatible tool to be used as a Jeeves-Core tool.
 
-| Registration Method | Purpose |
-|---------------------|---------|
-| `register_schema()` | Database schemas per capability |
-| `register_mode()` | Gateway mode configuration |
-| `register_service()` | Kernel service registration |
-| `register_orchestrator()` | Factory for creating orchestrator services |
-| `register_tools()` | Tool catalog per capability |
-| `register_prompts()` | Prompt templates |
-| `register_agents()` | Agent definitions for governance |
-| `register_contracts()` | Tool result contracts |
-| `register_api_router()` | FastAPI routers per capability |
-| `register_memory_layers()` | Memory layer definitions |
-| `register_memory_service()` | Memory service factories |
+**MCP Server** (`mcp/server.py`, 199 lines): Exposes Jeeves-Core capabilities as MCP resources, enabling interoperability with any MCP-compatible client.
+
+This addresses the #1 critical gap from the previous audit — Jeeves-Core was the only framework without MCP support. Now it has both client and server implementations.
+
+#### 2.3.5 A2A Module (NEW — `a2a/`, 437 lines)
+
+**A2AClient** (`a2a/client.py`, 169 lines): Remote agent invocation via HTTP. Enables calling agents on other Jeeves-Core instances (or any A2A-compatible agent) as tools.
+
+**A2AServer** (`a2a/server.py`, 254 lines): Exposes local agents via HTTP endpoint with `/.well-known/agent.json` agent card publication and `/a2a/task` task endpoint.
+
+This addresses the A2A protocol gap identified in the previous audit.
+
+#### 2.3.6 CLI Module (NEW — `cli/`, 242 lines)
+
+**Scaffold** (`cli/scaffold.py`, 236 lines): Project scaffolding and code generation. Provides a `jeeves-core init` style entry point for new projects.
+
+#### 2.3.7 Capability Registration (`protocols/capability.py`, 932 lines)
+
+The `CapabilityResourceRegistry` is the central extension point with 11 registration methods: `register_schema()`, `register_mode()`, `register_service()`, `register_orchestrator()`, `register_tools()`, `register_prompts()`, `register_agents()`, `register_contracts()`, `register_api_router()`, `register_memory_layers()`, `register_memory_service()`.
 
 **Design**: Capabilities register factories at startup; infrastructure calls them lazily on demand. This maintains the Constitution R3 principle: no domain logic in infrastructure.
 
-The `CapabilityToolCatalog` (line 64-243) provides per-capability tool isolation with:
-- Frozen `ToolCatalogEntry` metadata
-- `from_decorated()` class method to auto-discover `@tool` decorated functions
-- `generate_prompt_section()` for LLM prompt generation
+#### 2.3.8 AppContext & Bootstrap (`context.py`, `bootstrap.py`)
 
-#### 2.3.5 AppContext & Bootstrap (`context.py`, `bootstrap.py`)
+`AppContext` is the composition root — a single dataclass containing all dependencies. Fail-loud validation in `__post_init__()` prevents runtime NoneType errors. `with_request()` creates scoped copies with request-level context for concurrent request handling.
 
-`AppContext` is the composition root — a single dataclass containing all dependencies:
-- `settings`, `feature_flags`, `logger`, `clock`, `config_registry`
-- `llm_provider_factory` (required, fail-loud on init)
-- `kernel_client` (required, fail-loud on init)
-- Optional: `tool_health_service`, `db`, `state_backend`, `distributed_bus`
+#### 2.3.9 Envelope — The State Container (`protocols/types.py:713-972`)
 
-Fail-loud validation in `__post_init__()` prevents runtime NoneType errors:
-```python
-if self.llm_provider_factory is None:
-    raise ValueError("AppContext requires llm_provider_factory")
-if self.kernel_client is None:
-    raise ValueError("AppContext requires kernel_client")
-```
+The `Envelope` is the central execution state: identity (envelope_id, request_id, user_id, session_id), outputs dict, pipeline state (current_stage, stage_order, iteration), bounds (llm_call_count, tool_call_count, agent_hop_count, tokens_in/out), interrupts, and goals.
 
-`with_request()` creates scoped copies with request-level context for concurrent request handling.
+Two serialization modes: `to_dict()` (nested for Rust kernel IPC) and `to_state_dict()` (flat for persistence).
 
-#### 2.3.6 Envelope — The State Container (`protocols/types.py:713-972`)
+#### 2.3.10 Gateway (`gateway/`, 2,198 lines)
 
-The `Envelope` is the central execution state:
-- **Identity**: envelope_id, request_id, user_id, session_id
-- **Outputs**: `Dict[str, Dict[str, Any]]` — each agent writes its output under its output_key
-- **Pipeline State**: current_stage, stage_order, iteration, active/completed/failed stages
-- **Bounds**: llm_call_count, tool_call_count, agent_hop_count, tokens_in/out
-- **Interrupts**: interrupt_pending, FlowInterrupt
-- **Goals**: all_goals, remaining_goals, goal_completion_status
-
-Two serialization modes:
-- `to_dict()` — nested structure for Rust kernel IPC
-- `to_state_dict()` — flat structure for persistence
-
-#### 2.3.7 Gateway (`gateway/`)
-
-FastAPI-based HTTP/WS/SSE server:
+FastAPI-based HTTP/WS/SSE server with hardened security:
 - `POST /messages` — send message, execute pipeline
 - `GET /stream` — SSE streaming of agent events
 - `POST /sessions` — create session
 - `GET /health` — tool health dashboard
-- `GET /dashboard` — unified system dashboard
+- CORS middleware with **wildcard rejection** + credentials check
+- **Request body size limiting** (1 MB default)
+- **Prometheus metrics middleware**
+- OTEL tracing via `instrument_fastapi()`
 
-Rate limiting middleware (`middleware/rate_limit.py`) integrated with kernel rate limiter.
+#### 2.3.11 Observability Stack (387 lines, refactored)
 
-#### 2.3.8 Observability Stack
-
-- **Structured Logging**: structlog adapter with context variables (`logging/adapter.py`, `logging/context.py`)
-- **Distributed Tracing**: OpenTelemetry/Jaeger integration (`observability/tracing.py`, `observability/otel_adapter.py`)
-- **Metrics**: Prometheus-compatible metrics (`observability/metrics.py`)
-- **Tool Health**: Sliding-window success rate tracking per tool (`memory/tool_health_service.py`)
+- **OTEL Adapter** (`otel_adapter.py`, 138 lines): Consolidated from 576 lines. Thin wrapper with `init_global_otel()`, `instrument_fastapi()`, `shutdown_tracing()`.
+- **Prometheus Metrics** (`metrics.py`, 228 lines): 10 named metrics including 4 kernel-unique: `PIPELINE_TERMINATIONS`, `KERNEL_INSTRUCTIONS`, `AGENT_EXECUTION_DURATION`, `TOOL_EXECUTIONS`.
+- **Structured Logging**: structlog adapter with context variables.
 
 ### 2.4 Testing Infrastructure
 
-| Layer | Tests | Coverage Target |
-|-------|-------|-----------------|
-| Rust kernel | 240+ unit tests | 75% (tarpaulin) |
-| Python unit | 53 test files | 40% (pytest-cov) |
-| Protocol parity | 5 test files | Schema drift detection |
+| Layer | Tests | Coverage |
+|-------|-------|----------|
+| Rust kernel | 289 inline tests | 75% (tarpaulin) |
+| Python unit | 53 test files, 10,610 lines | 50%+ (pytest-cov) |
+| Protocol parity | 5 test files, 674 lines | Schema drift detection |
 | Integration | IPC round-trip tests | Requires running kernel |
 
 **CI/CD**: GitHub Actions with Rust (check, test, audit) + Python (lint, test, audit) jobs, Codecov integration.
@@ -281,134 +272,135 @@ Rate limiting middleware (`middleware/rate_limit.py`) integrated with kernel rat
 
 ### 3.1 Framework Comparison Matrix
 
-| Dimension | Jeeves-Core | LangChain/LangGraph | CrewAI | AutoGen/AG2 | OpenAI Agents SDK | Semantic Kernel |
-|-----------|-------------|---------------------|--------|-------------|-------------------|-----------------|
-| **Language** | Rust + Python | Python | Python | Python | Python | Python/C#/Java |
-| **Agent Model** | Config-driven processes | Class-based chains | Role-based crews | Conversational actors | Handoff-based | Plugin-based with function calling |
-| **Orchestration** | Kernel-managed pipeline graph | LangGraph state machine | Sequential/hierarchical | Group chat patterns | Agent handoffs | Planner + kernel |
-| **Resource Bounds** | Kernel-enforced quotas | None (user-managed) | Iteration limits | Max turns | Max turns | None |
-| **Type Safety** | Rust compile-time + Python protocols | Python dynamic | Python dynamic | Python dynamic | Pydantic guardrails | Strong (C#) / Weak (Python) |
-| **IPC** | TCP + msgpack binary | In-process | In-process | In-process / gRPC | In-process | In-process |
-| **Tool System** | Capability-scoped catalogs | Tool decorator + schema | Tool decorator | Function calling | function_tool decorator | Plugin functions |
-| **Memory** | Registry-based layers | Various retrievers | Short/long-term | Teachability | None built-in | Memory plugin |
-| **Human-in-Loop** | Typed interrupt system | Breakpoints | Human input | Human proxy agent | Guardrails | Filters |
-| **Streaming** | SSE + IPC stream frames | Callbacks/streaming | Callbacks | Streaming | Streaming | Streaming |
-| **Multi-Agent** | Parallel groups + routing | LangGraph multi-agent | Crew composition | Group chat | Agent handoffs | Agent Framework (SK agents) |
-| **Distributed** | Redis bus + distributed tasks | None native | None native | None native | None native | None native |
-| **Maturity** | Early (v0.0.1) | Mature (v1.0) | Growing (v0.80+) | Maintenance mode (AG2 community fork active) | Growing (2025+) | Mature (v1.0+) |
+| Dimension | Jeeves-Core | LangGraph | CrewAI | MS Agent Framework | OpenAI Agents SDK | Haystack | LlamaIndex | DSPy | Claude Agent SDK | Google ADK |
+|-----------|-------------|-----------|--------|---------------------|-------------------|----------|------------|------|-----------------|------------|
+| **Language** | Rust + Python | Python, JS/TS, Java | Python | Python, .NET | Python, TS/JS | Python | Python, TS | Python | Python, TS | Python, TS, Go, Java |
+| **Version** | 0.0.1 | 1.1 | 0.152 | RC (GA Q1 2026) | 0.11.1 | 2.25.2 | Workflows 1.0 | 3.1.3 | 0.1.48 | ~1.19 |
+| **Agent Model** | Config-driven kernel processes | DAG state machine | Role-based crews + Flows | Multi-agent + graph workflows | 5 primitives (agents, handoffs, guardrails, sessions, tracing) | Component pipeline + Agent | Event-driven @step Workflows | Declarative typed signatures | Agent loop + hooks + skills | Code-first + Agent Config |
+| **Orchestration** | Kernel-managed pipeline graph with expression routing | StateGraph with conditional edges | Sequential/hierarchical + event Flows | Graph + session state + middleware | Agent handoffs via transfer tools | Directed multigraph | AgentWorkflow on Workflows | Module composition | Agent loop with tool dispatch | Sequential/Parallel/Loop agents |
+| **Resource Bounds** | Kernel-enforced (LLM calls, tokens, hops, iterations, tool calls, timeout) | `recursion_limit` (Python) | Iteration limits | Configurable | Max turns | None | None | None | None | None |
+| **Type Safety** | Rust compile-time + 18 Python protocols | Pydantic | Dynamic | Strong (.NET) / Weak (Python) | Pydantic | Component typed I/O | Typed Workflow State | Typed signatures | Python/TS | Python typing |
+| **IPC** | TCP + msgpack binary (5MB max, 27+ RPC methods) | In-process | In-process | In-process / gRPC | In-process | In-process | In-process | In-process | In-process | In-process |
+| **MCP Support** | **Yes** (client + server) | Yes | Yes | Yes | Yes | Yes | Yes | Yes | Yes (first-class) | Yes |
+| **A2A Support** | **Yes** (client + server) | No | No | Yes | No | No | No | No | No | Yes |
+| **Tool System** | Capability-scoped catalogs + risk metadata + circuit breaking + MCP | Tool decorator + schema | Built-in tools library | Plugin-based | `@function_tool` | Typed components | Function calling + MCP | ReAct modules + MCP | Built-in file/shell/web + MCP | Tools + MCP + Extensions |
+| **Memory** | SessionStateService + ToolHealthService + ToolMetricsRepository | Immutable state + checkpointing | 4-layer (short/long/entity/contextual) | Session state + middleware | Sessions (persistent) | Document stores | Multi-layer (buffer/summary/vector/composable) | Mem0 integration | Context/MCP | Session state |
+| **Guardrails** | Pre/post hooks + tool risk policies + kernel bounds + rate limiting | None native | None native | Middleware/filters | First-class tripwire/filter | None native | None native | None native | Hooks with matchers | None native |
+| **Human-in-Loop** | 7 typed interrupt kinds (1,041 lines Rust) | Breakpoints | Human input tool | Configurable | Guardrails (blocking) | AgentSnapshot breakpoints | None native | None | None native | None native |
+| **Streaming** | SSE + IPC stream frames + AUTHORITATIVE/DEBUG modes | Typed StreamPart dicts | Callbacks | Streaming | WebSocket + HTTP | AsyncPipeline | Streaming | None | Streaming | Gemini Live API |
+| **Multi-Agent** | Parallel groups (JOIN_ALL/JOIN_FIRST) + routing + A2A | Supervisor, swarm, pipeline | Crew composition | Graph-based multi-agent | Agent handoffs | Pipeline composition | AgentWorkflow + swarm | None | Limited | Sequential/Parallel/Loop |
+| **Inter-Agent Comms** | CommBus (pub/sub, commands, query/response) + A2A | Shared state graph | Delegation + manager | Shared state | Handoff context | Pipeline data flow | Shared state dict | None | None native | None native |
+| **Distributed** | Redis bus + distributed tasks + A2A federation | None native | None native | Distributed (.NET) | Redis sessions | None native | None native | None native | None | Cloud Run / Vertex AI |
+| **Observability** | OTEL adapter + Prometheus (10 metrics) + structlog | LangSmith | Callbacks | Telemetry + middleware | Built-in tracing (default on) | None built-in | OpenTelemetry | MLFlow integration | Built-in tracing | Built-in evaluation |
+| **Evaluation** | None | LangSmith evaluation | None built-in | Built-in | Tracing-based | None built-in | None built-in | Automatic optimization (GEPA, SIMBA, MIPROv2) | None | Built-in eval framework |
+| **LLM Interface** | String prompt → string response | Message-based chat | Message-based chat | Message-based chat | Message-based chat | Message-based chat | Message-based chat | Typed signatures | Message-based chat | Message-based chat |
+| **Maturity** | Early (v0.0.1) | Production (v1.1) | Production (enterprise) | RC → GA Q1 2026 | Production (v0.11) | Production (v2.25) | Production | Production/Research | Early (v0.1.x) | Maturing |
 
-### 3.2 Detailed Comparisons
+### 3.2 New Frameworks to Watch
+
+| Framework | Stars | Language | Key Differentiator |
+|-----------|-------|----------|-------------------|
+| **PydanticAI** | Growing | Python | Type-safe agent development with Pydantic validation. No "magic" abstractions. |
+| **Agno** (formerly Phidata) | Growing | Python | Performance-focused: ~2μs agent instantiation (~10,000× faster than LangGraph), ~3.75KiB memory per agent. Three multi-agent modes: route, collaborate, coordinate. |
+| **Mastra** | Growing | TypeScript | TS-first framework from Gatsby team. Deploy to Vercel/Cloudflare/Netlify in one command. Built for frontend developers. |
+
+### 3.3 Detailed Comparisons
 
 #### vs. LangChain / LangGraph
 
-**LangChain** is the most widely adopted framework. **LangGraph** adds a state-machine graph execution layer.
+**LangGraph 1.1** introduces `version="v2"` streaming with strongly-typed `StreamPart` dicts and `GraphOutput` objects. LangGraph4j extends to Java (v1.8.7). Used by Uber, LinkedIn, Klarna in production.
 
-| Aspect | Jeeves-Core | LangChain/LangGraph |
-|--------|-------------|---------------------|
+| Aspect | Jeeves-Core | LangGraph 1.1 |
+|--------|-------------|---------------|
 | Pipeline definition | `PipelineConfig.chain()` / `.graph()` with typed routing rules | `StateGraph` with `add_node()` / `add_edge()` / `add_conditional_edges()` |
 | State management | Envelope with typed fields, kernel-managed bounds | `TypedDict` state with `Annotated` reducers |
 | Routing | Expression tree: `FieldRef.agent("planner").field("intent").eq("search")` | Python functions returning edge names |
-| Persistence | Envelope `to_state_dict()` + DB client protocol | `SqliteSaver`, `PostgresSaver` checkpointers |
-| Bounds enforcement | Kernel-level (cannot bypass) | User-configurable `recursion_limit` (can bypass) |
+| Bounds enforcement | Kernel-level (cannot bypass) | `recursion_limit` (can bypass) |
+| Streaming | SSE + AUTHORITATIVE/DEBUG modes | v2 typed `StreamPart` dicts |
+| MCP | Client + server | Yes |
 
-**Jeeves-Core advantage**: Hard resource bounds at the Rust kernel level. LangGraph's `recursion_limit` is a Python-level check that can be accidentally bypassed. Jeeves-Core's routing expression language is more declarative and serializable (can be sent to the Rust kernel for evaluation).
+**Jeeves-Core advantage**: Hard resource bounds at the Rust kernel level. LangGraph's `recursion_limit` is a Python-level check. Jeeves-Core's routing expression language is more declarative and serializable. A2A protocol support (LangGraph lacks this).
 
-**LangChain advantage**: Massive ecosystem (900+ integrations), extensive documentation, large community. Quick-start time is minutes vs. Jeeves-Core's significant setup.
+**LangGraph advantage**: Massive ecosystem (900+ integrations), extensive documentation, large community, multi-language (Python, JS/TS, Java). Production-proven at scale.
 
 #### vs. CrewAI
 
-CrewAI focuses on role-based multi-agent collaboration with a "crew" metaphor.
+CrewAI (45.6k stars, 100k+ certified developers) focuses on role-based multi-agent collaboration.
 
 | Aspect | Jeeves-Core | CrewAI |
 |--------|-------------|--------|
 | Agent definition | `AgentConfig` dataclass with feature flags | `Agent` class with role, goal, backstory |
 | Task orchestration | Kernel-managed pipeline graph | Sequential, hierarchical, or consensual |
-| Tool assignment | `allowed_tools` set per agent, capability-scoped catalogs | Per-agent tool lists |
-| Inter-agent comms | CommBus (kernel-mediated) | Direct delegation or manager agent |
-| Memory | Registry-based layers (pluggable) | Built-in short/long term |
+| Memory | Registry-based layers (pluggable) | Built-in 4-layer (short/long/entity/contextual) |
+| MCP | Client + server | Native + Enterprise MCP Server |
+| Community | Private | 45.6k stars, 100k+ developers |
 
-**Jeeves-Core advantage**: Formal process isolation (agents can't access each other's state), resource quotas per agent, typed routing expressions. CrewAI agents can freely access shared state.
+**Jeeves-Core advantage**: Formal process isolation, resource quotas per agent, typed routing expressions, A2A support.
 
-**CrewAI advantage**: Much simpler API (5-minute hello world), built-in memory, role-playing prompts work surprisingly well for many use cases.
+**CrewAI advantage**: Much simpler API, best-in-class built-in memory (4 layers), massive community, Enterprise tier with control plane.
 
-#### vs. AutoGen / AG2
+#### vs. Microsoft Agent Framework (RC)
 
-AutoGen uses conversational agent patterns with group chat orchestration.
+The MS Agent Framework (targeting 1.0 GA end of Q1 2026) merges AutoGen's multi-agent abstractions with Semantic Kernel's enterprise features.
 
-| Aspect | Jeeves-Core | AutoGen/AG2 |
-|--------|-------------|-------------|
-| Agent model | Config-driven processes | Conversational agents with system messages |
-| Multi-agent | Parallel groups + routing rules | Group chat with speaker selection |
-| Execution | Kernel-managed with bounds | Turn-based with max_turns |
-| Code execution | Tool framework (no built-in sandbox) | Docker-based code executor |
-| Human-in-loop | Typed interrupt system (7 kinds) | Human proxy agent pattern |
+| Aspect | Jeeves-Core | MS Agent Framework |
+|--------|-------------|-------------------|
+| Agent model | Config-driven processes | Agent/Workflow orchestration patterns |
+| Multi-agent | Parallel groups + routing rules + A2A | Graph-based workflows (sequential, concurrent, handoff, group chat) |
+| Protocols | MCP + A2A | MCP + A2A + AG-UI |
+| Languages | Rust + Python | Python + .NET |
+| Enterprise | Rate limiting, quotas, interrupts | Azure integration, middleware, telemetry |
 
-**Jeeves-Core advantage**: Stronger isolation model, formal interrupt types (CLARIFICATION, CONFIRMATION, AGENT_REVIEW, etc.), kernel-enforced bounds. AutoGen's max_turns is a suggestion, not a hard limit.
+**Jeeves-Core advantage**: Rust kernel safety guarantees, harder resource bounds, binary IPC performance.
 
-**AutoGen advantage**: Mature code execution sandbox, natural conversational patterns, easier debugging of agent conversations, AGNext/AG2 rewrite brings cleaner abstractions.
+**MS Agent Framework advantage**: Enterprise .NET support, Azure ecosystem, multi-protocol (MCP + A2A + AG-UI), migration path from AutoGen/Semantic Kernel's 38k+ star community.
 
-#### vs. OpenAI Agents SDK (formerly Swarm)
+#### vs. OpenAI Agents SDK
 
-The Agents SDK is OpenAI's lightweight agent framework with handoffs and guardrails.
+The Agents SDK (v0.11.1, ~19k+ stars) is the most developer-friendly framework with WebSocket transport and sessions.
 
 | Aspect | Jeeves-Core | OpenAI Agents SDK |
 |--------|-------------|-------------------|
 | Agent model | Kernel-managed processes | Simple Agent class with instructions |
 | Routing | Expression tree + kernel evaluation | Agent handoffs via `transfer_to_X` tools |
-| Guardrails | Pre/post hooks + tool risk policies + kernel bounds | Input/output guardrails (tripwire/filter) |
-| Tracing | OTEL + structured logging + IPC events | Built-in tracing with custom processors |
-| Tool system | Capability-scoped catalogs | `@function_tool` decorator |
-| Context | Envelope with typed state | `RunContextWrapper` with generic type |
+| Guardrails | Pre/post hooks + tool risk policies + kernel bounds | First-class tripwire/filter guardrails |
+| Sessions | Envelope per request | Built-in persistent sessions (Redis) |
+| Tracing | OTEL + Prometheus | Built-in tracing (default on) |
 
-**Jeeves-Core advantage**: Much deeper bounds enforcement, process isolation, distributed execution support. The routing expression language is more powerful than handoff functions.
+**Jeeves-Core advantage**: Deeper bounds enforcement, process isolation, distributed execution, A2A federation.
 
-**OpenAI SDK advantage**: Dramatically simpler API, built-in tracing UI, guardrails as a formalized API concept (tripwire/filter semantics vs. Jeeves-Core's general-purpose hooks), native OpenAI integration.
+**OpenAI SDK advantage**: Dramatically simpler API, built-in tracing UI, formalized guardrails, sessions with persistent state, WebSocket transport, dual Python/TS.
 
-#### vs. Semantic Kernel (Microsoft)
+#### vs. Google ADK
 
-Semantic Kernel takes a plugin-based approach with planner-driven execution.
+Google ADK (~17.2k stars) now supports 4 languages (Python, TS, Go, Java) with Interactions API and extensive integrations.
 
-| Aspect | Jeeves-Core | Semantic Kernel |
-|--------|-------------|-----------------|
-| Extension model | Capability registry | Plugin system |
-| Orchestration | Pipeline graph with routing rules | Native function calling (planners deprecated) |
-| Memory | Registry-based layers | Memory plugin + connectors |
-| Multi-language | Rust + Python | C# + Python + Java |
-| Enterprise features | Rate limiting, quotas, interrupts | Filters, telemetry, responsible AI |
+| Aspect | Jeeves-Core | Google ADK |
+|--------|-------------|-----------|
+| Languages | Rust + Python | Python, TS, Go, Java |
+| Orchestration | Kernel-managed pipeline | Sequential/Parallel/Loop workflow agents |
+| Evaluation | None | Built-in eval framework |
+| Deployment | Self-hosted | Cloud Run / Vertex AI |
+| Protocols | MCP + A2A | MCP + A2A |
 
-**Jeeves-Core advantage**: Kernel-level resource enforcement, binary IPC for performance, deeper process isolation.
+**Jeeves-Core advantage**: Kernel-level resource enforcement, binary IPC, process isolation.
 
-**Semantic Kernel advantage**: Enterprise-grade multi-language support, Microsoft ecosystem integration, mature plugin marketplace, better documentation.
+**Google ADK advantage**: 4-language support, built-in evaluation, Google Cloud integration, Interactions API for reasoning chains.
 
-#### vs. Haystack (deepset)
+#### vs. Letta (MemGPT)
 
-Haystack uses a component-pipeline architecture focused on RAG and NLP.
+Letta (v0.16.4, ~21k stars) takes a memory-first approach with the LLM-as-OS paradigm.
 
-| Aspect | Jeeves-Core | Haystack |
-|--------|-------------|----------|
-| Pipeline model | Kernel-managed agent graph | Component pipeline with sockets |
-| Focus | General agent orchestration | RAG + NLP pipelines |
-| Components | Agents with LLM/tools/policies | Retriever, Reader, Generator, etc. |
-| Serialization | Envelope IPC + state dict | Pipeline YAML serialization |
+| Aspect | Jeeves-Core | Letta |
+|--------|-------------|-------|
+| Memory | SessionStateService (in-memory) | Self-editing memory, Context Repositories with git versioning |
+| Architecture | Rust kernel + Python infra | V1 agent loop with native reasoning |
+| Agent state | Envelope per request | Persistent stateful agents |
+| Conversations | New Envelope per request | Conversations API with shared memory |
 
-**Jeeves-Core advantage**: More general-purpose agent orchestration, not limited to RAG patterns.
+**Jeeves-Core advantage**: Stronger process isolation, resource bounds, multi-agent orchestration with routing.
 
-**Haystack advantage**: Much more mature RAG pipeline, extensive document processing, evaluation framework, production-tested at scale.
-
-#### vs. DSPy
-
-DSPy takes a radically different approach: programming with LLMs via signatures and optimizers.
-
-| Aspect | Jeeves-Core | DSPy |
-|--------|-------------|------|
-| Philosophy | Infrastructure for agent orchestration | Programming model for LLM pipelines |
-| Optimization | Manual prompt engineering | Automatic prompt optimization |
-| Agent model | Config-driven processes | Modules with signatures |
-| Evaluation | Manual testing | Built-in evaluation + optimization |
-
-**Jeeves-Core advantage**: Production infrastructure (process management, quotas, IPC, distributed execution).
-
-**DSPy advantage**: Fundamentally different value proposition — automatic prompt optimization can dramatically improve quality. Jeeves-Core could benefit from integrating DSPy-style optimization.
+**Letta advantage**: Revolutionary memory system (self-editing, git-versioned), persistent agent state, #1 on Terminal-Bench for model-agnostic coding agents.
 
 ---
 
@@ -416,69 +408,45 @@ DSPy takes a radically different approach: programming with LLMs via signatures 
 
 ### 4.1 Architectural Strengths
 
-**S1: Rust Kernel Safety Guarantees**
-The Rust kernel provides compile-time guarantees no Python-only framework can match:
-- No null pointer dereferences (Option<T>)
-- No data races (ownership + borrow checker)
-- No use-after-free (lifetime tracking)
-- Exhaustive pattern matching on all enums
+**S1: Rust Kernel Safety Guarantees** — 15,748 lines of `#[deny(unsafe_code)]` Rust. No null pointer dereferences, no data races, no use-after-free, exhaustive pattern matching.
 
-**Reference**: `CONSTITUTION.md:66-74`
+**S2: Hard Resource Bounds** — Kernel-enforced quotas (LLM calls, tokens, hops, iterations, tool calls, timeout) in 310 lines of `resources.rs`. Cannot be bypassed from Python.
 
-**S2: Hard Resource Bounds**
-Resource quotas are enforced at the kernel level — capabilities cannot bypass them. This is a production necessity that most frameworks lack entirely.
+**S3: Process Isolation Model** — Unix-inspired process lifecycle (687 lines) with scheduling priorities (REALTIME/HIGH/NORMAL/LOW/IDLE) and background zombie cleanup (304 lines).
 
-**Reference**: `src/kernel/types.rs` (ResourceQuota), `src/kernel/orchestrator.rs` (bounds checking)
+**S4: Protocol-First Dependency Injection** — 18 `@runtime_checkable` Protocol classes. All dependencies are swappable. `AppContext` eliminates global singletons.
 
-**S3: Process Isolation Model**
-The Unix-inspired process model (New → Ready → Running → Terminated → Zombie) with isolated resource quotas per process is unique among agent frameworks.
+**S5: Declarative Pipeline Configuration** — `PipelineConfig.chain()` and `.graph()` builders with `stage()` shorthand for concise, serializable pipeline definition.
 
-**Reference**: `src/kernel/lifecycle.rs`, `src/kernel/types.rs:ProcessState`
+**S6: Routing Expression Language** — 13-operator expression tree with 4 field scopes, evaluated in Rust. More powerful and safer than Python-function routing.
 
-**S4: Protocol-First Dependency Injection**
-All interfaces are `@runtime_checkable` Protocol classes. No concrete dependencies are required — everything is swappable. The `AppContext` pattern eliminates global singletons.
+**S7: Constitution-Driven Development** — Explicit architectural rules preventing layer violations and architectural erosion.
 
-**Reference**: `python/jeeves_core/protocols/interfaces.py` (13 protocol definitions), `python/jeeves_core/context.py` (AppContext)
+**S8: Cross-Language Contract Testing** — 674 lines of protocol parity tests catching Rust ↔ Python schema drift at CI time.
 
-**S5: Declarative Pipeline Configuration**
-The `PipelineConfig.chain()` and `.graph()` builders, combined with the `stage()` shorthand, make pipeline definition concise and declarative while being serializable to the Rust kernel.
+**S9: Capability Isolation** — `CapabilityResourceRegistry` pattern with 11 registration methods ensuring full capability isolation.
 
-**Reference**: `python/jeeves_core/protocols/types.py:386-681`
+**S10: Tool Risk Classification** — 1,597 lines across Rust tools subsystem with risk semantics (critical→benign), severity (destructive→passive), circuit breaking, and sliding-window health tracking.
 
-**S6: Routing Expression Language**
-The expression tree (`Eq`, `Neq`, `Gt`, `Contains`, `And`, `Or`, `Not`) evaluated against typed field references (`FieldRef.agent("planner").field("intent")`) is more powerful and safer than Python-function-based routing.
+### 4.2 Protocol & Integration Strengths (NEW)
 
-**Reference**: `python/jeeves_core/protocols/routing.py`, `src/kernel/routing.rs`
+**S11: MCP Client + Server** — Full MCP support (528 lines) enabling both consumption of external MCP tools and exposure of capabilities as MCP resources.
 
-**S7: Constitution-Driven Development**
-The explicit Constitution (`CONSTITUTION.md`) defining what belongs in each layer, with clear acceptance criteria, prevents architectural erosion over time. Very few OSS projects have this level of architectural discipline.
+**S12: A2A Protocol Support** — Agent-to-agent client/server (437 lines) enabling federation of agent instances across Jeeves-Core deployments and interop with other A2A-compatible frameworks.
 
-**S8: Cross-Language Contract Testing**
-The protocol parity tests (`python/tests/protocol/`) verify Rust ↔ Python schema alignment at CI time. This catches the #1 risk of multi-language systems: schema drift.
+**S13: PromptRegistry Concrete Implementation** — Default prompt template storage and rendering, resolving the previous gap.
 
-**S9: Capability Isolation**
-The `CapabilityResourceRegistry` pattern ensures capabilities are fully isolated — they register resources, and infrastructure discovers them lazily. No capability can import from another capability.
+### 4.3 Operational Strengths
 
-**Reference**: `python/jeeves_core/protocols/capability.py:470-905`
+**S14: Binary IPC Protocol** — TCP + msgpack with 2,247 lines across 7 handlers. Significantly more efficient than HTTP/JSON for high-frequency orchestration calls.
 
-**S10: Tool Health Monitoring**
-Built-in sliding-window success rate tracking per tool with circuit-breaking support. Most frameworks have zero tool observability.
+**S15: Distributed Execution** — Redis bus (446 lines) + distributed tasks + A2A federation provide horizontal scaling paths.
 
-**Reference**: `src/tools/health.rs`, `python/jeeves_core/memory/tool_health_service.py`
+**S16: Full Observability Stack** — OTEL adapter (138 lines) + Prometheus metrics (228 lines, 10 named metrics including 4 kernel-unique) + structlog.
 
-### 4.2 Operational Strengths
+**S17: Interrupt System** — 7 typed interrupt kinds with configurable TTL, requiring much richer human-in-the-loop than simple yes/no patterns.
 
-**S11: Binary IPC Protocol**
-TCP + msgpack is significantly more efficient than HTTP/JSON for high-frequency orchestration calls. The 5MB max frame and connection semaphore provide natural backpressure.
-
-**S12: Distributed Execution Path**
-The `DistributedBusProtocol` and `DistributedTask` types, plus Redis bus integration, provide a clear path to horizontal scaling. Most frameworks are single-process only.
-
-**S13: Full Observability Stack**
-OpenTelemetry tracing, structlog structured logging, Prometheus metrics, and event streaming via SSE — all built in from day one.
-
-**S14: Interrupt System**
-Seven typed interrupt kinds (CLARIFICATION, CONFIRMATION, AGENT_REVIEW, CHECKPOINT, RESOURCE_EXHAUSTED, TIMEOUT, SYSTEM_ERROR) provide much richer human-in-the-loop than simple "yes/no" patterns.
+**S18: CommBus** — 3-pattern message bus (849 lines) with pub/sub, fire-and-forget commands, and request/response queries. No other agent framework has this built-in.
 
 ---
 
@@ -487,89 +455,59 @@ Seven typed interrupt kinds (CLARIFICATION, CONFIRMATION, AGENT_REVIEW, CHECKPOI
 ### 5.1 Adoption & Ecosystem Barriers
 
 **W1: Operational Complexity — Rust Binary Requirement**
-Running Jeeves-Core requires compiling and running a Rust binary. This is a significant barrier compared to `pip install langchain`. The maturin build system helps, but it's still more complex than pure Python.
+Running Jeeves-Core requires compiling and running a Rust binary. This is a significant barrier compared to `pip install langchain`.
 
-**Impact**: High. This is the #1 adoption barrier. LangChain's success is partly due to `pip install && go`.
+**Impact**: High. LangChain's success is partly due to `pip install && go`. The new CLI scaffold module helps but doesn't eliminate the Rust dependency.
 
 **W2: No Built-in LLM Provider Ecosystem**
-The LLM provider layer (`llm/providers/`) has LiteLLM and OpenAI HTTP providers, but no direct integrations for Anthropic, Google, Cohere, Mistral, etc. LangChain has 50+ provider integrations.
+The LLM provider layer has LiteLLM and OpenAI HTTP providers, but no direct integrations for Anthropic, Google, Cohere, Mistral, etc. LangChain has 900+ integrations.
 
-**Impact**: Medium. LiteLLM mitigates this somewhat, but it adds a dependency layer.
+**Impact**: Medium. LiteLLM mitigates this somewhat.
 
 **W3: No Built-in RAG/Retrieval Pipeline**
-There's no built-in document loading, chunking, embedding, or retrieval pipeline. `SemanticSearchProtocol` exists but has no concrete implementation in core. LangChain, LlamaIndex, and Haystack all provide extensive RAG tooling.
+No built-in document loading, chunking, embedding, or retrieval. `SemanticSearchProtocol` exists but has no concrete implementation.
 
-**Impact**: Medium-High. RAG is the most common LLM application pattern.
+**Impact**: Medium-High. RAG remains the most common LLM application pattern.
 
 **W4: Sparse Documentation**
-While the Constitution and IPC Protocol docs are excellent, there's no:
-- Getting started tutorial
-- Agent development cookbook
-- API reference (auto-generated docs)
-- Example applications
-- Migration guide from other frameworks
+While Constitution and IPC docs are good, there's no getting-started tutorial, no agent cookbook, no auto-generated API reference, and no example applications.
 
-**Impact**: High. Without docs, even interested developers can't adopt.
+**Impact**: High. Without docs, adoption is impossible.
 
 ### 5.2 Architectural Concerns
 
 **W5: Envelope Complexity**
-The `Envelope` dataclass (`protocols/types.py:713-972`) has **40+ fields** including goals, completed_stages, metadata, errors, processing_history. This "god object" accumulates state from all agents and the kernel. It will grow more complex with every new feature.
+The `Envelope` has **40+ fields** across 997 lines in Rust + 1,071 lines in Python. Two hand-written serialization methods (`to_dict()` and `to_state_dict()`) with 50+ field mappings each.
 
-**Specific concern**: Fields like `all_goals`, `remaining_goals`, `goal_completion_status`, `current_stage_number`, `max_stages` look like they belong in a higher-level orchestration layer, not the core envelope.
+**W6: String-Prompt LLM Interface**
+`LLMProviderProtocol` uses `prompt: str` — doesn't support message-based chat APIs, tool/function calling schemas, multi-modal inputs, or structured output schemas. **Every other framework uses message-based APIs.** This is the last remaining critical gap.
 
-**W6: Global Registry Pattern**
-`get_capability_resource_registry()` (`protocols/capability.py:894-905`) uses a module-level global `_resource_registry`. While the Constitution says "no singletons," this is functionally a singleton. In testing, `reset_capability_resource_registry()` exists, but in production, there's a single global instance.
+**Impact**: Critical. Modern LLM APIs are message-based with tool schemas.
 
-**W7: Serialization Duplication**
-The Envelope has `to_dict()` (nested, for Rust IPC) and `to_state_dict()` (flat, for persistence) — two hand-written serialization methods with 50+ field mappings each. This is fragile and prone to drift. Any new Envelope field must be added to both methods.
+**W7: Weak Type Safety in Python Layer**
+Despite protocol-first design, many types use `Any`: `AppContext.settings: Any`, `feature_flags: Any`, `Envelope.metadata: Dict[str, Any]`.
 
-**W8: LLM Provider Interface Limitations**
-`LLMProviderProtocol` (`protocols/interfaces.py:142-166`) uses `prompt: str` as the input format. This doesn't support:
-- Message-based chat APIs (system/user/assistant messages)
-- Tool/function calling schemas
-- Multi-modal inputs (images, audio)
-- Structured output schemas
-
-Modern LLM APIs are message-based with tool schemas. The string-prompt interface limits the framework to completion-style interactions.
-
-**W9: Weak Type Safety in Python Layer**
-Despite the protocol-first design, many types use `Any`:
-- `AppContext.settings: Any`, `feature_flags: Any`
-- `CapabilityOrchestratorConfig.factory: Callable[..., Any]`
-- `CapabilityToolsConfig.initializer: Optional[Callable[..., "CapabilityToolCatalog"]]` with `**kwargs`
-- `Envelope.metadata: Dict[str, Any]`
-
-This undercuts the type safety benefit. A framework that claims protocol-first design should have stronger typing.
-
-**W10: Agent Communication is Kernel-Mediated Only**
-Agent communication is available through two kernel-mediated channels: the Envelope's outputs dict (agents read other agents' results via routing expressions like `Agent{name,key}`) and the CommBus (pub/sub events, fire-and-forget commands, and request/response queries). While these provide rich communication patterns with isolation benefits, there's no direct agent-to-agent message passing. For conversational multi-agent patterns (e.g., debate, negotiation), all exchanges must be routed through the kernel, which adds latency and complexity compared to frameworks like AutoGen where agents converse directly.
+**W8: Agent Communication is Kernel-Mediated Only**
+For conversational multi-agent patterns (debate, negotiation), all exchanges must be routed through the kernel, adding latency vs. AutoGen's direct agent conversation.
 
 ### 5.3 Testing Gaps
 
-**W11: Low Python Coverage Target**
-The coverage target is 40% for Python (`pyproject.toml:99`). While the Rust kernel has 75% coverage, the Python infrastructure — where most of the user-facing logic lives — has a very low bar. For a framework that emphasizes safety, this is concerning.
-
-**W12: No End-to-End Test Suite**
-The integration tests require a running kernel and test IPC round-trips, but there's no end-to-end test that:
-- Defines a multi-agent pipeline
-- Runs it against a mock LLM
-- Verifies the complete output
-- Tests error recovery and interrupt handling
+**W9: No End-to-End Test Suite**
+No test that defines a multi-agent pipeline, runs it against a mock LLM, verifies complete output, and tests error recovery with interrupt handling.
 
 ### 5.4 Missing Features
 
-**W13: No Prompt Management System**
-The `AgentPromptRegistry` protocol is defined but there's no built-in implementation. Capabilities must bring their own prompt management. Given how central prompts are to agent quality, this feels like an infrastructure concern.
+**W10: No Built-in Evaluation Framework**
+No support for evaluating agent output quality, comparing pipeline configurations, or A/B testing prompts. DSPy, LangSmith, and Google ADK all have built-in evaluation.
 
-**W14: No Built-in Evaluation Framework**
-No support for evaluating agent output quality, comparing pipeline configurations, or A/B testing prompts. DSPy's automatic optimization and LangSmith's evaluation traces show the value of built-in evaluation.
+**W11: No Conversation/Thread Management**
+While there's a `session_id` on the Envelope, there's no built-in conversation history management, context windowing, or message threading.
 
-**W15: No Conversation/Thread Management**
-While there's a `session_id` on the Envelope, there's no built-in conversation history management, context windowing, or message threading. Each request creates a new Envelope.
+**W12: No Formalized Guardrails API**
+Has functional guardrail mechanisms (pre/post hooks, tool access control, kernel bounds) but no structured guardrails API like OpenAI Agents SDK's tripwire/filter model.
 
-**W16: No Formalized Guardrails API**
-While Jeeves-Core has functional guardrail mechanisms — pre/post process hooks on `AgentConfig` for input validation and output filtering, tool access control with risk metadata (`ReadOnly|Write|Destructive`, severity `Low|Medium|High|Critical`), kernel-level bounds enforcement, and rate limiting — it lacks a **formalized guardrails API** like OpenAI Agents SDK (input/output guardrails with tripwire/filter semantics) or NeMo Guardrails (dialog rails). The existing hooks are general-purpose callbacks without structured violation reporting, severity classification, or guardrail chaining.
+**W13: Observability Wired but Passive**
+OTEL adapter + Prometheus metrics are defined but spans aren't actively emitted in `Agent.process()` or `PipelineRunner`. Metrics are instrumented but not all code paths emit them.
 
 ---
 
@@ -593,18 +531,9 @@ class LLMProviderProtocol(Protocol):
     ) -> ChatResponse: ...
 ```
 
-**Reference**: Current interface at `protocols/interfaces.py:142-166` is string-prompt only.
+This is the **last remaining critical gap**. Every other framework uses message-based APIs.
 
-**R2: Reduce Envelope Complexity**
-Split the Envelope into focused sub-containers:
-- `EnvelopeCore`: identity, raw_input, outputs, metadata
-- `PipelineState`: stages, routing, iterations (kernel-managed)
-- `BoundsState`: counters, limits, termination (kernel-managed)
-- `GoalState`: goals, completion_status (orchestration-layer concern)
-
-Keep the current `Envelope` as a facade that composes these.
-
-**R3: Getting Started Documentation**
+**R2: Getting Started Documentation**
 Create:
 1. 5-minute quickstart with a simple 2-agent pipeline
 2. Architecture overview with diagrams
@@ -613,64 +542,42 @@ Create:
 
 ### 6.2 High Priority (Competitive Parity)
 
-**R4: Built-in Prompt Registry Implementation**
-Provide a default `PromptRegistry` that:
-- Loads templates from YAML/TOML files
-- Supports Jinja2 templating
-- Versioning with rollback
-- A/B testing support
+**R3: Reduce Envelope Complexity**
+Split the Envelope into focused sub-containers (`EnvelopeCore`, `PipelineState`, `BoundsState`, `GoalState`). Keep current `Envelope` as a facade.
 
-**R5: Conversation History Management**
-Add a `ConversationMemory` protocol and default implementation:
-- Message history per session
-- Context window management (truncation, summarization)
-- System message injection
+**R4: Conversation History Management**
+Add a `ConversationMemory` protocol and default implementation with message history per session, context window management, and system message injection.
 
-**R6: Formalize Existing Guardrails into a Structured API**
-Jeeves-Core already has guardrail mechanisms (pre/post process hooks, tool access control with risk levels, kernel bounds). Formalize these into a structured guardrails API similar to OpenAI Agents SDK:
-```python
-class GuardrailResult:
-    passed: bool
-    filtered_output: Optional[str]
-    violation: Optional[str]
-    severity: str  # maps to existing risk severity levels
+**R5: Formalize Existing Guardrails into Structured API**
+Wrap existing `pre_process`/`post_process` hooks with structured violation reporting, severity classification, and guardrail chaining.
 
-class GuardrailProtocol(Protocol):
-    async def check(self, content: str, context: Dict) -> GuardrailResult: ...
-```
-This would wrap the existing `pre_process`/`post_process` hooks with structured violation reporting, severity classification, and guardrail chaining — upgrading functional guardrails into a first-class API.
+**R6: Raise Python Coverage to 70%**
+Critical paths (Agent.process, PipelineRunner, KernelClient, ToolExecutionCore) should be at 90%+.
 
-**R7: Raise Python Coverage to 70%**
-The 40% target undermines confidence. Critical paths (Agent.process, PipelineRunner, KernelClient, ToolExecutionCore) should be at 90%+.
+**R7: Active OTEL Span Emission**
+Wire up actual span creation in `Agent.process()`, `PipelineRunner.run()`, `ToolExecutionCore.execute_tool()`, and `PipelineWorker.execute()`.
 
 ### 6.3 Medium Priority (Differentiation)
 
 **R8: Agent Evaluation Framework**
-Build evaluation primitives:
-- Expected output comparison
-- LLM-as-judge evaluation
-- Pipeline regression testing
-- Cost/latency benchmarking
+Build evaluation primitives leveraging existing OTEL + Prometheus + kernel-unique metrics.
 
 **R9: Visual Pipeline Editor**
-The declarative `PipelineConfig` format is well-suited for visual editing. A web-based pipeline editor would significantly lower the barrier to entry.
+The declarative `PipelineConfig` format is well-suited for visual editing.
 
-**R10: DSPy-Style Prompt Optimization**
-Integrate automatic prompt optimization. The `PipelineConfig` + `AgentConfig` structure is well-suited for systematic prompt tuning.
+**R10: Python-Only Mode**
+Allow running without the Rust kernel for development/prototyping with a pure-Python kernel emulator.
 
-**R11: Native Multi-Modal Support**
-Extend the Envelope and LLM interface to support images, audio, and video as first-class inputs.
+**R11: Automatic Schema Serialization**
+Replace hand-written `to_dict()` / `to_state_dict()` with automatic serialization.
 
 ### 6.4 Low Priority (Nice to Have)
 
-**R12: Python-Only Mode**
-Allow running without the Rust kernel for development/prototyping. Implement a pure-Python kernel emulator that provides the same IPC interface but runs in-process.
+**R12: DSPy-Style Prompt Optimization** — Integrate automatic prompt optimization.
 
-**R13: Plugin Marketplace**
-Create a registry for community-contributed capabilities, tool catalogs, and pipeline templates.
+**R13: Plugin Marketplace** — Registry for community-contributed capabilities.
 
-**R14: Automatic Schema Serialization**
-Replace hand-written `to_dict()` / `to_state_dict()` with automatic serialization (e.g., cattrs, msgspec, or Pydantic model conversion).
+**R14: Native Multi-Modal Support** — Extend Envelope and LLM interface for images, audio, video.
 
 ---
 
@@ -680,32 +587,37 @@ Replace hand-written `to_dict()` / `to_state_dict()` with automatic serializatio
 
 | Dimension | Score (1-5) | Assessment |
 |-----------|-------------|------------|
-| **Architecture** | 4.5/5 | Exceptional. Constitution-driven, layered, well-separated concerns. The Rust kernel + Python infra split is unique and well-reasoned. |
-| **Code Quality** | 4/5 | Strong. 240+ Rust tests, protocol parity testing, structured error handling. Python layer is clean but under-tested. |
-| **API Design** | 3.5/5 | Good protocol-first design, but the string-prompt LLM interface and Envelope complexity are concerns. `stage()` shorthand is excellent. |
+| **Architecture** | 4.5/5 | Exceptional. Constitution-driven, layered, well-separated concerns. Rust kernel + Python infra split is unique and well-reasoned. |
+| **Code Quality** | 4/5 | Strong. 289 Rust tests, protocol parity testing, structured error handling. Python layer clean but could use higher coverage. |
+| **API Design** | 3.5/5 | Good protocol-first design. `stage()` shorthand is excellent. String-prompt LLM interface and Envelope complexity are concerns. |
+| **Protocol Support** | 3.5/5 | MCP client+server and A2A client+server now implemented. Missing AG-UI. |
 | **Documentation** | 2/5 | Constitution and IPC docs are good. No tutorials, no API reference, no examples. |
-| **Ecosystem** | 1.5/5 | Minimal. No integrations, no community, no plugins. LiteLLM provides some LLM coverage. |
-| **Production Readiness** | 3/5 | Strong foundations (bounds, observability, rate limiting) but low test coverage, no e2e tests, and no production deployment evidence. |
-| **Developer Experience** | 2/5 | Steep learning curve, Rust binary requirement, no quick-start path. |
-| **Community** | 1/5 | No public community, no external contributors, no discussions. |
+| **Ecosystem** | 1.5/5 | Minimal. No integrations, no community, no plugins. LiteLLM provides LLM coverage. |
+| **Production Readiness** | 3/5 | Strong foundations (bounds, observability, rate limiting) but low test coverage, no e2e tests, no production deployment evidence. |
+| **Developer Experience** | 2.5/5 | CLI scaffold helps, but steep learning curve. Rust binary requirement persists. |
+| **Community** | 1/5 | No public community, no external contributors. |
 
-**Overall Maturity: 2.7/5 — Early Stage with Strong Foundations**
+**Overall Maturity: 2.8/5 — Early Stage with Strong Foundations (up from 2.7)**
 
 ### 7.2 Maturity Comparison
 
-| Framework | Overall Maturity | Architecture | Ecosystem | DX |
-|-----------|-----------------|--------------|-----------|-----|
-| **LangChain** | 4.0 | 3.0 | 5.0 | 4.5 |
-| **LangGraph** | 3.5 | 4.0 | 4.0 | 3.5 |
-| **CrewAI** | 3.0 | 2.5 | 3.0 | 4.5 |
-| **AutoGen/AG2** | 3.5 | 3.5 | 3.0 | 3.0 |
-| **OpenAI Agents SDK** | 3.0 | 3.5 | 3.5 | 4.5 |
-| **Semantic Kernel** | 4.0 | 4.0 | 4.0 | 3.5 |
-| **Haystack** | 3.5 | 3.5 | 4.0 | 3.5 |
-| **DSPy** | 2.5 | 4.0 | 2.0 | 2.5 |
-| **Jeeves-Core** | 2.7 | 4.5 | 1.5 | 2.0 |
+| Framework | Overall Maturity | Architecture | Ecosystem | DX | Protocol Support |
+|-----------|-----------------|--------------|-----------|-----|-----------------|
+| **LangChain/LangGraph** | 4.0 | 3.5 | 5.0 | 4.5 | 4.0 |
+| **CrewAI** | 3.5 | 2.5 | 4.0 | 4.5 | 3.5 |
+| **MS Agent Framework** | 3.5 | 4.0 | 3.5 | 3.5 | 4.5 |
+| **OpenAI Agents SDK** | 3.5 | 3.5 | 3.5 | 5.0 | 3.5 |
+| **Haystack** | 3.5 | 3.5 | 4.0 | 3.5 | 3.0 |
+| **LlamaIndex** | 3.5 | 3.5 | 4.0 | 3.5 | 3.5 |
+| **DSPy** | 3.0 | 4.0 | 2.5 | 2.5 | 2.5 |
+| **Google ADK** | 3.0 | 3.5 | 3.0 | 4.0 | 4.0 |
+| **Claude Agent SDK** | 2.5 | 3.5 | 2.5 | 3.5 | 4.0 |
+| **Letta** | 2.5 | 3.5 | 2.0 | 3.0 | 2.5 |
+| **PydanticAI** | 2.5 | 3.0 | 2.0 | 4.0 | 3.0 |
+| **Agno** | 2.5 | 3.0 | 2.0 | 4.0 | 3.0 |
+| **Jeeves-Core** | 2.8 | 4.5 | 1.5 | 2.5 | 3.5 |
 
-Jeeves-Core has the strongest architecture of any framework in this comparison, but the weakest ecosystem and developer experience. This is the classic "great engine, no dashboard" problem.
+Jeeves-Core has the strongest architecture of any framework in this comparison. Its protocol support improved significantly with MCP + A2A. The ecosystem and developer experience remain the weakest points.
 
 ---
 
@@ -713,67 +625,68 @@ Jeeves-Core has the strongest architecture of any framework in this comparison, 
 
 ### 8.1 Current Position
 
-Jeeves-Core is in the **"infrastructure-first"** phase. The kernel, IPC, process model, and protocol layer are well-built. But without capabilities, consumers, documentation, or community, it's a framework that nobody can use yet.
+Jeeves-Core is in the **"infrastructure-first"** phase with protocol support catching up. The kernel, IPC, process model, protocol layer, MCP, and A2A are well-built. The critical remaining gap is the string-prompt LLM interface.
 
-### 8.2 Projected Trajectory
+### 8.2 Progress Since Last Audit
 
-**Phase 1 (Current → 6 months): Foundation Completion**
-- First reference capability (e.g., code analysis or assistant)
+| Gap (Previous) | Status | Impact |
+|----------------|--------|--------|
+| No MCP support | **RESOLVED** — client + server (528 lines) | Critical gap closed |
+| No A2A support | **RESOLVED** — client + server (437 lines) | Medium gap closed |
+| No PromptRegistry implementation | **RESOLVED** — concrete implementation added | Medium gap closed |
+| No CLI tooling | **PARTIALLY RESOLVED** — scaffold module (242 lines) | DX improvement |
+| String-prompt LLM interface | **STILL OPEN** | Last critical gap |
+| No documentation | **STILL OPEN** | High impact |
+| No evaluation framework | **STILL OPEN** | Medium-high impact |
+
+### 8.3 Projected Trajectory
+
+**Phase 1 (Now → 3 months): Foundation Completion**
+- Message-based LLM interface (last critical gap)
 - Getting started documentation
-- Message-based LLM interface
+- First reference capability
 - Python coverage to 60%+
-- First external deployment
 
-**Phase 2 (6-12 months): Ecosystem Seeding**
+**Phase 2 (3-9 months): Ecosystem Seeding**
 - 3-5 capabilities
-- Prompt management system
-- Conversation history
+- Conversation history management
 - Evaluation framework
+- AG-UI protocol support
 - Community documentation
 
-**Phase 3 (12-24 months): Differentiation**
+**Phase 3 (9-18 months): Differentiation**
 - Visual pipeline editor
-- DSPy-style optimization integration
-- Multi-modal support
+- Python-only development mode
 - Plugin marketplace
 - Production case studies
 
-### 8.3 Strategic Position
+### 8.4 Strategic Position
 
 Jeeves-Core occupies a unique niche: **production-grade agent infrastructure**. While LangChain wins on ecosystem and CrewAI wins on simplicity, neither provides kernel-level resource isolation, Rust safety guarantees, or formal process management.
 
-The closest analog is not another agentic framework — it's **Kubernetes for AI agents**. Just as K8s provided the infrastructure layer that made microservices practical, Jeeves-Core could provide the infrastructure layer that makes production multi-agent systems practical.
+With MCP and A2A now implemented, Jeeves-Core is no longer protocol-isolated. It can participate in the broader agent ecosystem — consuming MCP tools and federating with A2A-compatible agents.
 
 **Key risks**:
-1. The niche may be too small — most teams use LangChain/CrewAI for simple agent patterns and don't need kernel-level isolation
-2. The Rust binary requirement limits adoption to teams with Rust toolchain capability
-3. Without a reference capability demonstrating value, the architecture remains theoretical
+1. The niche may be too small — most teams use LangChain/CrewAI for simple agent patterns
+2. The Rust binary requirement limits adoption
+3. Without documentation and a reference capability, the architecture remains theoretical
+4. The string-prompt LLM interface is a dealbreaker for modern LLM usage patterns
 
 **Key opportunity**:
-As AI agents move from demos to production (2025-2027), the need for resource isolation, bounds enforcement, and operational safety will grow. Jeeves-Core is positioned ahead of this wave.
-
-### 8.4 Comparison to Historical Analogies
-
-| Analogy | Jeeves-Core Position |
-|---------|---------------------|
-| Flask vs. Django | Jeeves-Core is more like Django (opinionated, batteries-included infrastructure) vs. LangChain's Flask-like composability |
-| Linux kernel vs. Application frameworks | Jeeves-Core is building the kernel layer while others build application layers. Both are needed. |
-| Kubernetes early days | K8s was "too complex" in 2015. By 2020, it was the standard. Jeeves-Core's complexity may become a feature as agent systems mature. |
+As AI agents move from demos to production (2025-2027), the need for resource isolation, bounds enforcement, and operational safety will grow. Jeeves-Core is positioned ahead of this wave, and now with MCP + A2A, it can integrate with the broader ecosystem rather than standing alone.
 
 ---
 
 ## 9. Conclusion
 
-Jeeves-Core represents a fundamentally sound architectural bet on the future of AI agent systems. Its Rust micro-kernel, process isolation model, and defense-in-depth bounds enforcement are unmatched in the OSS agentic framework landscape.
+Jeeves-Core represents a fundamentally sound architectural bet on the future of AI agent systems. Its Rust micro-kernel, process isolation model, and defense-in-depth bounds enforcement remain unmatched in the OSS agentic framework landscape.
 
-However, architecture alone does not make a successful framework. The critical path to relevance is:
+**Significant progress** has been made since the last audit: MCP support, A2A protocol, PromptRegistry implementation, and CLI scaffolding close three previously critical gaps.
 
-1. **Make it usable** (docs, tutorials, reference capability)
-2. **Make it competitive** (message-based LLM interface, RAG support, guardrails)
-3. **Make it adopted** (community, integrations, case studies)
+**One critical gap remains**: the string-prompt LLM interface must be upgraded to message-based chat APIs. Once resolved, the critical path shifts entirely to adoption: documentation, reference capability, and community building.
 
-The framework is building the right thing — but it needs to ship it to users who can validate whether the production-grade guarantees justify the complexity overhead.
+The framework is building the right thing — and increasingly shipping it. The protocol integrations (MCP + A2A) mean Jeeves-Core can now participate in the broader agent ecosystem rather than standing alone.
 
 ---
 
-*Audit conducted against commit on branch `claude/audit-agentic-frameworks-B6fqd`, 2026-03-11.*
+*Audit conducted against commit on branch `claude/audit-agentic-frameworks-B6fqd`, 2026-03-11. Full re-audit with updated codebase inventory and competitor research.*
