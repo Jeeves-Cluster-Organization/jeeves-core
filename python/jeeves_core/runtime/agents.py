@@ -13,7 +13,7 @@ from typing import Any, Callable, Dict, List, Optional, Protocol, AsyncIterator,
 from jeeves_core.protocols.interfaces import LLMProviderProtocol
 
 if TYPE_CHECKING:
-    from jeeves_core.protocols import Envelope, AgentConfig, PipelineConfig
+    from jeeves_core.protocols import AgentConfig, AgentContext, PipelineConfig
 
 from jeeves_core.tools.decorator import _INJECTED_DEPS
 
@@ -106,15 +106,16 @@ class AgentEventContext(Protocol):
 # MESSAGE BUILDERS
 # =============================================================================
 
-def _build_messages(prompt: str, envelope: "Envelope") -> List[Dict[str, Any]]:
-    """Convert prompt + envelope context into OpenAI-format message list.
+def _build_messages(prompt: str, context) -> List[Dict[str, Any]]:
+    """Convert prompt + context into OpenAI-format message list.
 
     System message carries the agent prompt template (rendered).
     User message carries the raw user input.
+    Accepts either Envelope or AgentContext (both have raw_input).
     """
     messages: List[Dict[str, Any]] = [
         {"role": "system", "content": prompt},
-        {"role": "user", "content": envelope.raw_input},
+        {"role": "user", "content": context.raw_input},
     ]
     return messages
 
@@ -124,9 +125,9 @@ def _build_messages(prompt: str, envelope: "Envelope") -> List[Dict[str, Any]]:
 # =============================================================================
 
 LLMProviderFactory = Callable[[str], LLMProviderProtocol]
-PreProcessHook = Callable[["Envelope", Optional["Agent"]], "Envelope"]
-PostProcessHook = Callable[["Envelope", Dict[str, Any], Optional["Agent"]], "Envelope"]
-MockHandler = Callable[["Envelope"], Dict[str, Any]]
+PreProcessHook = Callable[["AgentContext", Optional["Agent"]], "AgentContext"]
+PostProcessHook = Callable[["AgentContext", Dict[str, Any], Optional["Agent"]], "AgentContext"]
+MockHandler = Callable[["AgentContext"], Dict[str, Any]]
 
 
 def _schema_to_tool(agent_name: str, schema: Dict[str, Any]) -> Dict[str, Any]:
@@ -184,18 +185,25 @@ class Agent:
     def set_event_context(self, ctx: AgentEventContext) -> None:
         self.event_context = ctx
 
-    async def process(self, envelope: Envelope) -> Envelope:
-        """Process envelope through this agent."""
+    async def process(self, context: "AgentContext") -> Tuple[Dict[str, Any], Dict[str, Any]]:
+        """Process context through this agent.
+
+        Args:
+            context: AgentContext built from enriched kernel instruction.
+
+        Returns:
+            Tuple of (output_dict, metadata_updates).
+        """
         from contextlib import nullcontext
         from jeeves_core.observability import get_global_otel_adapter
 
-        self.logger.info(f"{self.name}_started", envelope_id=envelope.envelope_id)
+        self.logger.info(f"{self.name}_started", envelope_id=context.envelope_id)
         self._last_llm_usage = None
         self._llm_calls_this_run = 0
 
         otel = get_global_otel_adapter()
         span_ctx = otel.start_span(f"agent.{self.name}", attributes={
-            "envelope_id": envelope.envelope_id,
+            "envelope_id": context.envelope_id,
             "has_llm": self.config.has_llm,
         }) if otel and otel.enabled else nullcontext()
 
@@ -203,30 +211,30 @@ class Agent:
             if self.event_context:
                 await self.event_context.emit_agent_started(self.name)
 
-            # Pre-process hook
+            # Pre-process hook (mutates context.metadata dict in place)
             if self.pre_process:
-                result = self.pre_process(envelope, self)
-                envelope = await result if asyncio.iscoroutine(result) else result
+                result = self.pre_process(context, self)
+                context = await result if asyncio.iscoroutine(result) else result
 
             # Get output
             if self.use_mock and self.mock_handler:
-                output = self.mock_handler(envelope)
+                output = self.mock_handler(context)
             elif self.config.tool_dispatch == "auto":
-                output = await self._dispatch_tool(envelope)
+                output = await self._dispatch_tool(context)
             elif self.config.has_llm and self.llm:
-                output = await self._call_llm(envelope)
+                output = await self._call_llm(context)
             else:
-                output = envelope.outputs.get(self.config.output_key, {})
+                output = context.outputs.get(self.config.output_key, {})
 
             # Tool execution
             if self.config.has_tools and self.tools and output.get("tool_calls"):
-                output = await self._execute_tools(envelope, output)
+                output = await self._execute_tools(context, output)
 
             # Debug log output structure for diagnostics
             output_keys = list(output.keys()) if isinstance(output, dict) else []
             self.logger.debug(
                 f"{self.name}_output_received",
-                envelope_id=envelope.envelope_id,
+                envelope_id=context.envelope_id,
                 output_keys=output_keys,
                 output_type=type(output).__name__,
                 has_response_key="response" in output_keys,
@@ -235,31 +243,27 @@ class Agent:
 
             # Post-process hook
             if self.post_process:
-                result = self.post_process(envelope, output, self)
-                envelope = await result if asyncio.iscoroutine(result) else result
+                result = self.post_process(context, output, self)
+                context = await result if asyncio.iscoroutine(result) else result
 
-            # Store output
-            envelope.outputs[self.config.output_key] = output
-            # Note: agent_hop_count and current_stage are now managed by the kernel orchestrator
-
-            self.logger.info(f"{self.name}_completed", envelope_id=envelope.envelope_id)
+            self.logger.info(f"{self.name}_completed", envelope_id=context.envelope_id)
 
             if self.event_context:
                 await self.event_context.emit_agent_completed(self.name, status="success")
 
-        return envelope
+        return output, dict(context.metadata)
 
-    async def _call_llm(self, envelope) -> Dict[str, Any]:
+    async def _call_llm(self, context) -> Dict[str, Any]:
         """Call LLM with optional structured output via output_schema."""
         if not self.prompt_registry:
             raise ValueError(f"Agent {self.name} requires prompt_registry")
 
-        prompt_key = self.config.prompt_key or f"{envelope.metadata.get('pipeline', 'default')}.{self.name}"
-        context = self._build_prompt_context(envelope)
-        prompt = self.prompt_registry.get(prompt_key, context=context)
+        prompt_key = self.config.prompt_key or f"{context.metadata.get('pipeline', 'default')}.{self.name}"
+        prompt_ctx = self._build_prompt_context(context)
+        prompt = self.prompt_registry.get(prompt_key, context=prompt_ctx)
 
         # Build messages from prompt context
-        messages = _build_messages(prompt, envelope)
+        messages = _build_messages(prompt, context)
 
         # Build options
         options: Dict[str, Any] = {}
@@ -274,34 +278,26 @@ class Agent:
             options["tool_choice"] = {"type": "function", "function": {"name": f"{self.config.name}_output"}}
 
         # Call LLM provider's chat() method
-        result: Dict[str, Any]
-        usage: Optional[Dict[str, int]] = None
         result, usage = await self.llm.chat_with_usage(
             model="",
             messages=messages,
             options=options,
         )
 
-        if isinstance(usage, dict):
-            prompt_tokens = usage.get("prompt_tokens")
-            completion_tokens = usage.get("completion_tokens")
-            if isinstance(prompt_tokens, int) and isinstance(completion_tokens, int):
-                self._last_llm_usage = {
-                    "tokens_in": prompt_tokens,
-                    "tokens_out": completion_tokens,
-                }
+        self._last_llm_usage = {
+            "tokens_in": usage.prompt_tokens,
+            "tokens_out": usage.completion_tokens,
+        }
         self._llm_calls_this_run += 1
 
         # If tool_calls present (structured output via schema or explicit tools)
-        if result.get("tool_calls"):
-            tool_call = result["tool_calls"][0]
-            return tool_call.get("params", tool_call.get("arguments", {}))
+        if result.tool_calls:
+            return result.tool_calls[0].arguments
 
         # No schema -> text mode: wrap raw content
-        content = result.get("content", "")
-        return {"response": content}
+        return {"response": result.content}
 
-    async def _execute_tools(self, envelope, output: Dict[str, Any]) -> Dict[str, Any]:
+    async def _execute_tools(self, context, output: Dict[str, Any]) -> Dict[str, Any]:
         """Execute tool calls from LLM output."""
         tool_calls = output.get("tool_calls", [])
         results = []
@@ -310,7 +306,7 @@ class Agent:
             tool_name = call.get("name")
             params = call.get("params", {})
 
-            _inject_services(params, envelope.metadata)
+            _inject_services(params, context.metadata)
 
             try:
                 result = await self.tools.execute(tool_name, params)
@@ -321,12 +317,12 @@ class Agent:
         output["tool_results"] = results
         return output
 
-    async def _dispatch_tool(self, envelope: Envelope) -> Dict[str, Any]:
+    async def _dispatch_tool(self, context: "AgentContext") -> Dict[str, Any]:
         """Deterministic tool dispatch — framework-handled."""
         source_key = self.config.tool_source_agent or ""
-        source = envelope.outputs.get(source_key, {})
+        source = context.outputs.get(source_key, {})
         if not source:
-            source = envelope.metadata  # fallback: metadata-based selection
+            source = context.metadata  # fallback: metadata-based selection
 
         tool_name = source.get(self.config.tool_name_field)
         params = dict(source.get(self.config.tool_params_field, {}))
@@ -336,7 +332,7 @@ class Agent:
         if not self.tools:
             return {"status": "error", "error": f"No tool executor for {self.name}"}
 
-        _inject_services(params, envelope.metadata)
+        _inject_services(params, context.metadata)
 
         try:
             result = await self.tools.execute(tool_name, params)
@@ -352,28 +348,25 @@ class Agent:
             metrics["tokens_out"] = self._last_llm_usage.get("tokens_out", 0)
         return metrics
 
-    async def stream(self, envelope: Envelope) -> AsyncIterator[Tuple[str, Any]]:
+    async def stream(self, context: "AgentContext") -> AsyncIterator[Tuple[str, Any]]:
         """Streaming execution (token/event emission).
 
-        Behavior depends on config:
-        - token_stream=OFF: No token events
-        - token_stream=DEBUG: Emit debug tokens (debug=True)
-        - token_stream=AUTHORITATIVE: Emit authoritative tokens (debug=False)
-
         Yields:
-            Tuple[str, Any]: (event_type, event_data) pairs
+            Tuple[str, Any]: (event_type, event_data) pairs.
+            Also returns (output, metadata_updates) on the final internal state.
         """
         from jeeves_core.protocols import PipelineEvent
         from jeeves_core.protocols import TokenStreamMode
 
-        self.logger.info(f"{self.name}_stream_started", envelope_id=envelope.envelope_id)
+        self.logger.info(f"{self.name}_stream_started", envelope_id=context.envelope_id)
         self._last_llm_usage = None
         self._llm_calls_this_run = 0
+        self._stream_output: Dict[str, Any] = {}
 
         # Pre-process hook
         if self.pre_process:
-            result = self.pre_process(envelope, self)
-            envelope = await result if asyncio.iscoroutine(result) else result
+            result = self.pre_process(context, self)
+            context = await result if asyncio.iscoroutine(result) else result
 
         # Determine if tokens should be authoritative
         is_authoritative = self.config.token_stream == TokenStreamMode.AUTHORITATIVE
@@ -381,39 +374,39 @@ class Agent:
         # Stream tokens if enabled
         if self.config.token_stream != TokenStreamMode.OFF and self.config.has_llm and self.llm:
             accumulated = ""
-            async for token in self._call_llm_stream(envelope):
+            async for token in self._call_llm_stream(context):
                 accumulated += token
-                # Emit token event
                 event = PipelineEvent(
                     type="token",
                     stage=self.name,
                     data={"token": token},
-                    debug=not is_authoritative  # Debug if not authoritative
+                    debug=not is_authoritative,
                 )
                 yield ("token", event)
 
-            # Finalize after streaming completes
             if is_authoritative:
-                await self.finalize_stream(envelope, accumulated)
+                self._stream_output = {
+                    "response": accumulated,
+                    "citations": self._extract_citations(accumulated),
+                }
             else:
-                # For debug mode, still call regular _call_llm for canonical output
-                output = await self._call_llm(envelope)
-                envelope.outputs[self.config.output_key] = output
+                self._stream_output = await self._call_llm(context)
 
-            # Post-process hook (same as process()) — required for routing
-            # rule evaluation after streaming completes
+            # Post-process hook
             if self.post_process:
-                output = envelope.outputs.get(self.config.output_key, {})
-                result = self.post_process(envelope, output, self)
-                envelope = await result if asyncio.iscoroutine(result) else result
+                result = self.post_process(context, self._stream_output, self)
+                context = await result if asyncio.iscoroutine(result) else result
         else:
-            # No streaming - use regular process (includes post_process)
-            await self.process(envelope)
+            # No streaming - use regular process
+            self._stream_output, _ = await self.process(context)
 
-        # Note: agent_hop_count and current_stage are now managed by the kernel orchestrator
-        self.logger.info(f"{self.name}_stream_completed", envelope_id=envelope.envelope_id)
+        self.logger.info(f"{self.name}_stream_completed", envelope_id=context.envelope_id)
 
-    async def _call_llm_stream(self, envelope: Envelope) -> AsyncIterator[str]:
+    def get_stream_output(self) -> Tuple[Dict[str, Any], Dict[str, Any]]:
+        """Get output from last stream() call. Used by worker after streaming."""
+        return self._stream_output, {}
+
+    async def _call_llm_stream(self, context: "AgentContext") -> AsyncIterator[str]:
         """Stream authoritative tokens (for TEXT mode with AUTHORITATIVE tokens)."""
         if self.config.output_schema is not None:
             raise ValueError(
@@ -424,86 +417,64 @@ class Agent:
         if not self.prompt_registry:
             raise ValueError(f"Agent {self.name} requires prompt_registry")
 
-        # Use streaming prompt key if provided, otherwise append "_streaming"
         prompt_key = self.config.streaming_prompt_key
         if not prompt_key:
-            base_key = self.config.prompt_key or f"{envelope.metadata.get('pipeline', 'default')}.{self.name}"
+            base_key = self.config.prompt_key or f"{context.metadata.get('pipeline', 'default')}.{self.name}"
             prompt_key = f"{base_key}_streaming"
 
-        # Build context (same as _call_llm)
-        context = self._build_prompt_context(envelope)
-        prompt = self.prompt_registry.get(prompt_key, context=context)
+        prompt_ctx = self._build_prompt_context(context)
+        prompt = self.prompt_registry.get(prompt_key, context=prompt_ctx)
+        messages = _build_messages(prompt, context)
 
-        # Build messages
-        messages = _build_messages(prompt, envelope)
-
-        # Build options
         options: Dict[str, Any] = {}
         if self.config.temperature is not None:
             options["temperature"] = self.config.temperature
         if self.config.max_tokens is not None:
             options["num_predict"] = self.config.max_tokens
-
-        # Merge GenerationParams (K8s-style spec)
         if self.config.generation:
             options.update(self.config.generation.to_dict())
 
-        # Stream tokens directly from LLM via chat_stream()
         async for chunk in self.llm.chat_stream(model="", messages=messages, options=options):
             if chunk.text:
                 yield chunk.text
 
         self._llm_calls_this_run += 1
 
-    def _build_prompt_context(self, envelope: Envelope) -> Dict[str, Any]:
+    def _build_prompt_context(self, context: "AgentContext") -> Dict[str, Any]:
         """Build context for prompt template interpolation.
 
         Context is built generically from:
-        1. Base envelope fields (raw_input, user_id, session_id)
+        1. Base context fields (raw_input, user_id, session_id)
         2. All prior agent outputs (flattened — both raw and field-level)
-        3. Envelope metadata (capability-provided overrides and defaults)
-
-        Capabilities control prompt templates and agent outputs, so they
-        align template placeholders with actual output keys. No hardcoded
-        agent names or domain-specific defaults live here.
+        3. Metadata (capability-provided overrides and defaults)
         """
         import os
         repo_path = os.environ.get("REPO_PATH", "/workspace")
 
-        context: Dict[str, Any] = {
-            "raw_input": envelope.raw_input,
-            "user_input": envelope.raw_input,
-            "user_id": envelope.user_id,
-            "session_id": envelope.session_id,
-            "user_query": envelope.raw_input,
+        prompt_ctx: Dict[str, Any] = {
+            "raw_input": context.raw_input,
+            "user_input": context.raw_input,
+            "user_id": context.user_id,
+            "session_id": context.session_id,
+            "user_query": context.raw_input,
             "repo_path": repo_path,
-            "session_state": f"Session: {envelope.session_id}",
+            "session_state": f"Session: {context.session_id}",
             "role_description": f"As the {self.name} agent in this pipeline stage.",
         }
 
         # Generically flatten all prior agent outputs into context.
-        # Each output is available both as its raw key (e.g., context["planner"])
-        # and, if it's a dict, its fields are promoted to top-level
-        # (e.g., context["normalized_query"] from planner output).
-        _base_keys = frozenset(context.keys())
-        for output_key, output_value in envelope.outputs.items():
-            context[output_key] = output_value
+        _base_keys = frozenset(prompt_ctx.keys())
+        for output_key, output_value in context.outputs.items():
+            prompt_ctx[output_key] = output_value
             if isinstance(output_value, dict):
                 for field_key, field_value in output_value.items():
                     if field_key not in _base_keys:
-                        context[field_key] = field_value
+                        prompt_ctx[field_key] = field_value
 
         # Metadata last — capabilities inject defaults and overrides here
-        context.update(envelope.metadata)
+        prompt_ctx.update(context.metadata)
 
-        return context
-
-    async def finalize_stream(self, envelope: Envelope, accumulated_text: str):
-        """Write canonical output after streaming completes."""
-        envelope.outputs[self.config.output_key] = {
-            "response": accumulated_text,
-            "citations": self._extract_citations(accumulated_text),
-        }
+        return prompt_ctx
 
     def _extract_citations(self, text: str) -> List[str]:
         """Extract inline citations from streaming response.
@@ -555,15 +526,7 @@ class PipelineRunner:
 
     def _build_agents(self):
         """Build agents from pipeline config."""
-        seen_output_keys: Dict[str, str] = {}
         for agent_config in self.config.agents:
-            ok = agent_config.output_key
-            if ok in seen_output_keys:
-                raise ValueError(
-                    f"Duplicate output_key '{ok}': agents '{seen_output_keys[ok]}' and "
-                    f"'{agent_config.name}' in pipeline '{self.config.name}'"
-                )
-            seen_output_keys[ok] = agent_config.name
             if agent_config.has_llm and not self.llm_factory:
                 raise ValueError(
                     f"Agent '{agent_config.name}' requires LLM but no llm_factory provided "
@@ -681,33 +644,6 @@ class PipelineRegistry:
 
     def list_pipelines(self) -> list:
         return list(self._runners.keys())
-
-
-def create_envelope(
-    raw_input: str,
-    request_context: "RequestContext",
-    metadata: Optional[Dict[str, Any]] = None,
-) -> "Envelope":
-    """Factory to create Envelope."""
-    import uuid
-    from jeeves_core.utils import utc_now
-    from jeeves_core.protocols import Envelope  # Runtime import to avoid circular dependency
-
-    # Import RequestContext at runtime to avoid circular dependency
-    from jeeves_core.protocols import RequestContext as RC
-    if not isinstance(request_context, RC):
-        raise TypeError("request_context must be a RequestContext instance")
-
-    return Envelope(
-        request_context=request_context,
-        envelope_id=str(uuid.uuid4()),
-        request_id=request_context.request_id,
-        user_id=request_context.user_id or "",
-        session_id=request_context.session_id or "",
-        raw_input=raw_input,
-        received_at=utc_now(),
-        metadata=metadata or {},
-    )
 
 
 # =============================================================================

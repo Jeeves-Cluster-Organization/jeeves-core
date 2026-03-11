@@ -18,23 +18,29 @@ import httpx
 from .base import LLMProvider, TokenChunk
 from jeeves_core.logging import get_current_logger
 from jeeves_core.protocols import LoggerProtocol
+from jeeves_core.protocols.types import LLMResult, LLMToolCall, LLMUsage
 
 
-def _parse_tool_calls_from_dict(message: dict) -> list:
+def _parse_tool_calls_from_dict(message: dict) -> List[LLMToolCall]:
     """Extract tool_calls from an OpenAI-format response message dict."""
     raw = message.get("tool_calls")
     if not raw:
         return []
     calls = []
     for tc in raw:
-        calls.append({
-            "id": tc.get("id", ""),
-            "type": "function",
-            "function": {
-                "name": tc.get("function", {}).get("name", ""),
-                "arguments": tc.get("function", {}).get("arguments", "{}"),
-            },
-        })
+        args_raw = tc.get("function", {}).get("arguments", "{}")
+        if isinstance(args_raw, str):
+            try:
+                args = json.loads(args_raw)
+            except json.JSONDecodeError:
+                args = {}
+        else:
+            args = args_raw or {}
+        calls.append(LLMToolCall(
+            id=tc.get("id", ""),
+            name=tc.get("function", {}).get("name", ""),
+            arguments=args,
+        ))
     return calls
 
 
@@ -74,7 +80,7 @@ class OpenAIHTTPProvider(LLMProvider):
         model: str,
         messages: List[Dict[str, Any]],
         options: Optional[Dict[str, Any]] = None,
-    ) -> Dict[str, Any]:
+    ) -> LLMResult:
         result, _usage = await self.chat_with_usage(model, messages, options)
         return result
 
@@ -83,7 +89,7 @@ class OpenAIHTTPProvider(LLMProvider):
         model: str,
         messages: List[Dict[str, Any]],
         options: Optional[Dict[str, Any]] = None,
-    ) -> tuple[Dict[str, Any], Optional[Dict[str, int]]]:
+    ) -> tuple[LLMResult, LLMUsage]:
         """Chat completion via OpenAI-compatible API."""
         opts = options or {}
         model_to_use = model or self._model
@@ -114,15 +120,9 @@ class OpenAIHTTPProvider(LLMProvider):
                     content = message.get("content") or ""
                     tool_calls = _parse_tool_calls_from_dict(message)
 
-                    usage = data.get("usage", {})
-                    prompt_tokens = usage.get("prompt_tokens")
-                    completion_tokens = usage.get("completion_tokens")
-                    usage_payload: Optional[Dict[str, int]] = None
-                    if isinstance(prompt_tokens, int) and isinstance(completion_tokens, int):
-                        usage_payload = {
-                            "prompt_tokens": prompt_tokens,
-                            "completion_tokens": completion_tokens,
-                        }
+                    raw_usage = data.get("usage", {})
+                    prompt_tokens = raw_usage.get("prompt_tokens", 0) or 0
+                    completion_tokens = raw_usage.get("completion_tokens", 0) or 0
 
                     self._logger.info(
                         "openai_http_chat_complete",
@@ -131,8 +131,13 @@ class OpenAIHTTPProvider(LLMProvider):
                         tool_calls_count=len(tool_calls),
                     )
 
-                    result = {"content": content, "tool_calls": tool_calls}
-                    return result, usage_payload
+                    usage = LLMUsage(
+                        prompt_tokens=int(prompt_tokens),
+                        completion_tokens=int(completion_tokens),
+                        total_tokens=int(prompt_tokens) + int(completion_tokens),
+                    )
+                    result = LLMResult(content=content, tool_calls=tool_calls, usage=usage)
+                    return result, usage
 
                 except httpx.HTTPStatusError as e:
                     if attempt == self._max_retries:

@@ -3,9 +3,14 @@
 These are typing.Protocol classes for static type checking.
 """
 
+from __future__ import annotations
+
 from dataclasses import dataclass, field
 from datetime import datetime
-from typing import Any, Dict, List, Optional, Protocol, runtime_checkable, ClassVar
+from typing import Any, Dict, List, Optional, Protocol, runtime_checkable, ClassVar, TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from jeeves_core.protocols.types import LLMResult, LLMUsage
 
 
 # =============================================================================
@@ -147,15 +152,14 @@ class LLMProviderProtocol(Protocol):
         model: str,
         messages: List[Dict[str, Any]],
         options: Optional[Dict[str, Any]] = None,
-    ) -> Dict[str, Any]: ...
-    """Returns {"content": str, "tool_calls": [...]} """
+    ) -> LLMResult: ...
 
     async def chat_with_usage(
         self,
         model: str,
         messages: List[Dict[str, Any]],
         options: Optional[Dict[str, Any]] = None,
-    ) -> tuple[Dict[str, Any], Optional[Dict[str, int]]]: ...
+    ) -> tuple[LLMResult, LLMUsage]: ...
 
     async def chat_stream(
         self,

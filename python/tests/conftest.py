@@ -52,15 +52,6 @@ except ImportError as e:
     warnings.warn(f"LLM fixtures unavailable: {e}", stacklevel=1)
 
 try:
-    from fixtures.mocks.core_mocks import (
-        MockEnvelope,
-        mock_envelope_factory,
-        mock_envelope,
-    )
-except ImportError as e:
-    warnings.warn(f"Core mock fixtures unavailable: {e}", stacklevel=1)
-
-try:
     from fixtures.mocks.kernel_mocks import (
         mock_transport,
         mock_kernel_client,

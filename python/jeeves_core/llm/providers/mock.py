@@ -9,6 +9,7 @@ import re
 from typing import Any, Dict, List, Optional
 
 from .base import LLMProvider
+from jeeves_core.protocols.types import LLMResult
 
 
 class MockProvider(LLMProvider):
@@ -28,11 +29,8 @@ class MockProvider(LLMProvider):
         model: str,
         messages: List[Dict[str, Any]],
         options: Optional[Dict[str, Any]] = None,
-    ) -> Dict[str, Any]:
-        """Chat mock — returns structured response based on message content.
-
-        Returns {"content": str, "tool_calls": [...]}
-        """
+    ) -> LLMResult:
+        """Chat mock — returns structured response based on message content."""
         self.call_count += 1
         self.call_history.append({
             'method': 'chat',
@@ -49,26 +47,26 @@ class MockProvider(LLMProvider):
 
         # Mock intent classification responses
         if "classify its intent" in prompt_lower or "is_task" in prompt_lower:
-            return {"content": self._mock_intent_classification(prompt, prompt_lower), "tool_calls": []}
+            return LLMResult(content=self._mock_intent_classification(prompt, prompt_lower))
 
         # Mock planner responses
         if self._is_planner_prompt(prompt_lower):
-            return {"content": self._mock_planner_response(prompt, prompt_lower), "tool_calls": []}
+            return LLMResult(content=self._mock_planner_response(prompt, prompt_lower))
 
         # Mock validator responses
         if "generate natural" in prompt_lower or "tools:" in prompt_lower:
-            return {"content": self._mock_validator_response(prompt_lower), "tool_calls": []}
+            return LLMResult(content=self._mock_validator_response(prompt_lower))
 
         # Mock confirmation detection responses (v0.14 Phase 4)
         if self._is_confirmation_detection_prompt(prompt_lower):
-            return {"content": self._mock_confirmation_detection(prompt, prompt_lower), "tool_calls": []}
+            return LLMResult(content=self._mock_confirmation_detection(prompt, prompt_lower))
 
         # Mock confirmation interpretation responses (v0.14 Phase 4)
         if "interpret" in prompt_lower and ("confirmation" in prompt_lower or "user response" in prompt_lower):
-            return {"content": self._mock_confirmation_interpretation(prompt, prompt_lower), "tool_calls": []}
+            return LLMResult(content=self._mock_confirmation_interpretation(prompt, prompt_lower))
 
         # Default response
-        return {"content": "Mock response", "tool_calls": []}
+        return LLMResult(content="Mock response")
 
     async def health_check(self) -> bool:
         """Mock provider is always healthy."""

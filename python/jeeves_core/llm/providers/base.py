@@ -8,6 +8,8 @@ from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from typing import Any, AsyncIterator, Dict, List, Optional
 
+from jeeves_core.protocols.types import LLMResult, LLMToolCall, LLMUsage
+
 
 @dataclass
 class TokenChunk:
@@ -42,7 +44,7 @@ class LLMProvider(ABC):
         model: str,
         messages: List[Dict[str, Any]],
         options: Optional[Dict[str, Any]] = None,
-    ) -> Dict[str, Any]:
+    ) -> LLMResult:
         """Chat completion with messages and optional tools.
 
         Args:
@@ -51,7 +53,7 @@ class LLMProvider(ABC):
             options: Provider-specific options (temperature, max_tokens, tools, tool_choice, etc.)
 
         Returns:
-            {"content": str, "tool_calls": [{"id": str, "function": {"name": str, "arguments": str}}]}
+            LLMResult with content, tool_calls, and usage.
 
         Raises:
             Exception: If generation fails
@@ -68,25 +70,12 @@ class LLMProvider(ABC):
 
         Default implementation falls back to non-streaming chat().
         Providers should override this for true streaming support.
-
-        Args:
-            model: Model identifier
-            messages: OpenAI-format message list
-            options: Provider-specific options
-
-        Yields:
-            TokenChunk objects containing incremental text
-
-        Raises:
-            Exception: If generation fails
         """
-        # Default fallback: call chat() and yield entire result
         result = await self.chat(model, messages, options)
-        content = result.get("content", "")
         yield TokenChunk(
-            text=content,
+            text=result.content,
             is_final=True,
-            token_count=len(content) // 4,  # Rough estimate
+            token_count=len(result.content) // 4,
         )
 
     async def chat_with_usage(
@@ -94,15 +83,14 @@ class LLMProvider(ABC):
         model: str,
         messages: List[Dict[str, Any]],
         options: Optional[Dict[str, Any]] = None,
-    ) -> tuple[Dict[str, Any], Optional[Dict[str, int]]]:
-        """Chat completion with optional token usage metadata.
+    ) -> tuple[LLMResult, LLMUsage]:
+        """Chat completion with token usage metadata.
 
         Returns:
-            Tuple of (response_dict, usage). `usage` should contain `prompt_tokens` and
-            `completion_tokens` when the provider can report them.
+            Tuple of (LLMResult, LLMUsage).
         """
         result = await self.chat(model, messages, options)
-        return result, None
+        return result, result.usage
 
     @abstractmethod
     async def health_check(self) -> bool:

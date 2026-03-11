@@ -87,8 +87,8 @@ class TestOpenAIHTTPProvider:
         with patch("httpx.AsyncClient.post", new_callable=AsyncMock, return_value=mock_response):
             result = await provider.chat("test-model", [{"role": "user", "content": "Say hello"}])
 
-        assert result["content"] == "Hello world"
-        assert result["tool_calls"] == []
+        assert result.content == "Hello world"
+        assert result.tool_calls == []
 
     async def test_chat_retry_on_transient_error(self):
         """First call raises HTTPStatusError (500), second call succeeds."""
@@ -108,7 +108,7 @@ class TestOpenAIHTTPProvider:
         with patch("httpx.AsyncClient.post", mock_post):
             result = await provider.chat("test-model", [{"role": "user", "content": "Say hello"}])
 
-        assert result["content"] == "Hello world"
+        assert result.content == "Hello world"
         assert mock_post.call_count == 2
 
     async def test_chat_raises_after_max_retries(self):
@@ -267,8 +267,8 @@ class TestLiteLLMProvider:
             provider = self._make_provider()
             result = await provider.chat("openai/test-model", [{"role": "user", "content": "Say hello"}])
 
-        assert result["content"] == "Hello world"
-        assert result["tool_calls"] == []
+        assert result.content == "Hello world"
+        assert result.tool_calls == []
 
     async def test_chat_extracts_content(self):
         """Verify correct extraction from response.choices[0].message.content."""
@@ -283,7 +283,7 @@ class TestLiteLLMProvider:
             provider = self._make_provider()
             result = await provider.chat("openai/test-model", [{"role": "user", "content": "Tell me a sentence"}])
 
-        assert result["content"] == custom_text
+        assert result.content == custom_text
 
     # ------------------------------------------------------------------
     # health_check
