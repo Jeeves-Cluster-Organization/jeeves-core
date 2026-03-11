@@ -15,14 +15,12 @@ from jeeves_core.protocols.types import (
     RiskSemantic,
     RiskSeverity,
     ToolCategory,
-    ToolAccess,
     HealthStatus,
     LoopVerdict,
     RiskApproval,
     OperationStatus,
     RunMode,
     JoinStrategy,
-    AgentOutputMode,
     TokenStreamMode,
     # Dataclass types with methods
     OperationResult,
@@ -43,6 +41,7 @@ from jeeves_core.protocols.types import (
     ExecutionConfig,
     OrchestrationFlags,
     Envelope,
+    AgentContext,
     # Protocols
     InterruptServiceProtocol,
 )
@@ -69,7 +68,6 @@ from jeeves_core.protocols.interfaces import (
     ToolExecutorProtocol,
     ConfigRegistryProtocol,
     AgentLLMConfig,
-    AgentToolAccessProtocol,
     WebSocketManagerProtocol,
     EventBridgeProtocol,
 )
@@ -112,14 +110,12 @@ __all__ = [
     "RiskSemantic",
     "RiskSeverity",
     "ToolCategory",
-    "ToolAccess",
     "HealthStatus",
     "LoopVerdict",
     "RiskApproval",
     "OperationStatus",
     "RunMode",
     "JoinStrategy",
-    "AgentOutputMode",
     "TokenStreamMode",
     # Dataclass types
     "OperationResult",
@@ -140,6 +136,7 @@ __all__ = [
     "ExecutionConfig",
     "OrchestrationFlags",
     "Envelope",
+    "AgentContext",
     # Protocol interfaces
     "RequestContext",
     "LoggerProtocol",
@@ -158,7 +155,6 @@ __all__ = [
     "ToolExecutorProtocol",
     "ConfigRegistryProtocol",
     "AgentLLMConfig",
-    "AgentToolAccessProtocol",
     "WebSocketManagerProtocol",
     "EventBridgeProtocol",
     "InterruptServiceProtocol",

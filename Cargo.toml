@@ -42,6 +42,9 @@ humantime-serde = "1.1"
 # UUIDs
 uuid = { version = "1.11", features = ["v4", "serde"] }
 
+# JSON Schema validation (output_schema enforcement)
+jsonschema = "0.28"
+
 
 [dev-dependencies]
 # Testing

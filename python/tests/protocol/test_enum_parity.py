@@ -22,7 +22,6 @@ ENUM_SOURCES = [
     ("src/envelope/enums.rs", "HealthStatus", "HealthStatus", "snake_case"),
     ("src/envelope/enums.rs", "LoopVerdict", "LoopVerdict", "snake_case"),
     ("src/envelope/enums.rs", "RiskApproval", "RiskApproval", "snake_case"),
-    ("src/envelope/enums.rs", "ToolAccess", "ToolAccess", "snake_case"),
     ("src/envelope/enums.rs", "OperationStatus", "OperationStatus", "snake_case"),
     ("src/kernel/interrupts.rs", "InterruptStatus", "InterruptStatus", "lowercase"),
 ]

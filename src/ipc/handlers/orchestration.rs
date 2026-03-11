@@ -117,8 +117,12 @@ pub async fn handle(kernel: &mut Kernel, method: &str, body: Value) -> Result<Di
                 AgentExecutionMetrics::default()
             };
 
+            let metadata_updates: Option<HashMap<String, serde_json::Value>> = body
+                .get("metadata_updates")
+                .and_then(|v| serde_json::from_value(v.clone()).ok());
+
             let instruction = kernel.process_agent_result(
-                &process_id, &agent_name, output, metrics, success, &error_message,
+                &process_id, &agent_name, output, metadata_updates, metrics, success, &error_message,
             )?;
             let envelope = kernel.get_process_envelope(&process_id);
             Ok(DispatchResponse::Single(instruction_to_value(&instruction, envelope)))
@@ -151,13 +155,13 @@ pub async fn handle(kernel: &mut Kernel, method: &str, body: Value) -> Result<Di
 struct InstructionResponse<'a> {
     kind: InstructionKind,
     agents: &'a [String],
-    #[serde(skip_serializing_if = "Option::is_none")]
-    envelope: Option<Value>,
     terminal_reason: &'a str,
     termination_message: &'a str,
     interrupt_pending: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
     interrupt: Option<Value>,
+    #[serde(default)]
+    agent_config: Value,
 }
 
 /// DTO for SessionState → JSON, matching `kernel_client.py._dict_to_session_state`.
@@ -174,11 +178,11 @@ struct SessionStateResponse<'a> {
 
 /// Convert Instruction to the dict shape expected by `kernel_client.py._dict_to_instruction`.
 ///
-/// The envelope is passed separately because it is no longer part of the Instruction struct.
-/// The kernel fetches the envelope from its process_envelopes store and passes it here.
+/// The instruction is self-contained: agent_context, output_schema, and allowed_tools
+/// are populated by the kernel's get_next_instruction enrichment phase.
 pub fn instruction_to_value(
     instr: &crate::kernel::orchestrator::Instruction,
-    envelope: Option<&crate::envelope::Envelope>,
+    _envelope: Option<&crate::envelope::Envelope>,
 ) -> Value {
     let terminal_reason_str = instr
         .terminal_reason
@@ -187,14 +191,26 @@ pub fn instruction_to_value(
         .and_then(|v| v.as_str().map(|s| s.to_string()))
         .unwrap_or_default();
 
+    // Build agent_config bundle from enriched instruction fields
+    let mut agent_config = serde_json::Map::new();
+    if let Some(ref ctx) = instr.agent_context {
+        agent_config.insert("context".to_string(), ctx.clone());
+    }
+    if let Some(ref schema) = instr.output_schema {
+        agent_config.insert("output_schema".to_string(), schema.clone());
+    }
+    if let Some(ref tools) = instr.allowed_tools {
+        agent_config.insert("allowed_tools".to_string(), serde_json::json!(tools));
+    }
+
     let dto = InstructionResponse {
         kind: instr.kind.clone(),
         agents: &instr.agents,
-        envelope: envelope.and_then(|e| serde_json::to_value(e).ok()),
         terminal_reason: &terminal_reason_str,
         termination_message: instr.termination_message.as_deref().unwrap_or(""),
         interrupt_pending: instr.interrupt_pending,
         interrupt: instr.interrupt.as_ref().and_then(|i| serde_json::to_value(i).ok()),
+        agent_config: serde_json::Value::Object(agent_config),
     };
 
     serde_json::to_value(dto).unwrap_or_default()

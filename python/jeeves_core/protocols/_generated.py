@@ -79,13 +79,6 @@ class RiskApproval(str, Enum):
     DENIED = "denied"
     PENDING = "pending"
 
-# Tool access level.
-class ToolAccess(str, Enum):
-    NONE = "none"
-    READ = "read"
-    WRITE = "write"
-    ALL = "all"
-
 # Operation result status.
 class OperationStatus(str, Enum):
     SUCCESS = "success"
@@ -113,7 +106,6 @@ __all__ = [
     "HealthStatus",
     "LoopVerdict",
     "RiskApproval",
-    "ToolAccess",
     "OperationStatus",
     "InterruptStatus",
 ]

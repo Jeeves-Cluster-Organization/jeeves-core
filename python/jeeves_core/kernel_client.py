@@ -622,6 +622,7 @@ class KernelClient:
         process_id: str,
         agent_name: str,
         output: Optional[Dict[str, Any]] = None,
+        metadata_updates: Optional[Dict[str, Any]] = None,
         metrics: Optional[AgentExecutionMetrics] = None,
         success: bool = True,
         error: str = "",
@@ -634,6 +635,8 @@ class KernelClient:
             "success": success,
             "error": error,
         }
+        if metadata_updates:
+            body["metadata_updates"] = metadata_updates
         if metrics:
             metrics_body: Dict[str, Any] = {
                 "llm_calls": metrics.llm_calls,

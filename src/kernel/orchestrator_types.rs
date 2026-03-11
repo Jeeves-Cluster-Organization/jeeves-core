@@ -47,6 +47,12 @@ pub struct Instruction {
     pub interrupt_pending: bool,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub interrupt: Option<FlowInterrupt>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub agent_context: Option<serde_json::Value>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub output_schema: Option<serde_json::Value>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub allowed_tools: Option<Vec<String>>,
 }
 
 /// AgentExecutionMetrics contains metrics from agent execution.
@@ -229,6 +235,10 @@ pub struct PipelineStage {
     pub parallel_group: Option<String>,
     #[serde(default)]
     pub join_strategy: JoinStrategy,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub output_schema: Option<serde_json::Value>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub allowed_tools: Option<Vec<String>>,
 }
 
 /// Join strategy for parallel execution groups.

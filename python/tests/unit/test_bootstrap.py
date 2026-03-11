@@ -500,7 +500,6 @@ class TestCreateToolExecutorWithAccess:
         mock_registry = MagicMock()
         mock_app_context = MagicMock()
         mock_app_context.get_bound_logger = MagicMock(return_value=MagicMock())
-        mock_access_checker = MagicMock()
 
         mock_tool_executor = MagicMock()
 
@@ -508,30 +507,9 @@ class TestCreateToolExecutorWithAccess:
             result = create_tool_executor_with_access(
                 tool_registry=mock_registry,
                 app_context=mock_app_context,
-                access_checker=mock_access_checker,
             )
 
         assert result is mock_tool_executor
         mock_cls.assert_called_once()
         call_kwargs = mock_cls.call_args[1]
         assert call_kwargs["registry"] is mock_registry
-        assert call_kwargs["access_checker"] is mock_access_checker
-
-    def test_creates_tool_executor_without_access_checker(self):
-        from jeeves_core.bootstrap import create_tool_executor_with_access
-
-        mock_registry = MagicMock()
-        mock_app_context = MagicMock()
-        mock_app_context.get_bound_logger = MagicMock(return_value=MagicMock())
-
-        mock_tool_executor = MagicMock()
-
-        with patch("jeeves_core.wiring.ToolExecutor", return_value=mock_tool_executor) as mock_cls:
-            result = create_tool_executor_with_access(
-                tool_registry=mock_registry,
-                app_context=mock_app_context,
-            )
-
-        assert result is mock_tool_executor
-        call_kwargs = mock_cls.call_args[1]
-        assert call_kwargs["access_checker"] is None

@@ -38,8 +38,6 @@ from jeeves_core.config.registry import ConfigRegistry
 # KernelClient for Rust kernel integration
 from jeeves_core.kernel_client import KernelClient, DEFAULT_KERNEL_ADDRESS
 
-if TYPE_CHECKING:
-    from jeeves_core.protocols import AgentToolAccessProtocol
 
 
 # =============================================================================
@@ -305,24 +303,23 @@ def create_app_context(
 def create_tool_executor_with_access(
     tool_registry,
     app_context: AppContext,
-    access_checker: Optional["AgentToolAccessProtocol"] = None,
 ):
-    """Create ToolExecutor with access control.
+    """Create ToolExecutor.
+
+    Tool access is now enforced by the Rust kernel (ToolAccessPolicy).
 
     Args:
         tool_registry: ToolRegistryProtocol implementation
         app_context: AppContext for logger
-        access_checker: Optional AgentToolAccessProtocol for access control
 
     Returns:
-        ToolExecutor configured with access control
+        ToolExecutor
     """
     from jeeves_core.wiring import ToolExecutor
 
     return ToolExecutor(
         registry=tool_registry,
         logger=app_context.get_bound_logger("tool_executor"),
-        access_checker=access_checker,
     )
 
 

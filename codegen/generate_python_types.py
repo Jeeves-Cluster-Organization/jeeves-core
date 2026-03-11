@@ -31,7 +31,6 @@ RUST_SOURCES = [
         "HealthStatus",
         "LoopVerdict",
         "RiskApproval",
-        "ToolAccess",
         "OperationStatus",
     ]),
     ("src/kernel/interrupts.rs", [

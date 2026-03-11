@@ -148,6 +148,9 @@ impl Orchestrator {
                 termination_message: Some("Session already terminated".to_string()),
                 interrupt_pending: false,
                 interrupt: None,
+                agent_context: None,
+                output_schema: None,
+                allowed_tools: None,
             });
         }
 
@@ -160,6 +163,9 @@ impl Orchestrator {
                 termination_message: None,
                 interrupt_pending: true,
                 interrupt: envelope.interrupts.interrupt.clone(),
+                agent_context: None,
+                output_schema: None,
+                allowed_tools: None,
             });
         }
 
@@ -175,6 +181,9 @@ impl Orchestrator {
                 termination_message: Some(format!("Bounds exceeded: {:?}", reason)),
                 interrupt_pending: false,
                 interrupt: None,
+                agent_context: None,
+                output_schema: None,
+                allowed_tools: None,
             });
         }
 
@@ -189,6 +198,9 @@ impl Orchestrator {
                     termination_message: None,
                     interrupt_pending: false,
                     interrupt: None,
+                    agent_context: None,
+                    output_schema: None,
+                    allowed_tools: None,
                 });
             }
 
@@ -203,6 +215,9 @@ impl Orchestrator {
                     termination_message: None,
                     interrupt_pending: false,
                     interrupt: None,
+                    agent_context: None,
+                    output_schema: None,
+                    allowed_tools: None,
                 });
             }
 
@@ -214,6 +229,9 @@ impl Orchestrator {
                 termination_message: None,
                 interrupt_pending: false,
                 interrupt: None,
+                agent_context: None,
+                output_schema: None,
+                allowed_tools: None,
             });
         }
 
@@ -232,6 +250,9 @@ impl Orchestrator {
             termination_message: None,
             interrupt_pending: false,
             interrupt: None,
+            agent_context: None,
+            output_schema: None,
+            allowed_tools: None,
         })
     }
 
@@ -529,6 +550,27 @@ impl Orchestrator {
         self.pipelines.remove(process_id).is_some()
     }
 
+    /// Get the output_schema for a specific stage in a process's pipeline.
+    /// Returns a cloned Value so the caller can use it without holding a borrow.
+    pub fn get_stage_output_schema(&self, process_id: &ProcessId, stage_name: &str) -> Option<serde_json::Value> {
+        self.pipelines.get(process_id)
+            .and_then(|session| {
+                session.pipeline_config.stages.iter()
+                    .find(|s| s.name == stage_name)
+                    .and_then(|s| s.output_schema.clone())
+            })
+    }
+
+    /// Get the allowed_tools for a specific stage in a process's pipeline.
+    pub fn get_stage_allowed_tools(&self, process_id: &ProcessId, stage_name: &str) -> Option<Vec<String>> {
+        self.pipelines.get(process_id)
+            .and_then(|session| {
+                session.pipeline_config.stages.iter()
+                    .find(|s| s.name == stage_name)
+                    .and_then(|s| s.allowed_tools.clone())
+            })
+    }
+
     /// Get pipeline session count.
     pub fn get_session_count(&self) -> usize {
         self.pipelines.len()
@@ -648,6 +690,8 @@ mod tests {
             max_visits: None,
             parallel_group: None,
             join_strategy: JoinStrategy::default(),
+            output_schema: None,
+            allowed_tools: None,
         }
     }
 
@@ -1528,6 +1572,8 @@ mod tests {
             max_visits: None,
             parallel_group: Some(group.to_string()),
             join_strategy: JoinStrategy::WaitAll,
+            output_schema: None,
+            allowed_tools: None,
         }
     }
 
@@ -1685,6 +1731,9 @@ mod tests {
             termination_message: None,
             interrupt_pending: false,
             interrupt: None,
+            agent_context: None,
+            output_schema: None,
+            allowed_tools: None,
         };
         let json = serde_json::to_string(&instruction).unwrap();
         let parsed: serde_json::Value = serde_json::from_str(&json).unwrap();

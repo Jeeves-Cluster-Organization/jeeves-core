@@ -129,6 +129,18 @@ PostProcessHook = Callable[["Envelope", Dict[str, Any], Optional["Agent"]], "Env
 MockHandler = Callable[["Envelope"], Dict[str, Any]]
 
 
+def _schema_to_tool(agent_name: str, schema: Dict[str, Any]) -> Dict[str, Any]:
+    """Convert an output_schema to an OpenAI-compatible tool definition."""
+    return {
+        "type": "function",
+        "function": {
+            "name": f"{agent_name}_output",
+            "description": f"Structured output for {agent_name}",
+            "parameters": schema,
+        },
+    }
+
+
 # =============================================================================
 # AGENT CAPABILITY FLAGS
 # =============================================================================
@@ -221,18 +233,6 @@ class Agent:
                 has_final_response_key="final_response" in output_keys,
             )
 
-            # Validate required output fields
-            if self.config.required_output_fields and isinstance(output, dict):
-                missing_fields = [f for f in self.config.required_output_fields if f not in output]
-                if missing_fields:
-                    self.logger.warning(
-                        f"{self.name}_missing_required_fields",
-                        envelope_id=envelope.envelope_id,
-                        missing_fields=missing_fields,
-                        required_fields=self.config.required_output_fields,
-                        actual_fields=output_keys,
-                    )
-
             # Post-process hook
             if self.post_process:
                 result = self.post_process(envelope, output, self)
@@ -249,8 +249,8 @@ class Agent:
 
         return envelope
 
-    async def _call_llm(self, envelope: Envelope) -> Dict[str, Any]:
-        """Call LLM via chat() with messages and optional tool schemas."""
+    async def _call_llm(self, envelope) -> Dict[str, Any]:
+        """Call LLM with optional structured output via output_schema."""
         if not self.prompt_registry:
             raise ValueError(f"Agent {self.name} requires prompt_registry")
 
@@ -267,6 +267,11 @@ class Agent:
             options["temperature"] = self.config.temperature
         if self.config.max_tokens is not None:
             options["num_predict"] = self.config.max_tokens
+
+        # If output_schema is set, use tool_choice to enforce structured output
+        if self.config.output_schema:
+            options["tools"] = [_schema_to_tool(self.config.name, self.config.output_schema)]
+            options["tool_choice"] = {"type": "function", "function": {"name": f"{self.config.name}_output"}}
 
         # Call LLM provider's chat() method
         result: Dict[str, Any]
@@ -287,40 +292,23 @@ class Agent:
                 }
         self._llm_calls_this_run += 1
 
-        # If LLM returned tool_calls, they're already structured — pass through
+        # If tool_calls present (structured output via schema or explicit tools)
         if result.get("tool_calls"):
-            return result
+            tool_call = result["tool_calls"][0]
+            return tool_call.get("params", tool_call.get("arguments", {}))
 
-        # Parse content as JSON for structured agent output
+        # No schema -> text mode: wrap raw content
         content = result.get("content", "")
-        from jeeves_core.utils import JSONRepairKit
-
-        parsed = JSONRepairKit.parse_lenient(content)
-        if parsed is not None:
-            return parsed
-        self.logger.warning("agent_json_parse_failed", agent=self.config.name, envelope_id=envelope.envelope_id, response_preview=content[:200])
         return {"response": content}
 
-    async def _execute_tools(self, envelope: Envelope, output: Dict[str, Any]) -> Dict[str, Any]:
+    async def _execute_tools(self, envelope, output: Dict[str, Any]) -> Dict[str, Any]:
         """Execute tool calls from LLM output."""
         tool_calls = output.get("tool_calls", [])
         results = []
-        denied_tools = []
 
         for call in tool_calls:
             tool_name = call.get("name")
             params = call.get("params", {})
-
-            if not self._can_access_tool(tool_name):
-                self.logger.warning(
-                    "tool_access_denied",
-                    agent=self.name,
-                    tool=tool_name,
-                    envelope_id=envelope.envelope_id,
-                )
-                denied_tools.append(tool_name)
-                results.append({"tool": tool_name, "error": f"Access denied for {self.name}"})
-                continue
 
             _inject_services(params, envelope.metadata)
 
@@ -331,12 +319,6 @@ class Agent:
                 results.append({"tool": tool_name, "error": str(e)})
 
         output["tool_results"] = results
-
-        if denied_tools:
-            raise PermissionError(
-                f"Agent '{self.name}' denied access to tools: {denied_tools}"
-            )
-
         return output
 
     async def _dispatch_tool(self, envelope: Envelope) -> Dict[str, Any]:
@@ -361,17 +343,6 @@ class Agent:
             return {"status": "success", "tool": tool_name, "result": result}
         except Exception as e:
             return {"status": "error", "tool": tool_name, "error": str(e)}
-
-    def _can_access_tool(self, tool_name: str) -> bool:
-        """Check tool access based on config."""
-        access = self.config.tool_access
-        if access == "all":
-            return True
-        if access == "none":
-            return False
-        if self.config.allowed_tools:
-            return tool_name in self.config.allowed_tools
-        return True
 
     def get_run_metrics(self) -> Dict[str, Any]:
         """Return metrics from the most recent process()/stream() call."""
@@ -444,10 +415,11 @@ class Agent:
 
     async def _call_llm_stream(self, envelope: Envelope) -> AsyncIterator[str]:
         """Stream authoritative tokens (for TEXT mode with AUTHORITATIVE tokens)."""
-        from jeeves_core.protocols import AgentOutputMode
-
-        if self.config.output_mode != AgentOutputMode.TEXT:
-            raise ValueError("_call_llm_stream() requires output_mode=TEXT")
+        if self.config.output_schema is not None:
+            raise ValueError(
+                "_call_llm_stream() cannot stream structured output. "
+                "Set output_schema=None for streaming agents."
+            )
 
         if not self.prompt_registry:
             raise ValueError(f"Agent {self.name} requires prompt_registry")
