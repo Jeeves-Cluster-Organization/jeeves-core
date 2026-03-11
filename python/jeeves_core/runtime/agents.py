@@ -306,6 +306,10 @@ class Agent:
             tool_name = call.get("name")
             params = call.get("params", {})
 
+            if self.config.allowed_tools is not None and tool_name not in self.config.allowed_tools:
+                results.append({"tool": tool_name, "error": f"Agent '{self.name}' not allowed to call '{tool_name}'"})
+                continue
+
             _inject_services(params, context.metadata)
 
             try:
@@ -331,6 +335,10 @@ class Agent:
             return {"status": "skipped", "message": "No tool selected"}
         if not self.tools:
             return {"status": "error", "error": f"No tool executor for {self.name}"}
+
+        if self.config.allowed_tools is not None and tool_name not in self.config.allowed_tools:
+            return {"status": "error", "tool": tool_name,
+                    "error": f"Agent '{self.name}' not allowed to call '{tool_name}'"}
 
         _inject_services(params, context.metadata)
 

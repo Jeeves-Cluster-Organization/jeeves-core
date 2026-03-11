@@ -8,7 +8,7 @@ Enums matching Rust definitions are auto-generated in _generated.py
 Python-only enums (no Rust equivalent) are defined here.
 """
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from datetime import datetime, timezone
 from enum import Enum
 from typing import Any, Callable, Dict, List, Optional, Set, TYPE_CHECKING
@@ -346,6 +346,32 @@ class GenerationParams:
         }.items() if v is not None}
 
 
+@dataclass(frozen=True)
+class RetrievedContext:
+    """Standardized shape for retrieved content."""
+    content: str
+    source: str = ""
+    score: float = 0.0
+    metadata: Dict[str, Any] = field(default_factory=dict)
+
+
+@dataclass(frozen=True)
+class ClassificationResult:
+    """Result from an embedding-based classifier."""
+    label: str
+    score: float
+    all_scores: Dict[str, float] = field(default_factory=dict)
+
+
+@dataclass
+class RetrievalConfig:
+    """Retrieval hints for an agent stage. Python-only, not serialized to kernel."""
+    retriever_key: str = ""
+    limit: int = 10
+    inject_as: str = "retrieved_context"
+    filters: Dict[str, Any] = field(default_factory=dict)
+
+
 @dataclass
 class AgentConfig:
     """Declarative agent configuration."""
@@ -374,6 +400,8 @@ class AgentConfig:
     pre_process: Optional[Callable] = None
     post_process: Optional[Callable] = None
     mock_handler: Optional[Callable] = None
+    # Retrieval hints (Python-only, not serialized to kernel)
+    retrieval: Optional[RetrievalConfig] = None
     # Tool dispatch mode (deterministic, no LLM) — Python-only, not serialized to kernel
     tool_dispatch: Optional[str] = None        # "auto" = framework handles dispatch
     tool_source_agent: Optional[str] = None    # output_key of agent with tool selection
@@ -439,6 +467,7 @@ def stage(
     token_stream: TokenStreamMode = TokenStreamMode.OFF,
     streaming_prompt_key: str | None = None,
     allowed_tools: Set[str] | None = None,
+    retrieval: RetrievalConfig | None = None,
 ) -> AgentConfig:
     """Shorthand for AgentConfig with inference.
 
@@ -478,6 +507,7 @@ def stage(
         tool_name_field=tool_name_field,
         tool_params_field=tool_params_field,
         allowed_tools=allowed_tools,
+        retrieval=retrieval,
     )
 
 
@@ -563,40 +593,13 @@ class PipelineConfig:
             is_last = (i == len(agents) - 1)
             next_name = None if is_last else agents[i + 1].name
 
-            # Build new agent with auto-wired fields
-            wired.append(AgentConfig(
-                name=agent.name,
+            wired.append(replace(agent,
                 stage_order=i,
-                requires=agent.requires,
-                join_strategy=agent.join_strategy,
-                has_llm=agent.has_llm,
-                has_tools=agent.has_tools,
-                has_policies=agent.has_policies,
-                allowed_tools=agent.allowed_tools,
-                output_schema=agent.output_schema,
-                model_role=agent.model_role,
-                prompt_key=agent.prompt_key,
-                temperature=agent.temperature,
-                max_tokens=agent.max_tokens,
-                generation=agent.generation,
-                output_key=agent.output_key,
-                token_stream=agent.token_stream,
-                streaming_prompt_key=agent.streaming_prompt_key,
-                routing_rules=agent.routing_rules,
                 default_next=agent.default_next if agent.default_next is not None else next_name,
                 error_next=(
                     agent.error_next if agent.error_next is not None
                     else (error_next if not is_last else None)
                 ),
-                parallel_group=agent.parallel_group,
-                max_visits=agent.max_visits,
-                pre_process=agent.pre_process,
-                post_process=agent.post_process,
-                mock_handler=agent.mock_handler,
-                tool_dispatch=agent.tool_dispatch,
-                tool_source_agent=agent.tool_source_agent,
-                tool_name_field=agent.tool_name_field,
-                tool_params_field=agent.tool_params_field,
             ))
 
         return cls(
@@ -657,39 +660,14 @@ class PipelineConfig:
 
         wired = []
         for i, (stage_name, agent_config) in enumerate(stages.items()):
-            wired.append(AgentConfig(
-                name=agent_config.name,
+            wired.append(replace(agent_config,
                 stage_order=i,
-                requires=agent_config.requires,
-                join_strategy=agent_config.join_strategy,
-                has_llm=agent_config.has_llm,
-                has_tools=agent_config.has_tools,
-                has_policies=agent_config.has_policies,
-                allowed_tools=agent_config.allowed_tools,
-                output_schema=agent_config.output_schema,
-                model_role=agent_config.model_role,
-                prompt_key=agent_config.prompt_key,
-                temperature=agent_config.temperature,
-                max_tokens=agent_config.max_tokens,
-                generation=agent_config.generation,
-                output_key=agent_config.output_key,
-                token_stream=agent_config.token_stream,
-                streaming_prompt_key=agent_config.streaming_prompt_key,
                 routing_rules=conditional[stage_name],
                 default_next=unconditional[stage_name],
                 error_next=(
                     agent_config.error_next if agent_config.error_next is not None
                     else error_next
                 ),
-                parallel_group=agent_config.parallel_group,
-                max_visits=agent_config.max_visits,
-                pre_process=agent_config.pre_process,
-                post_process=agent_config.post_process,
-                mock_handler=agent_config.mock_handler,
-                tool_dispatch=agent_config.tool_dispatch,
-                tool_source_agent=agent_config.tool_source_agent,
-                tool_name_field=agent_config.tool_name_field,
-                tool_params_field=agent_config.tool_params_field,
             ))
 
         return cls(
@@ -945,4 +923,8 @@ __all__ = [
     "InstructionConfig",
     # Agent context
     "AgentContext",
+    # Retrieval types
+    "RetrievedContext",
+    "ClassificationResult",
+    "RetrievalConfig",
 ]

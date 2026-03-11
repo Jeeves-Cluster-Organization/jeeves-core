@@ -49,6 +49,10 @@ from jeeves_core.protocols.types import (
     AgentContext,
     # Protocols
     InterruptServiceProtocol,
+    # Retrieval types
+    RetrievedContext,
+    ClassificationResult,
+    RetrievalConfig,
 )
 
 # =============================================================================
@@ -75,6 +79,8 @@ from jeeves_core.protocols.interfaces import (
     AgentLLMConfig,
     WebSocketManagerProtocol,
     EventBridgeProtocol,
+    ContextRetrieverProtocol,
+    EmbeddingProviderProtocol,
 )
 
 # =============================================================================
@@ -168,6 +174,12 @@ __all__ = [
     "WebSocketManagerProtocol",
     "EventBridgeProtocol",
     "InterruptServiceProtocol",
+    # Retrieval types
+    "RetrievedContext",
+    "ClassificationResult",
+    "RetrievalConfig",
+    "ContextRetrieverProtocol",
+    "EmbeddingProviderProtocol",
     # Capability registration
     "get_capability_resource_registry",
     "reset_capability_resource_registry",

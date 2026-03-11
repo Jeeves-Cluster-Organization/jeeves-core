@@ -12,9 +12,9 @@ from __future__ import annotations
 import asyncio
 import logging
 import time
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import (
-    Any, AsyncIterator, Awaitable, Callable, Dict, List, Optional,
+    Any, AsyncIterator, Awaitable, Callable, Dict, Optional,
     Protocol, Tuple, TYPE_CHECKING,
 )
 
@@ -72,6 +72,9 @@ async def run_kernel_loop(
         [OrchestratorInstruction],
         Awaitable[Tuple[Optional[Dict[str, Any]], bool, str, AgentExecutionMetrics]],
     ],
+    *,
+    force: bool = False,
+    on_event: Optional[Callable[[str, Dict[str, Any]], Awaitable[None]]] = None,
 ) -> OrchestratorInstruction:
     """Kernel orchestration loop — single source of truth.
 
@@ -85,6 +88,8 @@ async def run_kernel_loop(
         pipeline_config: Pipeline configuration dict.
         initial_envelope: Initial envelope dict (passed to kernel on init).
         run_agent: async (instruction) → (output_dict, success, error, metrics).
+        force: If True, replace any existing session.
+        on_event: Optional async callback invoked after each successful agent run.
     """
     from jeeves_core.observability.metrics import (
         record_kernel_instruction,
@@ -96,9 +101,11 @@ async def run_kernel_loop(
         process_id=process_id,
         pipeline_config=pipeline_config,
         envelope=initial_envelope,
+        force=force,
     )
+    _t_ipc = time.time()
     instruction = await kernel.get_next_instruction(process_id)
-    record_kernel_instruction(instruction.kind)
+    record_kernel_instruction(instruction.kind, time.time() - _t_ipc)
 
     while instruction.kind in ("RUN_AGENT", "RUN_AGENTS"):
         if instruction.kind == "RUN_AGENTS":
@@ -120,6 +127,7 @@ async def run_kernel_loop(
             )
             # Report each result sequentially (kernel expects ordered reports)
             for agent_name, (output, success, error, metrics) in results:
+                _t_ipc = time.time()
                 instruction = await kernel.report_agent_result(
                     process_id=process_id,
                     agent_name=agent_name,
@@ -128,18 +136,21 @@ async def run_kernel_loop(
                     success=success,
                     error=error,
                 )
+                record_kernel_instruction("report_agent_result", time.time() - _t_ipc)
                 if instruction.kind == "TERMINATE":
                     record_pipeline_termination(instruction.terminal_reason or "COMPLETED")
                     return instruction
             # After all parallel agents reported, get next instruction
+            _t_ipc = time.time()
             instruction = await kernel.get_next_instruction(process_id)
-            record_kernel_instruction(instruction.kind)
+            record_kernel_instruction(instruction.kind, time.time() - _t_ipc)
         else:
             # Single agent
             agent_name = instruction.agents[0] if instruction.agents else ""
             _t0 = time.time()
             output, success, error, metrics = await run_agent(instruction)
             record_agent_duration(agent_name, time.time() - _t0)
+            _t_ipc = time.time()
             instruction = await kernel.report_agent_result(
                 process_id=process_id,
                 agent_name=agent_name,
@@ -148,7 +159,7 @@ async def run_kernel_loop(
                 success=success,
                 error=error,
             )
-            record_kernel_instruction(instruction.kind)
+            record_kernel_instruction(instruction.kind, time.time() - _t_ipc)
 
     # Terminal instruction
     if instruction.kind == "TERMINATE":
@@ -208,12 +219,6 @@ class PipelineWorker:
         from contextlib import nullcontext
         from jeeves_core.observability.otel_adapter import get_global_otel_adapter
 
-        if force:
-            try:
-                await self._kernel.terminate_process(process_id, reason="force_replace")
-            except KernelClientError:
-                pass  # session might not exist
-
         otel = get_global_otel_adapter()
         span_ctx = otel.start_span(
             "pipeline.execute",
@@ -223,14 +228,9 @@ class PipelineWorker:
             },
         ) if otel else nullcontext()
 
-        # Accumulated outputs across agent runs
-        all_outputs: Dict[str, Dict[str, Any]] = {}
-        last_metadata: Dict[str, Any] = {}
-
         async def _run_agent_dispatch(
             instruction: OrchestratorInstruction,
         ) -> Tuple[Optional[Dict[str, Any]], bool, str, AgentExecutionMetrics]:
-            nonlocal last_metadata
             agent_name = instruction.agents[0] if instruction.agents else ""
             agent = self._agents.get(agent_name)
 
@@ -249,10 +249,6 @@ class PipelineWorker:
                 agent=agent,
             )
 
-            if success and output:
-                all_outputs[agent_name] = output
-            last_metadata = metadata_updates or {}
-
             return (output, success, error, metrics)
 
         with span_ctx:
@@ -260,15 +256,19 @@ class PipelineWorker:
                 terminal = await run_kernel_loop(
                     self._kernel, process_id, pipeline_config,
                     initial_envelope, _run_agent_dispatch,
+                    force=force,
                 )
             except KernelClientError as e:
                 self._logger.error("worker_kernel_loop_failed", error=str(e))
                 return WorkerResult(
-                    outputs=all_outputs,
-                    metadata=last_metadata,
+                    outputs={},
+                    metadata={},
                     terminated=True,
                     terminal_reason=str(e),
                 )
+
+            # Read outputs from terminal instruction (populated by kernel)
+            terminal_outputs = terminal.outputs or {}
 
             # Map terminal instruction to WorkerResult
             if terminal.kind == "TERMINATE":
@@ -278,8 +278,8 @@ class PipelineWorker:
                     reason=terminal.terminal_reason,
                 )
                 return WorkerResult(
-                    outputs=all_outputs,
-                    metadata=last_metadata,
+                    outputs=terminal_outputs,
+                    metadata={},
                     terminated=True,
                     terminal_reason=terminal.terminal_reason,
                 )
@@ -294,8 +294,8 @@ class PipelineWorker:
                     interrupt_kind=interrupt_kind,
                 )
                 return WorkerResult(
-                    outputs=all_outputs,
-                    metadata=last_metadata,
+                    outputs=terminal_outputs,
+                    metadata={},
                     terminated=False,
                     interrupted=True,
                     interrupt_kind=interrupt_kind,
@@ -308,8 +308,8 @@ class PipelineWorker:
                     kind=terminal.kind,
                 )
                 return WorkerResult(
-                    outputs=all_outputs,
-                    metadata=last_metadata,
+                    outputs=terminal_outputs,
+                    metadata={},
                     terminated=True,
                     terminal_reason=f"Unknown instruction kind: {terminal.kind}",
                 )
@@ -324,142 +324,107 @@ class PipelineWorker:
     ) -> AsyncIterator[Tuple[str, Dict[str, Any]]]:
         """Execute pipeline with streaming outputs.
 
-        Yields (agent_name, output) tuples as agents complete.
+        Yields (event_name, data) tuples as agents complete.
+        Uses run_kernel_loop() — the single orchestration loop.
         """
-        # Initialize session with kernel
-        try:
-            session_state = await self._kernel.initialize_orchestration_session(
-                process_id=process_id,
-                pipeline_config=pipeline_config,
-                envelope=initial_envelope,
-                force=force,
+        events: asyncio.Queue[Optional[Tuple[str, Dict[str, Any]]]] = asyncio.Queue()
+
+        async def _on_event(name: str, data: Dict[str, Any]) -> None:
+            await events.put((name, data))
+
+        async def _streaming_dispatch(
+            instruction: OrchestratorInstruction,
+        ) -> Tuple[Optional[Dict[str, Any]], bool, str, AgentExecutionMetrics]:
+            agent_name = instruction.agents[0] if instruction.agents else ""
+            agent = self._agents.get(agent_name)
+
+            if not agent:
+                return (None, False, f"Agent not found: {agent_name}", AgentExecutionMetrics())
+
+            # Check if agent supports token streaming
+            has_streaming = (
+                hasattr(agent, 'config')
+                and hasattr(agent.config, 'token_stream')
+                and hasattr(agent.config.token_stream, 'value')
+                and agent.config.token_stream.value != "off"
+                and hasattr(agent, 'stream')
             )
-        except KernelClientError as e:
-            if e.code == "ALREADY_EXISTS":
-                self._logger.error(
-                    "worker_session_already_exists",
-                    process_id=process_id,
-                    hint="Use force=True to replace existing session",
-                )
-            elif e.code == "TIMEOUT":
-                self._logger.error(
-                    "worker_session_deadline_exceeded",
-                    process_id=process_id,
+
+            if has_streaming:
+                return await self._run_streaming_agent(
+                    instruction, agent, agent_name, _on_event,
                 )
             else:
-                self._logger.error("worker_session_init_failed", error=str(e))
-            yield ("__error__", {"error": str(e)})
-            return
+                output, metadata_updates, success, error, metrics = await self._run_agent(
+                    instruction=instruction,
+                    process_id=process_id,
+                    agent_name=agent_name,
+                    agent=agent,
+                    log_errors=False,
+                )
+                if success and output:
+                    await _on_event(agent_name, output)
+                return (output, success, error, metrics)
 
-        # Main execution loop
-        while True:
+        async def _run_loop() -> None:
             try:
-                instruction = await self._kernel.get_next_instruction(process_id)
+                terminal = await run_kernel_loop(
+                    self._kernel, process_id, pipeline_config,
+                    initial_envelope, _streaming_dispatch,
+                    force=force,
+                )
+                if terminal.kind == "TERMINATE":
+                    await events.put(("__end__", {
+                        "terminated": True,
+                        "reason": terminal.terminal_reason,
+                    }))
+                elif terminal.kind == "WAIT_INTERRUPT":
+                    ik = terminal.interrupt.get("kind", "") if terminal.interrupt else ""
+                    await events.put(("__interrupt__", {
+                        "kind": ik,
+                        "interrupt": terminal.interrupt,
+                    }))
             except KernelClientError as e:
-                yield ("__error__", {"error": str(e)})
-                return
+                await events.put(("__error__", {"error": str(e)}))
+            finally:
+                await events.put(None)  # sentinel
 
-            if instruction.kind == "TERMINATE":
-                yield ("__end__", {
-                    "terminated": True,
-                    "reason": instruction.terminal_reason,
-                })
-                return
+        task = asyncio.create_task(_run_loop())
+        while True:
+            item = await events.get()
+            if item is None:
+                break
+            yield item
+        await task  # propagate exceptions
 
-            elif instruction.kind == "WAIT_INTERRUPT":
-                interrupt_kind = ""
-                if instruction.interrupt:
-                    interrupt_kind = instruction.interrupt.get("kind", "")
-                yield ("__interrupt__", {
-                    "kind": interrupt_kind,
-                    "interrupt": instruction.interrupt,
-                })
-                return
-
-            elif instruction.kind in ("RUN_AGENT", "RUN_AGENTS"):
-                agents_to_run = instruction.agents if instruction.agents else []
-
-                for agent_name in agents_to_run:
-                    agent = self._agents.get(agent_name)
-
-                    if not agent:
-                        await self._kernel.report_agent_result(
-                            process_id=process_id,
-                            agent_name=agent_name,
-                            success=False,
-                            error=f"Agent not found: {agent_name}",
-                        )
-                        continue
-
-                    # Check if agent supports token streaming
-                    has_streaming = (
-                        hasattr(agent, 'config')
-                        and hasattr(agent.config, 'token_stream')
-                        and hasattr(agent.config.token_stream, 'value')
-                        and agent.config.token_stream.value != "off"
-                    )
-
-                    if has_streaming and hasattr(agent, 'stream'):
-                        # Streaming path: yield tokens, then report final output
-                        start_time = time.time()
-                        context = AgentContext.from_instruction(instruction)
-
-                        try:
-                            async for event_type, event in agent.stream(context):
-                                yield ("__token__", {"agent": agent_name, "event": event})
-
-                            duration_ms = int((time.time() - start_time) * 1000)
-                            output, _meta = agent.get_stream_output()
-                            run_metrics = agent.get_run_metrics() if hasattr(agent, "get_run_metrics") else {}
-                            metrics = AgentExecutionMetrics(
-                                llm_calls=run_metrics.get("llm_calls", 0),
-                                tokens_in=run_metrics.get("tokens_in"),
-                                tokens_out=run_metrics.get("tokens_out"),
-                                duration_ms=duration_ms,
-                            )
-                            await self._kernel.report_agent_result(
-                                process_id=process_id,
-                                agent_name=agent_name,
-                                output=output,
-                                metadata_updates=_meta,
-                                metrics=metrics,
-                                success=True,
-                                error="",
-                            )
-                            if output:
-                                yield (agent_name, output)
-                        except Exception as e:
-                            duration_ms = int((time.time() - start_time) * 1000)
-                            await self._kernel.report_agent_result(
-                                process_id=process_id,
-                                agent_name=agent_name,
-                                output=None,
-                                metrics=AgentExecutionMetrics(duration_ms=duration_ms),
-                                success=False,
-                                error=str(e),
-                            )
-                    else:
-                        # Non-streaming path
-                        output, metadata_updates, success, error, metrics = await self._run_agent(
-                            instruction=instruction,
-                            process_id=process_id,
-                            agent_name=agent_name,
-                            agent=agent,
-                            log_errors=False,
-                        )
-
-                        await self._kernel.report_agent_result(
-                            process_id=process_id,
-                            agent_name=agent_name,
-                            output=output,
-                            metadata_updates=metadata_updates,
-                            metrics=metrics,
-                            success=success,
-                            error=error,
-                        )
-
-                        if success and output:
-                            yield (agent_name, output)
+    async def _run_streaming_agent(
+        self,
+        instruction: OrchestratorInstruction,
+        agent: AgentProtocol,
+        agent_name: str,
+        on_event: Callable[[str, Dict[str, Any]], Awaitable[None]],
+    ) -> Tuple[Optional[Dict[str, Any]], bool, str, AgentExecutionMetrics]:
+        """Run a streaming agent, emitting token events via on_event callback."""
+        start_time = time.time()
+        context = AgentContext.from_instruction(instruction)
+        try:
+            async for event_type, event in agent.stream(context):
+                await on_event("__token__", {"agent": agent_name, "event": event})
+            duration_ms = int((time.time() - start_time) * 1000)
+            output, _meta = agent.get_stream_output()
+            run_metrics = agent.get_run_metrics() if hasattr(agent, "get_run_metrics") else {}
+            metrics = AgentExecutionMetrics(
+                llm_calls=run_metrics.get("llm_calls", 0),
+                tokens_in=run_metrics.get("tokens_in"),
+                tokens_out=run_metrics.get("tokens_out"),
+                duration_ms=duration_ms,
+            )
+            if output:
+                await on_event(agent_name, output)
+            return (output, True, "", metrics)
+        except Exception as e:
+            duration_ms = int((time.time() - start_time) * 1000)
+            return (None, False, str(e), AgentExecutionMetrics(duration_ms=duration_ms))
 
     async def _run_agent(
         self,
@@ -485,6 +450,7 @@ class PipelineWorker:
             output, metadata_updates = await agent.process(context)
             success = True
             error = ""
+
         except Exception as e:
             if log_errors:
                 self._logger.error(
@@ -526,6 +492,7 @@ class PipelineWorker:
                 record_llm_tokens("pipeline", agent_name, metrics.tokens_in, metrics.tokens_out)
         else:
             metrics = AgentExecutionMetrics(duration_ms=duration_ms)
+            self._logger.warning("worker_agent_missing_run_metrics", agent_name=agent_name)
 
         return output, metadata_updates, success, error, metrics
 

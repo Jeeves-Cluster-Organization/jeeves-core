@@ -258,6 +258,32 @@ class SemanticSearchProtocol(Protocol):
     async def index(self, id: str, content: str, metadata: Dict[str, Any]) -> None: ...
 
 
+# =============================================================================
+# RETRIEVAL
+# =============================================================================
+
+@runtime_checkable
+class ContextRetrieverProtocol(Protocol):
+    """Retrieval interface for context injection into agent stages."""
+
+    async def retrieve(
+        self,
+        query: str,
+        *,
+        limit: int = 10,
+        filters: Optional[Dict[str, Any]] = None,
+    ) -> List[Any]: ...  # List[RetrievedContext] — avoid circular import
+
+
+@runtime_checkable
+class EmbeddingProviderProtocol(Protocol):
+    """Embedding provider for vector operations."""
+
+    def embed(self, texts: List[str]) -> List[List[float]]: ...
+
+    @property
+    def dimension(self) -> int: ...
+
 
 # =============================================================================
 # DISTRIBUTED BUS
@@ -446,6 +472,9 @@ __all__ = [
     "ConfigRegistryProtocol",
     # Capability LLM Config
     "AgentLLMConfig",
+    # Retrieval
+    "ContextRetrieverProtocol",
+    "EmbeddingProviderProtocol",
     # Infrastructure Protocols
     "WebSocketManagerProtocol",
     "EventBridgeProtocol",
