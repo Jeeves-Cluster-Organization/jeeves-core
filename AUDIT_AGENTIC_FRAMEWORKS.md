@@ -284,7 +284,7 @@ Rate limiting middleware (`middleware/rate_limit.py`) integrated with kernel rat
 | Dimension | Jeeves-Core | LangChain/LangGraph | CrewAI | AutoGen/AG2 | OpenAI Agents SDK | Semantic Kernel |
 |-----------|-------------|---------------------|--------|-------------|-------------------|-----------------|
 | **Language** | Rust + Python | Python | Python | Python | Python | Python/C#/Java |
-| **Agent Model** | Config-driven processes | Class-based chains | Role-based crews | Conversational actors | Handoff-based | Plugin-based planners |
+| **Agent Model** | Config-driven processes | Class-based chains | Role-based crews | Conversational actors | Handoff-based | Plugin-based with function calling |
 | **Orchestration** | Kernel-managed pipeline graph | LangGraph state machine | Sequential/hierarchical | Group chat patterns | Agent handoffs | Planner + kernel |
 | **Resource Bounds** | Kernel-enforced quotas | None (user-managed) | Iteration limits | Max turns | Max turns | None |
 | **Type Safety** | Rust compile-time + Python protocols | Python dynamic | Python dynamic | Python dynamic | Pydantic guardrails | Strong (C#) / Weak (Python) |
@@ -293,9 +293,9 @@ Rate limiting middleware (`middleware/rate_limit.py`) integrated with kernel rat
 | **Memory** | Registry-based layers | Various retrievers | Short/long-term | Teachability | None built-in | Memory plugin |
 | **Human-in-Loop** | Typed interrupt system | Breakpoints | Human input | Human proxy agent | Guardrails | Filters |
 | **Streaming** | SSE + IPC stream frames | Callbacks/streaming | Callbacks | Streaming | Streaming | Streaming |
-| **Multi-Agent** | Parallel groups + routing | LangGraph multi-agent | Crew composition | Group chat | Agent handoffs | None native |
+| **Multi-Agent** | Parallel groups + routing | LangGraph multi-agent | Crew composition | Group chat | Agent handoffs | Agent Framework (SK agents) |
 | **Distributed** | Redis bus + distributed tasks | None native | None native | None native | None native | None native |
-| **Maturity** | Early (v0.0.1) | Mature (v0.3+) | Growing (v0.80+) | Mature (AG2 v0.4+) | New (2025) | Mature (v1.0+) |
+| **Maturity** | Early (v0.0.1) | Mature (v1.0) | Growing (v0.80+) | Maintenance mode (AG2 community fork active) | Growing (2025+) | Mature (v1.0+) |
 
 ### 3.2 Detailed Comparisons
 
@@ -355,14 +355,14 @@ The Agents SDK is OpenAI's lightweight agent framework with handoffs and guardra
 |--------|-------------|-------------------|
 | Agent model | Kernel-managed processes | Simple Agent class with instructions |
 | Routing | Expression tree + kernel evaluation | Agent handoffs via `transfer_to_X` tools |
-| Guardrails | Kernel bounds + tool access control | Input/output guardrails (tripwire/filter) |
+| Guardrails | Pre/post hooks + tool risk policies + kernel bounds | Input/output guardrails (tripwire/filter) |
 | Tracing | OTEL + structured logging + IPC events | Built-in tracing with custom processors |
 | Tool system | Capability-scoped catalogs | `@function_tool` decorator |
 | Context | Envelope with typed state | `RunContextWrapper` with generic type |
 
 **Jeeves-Core advantage**: Much deeper bounds enforcement, process isolation, distributed execution support. The routing expression language is more powerful than handoff functions.
 
-**OpenAI SDK advantage**: Dramatically simpler API, built-in tracing UI, guardrails are a first-class concept, native OpenAI integration.
+**OpenAI SDK advantage**: Dramatically simpler API, built-in tracing UI, guardrails as a formalized API concept (tripwire/filter semantics vs. Jeeves-Core's general-purpose hooks), native OpenAI integration.
 
 #### vs. Semantic Kernel (Microsoft)
 
@@ -371,7 +371,7 @@ Semantic Kernel takes a plugin-based approach with planner-driven execution.
 | Aspect | Jeeves-Core | Semantic Kernel |
 |--------|-------------|-----------------|
 | Extension model | Capability registry | Plugin system |
-| Orchestration | Pipeline graph with routing rules | Stepwise/Handlebars planner |
+| Orchestration | Pipeline graph with routing rules | Native function calling (planners deprecated) |
 | Memory | Registry-based layers | Memory plugin + connectors |
 | Multi-language | Rust + Python | C# + Python + Java |
 | Enterprise features | Rate limiting, quotas, interrupts | Filters, telemetry, responsible AI |
@@ -542,8 +542,8 @@ Despite the protocol-first design, many types use `Any`:
 
 This undercuts the type safety benefit. A framework that claims protocol-first design should have stronger typing.
 
-**W10: No Agent-to-Agent Direct Communication**
-All communication goes through the Envelope's outputs dict or the CommBus. There's no direct message-passing between agents. While this provides isolation, it also means agents can only communicate through shared state or kernel-mediated messages, which can be awkward for conversational multi-agent patterns.
+**W10: Agent Communication is Kernel-Mediated Only**
+Agent communication is available through two kernel-mediated channels: the Envelope's outputs dict (agents read other agents' results via routing expressions like `Agent{name,key}`) and the CommBus (pub/sub events, fire-and-forget commands, and request/response queries). While these provide rich communication patterns with isolation benefits, there's no direct agent-to-agent message passing. For conversational multi-agent patterns (e.g., debate, negotiation), all exchanges must be routed through the kernel, which adds latency and complexity compared to frameworks like AutoGen where agents converse directly.
 
 ### 5.3 Testing Gaps
 
@@ -568,8 +568,8 @@ No support for evaluating agent output quality, comparing pipeline configuration
 **W15: No Conversation/Thread Management**
 While there's a `session_id` on the Envelope, there's no built-in conversation history management, context windowing, or message threading. Each request creates a new Envelope.
 
-**W16: No Guardrails / Safety Layer**
-Unlike OpenAI Agents SDK (input/output guardrails) or NeMo Guardrails (dialog rails), there's no built-in content safety, input validation, or output filtering beyond tool access control.
+**W16: No Formalized Guardrails API**
+While Jeeves-Core has functional guardrail mechanisms — pre/post process hooks on `AgentConfig` for input validation and output filtering, tool access control with risk metadata (`ReadOnly|Write|Destructive`, severity `Low|Medium|High|Critical`), kernel-level bounds enforcement, and rate limiting — it lacks a **formalized guardrails API** like OpenAI Agents SDK (input/output guardrails with tripwire/filter semantics) or NeMo Guardrails (dialog rails). The existing hooks are general-purpose callbacks without structured violation reporting, severity classification, or guardrail chaining.
 
 ---
 
@@ -626,17 +626,19 @@ Add a `ConversationMemory` protocol and default implementation:
 - Context window management (truncation, summarization)
 - System message injection
 
-**R6: Guardrails Framework**
-Add input/output guardrails similar to OpenAI Agents SDK:
+**R6: Formalize Existing Guardrails into a Structured API**
+Jeeves-Core already has guardrail mechanisms (pre/post process hooks, tool access control with risk levels, kernel bounds). Formalize these into a structured guardrails API similar to OpenAI Agents SDK:
 ```python
 class GuardrailResult:
     passed: bool
     filtered_output: Optional[str]
     violation: Optional[str]
+    severity: str  # maps to existing risk severity levels
 
 class GuardrailProtocol(Protocol):
     async def check(self, content: str, context: Dict) -> GuardrailResult: ...
 ```
+This would wrap the existing `pre_process`/`post_process` hooks with structured violation reporting, severity classification, and guardrail chaining — upgrading functional guardrails into a first-class API.
 
 **R7: Raise Python Coverage to 70%**
 The 40% target undermines confidence. Critical paths (Agent.process, PipelineRunner, KernelClient, ToolExecutionCore) should be at 90%+.
