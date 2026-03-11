@@ -46,23 +46,23 @@ class TestEventBridgeTranslation:
     def test_process_created(self):
         bridge = self._make_bridge()
         event = KernelEvent("process.created", "pid-1", {
-            "request_id": "req-1", "user_id": "user-1",
+            "request_id": "req-1", "user_id": "user-1", "session_id": "sess-1",
         })
         result = bridge._translate_event(event)
         assert result == {
             "type": "orchestrator.started",
-            "data": {"request_id": "req-1", "pid": "pid-1"},
+            "data": {"request_id": "req-1", "pid": "pid-1", "session_id": "sess-1"},
         }
 
     def test_process_terminated(self):
         bridge = self._make_bridge()
         event = KernelEvent("process.state_changed", "pid-1", {
-            "old_state": "RUNNING", "new_state": "TERMINATED",
+            "old_state": "RUNNING", "new_state": "TERMINATED", "session_id": "sess-1",
         })
         result = bridge._translate_event(event)
         assert result == {
             "type": "orchestrator.completed",
-            "data": {"request_id": "pid-1", "status": "completed"},
+            "data": {"request_id": "pid-1", "status": "completed", "session_id": "sess-1"},
         }
 
     def test_process_waiting_returns_none(self):
@@ -88,12 +88,12 @@ class TestEventBridgeTranslation:
     def test_process_cancelled(self):
         bridge = self._make_bridge()
         event = KernelEvent("process.cancelled", "pid-1", {
-            "reason": "User cancelled",
+            "reason": "User cancelled", "session_id": "sess-1",
         })
         result = bridge._translate_event(event)
         assert result == {
             "type": "orchestrator.cancelled",
-            "data": {"request_id": "pid-1", "reason": "User cancelled"},
+            "data": {"request_id": "pid-1", "reason": "User cancelled", "session_id": "sess-1"},
         }
 
     def test_unknown_event_returns_none(self):

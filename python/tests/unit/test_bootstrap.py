@@ -1,7 +1,6 @@
 """Unit tests for the bootstrap module.
 
 Tests:
-- _parse_bool helper
 - create_core_config_from_env (env var parsing, defaults)
 - create_orchestration_flags_from_env (env var parsing, defaults)
 - Request PID context management (set, get, clear, context manager)
@@ -15,7 +14,6 @@ import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
 
 from jeeves_core.bootstrap import (
-    _parse_bool,
     create_core_config_from_env,
     create_orchestration_flags_from_env,
     create_app_context,
@@ -26,39 +24,6 @@ from jeeves_core.bootstrap import (
     sync_quota_defaults_to_kernel,
 )
 from jeeves_core.protocols import ExecutionConfig, ContextBounds, OrchestrationFlags
-
-
-# =============================================================================
-# _parse_bool
-# =============================================================================
-
-
-class TestParseBool:
-    def test_true_string(self):
-        assert _parse_bool("true") is True
-
-    def test_True_string(self):
-        assert _parse_bool("True") is True
-
-    def test_TRUE_string(self):
-        assert _parse_bool("TRUE") is True
-
-    def test_false_string(self):
-        assert _parse_bool("false") is False
-
-    def test_False_string(self):
-        assert _parse_bool("False") is False
-
-    def test_empty_string_uses_default_true(self):
-        assert _parse_bool("", default=True) is True
-
-    def test_empty_string_uses_default_false(self):
-        assert _parse_bool("", default=False) is False
-
-    def test_arbitrary_string_is_false(self):
-        assert _parse_bool("yes") is False
-        assert _parse_bool("1") is False
-        assert _parse_bool("on") is False
 
 
 # =============================================================================

@@ -18,6 +18,7 @@ SERVICE_FILES = {
     "commbus": HANDLER_DIR / "commbus.rs",
     "interrupt": HANDLER_DIR / "interrupt.rs",
     "tools": HANDLER_DIR / "tools.rs",
+    "services": HANDLER_DIR / "services.rs",
 }
 
 

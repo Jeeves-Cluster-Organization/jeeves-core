@@ -172,10 +172,14 @@ class MockKernelClient:
         # 2. Evaluate routing rules (first match wins)
         routing_rules = stage.get("routing", [])
         current_output = output or {}
+        envelope_metadata = (
+            session.envelope.get("audit", {}).get("metadata", {})
+            or session.envelope.get("metadata", {})  # flat fallback for raw test dicts
+        )
         next_stage = evaluate_routing(
             routing_rules,
             session.outputs,
-            session.envelope.get("metadata", {}),
+            envelope_metadata,
             current_agent_output=current_output,
         )
 

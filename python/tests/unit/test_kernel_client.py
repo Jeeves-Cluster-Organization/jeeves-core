@@ -340,10 +340,7 @@ class TestResourceManagement:
 class TestConvenienceMethods:
     @pytest.mark.asyncio
     async def test_record_llm_call(self, mock_kernel_client, mock_transport):
-        mock_transport.request.side_effect = [
-            make_usage_dict(),
-            make_quota_dict(within_bounds=True),
-        ]
+        mock_transport.request.return_value = make_quota_dict(within_bounds=True)
 
         result = await mock_kernel_client.record_llm_call(pid="proc-1", tokens_in=100, tokens_out=50)
 
@@ -351,10 +348,9 @@ class TestConvenienceMethods:
 
     @pytest.mark.asyncio
     async def test_record_llm_call_quota_exceeded(self, mock_kernel_client, mock_transport):
-        mock_transport.request.side_effect = [
-            make_usage_dict(),
-            make_quota_dict(within_bounds=False, exceeded_reason="max_llm_calls exceeded"),
-        ]
+        mock_transport.request.return_value = make_quota_dict(
+            within_bounds=False, exceeded_reason="max_llm_calls exceeded",
+        )
 
         result = await mock_kernel_client.record_llm_call(pid="proc-1")
 
@@ -362,10 +358,7 @@ class TestConvenienceMethods:
 
     @pytest.mark.asyncio
     async def test_record_tool_call(self, mock_kernel_client, mock_transport):
-        mock_transport.request.side_effect = [
-            make_usage_dict(),
-            make_quota_dict(within_bounds=True),
-        ]
+        mock_transport.request.return_value = make_quota_dict(within_bounds=True)
 
         result = await mock_kernel_client.record_tool_call(pid="proc-1")
 
@@ -373,10 +366,7 @@ class TestConvenienceMethods:
 
     @pytest.mark.asyncio
     async def test_record_agent_hop(self, mock_kernel_client, mock_transport):
-        mock_transport.request.side_effect = [
-            make_usage_dict(),
-            make_quota_dict(within_bounds=True),
-        ]
+        mock_transport.request.return_value = make_quota_dict(within_bounds=True)
 
         result = await mock_kernel_client.record_agent_hop(pid="proc-1")
 

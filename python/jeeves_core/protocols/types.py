@@ -9,7 +9,7 @@ Python-only enums (no Rust equivalent) are defined here.
 """
 
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import datetime, timezone
 from enum import Enum
 from typing import Any, Callable, Dict, List, Optional, Set, TYPE_CHECKING
 
@@ -727,8 +727,12 @@ class Envelope:
     max_iterations: int = 3
     llm_call_count: int = 0
     max_llm_calls: int = 10
+    tool_call_count: int = 0
     agent_hop_count: int = 0
     max_agent_hops: int = 21
+    tokens_in: int = 0
+    tokens_out: int = 0
+    terminated: bool = False
     interrupt_pending: bool = False
     interrupt: Optional[FlowInterrupt] = None
     active_stages: Dict[str, bool] = field(default_factory=dict)
@@ -789,8 +793,12 @@ class Envelope:
             max_iterations=data.get("max_iterations", 3),
             llm_call_count=data.get("llm_call_count", 0),
             max_llm_calls=data.get("max_llm_calls", 10),
+            tool_call_count=data.get("tool_call_count", 0),
             agent_hop_count=data.get("agent_hop_count", 0),
             max_agent_hops=data.get("max_agent_hops", 21),
+            tokens_in=data.get("tokens_in", 0),
+            tokens_out=data.get("tokens_out", 0),
+            terminated=data.get("terminated", False),
             interrupt_pending=data.get("interrupt_pending", False),
             interrupt=interrupt,
             active_stages=data.get("active_stages", {}),
@@ -836,36 +844,78 @@ class Envelope:
         return completed_count == 0
 
     def to_dict(self) -> Dict[str, Any]:
-        return {
-            "request_context": self.request_context.to_dict(),
-            "envelope_id": self.envelope_id,
-            "request_id": self.request_id,
-            "user_id": self.user_id,
-            "session_id": self.session_id,
-            "raw_input": self.raw_input,
-            "outputs": self.outputs,
+        """Serialize to nested dict matching Rust Envelope schema (for IPC).
+
+        Produces the nested JSON structure that the Rust kernel expects:
+        identity, pipeline, bounds, interrupts, execution, audit.
+
+        For flat persistence format, use to_state_dict() instead.
+        """
+        now_iso = self.received_at.isoformat() if self.received_at else datetime.now(timezone.utc).isoformat()
+
+        pipeline: Dict[str, Any] = {
             "current_stage": self.current_stage,
             "stage_order": self.stage_order,
             "iteration": self.iteration,
             "max_iterations": self.max_iterations,
-            "llm_call_count": self.llm_call_count,
-            "max_llm_calls": self.max_llm_calls,
-            "agent_hop_count": self.agent_hop_count,
-            "max_agent_hops": self.max_agent_hops,
-            "interrupt_pending": self.interrupt_pending,
-            "interrupt": self.interrupt.to_dict() if self.interrupt else None,
-            "active_stages": self.active_stages,
-            "completed_stage_set": self.completed_stage_set,
-            "failed_stages": self.failed_stages,
             "parallel_mode": self.parallel_mode,
-            "current_stage_number": self.current_stage_number,
-            "max_stages": self.max_stages,
-            "all_goals": self.all_goals,
-            "remaining_goals": self.remaining_goals,
-            "goal_completion_status": self.goal_completion_status,
-            "errors": self.errors,
-            "metadata": self.metadata,
         }
+        # Rust uses HashSet<String> with serde(default) — only include if non-empty
+        if self.active_stages:
+            pipeline["active_stages"] = [k for k, v in self.active_stages.items() if v]
+        if self.completed_stage_set:
+            pipeline["completed_stage_set"] = [k for k, v in self.completed_stage_set.items() if v]
+        if self.failed_stages:
+            pipeline["failed_stages"] = self.failed_stages
+
+        interrupts: Dict[str, Any] = {
+            "interrupt_pending": self.interrupt_pending,
+        }
+        if self.interrupt:
+            interrupts["interrupt"] = self.interrupt.to_dict()
+
+        d: Dict[str, Any] = {
+            "identity": {
+                "envelope_id": self.envelope_id,
+                "request_id": self.request_id,
+                "user_id": self.user_id,
+                "session_id": self.session_id,
+            },
+            "raw_input": self.raw_input,
+            "received_at": now_iso,
+            "outputs": self.outputs,
+            "pipeline": pipeline,
+            "bounds": {
+                "llm_call_count": self.llm_call_count,
+                "max_llm_calls": self.max_llm_calls,
+                "tool_call_count": self.tool_call_count,
+                "agent_hop_count": self.agent_hop_count,
+                "max_agent_hops": self.max_agent_hops,
+                "tokens_in": self.tokens_in,
+                "tokens_out": self.tokens_out,
+                "terminated": self.terminated,
+            },
+            "interrupts": interrupts,
+            "execution": {
+                "completed_stages": self.completed_stages,
+                "current_stage_number": self.current_stage_number,
+                "max_stages": self.max_stages,
+                "all_goals": self.all_goals,
+                "remaining_goals": self.remaining_goals,
+                "goal_completion_status": self.goal_completion_status,
+                "prior_plans": [],
+                "loop_feedback": [],
+            },
+            "audit": {
+                "processing_history": [],
+                "errors": self.errors,
+                "created_at": now_iso,
+                "metadata": self.metadata,
+            },
+        }
+        if self.completed_at:
+            d["audit"]["completed_at"] = self.completed_at.isoformat()
+        return d
 
     def to_state_dict(self) -> Dict[str, Any]:
         """Convert to dictionary with ALL fields for complete state serialization."""
@@ -897,8 +947,12 @@ class Envelope:
             "max_iterations": self.max_iterations,
             "llm_call_count": self.llm_call_count,
             "max_llm_calls": self.max_llm_calls,
+            "tool_call_count": self.tool_call_count,
             "agent_hop_count": self.agent_hop_count,
             "max_agent_hops": self.max_agent_hops,
+            "tokens_in": self.tokens_in,
+            "tokens_out": self.tokens_out,
+            "terminated": self.terminated,
             "interrupt_pending": self.interrupt_pending,
             "interrupt": self.interrupt.to_dict() if self.interrupt else None,
             "active_stages": self.active_stages,

@@ -99,17 +99,22 @@ def mock_agent():
 @pytest.fixture
 def mock_agents(mock_agent):
     """Create a dict of mock agents."""
-    understand_agent = MagicMock()
+    default_metrics = {"llm_calls": 0, "tokens_in": 0, "tokens_out": 0}
+
+    understand_agent = MagicMock(spec=["name", "process", "get_run_metrics"])
     understand_agent.name = "understand"
     understand_agent.process = AsyncMock()
+    understand_agent.get_run_metrics = MagicMock(return_value=default_metrics)
 
-    think_agent = MagicMock()
+    think_agent = MagicMock(spec=["name", "process", "get_run_metrics"])
     think_agent.name = "think"
     think_agent.process = AsyncMock()
+    think_agent.get_run_metrics = MagicMock(return_value=default_metrics)
 
-    respond_agent = MagicMock()
+    respond_agent = MagicMock(spec=["name", "process", "get_run_metrics"])
     respond_agent.name = "respond"
     respond_agent.process = AsyncMock()
+    respond_agent.get_run_metrics = MagicMock(return_value=default_metrics)
 
     # Each agent modifies the envelope and returns it
     async def understand_process(envelope):
@@ -121,7 +126,7 @@ def mock_agents(mock_agent):
         return envelope
 
     async def respond_process(envelope):
-        envelope.outputs["final_response"] = {"response": "Hello!"}
+        envelope.outputs["respond"] = {"response": "Hello!"}
         return envelope
 
     understand_agent.process.side_effect = understand_process
@@ -230,18 +235,18 @@ async def test_pipeline_worker_executes_agents(mock_kernel_client, mock_agents, 
     # report_agent_result → TERMINATE
     mock_kernel_client.get_next_instruction.return_value = OrchestratorInstruction(
         kind="RUN_AGENT",
-        agent_name="understand",
+        agents=["understand"],
         envelope={"current_stage": "understand"},
     )
     mock_kernel_client.report_agent_result.side_effect = [
         OrchestratorInstruction(
             kind="RUN_AGENT",
-            agent_name="think",
+            agents=["think"],
             envelope={"current_stage": "think"},
         ),
         OrchestratorInstruction(
             kind="RUN_AGENT",
-            agent_name="respond",
+            agents=["respond"],
             envelope={"current_stage": "respond"},
         ),
         OrchestratorInstruction(
@@ -289,7 +294,7 @@ async def test_pipeline_worker_reports_agent_metrics(
     )
     mock_kernel_client.get_next_instruction.return_value = OrchestratorInstruction(
         kind="RUN_AGENT",
-        agent_name="understand",
+        agents=["understand"],
         envelope={"current_stage": "understand"},
     )
     mock_kernel_client.report_agent_result.return_value = OrchestratorInstruction(
@@ -432,7 +437,7 @@ async def test_pipeline_worker_handles_agent_not_found(mock_kernel_client, mock_
     # get_next_instruction returns first instruction, report_agent_result returns next
     mock_kernel_client.get_next_instruction.return_value = OrchestratorInstruction(
         kind="RUN_AGENT",
-        agent_name="unknown_agent",
+        agents=["unknown_agent"],
         envelope={"current_stage": "unknown_agent"},
     )
     mock_kernel_client.report_agent_result.return_value = OrchestratorInstruction(
@@ -472,7 +477,7 @@ async def test_pipeline_worker_handles_agent_exception(mock_kernel_client, mock_
     # get_next_instruction returns first instruction, report_agent_result returns next
     mock_kernel_client.get_next_instruction.return_value = OrchestratorInstruction(
         kind="RUN_AGENT",
-        agent_name="understand",
+        agents=["understand"],
         envelope={"current_stage": "understand"},
     )
     mock_kernel_client.report_agent_result.return_value = OrchestratorInstruction(
@@ -482,9 +487,10 @@ async def test_pipeline_worker_handles_agent_exception(mock_kernel_client, mock_
     )
 
     # Agent that raises an exception
-    failing_agent = AsyncMock()
+    failing_agent = MagicMock()
     failing_agent.name = "understand"
     failing_agent.process = AsyncMock(side_effect=ValueError("LLM call failed"))
+    failing_agent.get_run_metrics = MagicMock(return_value={"llm_calls": 0, "tokens_in": 0, "tokens_out": 0})
 
     worker = PipelineWorker(
         kernel_client=mock_kernel_client,
@@ -545,12 +551,12 @@ async def test_pipeline_worker_streaming(mock_kernel_client, mock_agents, mock_e
     mock_kernel_client.get_next_instruction.side_effect = [
         OrchestratorInstruction(
             kind="RUN_AGENT",
-            agent_name="understand",
+            agents=["understand"],
             envelope={"current_stage": "understand"},
         ),
         OrchestratorInstruction(
             kind="RUN_AGENT",
-            agent_name="respond",
+            agents=["respond"],
             envelope={"current_stage": "respond"},
         ),
         OrchestratorInstruction(
@@ -562,7 +568,7 @@ async def test_pipeline_worker_streaming(mock_kernel_client, mock_agents, mock_e
     # report_agent_result return value is not used, just provide a default
     mock_kernel_client.report_agent_result.return_value = OrchestratorInstruction(
         kind="RUN_AGENT",
-        agent_name="",
+        agents=[],
     )
 
     worker = PipelineWorker(
