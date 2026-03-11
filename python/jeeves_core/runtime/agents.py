@@ -54,6 +54,48 @@ class AgentPromptRegistry(Protocol):
     def get(self, key: str, **kwargs) -> str: ...
 
 
+class PromptRegistry:
+    """Concrete prompt registry — stores templates, renders with str.format_map.
+
+    Satisfies AgentPromptRegistry protocol. Capabilities register templates
+    at init time; the framework renders at call time.
+
+    Subclass and override _render() for alternative template engines (e.g. Jinja2).
+    """
+
+    def __init__(self, templates: Optional[Dict[str, str]] = None):
+        self._templates: Dict[str, str] = {}
+        if templates:
+            for key, template in templates.items():
+                self.register(key, template)
+
+    def register(self, key: str, template: str) -> None:
+        if not template or not template.strip():
+            raise ValueError(f"Empty prompt template for key: {key!r}")
+        self._templates[key] = template
+
+    def get(self, key: str, **kwargs) -> str:
+        if key not in self._templates:
+            raise KeyError(
+                f"Prompt key not found: {key!r}. "
+                f"Available: {sorted(self._templates.keys())}"
+            )
+        context = kwargs.get("context") or kwargs or {}
+        template = self._templates[key]
+        if context:
+            return self._render(template, context)
+        return template
+
+    def list_keys(self) -> List[str]:
+        """Return sorted list of registered template keys."""
+        return sorted(self._templates.keys())
+
+    def _render(self, template: str, context: Dict[str, Any]) -> str:
+        """Render template with context. Override for Jinja2/other engines."""
+        from collections import defaultdict
+        return template.format_map(defaultdict(str, context))
+
+
 class AgentEventContext(Protocol):
     """Protocol for event emission (agent-scoped)."""
     async def emit_agent_started(self, agent_name: str) -> None: ...
