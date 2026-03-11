@@ -193,6 +193,8 @@ class ToolExecutionCore:
             # Step 4: Normalize result
             result = self.normalize_result(raw_result, execution_time_ms)
             await self._record_health(tool_name, result)
+            from jeeves_core.observability.metrics import record_tool_execution
+            record_tool_execution(tool_name, result.get("status", "success"))
             return result
 
         except TypeError as e:
@@ -211,6 +213,8 @@ class ToolExecutionCore:
                 "execution_time_ms": int((time.perf_counter() - start_time) * 1000),
             }
             await self._record_health(tool_name, result)
+            from jeeves_core.observability.metrics import record_tool_execution
+            record_tool_execution(tool_name, "error")
             return result
         except Exception as e:
             error_type = type(e).__name__
@@ -228,6 +232,8 @@ class ToolExecutionCore:
                 "execution_time_ms": int((time.perf_counter() - start_time) * 1000),
             }
             await self._record_health(tool_name, result)
+            from jeeves_core.observability.metrics import record_tool_execution
+            record_tool_execution(tool_name, "error")
             return result
 
     async def _record_health(self, tool_name: str, result: Dict[str, Any]) -> None:

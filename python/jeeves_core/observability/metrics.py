@@ -36,9 +36,6 @@ except ImportError:  # pragma: no cover - fallback when Prometheus is unavailabl
         warnings.warn("prometheus-client not installed; metrics server not started", RuntimeWarning)
         return None
 
-from jeeves_core.protocols.validation import VerificationReport
-
-
 ORCHESTRATOR_INFLIGHT = Gauge(
     "orchestrator_inflight_requests",
     "Number of requests currently being processed by the orchestrator.",
@@ -54,48 +51,6 @@ ORCHESTRATOR_LATENCY = Histogram(
     "orchestrator_request_latency_seconds",
     "End-to-end orchestration latency in seconds.",
     buckets=(0.1, 0.25, 0.5, 1, 2, 3, 5, 7, 10, 15),
-)
-
-META_VALIDATION_OUTCOMES = Counter(
-    "meta_validator_reports_total",
-    "Total meta-validation reports partitioned by approval status.",
-    labelnames=("status",),
-)
-
-META_VALIDATION_ISSUES = Counter(
-    "meta_validator_issue_detections_total",
-    "Counts of individual issue detections by type.",
-    labelnames=("issue_type",),
-)
-
-# ============================================================
-# Retry Metrics (Amendment IX: Workflow Observability)
-# v1.0 Hardening: Track retry attempts and reasons
-# ============================================================
-
-WORKFLOW_RETRY_ATTEMPTS = Counter(
-    "workflow_retry_attempts_total",
-    "Total retry attempts by type (planner_retry, validator_retry).",
-    labelnames=("retry_type",),
-)
-
-WORKFLOW_RETRY_REASONS = Counter(
-    "workflow_retry_reasons_total",
-    "Retry reasons by issue type.",
-    labelnames=("retry_type", "issue_type"),
-)
-
-CRITIC_DECISIONS = Counter(
-    "critic_decisions_total",
-    "Critic decisions by action taken.",
-    labelnames=("action",),
-)
-
-CRITIC_CONFIDENCE = Histogram(
-    "critic_decision_confidence",
-    "Distribution of critic confidence scores by action.",
-    labelnames=("action",),
-    buckets=(0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1.0),
 )
 
 # ============================================================
@@ -138,6 +93,35 @@ HTTP_REQUEST_DURATION = Histogram(
     buckets=(0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1, 2.5, 5, 10),
 )
 
+# ============================================================
+# Kernel-Unique Metrics (no other framework can emit these)
+# ============================================================
+
+PIPELINE_TERMINATIONS = Counter(
+    "jeeves_pipeline_terminations_total",
+    "Pipeline terminations by terminal reason",
+    labelnames=("reason",),
+)
+
+KERNEL_INSTRUCTIONS = Counter(
+    "jeeves_kernel_instructions_total",
+    "Kernel instructions dispatched by type",
+    labelnames=("instruction_type",),
+)
+
+AGENT_EXECUTION_DURATION = Histogram(
+    "jeeves_agent_execution_duration_seconds",
+    "Per-agent execution duration",
+    labelnames=("agent_name",),
+    buckets=(0.1, 0.5, 1, 2, 5, 10, 30, 60),
+)
+
+TOOL_EXECUTIONS = Counter(
+    "jeeves_tool_executions_total",
+    "Tool executions by tool name and status",
+    labelnames=("tool_name", "status"),
+)
+
 
 def orchestrator_started() -> None:
     """Increment in-flight gauge when orchestration begins."""
@@ -165,45 +149,10 @@ def orchestrator_rejected(reason: str) -> None:
     ORCHESTRATOR_REQUESTS.labels(outcome=reason).inc()
 
 
-def record_meta_validation(report: VerificationReport) -> None:
-    """Emit Prometheus metrics for a meta-validation report."""
-
-    status = "approved" if report.approved else "rejected"
-    META_VALIDATION_OUTCOMES.labels(status=status).inc()
-    for issue in report.issues_found:
-        META_VALIDATION_ISSUES.labels(issue_type=issue.type).inc()
-
-
 def start_metrics_server(port: int = 9000) -> None:
     """Start a background HTTP server exposing Prometheus metrics."""
 
     start_http_server(port)
-
-
-# ============================================================
-# Retry Metric Recording Functions (Amendment IX)
-# ============================================================
-
-def record_retry_attempt(retry_type: str, issue_type: str = "unknown") -> None:
-    """Record a workflow retry attempt.
-
-    Args:
-        retry_type: Type of retry (planner_retry, validator_retry)
-        issue_type: Reason for retry (e.g., tool_count_mismatch, wrong_tool_choice)
-    """
-    WORKFLOW_RETRY_ATTEMPTS.labels(retry_type=retry_type).inc()
-    WORKFLOW_RETRY_REASONS.labels(retry_type=retry_type, issue_type=issue_type).inc()
-
-
-def record_critic_decision(action: str, confidence: float) -> None:
-    """Record a critic decision with confidence.
-
-    Args:
-        action: Decision action (accept, clarify, retry_validator, retry_planner)
-        confidence: Confidence score (0.0-1.0)
-    """
-    CRITIC_DECISIONS.labels(action=action).inc()
-    CRITIC_CONFIDENCE.labels(action=action).observe(confidence)
 
 
 # ============================================================
@@ -253,3 +202,27 @@ def record_http_request(method: str, path: str, status_code: int, duration_secon
     """
     HTTP_REQUESTS_TOTAL.labels(method=method, path=path, status_code=str(status_code)).inc()
     HTTP_REQUEST_DURATION.labels(method=method, path=path).observe(duration_seconds)
+
+
+# ============================================================
+# Kernel-Unique Metric Recording Functions
+# ============================================================
+
+def record_pipeline_termination(reason: str) -> None:
+    """Record a pipeline termination by terminal reason."""
+    PIPELINE_TERMINATIONS.labels(reason=reason).inc()
+
+
+def record_kernel_instruction(instruction_type: str) -> None:
+    """Record a kernel instruction dispatched by type."""
+    KERNEL_INSTRUCTIONS.labels(instruction_type=instruction_type).inc()
+
+
+def record_agent_duration(agent_name: str, duration_seconds: float) -> None:
+    """Record per-agent execution duration."""
+    AGENT_EXECUTION_DURATION.labels(agent_name=agent_name).observe(duration_seconds)
+
+
+def record_tool_execution(tool_name: str, status: str) -> None:
+    """Record a tool execution by tool name and status."""
+    TOOL_EXECUTIONS.labels(tool_name=tool_name, status=status).inc()

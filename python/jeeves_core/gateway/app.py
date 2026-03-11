@@ -29,11 +29,15 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from fastapi.responses import HTMLResponse, JSONResponse
 from fastapi import Request
-from prometheus_client import make_asgi_app
+try:
+    from prometheus_client import make_asgi_app as _make_asgi_app
+    _PROMETHEUS_AVAILABLE = True
+except ImportError:
+    _PROMETHEUS_AVAILABLE = False
 
 from jeeves_core.logging import get_current_logger
 from jeeves_core.protocols import get_capability_resource_registry
-from jeeves_core.observability.tracing import init_tracing, instrument_fastapi, shutdown_tracing
+from jeeves_core.observability.otel_adapter import init_global_otel, instrument_fastapi, shutdown_tracing
 
 
 def _get_service_identity() -> str:
@@ -85,10 +89,16 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     )
 
     # Initialize tracing
-    jaeger_endpoint = os.getenv("JAEGER_ENDPOINT", "jaeger:4317")
     service_name = _get_service_identity() + "-gateway"
-    init_tracing(service_name, jaeger_endpoint)
-    _logger.info("tracing_initialized", service=service_name, jaeger=jaeger_endpoint)
+    try:
+        from opentelemetry.exporter.otlp.proto.grpc.trace_exporter import OTLPSpanExporter
+        jaeger_endpoint = os.getenv("JAEGER_ENDPOINT", "jaeger:4317")
+        exporter = OTLPSpanExporter(endpoint=jaeger_endpoint, insecure=True)
+        init_global_otel(service_name=service_name, exporter=exporter)
+        _logger.info("tracing_initialized", service=service_name, jaeger=jaeger_endpoint)
+    except ImportError:
+        init_global_otel(service_name=service_name)
+        _logger.info("tracing_initialized_console", service=service_name)
 
     try:
         # Note: flow_servicer, health_servicer, session_service are injected
@@ -321,9 +331,10 @@ app.include_router(interrupts.router, prefix="/api/v1", tags=["interrupts"])
 # Metrics Endpoint
 # =============================================================================
 
-# Mount Prometheus metrics endpoint
-metrics_app = make_asgi_app()
-app.mount("/metrics", metrics_app)
+# Mount Prometheus metrics endpoint (conditional on prometheus-client)
+if _PROMETHEUS_AVAILABLE:
+    metrics_app = _make_asgi_app()
+    app.mount("/metrics", metrics_app)
 
 
 # =============================================================================

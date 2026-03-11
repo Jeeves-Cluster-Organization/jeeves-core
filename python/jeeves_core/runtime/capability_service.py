@@ -182,7 +182,9 @@ class CapabilityService:
         metadata: Optional[Dict[str, Any]] = None,
     ) -> CapabilityResult:
         """Process a user message through the kernel-driven pipeline."""
+        from contextlib import nullcontext
         from jeeves_core.observability.metrics import orchestrator_started, orchestrator_completed
+        from jeeves_core.observability.otel_adapter import get_global_otel_adapter
 
         await self._maybe_ensure_ready()
 
@@ -192,33 +194,44 @@ class CapabilityService:
         )
         request_id = envelope.request_id
 
+        otel = get_global_otel_adapter()
+        span_ctx = otel.start_span(
+            "capability.process_message",
+            attributes={
+                "capability_id": self.capability_id,
+                "request_id": request_id,
+                "session_id": session_id,
+            },
+        ) if otel else nullcontext()
+
         orchestrator_started()
         _start = time.time()
 
-        try:
-            result = await self._run_pipeline(envelope, thread_id=session_id)
-            capability_result = self._build_result(result, request_id)
-            await self._on_result(result, capability_result, envelope)
-            if capability_result.status == "error" and capability_result.error:
-                self._logger.error(
-                    f"{self.capability_id}_pipeline_error",
-                    request_id=request_id,
-                    error=capability_result.error,
+        with span_ctx:
+            try:
+                result = await self._run_pipeline(envelope, thread_id=session_id)
+                capability_result = self._build_result(result, request_id)
+                await self._on_result(result, capability_result, envelope)
+                if capability_result.status == "error" and capability_result.error:
+                    self._logger.error(
+                        f"{self.capability_id}_pipeline_error",
+                        request_id=request_id,
+                        error=capability_result.error,
+                    )
+                orchestrator_completed(
+                    "success" if capability_result.status == "success" else "error",
+                    (time.time() - _start) * 1000,
                 )
-            orchestrator_completed(
-                "success" if capability_result.status == "success" else "error",
-                (time.time() - _start) * 1000,
-            )
-            return capability_result
-        except Exception as e:
-            orchestrator_completed("error", (time.time() - _start) * 1000)
-            self._logger.error(
-                f"{self.capability_id}_processing_error",
-                request_id=request_id,
-                error=str(e),
-                exc_info=True,
-            )
-            raise
+                return capability_result
+            except Exception as e:
+                orchestrator_completed("error", (time.time() - _start) * 1000)
+                self._logger.error(
+                    f"{self.capability_id}_processing_error",
+                    request_id=request_id,
+                    error=str(e),
+                    exc_info=True,
+                )
+                raise
 
     async def process_message_stream(
         self,
@@ -233,6 +246,8 @@ class CapabilityService:
         Uses PipelineWorker.execute_streaming() — the kernel controls
         routing, bounds, and interrupts. Yields PipelineEvents.
         """
+        from jeeves_core.observability.metrics import orchestrator_started, orchestrator_completed
+
         await self._maybe_ensure_ready()
 
         envelope = self._build_envelope(message, user_id, session_id, metadata)
@@ -241,6 +256,9 @@ class CapabilityService:
         )
         request_id = envelope.request_id
         pipeline_config_dict = self._pipeline_config.to_kernel_dict()
+
+        orchestrator_started()
+        _start = time.time()
 
         try:
             async for agent_name, output in self._worker.execute_streaming(
@@ -265,11 +283,14 @@ class CapabilityService:
                 result,
                 envelope,
             )
+            orchestrator_completed("success", (time.time() - _start) * 1000)
 
         except asyncio.CancelledError:
+            orchestrator_completed("cancelled", (time.time() - _start) * 1000)
             self._logger.info(f"{self.capability_id}_streaming_cancelled", request_id=request_id)
             raise
         except Exception as e:
+            orchestrator_completed("error", (time.time() - _start) * 1000)
             self._logger.error(f"{self.capability_id}_streaming_error", request_id=request_id, error=str(e))
             yield PipelineEvent("error", "__end__", {"error": str(e), "request_id": request_id})
 

@@ -56,10 +56,6 @@ class MockProvider(LLMProvider):
         if "generate natural" in prompt_lower or "tools:" in prompt_lower:
             return self._mock_validator_response(prompt_lower)
 
-        # Mock meta-validator responses
-        if "fact-checking" in prompt_lower or "validation rules" in prompt_lower:
-            return self._mock_meta_validator_response()
-
         # Mock confirmation detection responses (v0.14 Phase 4)
         if self._is_confirmation_detection_prompt(prompt_lower):
             return self._mock_confirmation_detection(prompt, prompt_lower)
@@ -329,16 +325,6 @@ class MockProvider(LLMProvider):
             return "I encountered an error while processing your request."
         else:
             return "Request processed."
-
-    def _mock_meta_validator_response(self) -> str:
-        """Generate mock meta-validator response."""
-        return json.dumps({
-            "approved": True,
-            "confidence": 0.95,
-            "issues": [],
-            "suggested_correction": None,
-            "requires_user_notification": False
-        })
 
     def _extract_user_response(self, prompt: str, prompt_lower: str) -> str:
         """Extract user response from prompt."""

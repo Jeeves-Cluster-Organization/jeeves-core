@@ -85,12 +85,19 @@ async def run_kernel_loop(
         initial_envelope: Initial envelope dict (passed to kernel on init).
         run_agent: async (instruction) → (output_dict, success, error, metrics).
     """
+    from jeeves_core.observability.metrics import (
+        record_kernel_instruction,
+        record_pipeline_termination,
+        record_agent_duration,
+    )
+
     await kernel.initialize_orchestration_session(
         process_id=process_id,
         pipeline_config=pipeline_config,
         envelope=initial_envelope,
     )
     instruction = await kernel.get_next_instruction(process_id)
+    record_kernel_instruction(instruction.kind)
 
     while instruction.kind in ("RUN_AGENT", "RUN_AGENTS"):
         if instruction.kind == "RUN_AGENTS":
@@ -101,7 +108,10 @@ async def run_kernel_loop(
                     agents=[name],
                     envelope=instruction.envelope,
                 )
-                return name, await run_agent(single)
+                _t0 = time.time()
+                result = await run_agent(single)
+                record_agent_duration(name, time.time() - _t0)
+                return name, result
 
             results = await asyncio.gather(
                 *(_dispatch_one(name) for name in instruction.agents)
@@ -117,20 +127,30 @@ async def run_kernel_loop(
                     error=error,
                 )
                 if instruction.kind == "TERMINATE":
+                    record_pipeline_termination(instruction.terminal_reason or "COMPLETED")
                     return instruction
             # After all parallel agents reported, get next instruction
             instruction = await kernel.get_next_instruction(process_id)
+            record_kernel_instruction(instruction.kind)
         else:
             # Single agent
+            agent_name = instruction.agents[0] if instruction.agents else ""
+            _t0 = time.time()
             output, success, error, metrics = await run_agent(instruction)
+            record_agent_duration(agent_name, time.time() - _t0)
             instruction = await kernel.report_agent_result(
                 process_id=process_id,
-                agent_name=instruction.agents[0] if instruction.agents else "",
+                agent_name=agent_name,
                 output=output,
                 metrics=metrics,
                 success=success,
                 error=error,
             )
+            record_kernel_instruction(instruction.kind)
+
+    # Terminal instruction
+    if instruction.kind == "TERMINATE":
+        record_pipeline_termination(instruction.terminal_reason or "COMPLETED")
 
     return instruction
 
@@ -196,11 +216,23 @@ class PipelineWorker:
         Returns:
             WorkerResult with final envelope and status
         """
+        from contextlib import nullcontext
+        from jeeves_core.observability.otel_adapter import get_global_otel_adapter
+
         if force:
             try:
                 await self._kernel.terminate_process(process_id, reason="force_replace")
             except KernelClientError:
                 pass  # session might not exist
+
+        otel = get_global_otel_adapter()
+        span_ctx = otel.start_span(
+            "pipeline.execute",
+            attributes={
+                "process_id": process_id,
+                "pipeline_name": pipeline_config.get("name", ""),
+            },
+        ) if otel else nullcontext()
 
         async def _run_agent_dispatch(
             instruction: OrchestratorInstruction,
@@ -234,59 +266,60 @@ class PipelineWorker:
 
             return (output, success, error, metrics)
 
-        try:
-            terminal = await run_kernel_loop(
-                self._kernel, process_id, pipeline_config,
-                envelope.to_dict(), _run_agent_dispatch,
-            )
-        except KernelClientError as e:
-            self._logger.error("worker_kernel_loop_failed", error=str(e))
-            return WorkerResult(
-                envelope=envelope,
-                terminated=True,
-                terminal_reason=str(e),
-            )
+        with span_ctx:
+            try:
+                terminal = await run_kernel_loop(
+                    self._kernel, process_id, pipeline_config,
+                    envelope.to_dict(), _run_agent_dispatch,
+                )
+            except KernelClientError as e:
+                self._logger.error("worker_kernel_loop_failed", error=str(e))
+                return WorkerResult(
+                    envelope=envelope,
+                    terminated=True,
+                    terminal_reason=str(e),
+                )
 
-        # Map terminal instruction to WorkerResult
-        if terminal.kind == "TERMINATE":
-            self._logger.info(
-                "worker_pipeline_terminated",
-                process_id=process_id,
-                reason=terminal.terminal_reason,
-            )
-            return WorkerResult(
-                envelope=envelope,
-                terminated=True,
-                terminal_reason=terminal.terminal_reason,
-            )
+            # Map terminal instruction to WorkerResult
+            if terminal.kind == "TERMINATE":
+                self._logger.info(
+                    "worker_pipeline_terminated",
+                    process_id=process_id,
+                    reason=terminal.terminal_reason,
+                )
+                return WorkerResult(
+                    envelope=envelope,
+                    terminated=True,
+                    terminal_reason=terminal.terminal_reason,
+                )
 
-        elif terminal.kind == "WAIT_INTERRUPT":
-            interrupt_kind = ""
-            if terminal.interrupt:
-                interrupt_kind = terminal.interrupt.get("kind", "")
-            self._logger.info(
-                "worker_waiting_interrupt",
-                process_id=process_id,
-                interrupt_kind=interrupt_kind,
-            )
-            return WorkerResult(
-                envelope=envelope,
-                terminated=False,
-                interrupted=True,
-                interrupt_kind=interrupt_kind,
-            )
+            elif terminal.kind == "WAIT_INTERRUPT":
+                interrupt_kind = ""
+                if terminal.interrupt:
+                    interrupt_kind = terminal.interrupt.get("kind", "")
+                self._logger.info(
+                    "worker_waiting_interrupt",
+                    process_id=process_id,
+                    interrupt_kind=interrupt_kind,
+                )
+                return WorkerResult(
+                    envelope=envelope,
+                    terminated=False,
+                    interrupted=True,
+                    interrupt_kind=interrupt_kind,
+                )
 
-        else:
-            self._logger.warning(
-                "worker_unknown_instruction",
-                process_id=process_id,
-                kind=terminal.kind,
-            )
-            return WorkerResult(
-                envelope=envelope,
-                terminated=True,
-                terminal_reason=f"Unknown instruction kind: {terminal.kind}",
-            )
+            else:
+                self._logger.warning(
+                    "worker_unknown_instruction",
+                    process_id=process_id,
+                    kind=terminal.kind,
+                )
+                return WorkerResult(
+                    envelope=envelope,
+                    terminated=True,
+                    terminal_reason=f"Unknown instruction kind: {terminal.kind}",
+                )
 
     async def execute_streaming(
         self,

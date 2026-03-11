@@ -100,6 +100,26 @@ def init_global_otel(
     return adapter
 
 
+def instrument_fastapi(app: Any) -> None:
+    """Instrument a FastAPI app with OpenTelemetry (if available)."""
+    if not OTEL_AVAILABLE:
+        return
+    try:
+        from opentelemetry.instrumentation.fastapi import FastAPIInstrumentor
+        FastAPIInstrumentor.instrument_app(app)
+    except ImportError:
+        pass  # opentelemetry-instrumentation-fastapi not installed
+
+
+def shutdown_tracing() -> None:
+    """Shutdown the global tracer provider and flush pending spans."""
+    if not OTEL_AVAILABLE:
+        return
+    provider = trace.get_tracer_provider()
+    if hasattr(provider, "shutdown"):
+        provider.shutdown()
+
+
 def create_tracer(
     service_name: str = "jeeves",
     service_version: str = "1.0.0",

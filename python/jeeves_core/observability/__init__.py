@@ -6,6 +6,8 @@ from jeeves_core.observability.otel_adapter import (
     init_global_otel,
     get_global_otel_adapter,
     set_global_otel_adapter,
+    instrument_fastapi,
+    shutdown_tracing,
 )
 
 __all__ = [
@@ -14,4 +16,6 @@ __all__ = [
     "init_global_otel",
     "get_global_otel_adapter",
     "set_global_otel_adapter",
+    "instrument_fastapi",
+    "shutdown_tracing",
 ]
