@@ -1,7 +1,7 @@
 # Jeeves-Core vs. OSS Agentic Frameworks — Full Comparative Audit
 
 **Date:** 2026-03-11 (Full re-audit)
-**Scope:** Comprehensive comparison of jeeves-core against 15 major OSS agentic AI frameworks
+**Scope:** Comprehensive comparison of jeeves-core against 17 major OSS agentic AI frameworks
 **Codebase revision:** Branch `claude/audit-agentic-frameworks-B6fqd` — includes MCP, A2A, PromptRegistry, CLI scaffold, observability refactor, gateway hardening
 
 ---
@@ -241,13 +241,36 @@ OTEL adapter (138 lines, consolidated from 576), Prometheus metrics (228 lines, 
 - **Architecture:** Memory-first platform. LLM-as-OS paradigm. Self-editing memory tools.
 - **2026 updates:** V1 architecture (`letta_v1_agent`) — heartbeats deprecated, native reasoning only. Context Repositories with git-based versioning. Conversations API for shared memory across parallel user experiences. Remote Environments for Letta Code. #1 on Terminal-Bench for model-agnostic coding agents.
 
-### 4.11 New Entrants (2025-2026)
+### 4.11 Agno (formerly Phidata)
 
-| Framework | Focus | Key Differentiator |
-|-----------|-------|-------------------|
-| **PydanticAI** | Type-safe agents | Pydantic philosophy for AI — strong typing, validation, no magic. Deep Python ecosystem integration. |
-| **Agno** (formerly Phidata) | Performance | ~2μs agent instantiation (~10,000× faster than LangGraph), ~3.75KiB memory. Native multimodality. Three multi-agent modes. |
-| **Mastra** | TypeScript-first | From Gatsby team. Deploy to Vercel/Cloudflare/Netlify in one command. Built for frontend developers. Native OpenTelemetry. |
+- **Version:** v2.5.3 (Feb 19, 2026) | **Stars:** 38.5k | **MCP:** Yes | **Language:** Python
+- **Architecture:** Performance-focused agent runtime. ~2μs agent instantiation (~10,000× faster than LangGraph), ~3.75KiB memory per agent.
+- **Features:** Three multi-agent modes (route, collaborate, coordinate). MemoryOptimizationStrategy. KnowledgeProtocol. Built-in evaluation system. 100+ integrations. Request-scoped isolation.
+
+### 4.12 PydanticAI
+
+- **Version:** v1.67.0 (Mar 6, 2026) | **Stars:** 15.4k | **MCP:** Yes (fastmcp extra) | **Language:** Python
+- **Architecture:** Type-safe agent development using Pydantic philosophy. No "magic" abstractions.
+- **Features:** Durable Execution with Temporal. A2A + AG-UI extras. ROC-AUC/KS evaluators built-in. Human-in-the-loop tool approval. Content filter refusal handling. Extremely rapid release cadence (v1.39 → v1.67 in ~2 months).
+
+### 4.13 Mastra
+
+- **Version:** v1.9.0 (Mar 4, 2026) | **Stars:** 21.8k | **MCP:** Yes | **Language:** TypeScript
+- **Architecture:** TS-first from Gatsby team (YC-backed). Built for frontend developers.
+- **Features:** Observational Memory (4-10× token cost reduction). Pluggable auth. LSP diagnostics. Cloudflare Workers support. Workflows, memory, streaming, evals, tracing. One-command deploy to Vercel/Cloudflare/Netlify.
+
+### 4.14 Strands Agents (AWS)
+
+- **Version:** Active | **Stars:** 5.2k | **MCP:** Yes (first-class) | **Languages:** Python, TS
+- **Architecture:** Model-driven agent SDK. Powers Amazon Q, Kiro, AWS Glue. 14M+ downloads.
+- **Features:** Multi-agent patterns (Graph, Swarm, Workflow). A2A protocol support. Deploys to Lambda/Fargate/EKS/Bedrock AgentCore. Strands Labs for experimental work (AI Functions, Strands Robots).
+
+### 4.15 Rig (Rust)
+
+- **Version:** Active | **Language:** Rust
+- **Architecture:** High-performance LLM applications in pure Rust. ~5× memory efficiency vs Python frameworks.
+- **Features:** Unified LLM interface. Pipeline API. OpenTelemetry support. Used by Dria, Cairnify, VT Code.
+- **Note:** The only other Rust-based agent framework besides Jeeves-Core. However, Rig is a Rust library (not a kernel+Python hybrid) and lacks process isolation, resource bounds, and interrupt systems.
 
 ---
 
@@ -291,9 +314,11 @@ OTEL adapter (138 lines, consolidated from 576), Prometheus metrics (228 lines, 
 | **Claude Agent SDK** | Claude-powered agents with native file/system access. First-class MCP with OAuth 2.0. Battle-tested runtime (powers Claude Code). |
 | **Google ADK** | Multi-language team (4 languages). Google Cloud deployment. Built-in evaluation. Interactions API for reasoning chains. A2A protocol support. |
 | **Letta** | Memory-first agents that persist and self-improve. Self-editing memory. Context Repositories with git versioning. #1 on Terminal-Bench. |
-| **PydanticAI** | Type-safe agent development that feels like regular software engineering. No magic abstractions. Deep Python ecosystem integration. |
-| **Agno** | Raw performance. ~2μs agent instantiation. Native multimodality. Lean and fast. |
-| **Mastra** | TypeScript-first. Frontend developers building agents. One-command deploy to Vercel/Cloudflare/Netlify. |
+| **PydanticAI** | Type-safe agent development that feels like regular software engineering. Durable Execution with Temporal. Built-in evaluators. A2A + AG-UI. |
+| **Agno** | Raw performance (38.5k stars). ~2μs agent instantiation. 100+ integrations. Built-in evaluation. Request-scoped isolation. |
+| **Mastra** | TypeScript-first (21.8k stars). Frontend developers building agents. Observational Memory (4-10× token savings). One-command deploy. |
+| **Strands Agents** | AWS ecosystem. Powers Amazon Q/Kiro. Lambda/Fargate/EKS/Bedrock deployment. A2A + MCP. Graph/Swarm/Workflow patterns. |
+| **Rig** | Rust-native LLM apps. ~5× memory efficiency vs Python. Best for Rust teams needing a lightweight LLM framework (not full agent orchestration). |
 
 ---
 
@@ -455,7 +480,7 @@ OpenTelemetry is the standard. Jeeves-core's OTEL + Prometheus stack is the righ
                          │  ● Letta         ● Agno
                          │       ● PydanticAI
                          │        ● BeeAI     ● Mastra
-                         │                    ● AG2
+                         │  ● Strands          ● AG2
                          └──────────────────────────────► ECOSYSTEM / ADOPTION
 ```
 

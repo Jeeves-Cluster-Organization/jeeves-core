@@ -296,13 +296,15 @@ FastAPI-based HTTP/WS/SSE server with hardened security:
 | **LLM Interface** | String prompt → string response | Message-based chat | Message-based chat | Message-based chat | Message-based chat | Message-based chat | Message-based chat | Typed signatures | Message-based chat | Message-based chat |
 | **Maturity** | Early (v0.0.1) | Production (v1.1) | Production (enterprise) | RC → GA Q1 2026 | Production (v0.11) | Production (v2.25) | Production | Production/Research | Early (v0.1.x) | Maturing |
 
-### 3.2 New Frameworks to Watch
+### 3.2 New Frameworks (2025-2026)
 
-| Framework | Stars | Language | Key Differentiator |
-|-----------|-------|----------|-------------------|
-| **PydanticAI** | Growing | Python | Type-safe agent development with Pydantic validation. No "magic" abstractions. |
-| **Agno** (formerly Phidata) | Growing | Python | Performance-focused: ~2μs agent instantiation (~10,000× faster than LangGraph), ~3.75KiB memory per agent. Three multi-agent modes: route, collaborate, coordinate. |
-| **Mastra** | Growing | TypeScript | TS-first framework from Gatsby team. Deploy to Vercel/Cloudflare/Netlify in one command. Built for frontend developers. |
+| Framework | Stars | Version | Language | Key Differentiator |
+|-----------|-------|---------|----------|-------------------|
+| **Agno** (formerly Phidata) | 38.5k | v2.5.3 | Python | Performance-focused: ~2μs agent instantiation (~10,000× faster than LangGraph), ~3.75KiB memory. Three multi-agent modes: route, collaborate, coordinate. 100+ integrations. |
+| **Mastra** | 21.8k | v1.9.0 | TypeScript | TS-first from Gatsby team (YC-backed). Observational Memory (4-10× token reduction). Deploy to Vercel/Cloudflare/Netlify in one command. |
+| **PydanticAI** | 15.4k | v1.67.0 | Python | Type-safe agents with Pydantic validation. Durable Execution with Temporal. A2A + AG-UI extras. ROC-AUC/KS evaluators built-in. Extremely rapid release cadence. |
+| **Strands Agents** (AWS) | 5.2k | Active | Python, TS | Powers Amazon Q, Kiro, AWS Glue. 14M+ downloads. Graph/Swarm/Workflow patterns. Deploys to Lambda/Fargate/EKS/Bedrock AgentCore. A2A + MCP support. |
+| **Rig** | — | Active | Rust | High-performance LLM apps in Rust. ~5× memory efficiency vs Python. Unified LLM interface, pipeline API, OTEL support. |
 
 ### 3.3 Detailed Comparisons
 
@@ -613,8 +615,9 @@ Replace hand-written `to_dict()` / `to_state_dict()` with automatic serializatio
 | **Google ADK** | 3.0 | 3.5 | 3.0 | 4.0 | 4.0 |
 | **Claude Agent SDK** | 2.5 | 3.5 | 2.5 | 3.5 | 4.0 |
 | **Letta** | 2.5 | 3.5 | 2.0 | 3.0 | 2.5 |
-| **PydanticAI** | 2.5 | 3.0 | 2.0 | 4.0 | 3.0 |
-| **Agno** | 2.5 | 3.0 | 2.0 | 4.0 | 3.0 |
+| **PydanticAI** | 3.0 | 3.0 | 2.5 | 4.0 | 3.5 |
+| **Agno** | 3.0 | 3.0 | 3.5 | 4.0 | 3.0 |
+| **Strands Agents** | 3.0 | 3.0 | 3.0 | 3.5 | 3.5 |
 | **Jeeves-Core** | 2.8 | 4.5 | 1.5 | 2.5 | 3.5 |
 
 Jeeves-Core has the strongest architecture of any framework in this comparison. Its protocol support improved significantly with MCP + A2A. The ecosystem and developer experience remain the weakest points.
