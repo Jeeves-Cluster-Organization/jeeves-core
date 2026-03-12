@@ -8,6 +8,12 @@ def test_api_imports():
         PipelineConfig, AgentConfig, stage, Edge, RoutingRule,
         RunMode, JoinStrategy, TokenStreamMode, GenerationParams,
         DomainServiceConfig, EdgeLimit,
+        # Wiring infrastructure
+        DomainModeConfig, DomainAgentConfig,
+        CapabilityToolsConfig, CapabilityOrchestratorConfig,
+        AgentLLMConfig,
+        # Context types
+        RequestContext, AgentContext,
         # Routing builders
         eq, neq, gt, lt, gte, lte, contains, exists, not_exists,
         and_, or_, not_, always, agent, meta, state, interrupt, current,

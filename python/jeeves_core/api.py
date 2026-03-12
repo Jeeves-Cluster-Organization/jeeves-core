@@ -1,14 +1,16 @@
-"""Single-import surface for capability definition.
-
-Usage:
-    from jeeves_core.api import PipelineConfig, stage, eq, DeterministicAgent
-"""
+"""Single-import surface for capability definition and registration."""
 
 # Stage/pipeline definition
 from jeeves_core.protocols import (
     PipelineConfig, AgentConfig, stage, Edge, RoutingRule,
     RunMode, JoinStrategy, TokenStreamMode, GenerationParams,
     DomainServiceConfig, EdgeLimit,
+    # Wiring infrastructure
+    DomainModeConfig, DomainAgentConfig,
+    CapabilityToolsConfig, CapabilityOrchestratorConfig,
+    AgentLLMConfig,
+    # Context types
+    RequestContext, AgentContext,
 )
 # Routing expression builders
 from jeeves_core.protocols.routing import (
