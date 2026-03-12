@@ -133,59 +133,14 @@ class TestPipeline:
             logger=logger,
         )
 
-        # Build initial envelope dict
-        from datetime import datetime, timezone
         process_id = f"test-{uuid4().hex[:8]}"
-        now_iso = datetime.now(timezone.utc).isoformat()
-        initial_envelope = {
-            "identity": {
-                "envelope_id": str(uuid4()),
-                "request_id": process_id,
-                "user_id": user_id,
-                "session_id": session_id,
-            },
-            "raw_input": message,
-            "received_at": now_iso,
-            "outputs": {},
-            "pipeline": {
-                "current_stage": "",
-                "stage_order": [],
-                "iteration": 0,
-                "max_iterations": self.config.max_iterations,
-            },
-            "bounds": {
-                "llm_call_count": 0,
-                "max_llm_calls": self.config.max_llm_calls,
-                "tool_call_count": 0,
-                "agent_hop_count": 0,
-                "max_agent_hops": self.config.max_agent_hops,
-                "tokens_in": 0,
-                "tokens_out": 0,
-                "terminated": False,
-            },
-            "interrupts": {"interrupt_pending": False},
-            "execution": {
-                "completed_stages": [],
-                "current_stage_number": 0,
-                "max_stages": len(self.config.agents),
-                "all_goals": [],
-                "remaining_goals": [],
-                "goal_completion_status": {},
-                "prior_plans": [],
-                "loop_feedback": [],
-            },
-            "audit": {
-                "processing_history": [],
-                "errors": [],
-                "created_at": now_iso,
-                "metadata": metadata or {},
-            },
-        }
-
         pipeline_config_dict = self.config.to_kernel_dict()
 
         return await worker.execute(
             process_id=process_id,
             pipeline_config=pipeline_config_dict,
-            initial_envelope=initial_envelope,
+            user_id=user_id,
+            session_id=session_id,
+            raw_input=message,
+            metadata=metadata,
         )
