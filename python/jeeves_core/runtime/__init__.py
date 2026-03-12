@@ -31,6 +31,8 @@ from jeeves_core.runtime.agents import (
     create_pipeline_runner,
 )
 
+from jeeves_core.runtime.deterministic import DeterministicAgent
+
 from jeeves_core.runtime.capability_service import (
     CapabilityService,
     CapabilityResult,
@@ -55,6 +57,8 @@ __all__ = [
     "PromptRegistry",
     "PipelineRunner",
     "OptionalCheckpoint",
+    # Deterministic agent base
+    "DeterministicAgent",
     # Capability service base
     "CapabilityService",
     "CapabilityResult",

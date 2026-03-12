@@ -139,3 +139,88 @@ def not_(expr: RoutingExpr) -> RoutingExpr:
 def always() -> RoutingExpr:
     """Unconditional match (always true)."""
     return {"op": "Always"}
+
+
+# =============================================================================
+# Structural validation
+# =============================================================================
+
+_COMPARISON_OPS = {"Eq", "Neq", "Gt", "Lt", "Gte", "Lte", "Contains"}
+_EXISTENCE_OPS = {"Exists", "NotExists"}
+_VALID_OPS = _COMPARISON_OPS | _EXISTENCE_OPS | {"And", "Or", "Not", "Always"}
+
+_SCOPE_REQUIRED_KEYS: Dict[str, List[str]] = {
+    "Current": ["key"],
+    "Agent": ["agent", "key"],
+    "Meta": ["path"],
+    "Interrupt": ["key"],
+    "State": ["key"],
+}
+
+
+def _validate_fieldref(errors: List[str], field_value: Any, context: str) -> None:
+    """Validate a FieldRef dict has the correct structure."""
+    if not isinstance(field_value, dict):
+        errors.append(f"{context}: 'field' must be a dict (FieldRef), got {type(field_value).__name__}")
+        return
+    scope = field_value.get("scope")
+    if scope is None:
+        errors.append(f"{context}: FieldRef missing 'scope' key")
+        return
+    required = _SCOPE_REQUIRED_KEYS.get(scope)
+    if required is None:
+        errors.append(f"{context}: unknown FieldRef scope '{scope}'")
+        return
+    for key in required:
+        if key not in field_value:
+            errors.append(f"{context}: FieldRef scope '{scope}' requires '{key}'")
+
+
+def validate_expr(expr: Dict[str, Any]) -> List[str]:
+    """Validate a RoutingExpr dict structurally.
+
+    Returns a list of error strings (empty = valid).
+    """
+    errors: List[str] = []
+    if not isinstance(expr, dict):
+        errors.append(f"RoutingExpr must be a dict, got {type(expr).__name__}")
+        return errors
+
+    op = expr.get("op")
+    if op is None:
+        errors.append("RoutingExpr missing 'op' key")
+        return errors
+    if op not in _VALID_OPS:
+        errors.append(f"Unknown RoutingExpr op '{op}'")
+        return errors
+
+    if op in _COMPARISON_OPS:
+        if "field" not in expr:
+            errors.append(f"Op '{op}' requires 'field'")
+        else:
+            _validate_fieldref(errors, expr["field"], f"Op '{op}'")
+        if "value" not in expr:
+            errors.append(f"Op '{op}' requires 'value'")
+    elif op in _EXISTENCE_OPS:
+        if "field" not in expr:
+            errors.append(f"Op '{op}' requires 'field'")
+        else:
+            _validate_fieldref(errors, expr["field"], f"Op '{op}'")
+    elif op == "Not":
+        sub = expr.get("expr")
+        if sub is None:
+            errors.append("Op 'Not' requires 'expr'")
+        else:
+            errors.extend(validate_expr(sub))
+    elif op in ("And", "Or"):
+        subs = expr.get("exprs")
+        if subs is None:
+            errors.append(f"Op '{op}' requires 'exprs'")
+        elif not isinstance(subs, list):
+            errors.append(f"Op '{op}': 'exprs' must be a list")
+        else:
+            for i, sub in enumerate(subs):
+                errors.extend(validate_expr(sub))
+    # "Always" — no additional fields required
+
+    return errors

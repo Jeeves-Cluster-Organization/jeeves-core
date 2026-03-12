@@ -84,7 +84,15 @@ def _validate_pipeline_config(pipeline_config: PipelineConfig) -> None:
             + "\n".join(f"  - {e}" for e in errors)
         )
 
-    # 2. Warnings (non-fatal, logged)
+    # 2. Cross-reference validation (routing targets, Gate constraints)
+    cross_ref_errors = pipeline_config.validate()
+    if cross_ref_errors:
+        raise ValueError(
+            f"Pipeline '{pipeline_config.name}' validation failed:\n"
+            + "\n".join(f"  - {e}" for e in cross_ref_errors)
+        )
+
+    # 3. Warnings (non-fatal, logged)
     seen_keys: set[str] = set()
     for agent in pipeline_config.agents:
         if agent.output_key in seen_keys:

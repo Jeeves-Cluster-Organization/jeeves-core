@@ -227,6 +227,8 @@ class Agent:
             # Get output
             if self.use_mock and self.mock_handler:
                 output = self.mock_handler(context)
+                if asyncio.iscoroutine(output):
+                    output = await output
             elif self.config.tool_dispatch == "auto":
                 output = await self._dispatch_tool(context)
             elif self.config.has_llm and self.llm:
@@ -623,6 +625,27 @@ class PipelineRunner:
     def _build_agents(self):
         """Build agents from pipeline config."""
         for agent_config in self.config.agents:
+            # DeterministicAgent bridge: wrap as mock_handler for existing Agent dispatch
+            if agent_config.agent_class is not None:
+                from jeeves_core.runtime.deterministic import DeterministicAgent
+                if not issubclass(agent_config.agent_class, DeterministicAgent):
+                    raise TypeError(
+                        f"Stage '{agent_config.name}': agent_class must be a "
+                        f"DeterministicAgent subclass"
+                    )
+                instance = agent_config.agent_class()
+                agent_cls = StreamingAgent if agent_config.token_stream != TokenStreamMode.OFF else Agent
+                agent = agent_cls(
+                    config=agent_config,
+                    logger=self.logger.bind(agent=agent_config.name) if self.logger else _NullLogger(),
+                    use_mock=True,
+                    mock_handler=lambda ctx, inst=instance: inst.execute(ctx),
+                    pre_process=agent_config.pre_process,
+                    post_process=agent_config.post_process,
+                )
+                self.agents[agent_config.name] = agent
+                continue
+
             if agent_config.has_llm and not self.llm_factory:
                 raise ValueError(
                     f"Agent '{agent_config.name}' requires LLM but no llm_factory provided "

@@ -307,6 +307,12 @@ class RoutingRule:
     expr: Dict[str, Any]
     target: str
 
+    def __post_init__(self):
+        from jeeves_core.protocols.routing import validate_expr
+        errors = validate_expr(self.expr)
+        if errors:
+            raise ValueError(f"RoutingRule(target='{self.target}'): {'; '.join(errors)}")
+
     def to_kernel_dict(self) -> Dict[str, Any]:
         return {"expr": self.expr, "target": self.target}
 
@@ -397,6 +403,8 @@ class AgentConfig:
     tool_source_agent: Optional[str] = None    # output_key of agent with tool selection
     tool_name_field: str = "tool"              # field in source output with tool name
     tool_params_field: str = "params"          # field in source output with params dict
+    # DeterministicAgent subclass — Python-only, not serialized to kernel
+    agent_class: Optional[type] = None
 
     def __post_init__(self):
         if not self.output_key:
@@ -405,6 +413,14 @@ class AgentConfig:
             raise ValueError(
                 f"Agent '{self.name}': AUTHORITATIVE streaming + output_schema is forbidden. "
                 "Cannot authoritatively stream structured output."
+            )
+        if self.agent_class is not None and self.has_llm:
+            raise ValueError(
+                f"Agent '{self.name}': agent_class and has_llm are mutually exclusive"
+            )
+        if self.agent_class is not None and self.mock_handler is not None:
+            raise ValueError(
+                f"Agent '{self.name}': agent_class and mock_handler are mutually exclusive"
             )
 
     def to_kernel_dict(self) -> Dict[str, Any]:
@@ -470,6 +486,7 @@ def stage(
     token_stream: TokenStreamMode = TokenStreamMode.OFF,
     streaming_prompt_key: str | None = None,
     allowed_tools: Set[str] | None = None,
+    agent_class: type | None = None,
 ) -> AgentConfig:
     """Shorthand for AgentConfig with inference.
 
@@ -512,6 +529,7 @@ def stage(
         tool_name_field=tool_name_field,
         tool_params_field=tool_params_field,
         allowed_tools=allowed_tools,
+        agent_class=agent_class,
     )
 
 
@@ -521,6 +539,24 @@ class Edge:
     source: str
     target: str
     when: Optional[Dict[str, Any]] = None  # RoutingExpr dict, None = default/unconditional
+
+
+def _check_current_scope_in_expr(errors: List[str], stage_name: str, expr: Dict[str, Any]) -> None:
+    """Check if a Gate routing expr uses FieldRef::Current (which is invalid for Gates)."""
+    op = expr.get("op")
+    _FIELD_OPS = {"Eq", "Neq", "Gt", "Lt", "Gte", "Lte", "Contains", "Exists", "NotExists"}
+    if op in _FIELD_OPS:
+        field_val = expr.get("field", {})
+        if isinstance(field_val, dict) and field_val.get("scope") == "Current":
+            errors.append(
+                f"Stage '{stage_name}': Gate uses Current scope — "
+                f"Gates produce no output. Use agent() scope instead."
+            )
+    elif op == "Not":
+        _check_current_scope_in_expr(errors, stage_name, expr.get("expr", {}))
+    elif op in ("And", "Or"):
+        for sub in expr.get("exprs", []):
+            _check_current_scope_in_expr(errors, stage_name, sub)
 
 
 @dataclass
@@ -558,6 +594,48 @@ class PipelineConfig:
         if self.state_schema:
             d["state_schema"] = self.state_schema
         return d
+
+    def validate(self) -> List[str]:
+        """Cross-reference validation of pipeline config.
+
+        Checks routing targets, default_next, error_next reference existing stages,
+        and Gate nodes don't use Current scope or has_llm=True.
+        Does NOT re-validate expr structure (RoutingRule.__post_init__ owns that).
+        """
+        errors: List[str] = []
+        stage_names = {a.name for a in self.agents}
+
+        for agent in self.agents:
+            # Routing targets exist
+            for rule in agent.routing_rules:
+                if rule.target not in stage_names:
+                    errors.append(
+                        f"Stage '{agent.name}': routing target '{rule.target}' "
+                        f"not in stages {sorted(stage_names)}"
+                    )
+            # default_next exists
+            if agent.default_next is not None and agent.default_next not in stage_names:
+                errors.append(
+                    f"Stage '{agent.name}': default_next '{agent.default_next}' "
+                    f"not in stages {sorted(stage_names)}"
+                )
+            # error_next exists
+            if agent.error_next is not None and agent.error_next not in stage_names:
+                errors.append(
+                    f"Stage '{agent.name}': error_next '{agent.error_next}' "
+                    f"not in stages {sorted(stage_names)}"
+                )
+            # Gate + has_llm conflict
+            if agent.node_kind == "Gate" and agent.has_llm:
+                errors.append(
+                    f"Stage '{agent.name}': Gate node must have has_llm=False"
+                )
+            # Gate + Current scope
+            if agent.node_kind == "Gate":
+                for rule in agent.routing_rules:
+                    _check_current_scope_in_expr(errors, agent.name, rule.expr)
+
+        return errors
 
     def get_stage_order(self) -> List[str]:
         return [a.name for a in sorted(self.agents, key=lambda x: x.stage_order)]
