@@ -105,3 +105,158 @@ class TestAllowedToolsEnforcement:
 
         assert result["status"] == "success"
         agent.tools.execute.assert_called_once()
+
+
+# =============================================================================
+# Lifecycle Hook Tests
+# =============================================================================
+
+class TestPreProcessHooks:
+    """Test pre_process hook invocation in Agent.process()."""
+
+    @pytest.mark.asyncio
+    async def test_pre_process_hook_is_called(self):
+        """Pre-process hook receives (context, agent) and its return replaces context."""
+        hook_calls = []
+
+        def my_hook(context, agent):
+            hook_calls.append(("pre", context.raw_input, agent.name))
+            # Modify context metadata
+            context.metadata["enriched"] = True
+            return context
+
+        agent = _make_agent_with_mock(pre_process=[my_hook])
+        context = _make_context(raw_input="hello")
+
+        await agent.process(context)
+
+        assert len(hook_calls) == 1
+        assert hook_calls[0] == ("pre", "hello", "test_agent")
+
+    @pytest.mark.asyncio
+    async def test_pre_process_hooks_chain(self):
+        """Multiple pre-process hooks run in order, each receiving prior result."""
+        order = []
+
+        def hook_a(context, agent):
+            order.append("a")
+            context.metadata["a"] = True
+            return context
+
+        def hook_b(context, agent):
+            order.append("b")
+            assert context.metadata.get("a") is True  # sees hook_a's mutation
+            context.metadata["b"] = True
+            return context
+
+        agent = _make_agent_with_mock(pre_process=[hook_a, hook_b])
+        context = _make_context()
+
+        await agent.process(context)
+
+        assert order == ["a", "b"]
+
+    @pytest.mark.asyncio
+    async def test_async_pre_process_hook(self):
+        """Async pre-process hooks are awaited."""
+        called = []
+
+        async def async_hook(context, agent):
+            called.append(True)
+            context.metadata["async_ran"] = True
+            return context
+
+        agent = _make_agent_with_mock(pre_process=[async_hook])
+        context = _make_context()
+
+        await agent.process(context)
+
+        assert len(called) == 1
+
+
+class TestPostProcessHooks:
+    """Test post_process hook invocation in Agent.process()."""
+
+    @pytest.mark.asyncio
+    async def test_post_process_hook_receives_output(self):
+        """Post-process hook receives (context, output, agent)."""
+        hook_calls = []
+
+        def my_hook(context, output, agent):
+            hook_calls.append(list(output.keys()))
+            return context
+
+        mock_output = {"intent": "greeting", "confidence": 0.95}
+        agent = _make_agent_with_mock(
+            post_process=[my_hook],
+            mock_output=mock_output,
+        )
+        context = _make_context()
+
+        await agent.process(context)
+
+        assert len(hook_calls) == 1
+        assert "intent" in hook_calls[0]
+        assert "confidence" in hook_calls[0]
+
+    @pytest.mark.asyncio
+    async def test_post_process_can_modify_metadata(self):
+        """Post-process hook can enrich metadata returned from process()."""
+
+        def enrich_meta(context, output, agent):
+            context.metadata["post_processed"] = True
+            context.metadata["output_keys"] = list(output.keys())
+            return context
+
+        agent = _make_agent_with_mock(
+            post_process=[enrich_meta],
+            mock_output={"response": "hi"},
+        )
+        context = _make_context()
+
+        output, metadata = await agent.process(context)
+
+        assert metadata["post_processed"] is True
+        assert metadata["output_keys"] == ["response"]
+
+    @pytest.mark.asyncio
+    async def test_hook_exception_propagates(self):
+        """Hook exceptions propagate — no silent swallowing."""
+
+        def bad_hook(context, output, agent):
+            raise RuntimeError("hook failed")
+
+        agent = _make_agent_with_mock(post_process=[bad_hook])
+        context = _make_context()
+
+        with pytest.raises(RuntimeError, match="hook failed"):
+            await agent.process(context)
+
+
+# =============================================================================
+# Hook test helpers
+# =============================================================================
+
+def _make_agent_with_mock(
+    name: str = "test_agent",
+    pre_process=None,
+    post_process=None,
+    mock_output=None,
+) -> Agent:
+    """Create an Agent with a mock_handler (bypasses LLM)."""
+    config = AgentConfig(
+        name=name,
+        has_tools=False,
+    )
+
+    output = mock_output or {"result": "ok"}
+
+    agent = Agent(
+        config=config,
+        logger=_NullLogger(),
+        use_mock=True,
+        mock_handler=lambda ctx: output,
+        pre_process=pre_process or [],
+        post_process=post_process or [],
+    )
+    return agent

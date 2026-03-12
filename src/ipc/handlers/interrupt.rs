@@ -143,3 +143,111 @@ pub async fn handle(kernel: &mut Kernel, method: &str, body: Value) -> Result<Di
 fn parse_interrupt_kind(s: &str) -> Result<InterruptKind> {
     parse_enum::<InterruptKind>(s, "interrupt kind")
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::kernel::Kernel;
+
+    async fn call(kernel: &mut Kernel, method: &str, body: Value) -> Value {
+        match handle(kernel, method, body).await.unwrap() {
+            DispatchResponse::Single(v) => v,
+            _ => panic!("Expected Single response"),
+        }
+    }
+
+    #[tokio::test]
+    async fn test_create_interrupt() {
+        let mut kernel = Kernel::new();
+        let r = call(
+            &mut kernel,
+            "CreateInterrupt",
+            serde_json::json!({
+                "kind": "confirmation",
+                "request_id": "req-1",
+                "user_id": "user-1",
+                "session_id": "sess-1",
+                "envelope_id": "env-1",
+                "question": "Please confirm",
+            }),
+        )
+        .await;
+        assert!(r.get("id").is_some());
+        assert_eq!(r["status"], "pending");
+    }
+
+    #[tokio::test]
+    async fn test_resolve_interrupt() {
+        let mut kernel = Kernel::new();
+        let created = call(
+            &mut kernel,
+            "CreateInterrupt",
+            serde_json::json!({
+                "kind": "confirmation",
+                "request_id": "req-1",
+                "user_id": "user-1",
+                "session_id": "sess-1",
+                "envelope_id": "env-1",
+            }),
+        )
+        .await;
+        let interrupt_id = created["id"].as_str().unwrap();
+
+        let r = call(
+            &mut kernel,
+            "ResolveInterrupt",
+            serde_json::json!({
+                "interrupt_id": interrupt_id,
+                "response": {
+                    "approved": true,
+                    "received_at": "2026-03-13T00:00:00Z",
+                },
+                "user_id": "user-1",
+            }),
+        )
+        .await;
+        assert_eq!(r["success"], true);
+    }
+
+    #[tokio::test]
+    async fn test_cancel_interrupt() {
+        let mut kernel = Kernel::new();
+        let created = call(
+            &mut kernel,
+            "CreateInterrupt",
+            serde_json::json!({
+                "kind": "confirmation",
+                "request_id": "req-1",
+                "user_id": "user-1",
+                "session_id": "sess-1",
+                "envelope_id": "env-1",
+            }),
+        )
+        .await;
+        let interrupt_id = created["id"].as_str().unwrap();
+
+        let r = call(
+            &mut kernel,
+            "CancelInterrupt",
+            serde_json::json!({"interrupt_id": interrupt_id, "reason": "no longer needed"}),
+        )
+        .await;
+        assert_eq!(r["success"], true);
+    }
+
+    #[tokio::test]
+    async fn test_get_nonexistent_interrupt_returns_error() {
+        let mut kernel = Kernel::new();
+        let err = match handle(
+            &mut kernel,
+            "GetInterrupt",
+            serde_json::json!({"interrupt_id": "nonexistent"}),
+        )
+        .await
+        {
+            Err(e) => e,
+            Ok(_) => panic!("Expected error"),
+        };
+        assert!(err.to_string().contains("not found"));
+    }
+}

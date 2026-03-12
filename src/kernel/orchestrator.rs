@@ -156,16 +156,21 @@ impl Orchestrator {
 
         // Check for pending interrupt
         if envelope.interrupts.interrupt_pending {
-            return Ok(Instruction {
-                kind: InstructionKind::WaitInterrupt,
-                agents: vec![],
-                terminal_reason: None,
-                termination_message: None,
-                interrupt_pending: true,
-                interrupt: envelope.interrupts.interrupt.clone(),
-                agent_context: None,
-                output_schema: None,
-                allowed_tools: None,
+            return Ok(match envelope.interrupts.interrupt.clone() {
+                Some(interrupt) => Instruction::wait_interrupt(interrupt),
+                // interrupt_pending=true with no interrupt object: return WaitInterrupt
+                // with interrupt=None (kept inline — factory requires non-optional FlowInterrupt)
+                None => Instruction {
+                    kind: InstructionKind::WaitInterrupt,
+                    agents: vec![],
+                    terminal_reason: None,
+                    termination_message: None,
+                    interrupt_pending: true,
+                    interrupt: None,
+                    agent_context: None,
+                    output_schema: None,
+                    allowed_tools: None,
+                },
             });
         }
 
@@ -174,65 +179,25 @@ impl Orchestrator {
             tracing::warn!(reason = ?reason, "bounds_terminated");
             envelope.bounds.terminated = true;
             envelope.bounds.terminal_reason = Some(reason);
-            return Ok(Instruction {
-                kind: InstructionKind::Terminate,
-                agents: vec![],
-                terminal_reason: Some(reason),
-                termination_message: Some(format!("Bounds exceeded: {:?}", reason)),
-                interrupt_pending: false,
-                interrupt: None,
-                agent_context: None,
-                output_schema: None,
-                allowed_tools: None,
-            });
+            return Ok(Instruction::terminate(reason, format!("Bounds exceeded: {:?}", reason)));
         }
 
         // Check for active parallel group
         if let Some(ref mut parallel) = session.active_parallel {
             if is_parallel_join_met(parallel) {
                 // Join condition met — will be resolved in next report_agent_result
-                return Ok(Instruction {
-                    kind: InstructionKind::WaitParallel,
-                    agents: vec![],
-                    terminal_reason: None,
-                    termination_message: None,
-                    interrupt_pending: false,
-                    interrupt: None,
-                    agent_context: None,
-                    output_schema: None,
-                    allowed_tools: None,
-                });
+                return Ok(Instruction::wait_parallel());
             }
 
             if !parallel.pending_agents.is_empty() {
                 // Parallel group started — dispatch all pending agents
                 let agents: Vec<String> = parallel.pending_agents.drain().collect();
                 tracing::info!(group = %parallel.group_name, ?agents, "parallel_fanout");
-                return Ok(Instruction {
-                    kind: InstructionKind::RunAgents,
-                    agents,
-                    terminal_reason: None,
-                    termination_message: None,
-                    interrupt_pending: false,
-                    interrupt: None,
-                    agent_context: None,
-                    output_schema: None,
-                    allowed_tools: None,
-                });
+                return Ok(Instruction::run_agents(agents));
             }
 
             // Agents dispatched, waiting for results
-            return Ok(Instruction {
-                kind: InstructionKind::WaitParallel,
-                agents: vec![],
-                terminal_reason: None,
-                termination_message: None,
-                interrupt_pending: false,
-                interrupt: None,
-                agent_context: None,
-                output_schema: None,
-                allowed_tools: None,
-            });
+            return Ok(Instruction::wait_parallel());
         }
 
         // Determine next agent to run (single agent)
@@ -256,17 +221,7 @@ impl Orchestrator {
                 if let Some(reason) = envelope.check_bounds() {
                     envelope.bounds.terminated = true;
                     envelope.bounds.terminal_reason = Some(reason);
-                    return Ok(Instruction {
-                        kind: InstructionKind::Terminate,
-                        agents: vec![],
-                        terminal_reason: Some(reason),
-                        termination_message: Some(format!("Gate bounds exceeded: {:?}", reason)),
-                        interrupt_pending: false,
-                        interrupt: None,
-                        agent_context: None,
-                        output_schema: None,
-                        allowed_tools: None,
-                    });
+                    return Ok(Instruction::terminate(reason, format!("Gate bounds exceeded: {:?}", reason)));
                 }
 
                 // Gate routing: no agent execution, no interrupt_response
@@ -297,17 +252,7 @@ impl Orchestrator {
                 if let Some(reason) = envelope.check_bounds() {
                     envelope.bounds.terminated = true;
                     envelope.bounds.terminal_reason = Some(reason);
-                    return Ok(Instruction {
-                        kind: InstructionKind::Terminate,
-                        agents: vec![],
-                        terminal_reason: Some(reason),
-                        termination_message: Some(format!("Fork bounds exceeded: {:?}", reason)),
-                        interrupt_pending: false,
-                        interrupt: None,
-                        agent_context: None,
-                        output_schema: None,
-                        allowed_tools: None,
-                    });
+                    return Ok(Instruction::terminate(reason, format!("Fork bounds exceeded: {:?}", reason)));
                 }
 
                 // ALL-match: every matching rule contributes a target
@@ -331,17 +276,7 @@ impl Orchestrator {
                         envelope.bounds.terminated = true;
                         envelope.bounds.terminal_reason = Some(TerminalReason::Completed);
                         session.last_activity_at = Utc::now();
-                        return Ok(Instruction {
-                            kind: InstructionKind::Terminate,
-                            agents: vec![],
-                            terminal_reason: Some(TerminalReason::Completed),
-                            termination_message: None,
-                            interrupt_pending: false,
-                            interrupt: None,
-                            agent_context: None,
-                            output_schema: None,
-                            allowed_tools: None,
-                        });
+                        return Ok(Instruction::terminate_completed());
                     }
                     1 => {
                         // Single target — advance sequentially
@@ -379,17 +314,7 @@ impl Orchestrator {
 
         let agent_name = get_agent_for_stage(&session.pipeline_config, current_stage)?;
 
-        Ok(Instruction {
-            kind: InstructionKind::RunAgent,
-            agents: vec![agent_name],
-            terminal_reason: None,
-            termination_message: None,
-            interrupt_pending: false,
-            interrupt: None,
-            agent_context: None,
-            output_schema: None,
-            allowed_tools: None,
-        })
+        Ok(Instruction::run_agent(agent_name))
     }
 
     /// Process agent execution result.

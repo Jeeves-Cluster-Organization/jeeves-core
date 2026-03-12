@@ -16,7 +16,6 @@ pub mod lifecycle;
 pub mod orchestrator;
 pub mod orchestrator_types;
 pub mod rate_limiter;
-pub mod recovery;
 pub mod resources;
 pub mod routing;
 pub mod services;
@@ -26,7 +25,6 @@ pub use cleanup::{CleanupConfig, CleanupService, CleanupStats};
 pub use interrupts::{InterruptConfig, InterruptService, InterruptStatus, KernelInterrupt};
 pub use lifecycle::LifecycleManager;
 pub use rate_limiter::{RateLimitConfig, RateLimiter};
-pub use recovery::with_recovery;
 pub use resources::ResourceTracker;
 pub use services::{
     RegistryStats, ServiceInfo, ServiceRegistry, ServiceStats, ServiceStatus,
