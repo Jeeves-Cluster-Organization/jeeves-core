@@ -25,12 +25,23 @@ pub async fn handle(kernel: &mut Kernel, method: &str, body: Value) -> Result<Di
                 serde_json::from_value(pipeline_config_val.clone())
                     .map_err(|e| Error::validation(format!("Invalid pipeline_config: {}", e)))?;
 
-            let envelope_val = body
-                .get("envelope")
-                .ok_or_else(|| Error::validation("Missing field: envelope"))?;
-            let envelope: Envelope = serde_json::from_value(envelope_val.clone())
-                .map_err(|e| Error::validation(format!("Invalid envelope: {}", e)))?;
-            envelope.validate()?;
+            // Accept either full "envelope" dict (backward compat) or minimal params
+            let envelope = if let Some(envelope_val) = body.get("envelope") {
+                let env: Envelope = serde_json::from_value(envelope_val.clone())
+                    .map_err(|e| Error::validation(format!("Invalid envelope: {}", e)))?;
+                env.validate()?;
+                env
+            } else {
+                // Build from minimal params: user_id, session_id, raw_input, metadata
+                let user_id = str_field(&body, "user_id")?;
+                let session_id = str_field(&body, "session_id")?;
+                let raw_input = body
+                    .get("raw_input")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or_default();
+                let metadata = body.get("metadata").cloned();
+                Envelope::new_minimal(&user_id, &session_id, raw_input, metadata)
+            };
 
             let force = body.get("force").and_then(|v| v.as_bool()).unwrap_or(false);
 
@@ -121,8 +132,10 @@ pub async fn handle(kernel: &mut Kernel, method: &str, body: Value) -> Result<Di
                 .get("metadata_updates")
                 .and_then(|v| serde_json::from_value(v.clone()).ok());
 
+            let break_loop = body.get("break_loop").and_then(|v| v.as_bool()).unwrap_or(false);
+
             let instruction = kernel.process_agent_result(
-                &process_id, &agent_name, output, metadata_updates, metrics, success, &error_message,
+                &process_id, &agent_name, output, metadata_updates, metrics, success, &error_message, break_loop,
             )?;
             let envelope = kernel.get_process_envelope(&process_id);
             Ok(DispatchResponse::Single(instruction_to_value(&instruction, envelope)))
@@ -157,6 +170,7 @@ struct InstructionResponse<'a> {
     agents: &'a [String],
     terminal_reason: &'a str,
     termination_message: &'a str,
+    outcome: &'a str,
     interrupt_pending: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
     interrupt: Option<Value>,
@@ -205,6 +219,13 @@ pub fn instruction_to_value(
         agent_config.insert("allowed_tools".to_string(), serde_json::json!(tools));
     }
 
+    // Derive outcome from terminal_reason
+    let outcome = instr
+        .terminal_reason
+        .as_ref()
+        .map(|r| r.outcome())
+        .unwrap_or("completed");
+
     // Include envelope outputs on terminal instructions
     let outputs = if instr.kind == InstructionKind::Terminate {
         envelope.and_then(|e| serde_json::to_value(&e.outputs).ok())
@@ -217,6 +238,7 @@ pub fn instruction_to_value(
         agents: &instr.agents,
         terminal_reason: &terminal_reason_str,
         termination_message: instr.termination_message.as_deref().unwrap_or(""),
+        outcome,
         interrupt_pending: instr.interrupt_pending,
         interrupt: instr.interrupt.as_ref().and_then(|i| serde_json::to_value(i).ok()),
         agent_config: serde_json::Value::Object(agent_config),

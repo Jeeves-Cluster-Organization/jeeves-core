@@ -241,6 +241,142 @@ impl Orchestrator {
             return Err(Error::state_transition("No current stage set"));
         }
 
+        // Gate dispatch: evaluate routing without running any agent
+        let stage_config = session.pipeline_config.stages.iter()
+            .find(|s| s.name == *current_stage)
+            .cloned();
+        if let Some(ref sc) = stage_config {
+            if sc.node_kind == NodeKind::Gate {
+                // Track visit + increment iteration
+                let current_stage_owned = current_stage.to_string();
+                *session.stage_visits.entry(current_stage_owned.clone()).or_insert(0) += 1;
+                envelope.pipeline.iteration += 1;
+
+                // Bounds check
+                if let Some(reason) = envelope.check_bounds() {
+                    envelope.bounds.terminated = true;
+                    envelope.bounds.terminal_reason = Some(reason);
+                    return Ok(Instruction {
+                        kind: InstructionKind::Terminate,
+                        agents: vec![],
+                        terminal_reason: Some(reason),
+                        termination_message: Some(format!("Gate bounds exceeded: {:?}", reason)),
+                        interrupt_pending: false,
+                        interrupt: None,
+                        agent_context: None,
+                        output_schema: None,
+                        allowed_tools: None,
+                    });
+                }
+
+                // Gate routing: no agent execution, no interrupt_response
+                let interrupt_response = envelope.interrupts.interrupt.as_ref()
+                    .and_then(|i| i.response.as_ref())
+                    .and_then(|r| serde_json::to_value(r).ok());
+                let next = evaluate_routing(
+                    sc,
+                    &envelope.outputs,
+                    &sc.name,
+                    false,
+                    &envelope.audit.metadata,
+                    interrupt_response.as_ref(),
+                    &envelope.state,
+                );
+                self.apply_routing_result(process_id, &current_stage_owned, next, envelope)?;
+
+                // Recurse — next stage might also be a Gate
+                return self.get_next_instruction(process_id, envelope);
+            }
+
+            // Fork dispatch: evaluate ALL routing rules, collect matching targets
+            if sc.node_kind == NodeKind::Fork {
+                let current_stage_owned = current_stage.to_string();
+                *session.stage_visits.entry(current_stage_owned.clone()).or_insert(0) += 1;
+                envelope.pipeline.iteration += 1;
+
+                if let Some(reason) = envelope.check_bounds() {
+                    envelope.bounds.terminated = true;
+                    envelope.bounds.terminal_reason = Some(reason);
+                    return Ok(Instruction {
+                        kind: InstructionKind::Terminate,
+                        agents: vec![],
+                        terminal_reason: Some(reason),
+                        termination_message: Some(format!("Fork bounds exceeded: {:?}", reason)),
+                        interrupt_pending: false,
+                        interrupt: None,
+                        agent_context: None,
+                        output_schema: None,
+                        allowed_tools: None,
+                    });
+                }
+
+                // ALL-match: every matching rule contributes a target
+                let mut targets: Vec<String> = vec![];
+                for rule in &sc.routing {
+                    if evaluate_expr(&rule.expr, &envelope.outputs, &sc.name, &envelope.audit.metadata, None, &envelope.state) {
+                        if !targets.contains(&rule.target) {
+                            targets.push(rule.target.clone());
+                        }
+                    }
+                }
+                if targets.is_empty() {
+                    if let Some(ref d) = sc.default_next {
+                        targets.push(d.clone());
+                    }
+                }
+
+                match targets.len() {
+                    0 => {
+                        // No targets — terminate COMPLETED
+                        envelope.bounds.terminated = true;
+                        envelope.bounds.terminal_reason = Some(TerminalReason::Completed);
+                        session.last_activity_at = Utc::now();
+                        return Ok(Instruction {
+                            kind: InstructionKind::Terminate,
+                            agents: vec![],
+                            terminal_reason: Some(TerminalReason::Completed),
+                            termination_message: None,
+                            interrupt_pending: false,
+                            interrupt: None,
+                            agent_context: None,
+                            output_schema: None,
+                            allowed_tools: None,
+                        });
+                    }
+                    1 => {
+                        // Single target — advance sequentially
+                        let target = targets.into_iter().next().unwrap();
+                        self.apply_routing_result(process_id, &current_stage_owned, Some(target), envelope)?;
+                        return self.get_next_instruction(process_id, envelope);
+                    }
+                    _ => {
+                        // Multiple targets — set up parallel state
+                        let agent_names: HashSet<String> = targets.iter()
+                            .filter_map(|t| get_agent_for_stage(&session.pipeline_config, t).ok())
+                            .collect();
+                        let stage_names: Vec<String> = targets;
+
+                        session.active_parallel = Some(ParallelGroupState {
+                            group_name: current_stage_owned.clone(),
+                            stages: stage_names.clone(),
+                            pending_agents: agent_names,
+                            completed_agents: HashSet::new(),
+                            failed_agents: HashMap::new(),
+                            join_strategy: sc.join_strategy,
+                        });
+
+                        envelope.pipeline.parallel_mode = true;
+                        envelope.pipeline.active_stages = stage_names.into_iter().collect();
+                        envelope.pipeline.current_stage = current_stage_owned;
+                        session.last_activity_at = Utc::now();
+
+                        // Recurse to dispatch the pending agents
+                        return self.get_next_instruction(process_id, envelope);
+                    }
+                }
+            }
+        }
+
         let agent_name = get_agent_for_stage(&session.pipeline_config, current_stage)?;
 
         Ok(Instruction {
@@ -274,6 +410,7 @@ impl Orchestrator {
         metrics: AgentExecutionMetrics,
         envelope: &mut Envelope,
         agent_failed: bool,
+        break_loop: bool,
     ) -> Result<()> {
         let session = self
             .pipelines
@@ -298,6 +435,21 @@ impl Orchestrator {
             envelope.bounds.terminated = true;
             envelope.bounds.terminal_reason = Some(reason);
             return Ok(());
+        }
+
+        // Break check — agent decided to exit scope
+        if break_loop {
+            if session.active_parallel.is_some() {
+                // In fork context: break = early completion of this branch
+                // Mark agent completed, fall through to join logic below
+                // (don't terminate the whole pipeline)
+            } else {
+                // Top-level: break = pipeline exit
+                envelope.bounds.terminated = true;
+                envelope.bounds.terminal_reason = Some(TerminalReason::BreakRequested);
+                session.last_activity_at = Utc::now();
+                return Ok(());
+            }
         }
 
         // ===== PARALLEL GROUP HANDLING =====
@@ -328,14 +480,10 @@ impl Orchestrator {
             return Ok(());
         }
 
-        // Step 3: Take ownership if join met
+        // Step 3: Take ownership if join met — Fork node owns post-join routing
         if let Some(parallel) = session.active_parallel.take() {
             envelope.pipeline.parallel_mode = false;
             envelope.pipeline.active_stages.clear();
-
-            let first_stage_name = parallel.stages.first()
-                .ok_or_else(|| Error::state_transition("Parallel group has no stages"))?
-                .clone();
 
             // Mark all parallel stages as completed
             for stage_name in &parallel.stages {
@@ -343,34 +491,17 @@ impl Orchestrator {
                 envelope.complete_stage(stage_name);
             }
 
-            let first_stage = session.pipeline_config.stages
+            // Fork node owns post-join routing via its default_next
+            let fork_node = session.pipeline_config.stages
                 .iter()
-                .find(|s| s.name == first_stage_name)
-                .ok_or_else(|| Error::state_transition(format!(
-                    "Parallel first stage '{}' not found in pipeline config",
-                    first_stage_name
-                )))?
-                .clone();
+                .find(|s| s.name == parallel.group_name)
+                .cloned();
 
-            let first_agent_name = first_stage.agent.clone();
-            let any_failed = !parallel.failed_agents.is_empty();
-
-            let interrupt_response = envelope.interrupts.interrupt.as_ref()
-                .and_then(|i| i.response.as_ref())
-                .and_then(|r| serde_json::to_value(r).ok());
-
-            let next_target = evaluate_routing(
-                &first_stage,
-                &envelope.outputs,
-                &first_agent_name,
-                any_failed,
-                &envelope.audit.metadata,
-                interrupt_response.as_ref(),
-            );
+            let next_target = fork_node.as_ref().and_then(|f| f.default_next.clone());
 
             return self.apply_routing_result(
                 process_id,
-                &first_stage_name,
+                &parallel.group_name,
                 next_target,
                 envelope,
             );
@@ -411,6 +542,7 @@ impl Orchestrator {
             agent_failed,
             &envelope.audit.metadata,
             interrupt_response.as_ref(),
+            &envelope.state,
         );
 
         self.apply_routing_result(process_id, &current_stage, next_target, envelope)
@@ -467,45 +599,6 @@ impl Orchestrator {
                 let edge_key = format!("{}->{}", from_stage, target);
                 *session.edge_traversals.entry(edge_key).or_insert(0) += 1;
                 envelope.bounds.agent_hop_count += 1;
-
-                // Check if target has a parallel_group → start parallel fan-out
-                let target_stage = session.pipeline_config.stages.iter()
-                    .find(|s| s.name == target)
-                    .cloned();
-                if let Some(ref ts) = target_stage {
-                    if let Some(ref group_name) = ts.parallel_group {
-                        // Collect ALL stages in this parallel group
-                        let group_stages: Vec<PipelineStage> = session.pipeline_config.stages.iter()
-                            .filter(|s| s.parallel_group.as_deref() == Some(group_name.as_str()))
-                            .cloned()
-                            .collect();
-
-                        let stage_names: Vec<String> = group_stages.iter().map(|s| s.name.clone()).collect();
-                        let agent_names: HashSet<String> = group_stages.iter().map(|s| s.agent.clone()).collect();
-
-                        let join_strategy = group_stages.first()
-                            .map(|s| s.join_strategy)
-                            .unwrap_or_default();
-
-                        session.active_parallel = Some(ParallelGroupState {
-                            group_name: group_name.clone(),
-                            stages: stage_names.clone(),
-                            pending_agents: agent_names,
-                            completed_agents: HashSet::new(),
-                            failed_agents: HashMap::new(),
-                            join_strategy,
-                        });
-
-                        // Set envelope parallel state
-                        envelope.pipeline.parallel_mode = true;
-                        envelope.pipeline.active_stages = stage_names.into_iter().collect();
-                        // Set current_stage to the first stage in the group (primary marker)
-                        envelope.pipeline.current_stage = target;
-
-                        session.last_activity_at = Utc::now();
-                        return Ok(());
-                    }
-                }
 
                 // Normal advance to target stage
                 tracing::info!(from = %from_stage, to = %target, "stage_transition");
@@ -568,6 +661,22 @@ impl Orchestrator {
                 session.pipeline_config.stages.iter()
                     .find(|s| s.name == stage_name)
                     .and_then(|s| s.allowed_tools.clone())
+            })
+    }
+
+    /// Get the state_schema for a process's pipeline.
+    pub fn get_state_schema(&self, process_id: &ProcessId) -> Option<&Vec<StateField>> {
+        self.pipelines.get(process_id)
+            .map(|session| &session.pipeline_config.state_schema)
+    }
+
+    /// Get the output_key for a stage, defaulting to the stage name.
+    pub fn get_stage_output_key(&self, process_id: &ProcessId, stage_name: &str) -> Option<String> {
+        self.pipelines.get(process_id)
+            .and_then(|session| {
+                session.pipeline_config.stages.iter()
+                    .find(|s| s.name == stage_name)
+                    .map(|s| s.output_key.clone().unwrap_or_else(|| s.name.clone()))
             })
     }
 
@@ -688,10 +797,11 @@ mod tests {
             default_next: default_next.map(|s| s.to_string()),
             error_next: None,
             max_visits: None,
-            parallel_group: None,
             join_strategy: JoinStrategy::default(),
             output_schema: None,
             allowed_tools: None,
+            node_kind: NodeKind::default(),
+            output_key: None,
         }
     }
 
@@ -703,6 +813,16 @@ mod tests {
         RoutingRule {
             expr: RoutingExpr::Eq {
                 field: FieldRef::Current { key: key.to_string() },
+                value: value.into(),
+            },
+            target: target.to_string(),
+        }
+    }
+
+    fn agent_eq_rule(agent: &str, key: &str, value: impl Into<Value>, target: &str) -> RoutingRule {
+        RoutingRule {
+            expr: RoutingExpr::Eq {
+                field: FieldRef::Agent { agent: agent.to_string(), key: key.to_string() },
                 value: value.into(),
             },
             target: target.to_string(),
@@ -726,6 +846,7 @@ mod tests {
             max_agent_hops: 5,
             edge_limits: vec![],
             step_limit: None,
+            state_schema: vec![],
         }
     }
 
@@ -915,7 +1036,7 @@ mod tests {
             duration_ms: 1500,
         };
 
-        orch.report_agent_result(&ProcessId::must("proc1"), metrics, &mut envelope, false)
+        orch.report_agent_result(&ProcessId::must("proc1"), metrics, &mut envelope, false, false)
             .unwrap();
 
         assert_eq!(envelope.bounds.llm_call_count, 2);
@@ -942,7 +1063,7 @@ mod tests {
             duration_ms: 100,
         };
 
-        orch.report_agent_result(&ProcessId::must("proc1"), metrics, &mut envelope, false)
+        orch.report_agent_result(&ProcessId::must("proc1"), metrics, &mut envelope, false, false)
             .unwrap();
 
         assert_eq!(envelope.bounds.tokens_in, 0);
@@ -1030,6 +1151,7 @@ mod tests {
             max_agent_hops: 10,
             edge_limits: vec![],
             step_limit: None,
+            state_schema: vec![],
         };
         assert!(pipeline.validate().is_err());
     }
@@ -1046,6 +1168,7 @@ mod tests {
             max_agent_hops: 10,
             edge_limits: vec![],
             step_limit: None,
+            state_schema: vec![],
         };
         assert!(pipeline.validate().is_err());
     }
@@ -1062,6 +1185,7 @@ mod tests {
             max_agent_hops: 10,
             edge_limits: vec![],
             step_limit: None,
+            state_schema: vec![],
         };
         assert!(pipeline.validate().is_err());
     }
@@ -1078,6 +1202,7 @@ mod tests {
             max_agent_hops: 10,
             edge_limits: vec![],
             step_limit: None,
+            state_schema: vec![],
         };
         assert!(pipeline.validate().is_err());
     }
@@ -1092,6 +1217,7 @@ mod tests {
             max_agent_hops: 10,
             edge_limits: vec![],
             step_limit: None,
+            state_schema: vec![],
         };
         assert!(pipeline.validate().is_err());
     }
@@ -1108,6 +1234,7 @@ mod tests {
                 max_agent_hops: hops,
                 edge_limits: vec![],
                 step_limit: None,
+                state_schema: vec![],
             };
             assert!(pipeline.validate().is_err(), "Expected error for ({}, {}, {})", iterations, llm, hops);
         }
@@ -1123,6 +1250,7 @@ mod tests {
             max_agent_hops: 10,
             edge_limits: vec![],
             step_limit: None,
+            state_schema: vec![],
         };
         assert!(pipeline.validate().is_err());
     }
@@ -1137,6 +1265,7 @@ mod tests {
             max_agent_hops: 0,
             edge_limits: vec![],
             step_limit: None,
+            state_schema: vec![],
         };
         assert!(pipeline.validate().is_err());
     }
@@ -1158,6 +1287,7 @@ mod tests {
                 max_count: 0,
             }],
             step_limit: None,
+            state_schema: vec![],
         };
         assert!(pipeline.validate().is_err());
     }
@@ -1184,6 +1314,7 @@ mod tests {
             max_agent_hops: 10,
             edge_limits: vec![],
             step_limit: None,
+            state_schema: vec![],
         };
         let mut envelope = create_test_envelope();
         orch.initialize_session(ProcessId::must("p1"), pipeline, &mut envelope, false).unwrap();
@@ -1193,7 +1324,7 @@ mod tests {
         output.insert("intent".to_string(), serde_json::json!("skip"));
         envelope.outputs.insert("a1".to_string(), output);
 
-        orch.report_agent_result(&ProcessId::must("p1"), zero_metrics(), &mut envelope, false).unwrap();
+        orch.report_agent_result(&ProcessId::must("p1"), zero_metrics(), &mut envelope, false, false).unwrap();
 
         assert_eq!(envelope.pipeline.current_stage, "s3");
         assert!(!envelope.bounds.terminated);
@@ -1213,11 +1344,12 @@ mod tests {
             max_agent_hops: 10,
             edge_limits: vec![],
             step_limit: None,
+            state_schema: vec![],
         };
         let mut envelope = create_test_envelope();
         orch.initialize_session(ProcessId::must("p1"), pipeline, &mut envelope, false).unwrap();
 
-        orch.report_agent_result(&ProcessId::must("p1"), zero_metrics(), &mut envelope, false).unwrap();
+        orch.report_agent_result(&ProcessId::must("p1"), zero_metrics(), &mut envelope, false, false).unwrap();
 
         assert_eq!(envelope.pipeline.current_stage, "s2");
         assert!(!envelope.bounds.terminated);
@@ -1241,6 +1373,7 @@ mod tests {
             max_agent_hops: 10,
             edge_limits: vec![],
             step_limit: None,
+            state_schema: vec![],
         };
         let mut envelope = create_test_envelope();
         orch.initialize_session(ProcessId::must("p1"), pipeline, &mut envelope, false).unwrap();
@@ -1249,7 +1382,7 @@ mod tests {
         output.insert("intent".to_string(), serde_json::json!("greet"));
         envelope.outputs.insert("a1".to_string(), output);
 
-        orch.report_agent_result(&ProcessId::must("p1"), zero_metrics(), &mut envelope, false).unwrap();
+        orch.report_agent_result(&ProcessId::must("p1"), zero_metrics(), &mut envelope, false, false).unwrap();
 
         // First rule wins → s2, not s3
         assert_eq!(envelope.pipeline.current_stage, "s2");
@@ -1269,11 +1402,12 @@ mod tests {
             max_agent_hops: 10,
             edge_limits: vec![],
             step_limit: None,
+            state_schema: vec![],
         };
         let mut envelope = create_test_envelope();
         orch.initialize_session(ProcessId::must("p1"), pipeline, &mut envelope, false).unwrap();
 
-        orch.report_agent_result(&ProcessId::must("p1"), zero_metrics(), &mut envelope, false).unwrap();
+        orch.report_agent_result(&ProcessId::must("p1"), zero_metrics(), &mut envelope, false, false).unwrap();
 
         assert_eq!(envelope.pipeline.current_stage, "s2");
         assert!(!envelope.bounds.terminated);
@@ -1292,11 +1426,12 @@ mod tests {
             max_agent_hops: 10,
             edge_limits: vec![],
             step_limit: None,
+            state_schema: vec![],
         };
         let mut envelope = create_test_envelope();
         orch.initialize_session(ProcessId::must("p1"), pipeline, &mut envelope, false).unwrap();
 
-        orch.report_agent_result(&ProcessId::must("p1"), zero_metrics(), &mut envelope, false).unwrap();
+        orch.report_agent_result(&ProcessId::must("p1"), zero_metrics(), &mut envelope, false, false).unwrap();
 
         assert!(envelope.bounds.terminated);
         assert_eq!(envelope.bounds.terminal_reason, Some(TerminalReason::Completed));
@@ -1319,11 +1454,12 @@ mod tests {
             max_agent_hops: 10,
             edge_limits: vec![],
             step_limit: None,
+            state_schema: vec![],
         };
         let mut envelope = create_test_envelope();
         orch.initialize_session(ProcessId::must("p1"), pipeline, &mut envelope, false).unwrap();
 
-        orch.report_agent_result(&ProcessId::must("p1"), zero_metrics(), &mut envelope, true).unwrap();
+        orch.report_agent_result(&ProcessId::must("p1"), zero_metrics(), &mut envelope, true, false).unwrap();
 
         assert_eq!(envelope.pipeline.current_stage, "s3");
     }
@@ -1342,11 +1478,12 @@ mod tests {
             max_agent_hops: 10,
             edge_limits: vec![],
             step_limit: None,
+            state_schema: vec![],
         };
         let mut envelope = create_test_envelope();
         orch.initialize_session(ProcessId::must("p1"), pipeline, &mut envelope, false).unwrap();
 
-        orch.report_agent_result(&ProcessId::must("p1"), zero_metrics(), &mut envelope, true).unwrap();
+        orch.report_agent_result(&ProcessId::must("p1"), zero_metrics(), &mut envelope, true, false).unwrap();
 
         assert_eq!(envelope.pipeline.current_stage, "s2");
     }
@@ -1378,12 +1515,13 @@ mod tests {
             max_agent_hops: 100,
             edge_limits: vec![],
             step_limit: None,
+            state_schema: vec![],
         };
         let mut envelope = create_test_envelope();
         orch.initialize_session(ProcessId::must("p1"), pipeline, &mut envelope, false).unwrap();
 
         // First iteration: no output → completed missing → not_(eq) = true → loops
-        orch.report_agent_result(&ProcessId::must("p1"), zero_metrics(), &mut envelope, false).unwrap();
+        orch.report_agent_result(&ProcessId::must("p1"), zero_metrics(), &mut envelope, false, false).unwrap();
         assert_eq!(envelope.pipeline.current_stage, "s1");
         assert!(!envelope.bounds.terminated);
 
@@ -1391,7 +1529,7 @@ mod tests {
         let mut output = HashMap::new();
         output.insert("completed".to_string(), serde_json::json!(false));
         envelope.outputs.insert("a1".to_string(), output);
-        orch.report_agent_result(&ProcessId::must("p1"), zero_metrics(), &mut envelope, false).unwrap();
+        orch.report_agent_result(&ProcessId::must("p1"), zero_metrics(), &mut envelope, false, false).unwrap();
         assert_eq!(envelope.pipeline.current_stage, "s1");
         assert!(!envelope.bounds.terminated);
 
@@ -1399,7 +1537,7 @@ mod tests {
         let mut output2 = HashMap::new();
         output2.insert("completed".to_string(), serde_json::json!(true));
         envelope.outputs.insert("a1".to_string(), output2);
-        orch.report_agent_result(&ProcessId::must("p1"), zero_metrics(), &mut envelope, false).unwrap();
+        orch.report_agent_result(&ProcessId::must("p1"), zero_metrics(), &mut envelope, false, false).unwrap();
         assert!(envelope.bounds.terminated);
         assert_eq!(envelope.bounds.terminal_reason, Some(TerminalReason::Completed));
     }
@@ -1423,17 +1561,18 @@ mod tests {
             max_agent_hops: 10,
             edge_limits: vec![],
             step_limit: None,
+            state_schema: vec![],
         };
         let mut envelope = create_test_envelope();
         orch.initialize_session(ProcessId::must("p1"), pipeline, &mut envelope, false).unwrap();
 
-        orch.report_agent_result(&ProcessId::must("p1"), zero_metrics(), &mut envelope, false).unwrap();
+        orch.report_agent_result(&ProcessId::must("p1"), zero_metrics(), &mut envelope, false, false).unwrap();
         assert_eq!(envelope.pipeline.current_stage, "s2");
 
-        orch.report_agent_result(&ProcessId::must("p1"), zero_metrics(), &mut envelope, false).unwrap();
+        orch.report_agent_result(&ProcessId::must("p1"), zero_metrics(), &mut envelope, false, false).unwrap();
         assert_eq!(envelope.pipeline.current_stage, "s3");
 
-        orch.report_agent_result(&ProcessId::must("p1"), zero_metrics(), &mut envelope, false).unwrap();
+        orch.report_agent_result(&ProcessId::must("p1"), zero_metrics(), &mut envelope, false, false).unwrap();
         assert!(envelope.bounds.terminated);
         assert_eq!(envelope.bounds.terminal_reason, Some(TerminalReason::Completed));
     }
@@ -1452,13 +1591,14 @@ mod tests {
             max_agent_hops: 50,
             edge_limits: vec![],
             step_limit: None,
+            state_schema: vec![],
         };
         let mut envelope = create_test_envelope();
         orch.initialize_session(ProcessId::must("p1"), pipeline, &mut envelope, false).unwrap();
 
         let mut terminated = false;
         for _ in 0..20 {
-            orch.report_agent_result(&ProcessId::must("p1"), zero_metrics(), &mut envelope, false).unwrap();
+            orch.report_agent_result(&ProcessId::must("p1"), zero_metrics(), &mut envelope, false, false).unwrap();
 
             if envelope.bounds.terminated {
                 terminated = true;
@@ -1487,6 +1627,7 @@ mod tests {
                 max_count: 2,
             }],
             step_limit: None,
+            state_schema: vec![],
         };
         let mut envelope = create_test_envelope();
         orch.initialize_session(ProcessId::must("p1"), pipeline, &mut envelope, false).unwrap();
@@ -1498,7 +1639,7 @@ mod tests {
                 assert_eq!(envelope.bounds.terminal_reason, Some(TerminalReason::MaxAgentHopsExceeded));
                 break;
             }
-            orch.report_agent_result(&ProcessId::must("p1"), zero_metrics(), &mut envelope, false).unwrap();
+            orch.report_agent_result(&ProcessId::must("p1"), zero_metrics(), &mut envelope, false, false).unwrap();
         }
         assert!(terminated, "Edge limit should have terminated the cycle");
     }
@@ -1510,7 +1651,7 @@ mod tests {
         let mut envelope = create_test_envelope();
         orch.initialize_session(ProcessId::must("p1"), pipeline, &mut envelope, false).unwrap();
 
-        orch.report_agent_result(&ProcessId::must("p1"), zero_metrics(), &mut envelope, false).unwrap();
+        orch.report_agent_result(&ProcessId::must("p1"), zero_metrics(), &mut envelope, false, false).unwrap();
 
         let session = orch.pipelines.get(&ProcessId::must("p1")).unwrap();
         assert_eq!(session.edge_traversals.get("stage1->stage2"), Some(&1));
@@ -1536,24 +1677,25 @@ mod tests {
             max_agent_hops: 100,
             edge_limits: vec![],
             step_limit: None,
+            state_schema: vec![],
         };
         let mut envelope = create_test_envelope();
         orch.initialize_session(ProcessId::must("p1"), pipeline, &mut envelope, false).unwrap();
 
         // visit 1: s1 → s2 (s1 visits=1)
-        orch.report_agent_result(&ProcessId::must("p1"), zero_metrics(), &mut envelope, false).unwrap();
+        orch.report_agent_result(&ProcessId::must("p1"), zero_metrics(), &mut envelope, false, false).unwrap();
         assert_eq!(envelope.pipeline.current_stage, "s2");
 
         // s2 → s1 (s1 visits still 1, about to visit again)
-        orch.report_agent_result(&ProcessId::must("p1"), zero_metrics(), &mut envelope, false).unwrap();
+        orch.report_agent_result(&ProcessId::must("p1"), zero_metrics(), &mut envelope, false, false).unwrap();
         assert_eq!(envelope.pipeline.current_stage, "s1");
 
         // visit 2: s1 → s2 (s1 visits=2)
-        orch.report_agent_result(&ProcessId::must("p1"), zero_metrics(), &mut envelope, false).unwrap();
+        orch.report_agent_result(&ProcessId::must("p1"), zero_metrics(), &mut envelope, false, false).unwrap();
         assert_eq!(envelope.pipeline.current_stage, "s2");
 
         // s2 tries to route to s1, but s1 has max_visits=2 and visits=2 → terminate
-        orch.report_agent_result(&ProcessId::must("p1"), zero_metrics(), &mut envelope, false).unwrap();
+        orch.report_agent_result(&ProcessId::must("p1"), zero_metrics(), &mut envelope, false, false).unwrap();
         assert!(envelope.bounds.terminated);
         assert_eq!(envelope.bounds.terminal_reason, Some(TerminalReason::MaxStageVisitsExceeded));
     }
@@ -1562,31 +1704,38 @@ mod tests {
     // Parallel execution tests
     // =========================================================================
 
-    fn parallel_stage(name: &str, agent: &str, group: &str, routing: Vec<RoutingRule>, default_next: Option<&str>) -> PipelineStage {
+    fn fork_stage(name: &str, routing: Vec<RoutingRule>, default_next: Option<&str>, join: JoinStrategy) -> PipelineStage {
         PipelineStage {
             name: name.to_string(),
-            agent: agent.to_string(),
+            agent: name.to_string(),
             routing,
             default_next: default_next.map(|s| s.to_string()),
             error_next: None,
             max_visits: None,
-            parallel_group: Some(group.to_string()),
-            join_strategy: JoinStrategy::WaitAll,
+            join_strategy: join,
             output_schema: None,
             allowed_tools: None,
+            node_kind: NodeKind::Fork,
+            output_key: None,
         }
     }
 
     #[test]
-    fn test_parallel_fan_out_fan_in() {
+    fn test_fork_fan_out_wait_all() {
+        // Fork with 3 always() rules → 3 parallel branches, WaitAll
         let mut orch = Orchestrator::new();
         let pipeline = PipelineConfig {
             name: "test".to_string(),
             stages: vec![
-                stage("context", "ctx_agent", vec![always_to("think_a")], None),
-                parallel_stage("think_a", "agent_a", "think", vec![], Some("resolve")),
-                parallel_stage("think_b", "agent_b", "think", vec![], None),
-                parallel_stage("think_c", "agent_c", "think", vec![], None),
+                stage("context", "ctx_agent", vec![always_to("fork")], None),
+                fork_stage("fork", vec![
+                    always_to("think_a"),
+                    always_to("think_b"),
+                    always_to("think_c"),
+                ], Some("resolve"), JoinStrategy::WaitAll),
+                stage("think_a", "agent_a", vec![], None),
+                stage("think_b", "agent_b", vec![], None),
+                stage("think_c", "agent_c", vec![], None),
                 stage("resolve", "resolver", vec![], None),
             ],
             max_iterations: 100,
@@ -1594,63 +1743,65 @@ mod tests {
             max_agent_hops: 100,
             edge_limits: vec![],
             step_limit: None,
+            state_schema: vec![],
         };
         let mut envelope = create_test_envelope();
         orch.initialize_session(ProcessId::must("p1"), pipeline, &mut envelope, false).unwrap();
 
-        orch.report_agent_result(&ProcessId::must("p1"), zero_metrics(), &mut envelope, false).unwrap();
+        // context agent reports → routes to fork
+        orch.report_agent_result(&ProcessId::must("p1"), zero_metrics(), &mut envelope, false, false).unwrap();
 
-        let session = orch.pipelines.get(&ProcessId::must("p1")).unwrap();
-        assert!(session.active_parallel.is_some());
-        let par = session.active_parallel.as_ref().unwrap();
-        assert_eq!(par.group_name, "think");
-        assert_eq!(par.stages.len(), 3);
-        assert!(envelope.pipeline.parallel_mode);
-
+        // get_next_instruction detects Fork → sets up parallel → dispatches agents
         let instr = orch.get_next_instruction(&ProcessId::must("p1"), &mut envelope).unwrap();
         assert_eq!(instr.kind, InstructionKind::RunAgents);
         assert_eq!(instr.agents.len(), 3);
 
-        envelope.pipeline.current_stage = "think_a".to_string();
-        orch.report_agent_result(&ProcessId::must("p1"), zero_metrics(), &mut envelope, false).unwrap();
+        let session = orch.pipelines.get(&ProcessId::must("p1")).unwrap();
+        assert!(session.active_parallel.is_some());
+        let par = session.active_parallel.as_ref().unwrap();
+        assert_eq!(par.group_name, "fork");
+        assert_eq!(par.stages.len(), 3);
+        assert!(envelope.pipeline.parallel_mode);
 
+        // Report all 3 branches
+        envelope.pipeline.current_stage = "think_a".to_string();
+        orch.report_agent_result(&ProcessId::must("p1"), zero_metrics(), &mut envelope, false, false).unwrap();
         let instr = orch.get_next_instruction(&ProcessId::must("p1"), &mut envelope).unwrap();
         assert_eq!(instr.kind, InstructionKind::WaitParallel);
 
         envelope.pipeline.current_stage = "think_b".to_string();
-        orch.report_agent_result(&ProcessId::must("p1"), zero_metrics(), &mut envelope, false).unwrap();
-
+        orch.report_agent_result(&ProcessId::must("p1"), zero_metrics(), &mut envelope, false, false).unwrap();
         let instr = orch.get_next_instruction(&ProcessId::must("p1"), &mut envelope).unwrap();
         assert_eq!(instr.kind, InstructionKind::WaitParallel);
 
         envelope.pipeline.current_stage = "think_c".to_string();
-        orch.report_agent_result(&ProcessId::must("p1"), zero_metrics(), &mut envelope, false).unwrap();
+        orch.report_agent_result(&ProcessId::must("p1"), zero_metrics(), &mut envelope, false, false).unwrap();
 
+        // After all 3 branches complete, fork advances to resolve via default_next
         assert_eq!(envelope.pipeline.current_stage, "resolve");
         assert!(!envelope.pipeline.parallel_mode);
-        let session = orch.pipelines.get(&ProcessId::must("p1")).unwrap();
-        assert!(session.active_parallel.is_none());
         assert!(!envelope.bounds.terminated);
 
-        orch.report_agent_result(&ProcessId::must("p1"), zero_metrics(), &mut envelope, false).unwrap();
+        // Resolve completes
+        orch.report_agent_result(&ProcessId::must("p1"), zero_metrics(), &mut envelope, false, false).unwrap();
         assert!(envelope.bounds.terminated);
         assert_eq!(envelope.bounds.terminal_reason, Some(TerminalReason::Completed));
     }
 
     #[test]
-    fn test_parallel_wait_first_strategy() {
-        let mut think_a = parallel_stage("think_a", "agent_a", "think", vec![], Some("resolve"));
-        think_a.join_strategy = JoinStrategy::WaitFirst;
-        let mut think_b = parallel_stage("think_b", "agent_b", "think", vec![], None);
-        think_b.join_strategy = JoinStrategy::WaitFirst;
-
+    fn test_fork_wait_first_strategy() {
+        // Fork with WaitFirst — first completion advances immediately
         let mut orch = Orchestrator::new();
         let pipeline = PipelineConfig {
             name: "test".to_string(),
             stages: vec![
-                stage("start", "starter", vec![always_to("think_a")], None),
-                think_a,
-                think_b,
+                stage("start", "starter", vec![always_to("fork")], None),
+                fork_stage("fork", vec![
+                    always_to("think_a"),
+                    always_to("think_b"),
+                ], Some("resolve"), JoinStrategy::WaitFirst),
+                stage("think_a", "agent_a", vec![], None),
+                stage("think_b", "agent_b", vec![], None),
                 stage("resolve", "resolver", vec![], None),
             ],
             max_iterations: 100,
@@ -1658,15 +1809,20 @@ mod tests {
             max_agent_hops: 100,
             edge_limits: vec![],
             step_limit: None,
+            state_schema: vec![],
         };
         let mut envelope = create_test_envelope();
         orch.initialize_session(ProcessId::must("p1"), pipeline, &mut envelope, false).unwrap();
 
-        orch.report_agent_result(&ProcessId::must("p1"), zero_metrics(), &mut envelope, false).unwrap();
+        orch.report_agent_result(&ProcessId::must("p1"), zero_metrics(), &mut envelope, false, false).unwrap();
+
+        // get_next_instruction sets up Fork parallel state
+        let _instr = orch.get_next_instruction(&ProcessId::must("p1"), &mut envelope).unwrap();
         assert!(orch.pipelines.get(&ProcessId::must("p1")).unwrap().active_parallel.is_some());
 
+        // First branch completes → should advance immediately
         envelope.pipeline.current_stage = "think_a".to_string();
-        orch.report_agent_result(&ProcessId::must("p1"), zero_metrics(), &mut envelope, false).unwrap();
+        orch.report_agent_result(&ProcessId::must("p1"), zero_metrics(), &mut envelope, false, false).unwrap();
 
         assert_eq!(envelope.pipeline.current_stage, "resolve");
         assert!(orch.pipelines.get(&ProcessId::must("p1")).unwrap().active_parallel.is_none());
@@ -1693,6 +1849,7 @@ mod tests {
                 max_count: 3,
             }],
             step_limit: Some(100),
+            state_schema: vec![],
         };
         let json = serde_json::to_string(&config).unwrap();
         let deserialized: PipelineConfig = serde_json::from_str(&json).unwrap();
@@ -1761,6 +1918,7 @@ mod tests {
             max_agent_hops: 100,
             edge_limits: vec![],
             step_limit: Some(3),
+            state_schema: vec![],
         };
         let mut envelope = create_test_envelope();
         orch.initialize_session(ProcessId::must("p1"), pipeline, &mut envelope, false).unwrap();
@@ -1782,12 +1940,13 @@ mod tests {
             max_agent_hops: 100,
             edge_limits: vec![],
             step_limit: None,
+            state_schema: vec![],
         };
         let mut envelope = create_test_envelope();
         orch.initialize_session(ProcessId::must("p1"), pipeline, &mut envelope, false).unwrap();
 
         for _ in 0..50 {
-            orch.report_agent_result(&ProcessId::must("p1"), zero_metrics(), &mut envelope, false).unwrap();
+            orch.report_agent_result(&ProcessId::must("p1"), zero_metrics(), &mut envelope, false, false).unwrap();
             if envelope.bounds.terminated {
                 assert_ne!(envelope.bounds.terminal_reason, None);
                 break;
@@ -1809,13 +1968,14 @@ mod tests {
             max_agent_hops: 100,
             edge_limits: vec![],
             step_limit: Some(5),
+            state_schema: vec![],
         };
         let mut envelope = create_test_envelope();
         orch.initialize_session(ProcessId::must("p1"), pipeline, &mut envelope, false).unwrap();
 
         let mut terminated = false;
         for _ in 0..10 {
-            orch.report_agent_result(&ProcessId::must("p1"), zero_metrics(), &mut envelope, false).unwrap();
+            orch.report_agent_result(&ProcessId::must("p1"), zero_metrics(), &mut envelope, false, false).unwrap();
             if envelope.bounds.terminated {
                 terminated = true;
                 assert_eq!(envelope.bounds.terminal_reason, Some(TerminalReason::MaxIterationsExceeded));
@@ -1830,14 +1990,18 @@ mod tests {
     // =========================================================================
 
     #[test]
-    fn test_parallel_fan_out_wait_all() {
+    fn test_fork_conditional_targets() {
+        // Fork with conditional rules → only matching branches dispatched
         let mut orch = Orchestrator::new();
         let pipeline = PipelineConfig {
             name: "test".to_string(),
             stages: vec![
-                stage("start", "starter", vec![always_to("think_a")], None),
-                parallel_stage("think_a", "agent_a", "think", vec![], Some("done")),
-                parallel_stage("think_b", "agent_b", "think", vec![], None),
+                fork_stage("fork", vec![
+                    always_to("branch_a"),
+                    eq_rule("x", 999, "branch_b"),  // won't match — no output
+                ], Some("done"), JoinStrategy::WaitAll),
+                stage("branch_a", "agent_a", vec![], None),
+                stage("branch_b", "agent_b", vec![], None),
                 stage("done", "finisher", vec![], None),
             ],
             max_iterations: 100,
@@ -1845,96 +2009,51 @@ mod tests {
             max_agent_hops: 100,
             edge_limits: vec![],
             step_limit: None,
+            state_schema: vec![],
         };
         let mut envelope = create_test_envelope();
         orch.initialize_session(ProcessId::must("p1"), pipeline, &mut envelope, false).unwrap();
 
-        orch.report_agent_result(&ProcessId::must("p1"), zero_metrics(), &mut envelope, false).unwrap();
-
+        // Fork dispatches only branch_a (always matches), not branch_b (eq never matches)
         let instr = orch.get_next_instruction(&ProcessId::must("p1"), &mut envelope).unwrap();
-        assert_eq!(instr.kind, InstructionKind::RunAgents);
-        assert_eq!(instr.agents.len(), 2);
-
-        envelope.pipeline.current_stage = "think_a".to_string();
-        orch.report_agent_result(&ProcessId::must("p1"), zero_metrics(), &mut envelope, false).unwrap();
-
-        let instr = orch.get_next_instruction(&ProcessId::must("p1"), &mut envelope).unwrap();
-        assert_eq!(instr.kind, InstructionKind::WaitParallel);
-
-        envelope.pipeline.current_stage = "think_b".to_string();
-        orch.report_agent_result(&ProcessId::must("p1"), zero_metrics(), &mut envelope, false).unwrap();
-        assert_eq!(envelope.pipeline.current_stage, "done");
+        // Single target → sequential advance (not RunAgents)
+        assert_eq!(instr.kind, InstructionKind::RunAgent);
+        assert_eq!(instr.agents, vec!["agent_a"]);
     }
 
     #[test]
-    fn test_parallel_fan_out_wait_first() {
-        let mut think_a = parallel_stage("think_a", "agent_a", "think", vec![], Some("done"));
-        think_a.join_strategy = JoinStrategy::WaitFirst;
-        let mut think_b = parallel_stage("think_b", "agent_b", "think", vec![], None);
-        think_b.join_strategy = JoinStrategy::WaitFirst;
-
+    fn test_fork_post_join_uses_default_next() {
+        // Fork node's default_next is the post-join target
         let mut orch = Orchestrator::new();
         let pipeline = PipelineConfig {
             name: "test".to_string(),
             stages: vec![
-                stage("start", "starter", vec![always_to("think_a")], None),
-                think_a,
-                think_b,
-                stage("done", "finisher", vec![], None),
+                fork_stage("fork", vec![
+                    always_to("branch_a"),
+                    always_to("branch_b"),
+                ], Some("final"), JoinStrategy::WaitAll),
+                stage("branch_a", "agent_a", vec![], None),
+                stage("branch_b", "agent_b", vec![], None),
+                stage("final", "final_agent", vec![], None),
             ],
             max_iterations: 100,
             max_llm_calls: 100,
             max_agent_hops: 100,
             edge_limits: vec![],
             step_limit: None,
+            state_schema: vec![],
         };
         let mut envelope = create_test_envelope();
         orch.initialize_session(ProcessId::must("p1"), pipeline, &mut envelope, false).unwrap();
-
-        orch.report_agent_result(&ProcessId::must("p1"), zero_metrics(), &mut envelope, false).unwrap();
-
-        envelope.pipeline.current_stage = "think_a".to_string();
-        orch.report_agent_result(&ProcessId::must("p1"), zero_metrics(), &mut envelope, false).unwrap();
-
-        assert_eq!(envelope.pipeline.current_stage, "done");
-        assert!(orch.pipelines.get(&ProcessId::must("p1")).unwrap().active_parallel.is_none());
-    }
-
-    #[test]
-    fn test_parallel_group_routing_uses_first_stage() {
-        let mut think_a = parallel_stage("think_a", "agent_a", "think", vec![always_to("special")], None);
-        think_a.join_strategy = JoinStrategy::WaitAll;
-        let mut think_b = parallel_stage("think_b", "agent_b", "think", vec![always_to("other")], None);
-        think_b.join_strategy = JoinStrategy::WaitAll;
-
-        let mut orch = Orchestrator::new();
-        let pipeline = PipelineConfig {
-            name: "test".to_string(),
-            stages: vec![
-                stage("start", "starter", vec![always_to("think_a")], None),
-                think_a,
-                think_b,
-                stage("special", "sp_agent", vec![], None),
-                stage("other", "ot_agent", vec![], None),
-            ],
-            max_iterations: 100,
-            max_llm_calls: 100,
-            max_agent_hops: 100,
-            edge_limits: vec![],
-            step_limit: None,
-        };
-        let mut envelope = create_test_envelope();
-        orch.initialize_session(ProcessId::must("p1"), pipeline, &mut envelope, false).unwrap();
-
-        orch.report_agent_result(&ProcessId::must("p1"), zero_metrics(), &mut envelope, false).unwrap();
 
         let _instr = orch.get_next_instruction(&ProcessId::must("p1"), &mut envelope).unwrap();
-        envelope.pipeline.current_stage = "think_a".to_string();
-        orch.report_agent_result(&ProcessId::must("p1"), zero_metrics(), &mut envelope, false).unwrap();
-        envelope.pipeline.current_stage = "think_b".to_string();
-        orch.report_agent_result(&ProcessId::must("p1"), zero_metrics(), &mut envelope, false).unwrap();
+        envelope.pipeline.current_stage = "branch_a".to_string();
+        orch.report_agent_result(&ProcessId::must("p1"), zero_metrics(), &mut envelope, false, false).unwrap();
+        envelope.pipeline.current_stage = "branch_b".to_string();
+        orch.report_agent_result(&ProcessId::must("p1"), zero_metrics(), &mut envelope, false, false).unwrap();
 
-        assert_eq!(envelope.pipeline.current_stage, "special");
+        // After both branches, should advance to "final" (Fork's default_next)
+        assert_eq!(envelope.pipeline.current_stage, "final");
     }
 
     #[test]
@@ -1951,13 +2070,14 @@ mod tests {
             max_agent_hops: 100,
             edge_limits: vec![],
             step_limit: None,
+            state_schema: vec![],
         };
         let mut envelope = create_test_envelope();
         orch.initialize_session(ProcessId::must("p1"), pipeline, &mut envelope, false).unwrap();
 
         let mut terminated = false;
         for _ in 0..10 {
-            orch.report_agent_result(&ProcessId::must("p1"), zero_metrics(), &mut envelope, false).unwrap();
+            orch.report_agent_result(&ProcessId::must("p1"), zero_metrics(), &mut envelope, false, false).unwrap();
             if envelope.bounds.terminated {
                 terminated = true;
                 assert_eq!(envelope.bounds.terminal_reason, Some(TerminalReason::MaxStageVisitsExceeded));
@@ -1980,12 +2100,13 @@ mod tests {
             max_agent_hops: 100,
             edge_limits: vec![],
             step_limit: None,
+            state_schema: vec![],
         };
         let mut envelope = create_test_envelope();
         orch.initialize_session(ProcessId::must("p1"), pipeline, &mut envelope, false).unwrap();
 
         for _ in 0..50 {
-            orch.report_agent_result(&ProcessId::must("p1"), zero_metrics(), &mut envelope, false).unwrap();
+            orch.report_agent_result(&ProcessId::must("p1"), zero_metrics(), &mut envelope, false, false).unwrap();
             if envelope.bounds.terminated {
                 assert_ne!(envelope.bounds.terminal_reason, Some(TerminalReason::MaxStageVisitsExceeded));
                 return;
@@ -2012,11 +2133,12 @@ mod tests {
             max_agent_hops: 10,
             edge_limits: vec![],
             step_limit: None,
+            state_schema: vec![],
         };
         let mut envelope = create_test_envelope();
         orch.initialize_session(ProcessId::must("p1"), pipeline, &mut envelope, false).unwrap();
 
-        orch.report_agent_result(&ProcessId::must("p1"), zero_metrics(), &mut envelope, true).unwrap();
+        orch.report_agent_result(&ProcessId::must("p1"), zero_metrics(), &mut envelope, true, false).unwrap();
         assert_eq!(envelope.pipeline.current_stage, "recovery");
     }
 
@@ -2038,11 +2160,12 @@ mod tests {
             max_agent_hops: 10,
             edge_limits: vec![],
             step_limit: None,
+            state_schema: vec![],
         };
         let mut envelope = create_test_envelope();
         orch.initialize_session(ProcessId::must("p1"), pipeline, &mut envelope, false).unwrap();
 
-        orch.report_agent_result(&ProcessId::must("p1"), zero_metrics(), &mut envelope, false).unwrap();
+        orch.report_agent_result(&ProcessId::must("p1"), zero_metrics(), &mut envelope, false, false).unwrap();
         assert_eq!(envelope.pipeline.current_stage, "s2");
     }
 
@@ -2073,6 +2196,7 @@ mod tests {
                 max_count: 2,
             }],
             step_limit: None,
+            state_schema: vec![],
         };
         let mut envelope = create_test_envelope();
         orch.initialize_session(ProcessId::must("p1"), pipeline, &mut envelope, false).unwrap();
@@ -2084,7 +2208,7 @@ mod tests {
                 assert_eq!(envelope.bounds.terminal_reason, Some(TerminalReason::MaxAgentHopsExceeded));
                 break;
             }
-            orch.report_agent_result(&ProcessId::must("p1"), zero_metrics(), &mut envelope, false).unwrap();
+            orch.report_agent_result(&ProcessId::must("p1"), zero_metrics(), &mut envelope, false, false).unwrap();
         }
         assert!(terminated, "Edge limit should have terminated the cycle");
     }
@@ -2103,11 +2227,12 @@ mod tests {
             max_agent_hops: 10,
             edge_limits: vec![],
             step_limit: None,
+            state_schema: vec![],
         };
         let mut envelope = create_test_envelope();
         orch.initialize_session(ProcessId::must("p1"), pipeline, &mut envelope, false).unwrap();
 
-        orch.report_agent_result(&ProcessId::must("p1"), zero_metrics(), &mut envelope, false).unwrap();
+        orch.report_agent_result(&ProcessId::must("p1"), zero_metrics(), &mut envelope, false, false).unwrap();
         assert_eq!(envelope.pipeline.current_stage, "foo");
     }
 
@@ -2203,12 +2328,338 @@ mod tests {
             max_agent_hops: 10,
             edge_limits: vec![],
             step_limit: None,
+            state_schema: vec![],
         };
         let mut envelope = create_test_envelope();
         orch.initialize_session(ProcessId::must("p1"), pipeline, &mut envelope, false).unwrap();
 
-        orch.report_agent_result(&ProcessId::must("p1"), zero_metrics(), &mut envelope, false).unwrap();
+        orch.report_agent_result(&ProcessId::must("p1"), zero_metrics(), &mut envelope, false, false).unwrap();
         assert!(envelope.bounds.terminated);
         assert_eq!(envelope.bounds.terminal_reason, Some(TerminalReason::Completed));
+    }
+
+    // =========================================================================
+    // Gate dispatch tests
+    // =========================================================================
+
+    fn gate_stage(name: &str, routing: Vec<RoutingRule>, default_next: Option<&str>) -> PipelineStage {
+        PipelineStage {
+            name: name.to_string(),
+            agent: name.to_string(),
+            routing,
+            default_next: default_next.map(|s| s.to_string()),
+            error_next: None,
+            max_visits: None,
+            join_strategy: JoinStrategy::default(),
+            output_schema: None,
+            allowed_tools: None,
+            node_kind: NodeKind::Gate,
+            output_key: None,
+        }
+    }
+
+    #[test]
+    fn test_gate_routes_without_agent() {
+        // Gate with 2 routing rules → correct agent dispatched, no Gate agent execution
+        let mut orch = Orchestrator::new();
+        let pipeline = PipelineConfig {
+            name: "test".to_string(),
+            stages: vec![
+                stage("entry", "entry_agent", vec![always_to("router")], None),
+                gate_stage("router", vec![
+                    agent_eq_rule("entry_agent", "choice", "a", "agent_a"),
+                    agent_eq_rule("entry_agent", "choice", "b", "agent_b"),
+                ], None),
+                stage("agent_a", "agent_a", vec![], None),
+                stage("agent_b", "agent_b", vec![], None),
+            ],
+            max_iterations: 20,
+            max_llm_calls: 50,
+            max_agent_hops: 10,
+            edge_limits: vec![],
+            step_limit: None,
+            state_schema: vec![],
+        };
+        let mut envelope = create_test_envelope();
+        orch.initialize_session(ProcessId::must("p1"), pipeline, &mut envelope, false).unwrap();
+
+        // First instruction: run entry agent
+        let instr = orch.get_next_instruction(&ProcessId::must("p1"), &mut envelope).unwrap();
+        assert_eq!(instr.kind, InstructionKind::RunAgent);
+        assert_eq!(instr.agents, vec!["entry_agent"]);
+
+        // Entry agent reports output with choice=a, routes to router Gate
+        let mut agent_output = std::collections::HashMap::new();
+        agent_output.insert("choice".to_string(), serde_json::json!("a"));
+        envelope.outputs.insert("entry_agent".to_string(), agent_output);
+        orch.report_agent_result(&ProcessId::must("p1"), zero_metrics(), &mut envelope, false, false).unwrap();
+
+        // Next instruction should skip the Gate and dispatch agent_a directly
+        let instr = orch.get_next_instruction(&ProcessId::must("p1"), &mut envelope).unwrap();
+        assert_eq!(instr.kind, InstructionKind::RunAgent);
+        assert_eq!(instr.agents, vec!["agent_a"]);
+    }
+
+    #[test]
+    fn test_gate_chain() {
+        // Gate→Gate→Agent — both Gates skipped, correct agent runs
+        let mut orch = Orchestrator::new();
+        let pipeline = PipelineConfig {
+            name: "test".to_string(),
+            stages: vec![
+                gate_stage("gate1", vec![always_to("gate2")], None),
+                gate_stage("gate2", vec![always_to("final")], None),
+                stage("final", "final_agent", vec![], None),
+            ],
+            max_iterations: 20,
+            max_llm_calls: 50,
+            max_agent_hops: 10,
+            edge_limits: vec![],
+            step_limit: None,
+            state_schema: vec![],
+        };
+        let mut envelope = create_test_envelope();
+        orch.initialize_session(ProcessId::must("p1"), pipeline, &mut envelope, false).unwrap();
+
+        // Should skip both gates and return RunAgent for final_agent
+        let instr = orch.get_next_instruction(&ProcessId::must("p1"), &mut envelope).unwrap();
+        assert_eq!(instr.kind, InstructionKind::RunAgent);
+        assert_eq!(instr.agents, vec!["final_agent"]);
+    }
+
+    #[test]
+    fn test_gate_default_next() {
+        // Gate with no matching rules + default_next → falls through
+        let mut orch = Orchestrator::new();
+        let pipeline = PipelineConfig {
+            name: "test".to_string(),
+            stages: vec![
+                gate_stage("router", vec![
+                    eq_rule("x", 999, "never_match"),
+                ], Some("fallback")),
+                stage("never_match", "nm_agent", vec![], None),
+                stage("fallback", "fb_agent", vec![], None),
+            ],
+            max_iterations: 20,
+            max_llm_calls: 50,
+            max_agent_hops: 10,
+            edge_limits: vec![],
+            step_limit: None,
+            state_schema: vec![],
+        };
+        let mut envelope = create_test_envelope();
+        orch.initialize_session(ProcessId::must("p1"), pipeline, &mut envelope, false).unwrap();
+
+        let instr = orch.get_next_instruction(&ProcessId::must("p1"), &mut envelope).unwrap();
+        assert_eq!(instr.kind, InstructionKind::RunAgent);
+        assert_eq!(instr.agents, vec!["fb_agent"]);
+    }
+
+    #[test]
+    fn test_gate_no_match_terminates() {
+        // Gate with no matching rules, no default_next → COMPLETED
+        let mut orch = Orchestrator::new();
+        let pipeline = PipelineConfig {
+            name: "test".to_string(),
+            stages: vec![
+                gate_stage("router", vec![
+                    eq_rule("x", 999, "never_match"),
+                ], None),
+                stage("never_match", "nm_agent", vec![], None),
+            ],
+            max_iterations: 20,
+            max_llm_calls: 50,
+            max_agent_hops: 10,
+            edge_limits: vec![],
+            step_limit: None,
+            state_schema: vec![],
+        };
+        let mut envelope = create_test_envelope();
+        orch.initialize_session(ProcessId::must("p1"), pipeline, &mut envelope, false).unwrap();
+
+        let instr = orch.get_next_instruction(&ProcessId::must("p1"), &mut envelope).unwrap();
+        assert_eq!(instr.kind, InstructionKind::Terminate);
+        assert_eq!(instr.terminal_reason, Some(TerminalReason::Completed));
+    }
+
+    #[test]
+    fn test_gate_respects_bounds() {
+        // Gate in a self-loop → terminates when iteration limit hit
+        let mut orch = Orchestrator::new();
+        let pipeline = PipelineConfig {
+            name: "test".to_string(),
+            stages: vec![
+                gate_stage("loop_gate", vec![always_to("loop_gate")], None),
+            ],
+            max_iterations: 5,
+            max_llm_calls: 50,
+            max_agent_hops: 10,
+            edge_limits: vec![],
+            step_limit: None,
+            state_schema: vec![],
+        };
+        let mut envelope = create_test_envelope();
+        orch.initialize_session(ProcessId::must("p1"), pipeline, &mut envelope, false).unwrap();
+
+        let instr = orch.get_next_instruction(&ProcessId::must("p1"), &mut envelope).unwrap();
+        assert_eq!(instr.kind, InstructionKind::Terminate);
+        // Should terminate due to iteration bounds
+        assert!(instr.terminal_reason.is_some());
+        let reason = instr.terminal_reason.unwrap();
+        assert_eq!(reason.outcome(), "bounds_exceeded");
+    }
+
+    #[test]
+    fn test_gate_with_interrupt_pending() {
+        // Interrupt check happens BEFORE Gate dispatch
+        let mut orch = Orchestrator::new();
+        let pipeline = PipelineConfig {
+            name: "test".to_string(),
+            stages: vec![
+                gate_stage("router", vec![always_to("target")], None),
+                stage("target", "target_agent", vec![], None),
+            ],
+            max_iterations: 20,
+            max_llm_calls: 50,
+            max_agent_hops: 10,
+            edge_limits: vec![],
+            step_limit: None,
+            state_schema: vec![],
+        };
+        let mut envelope = create_test_envelope();
+        orch.initialize_session(ProcessId::must("p1"), pipeline, &mut envelope, false).unwrap();
+
+        // Set interrupt pending
+        envelope.interrupts.interrupt_pending = true;
+
+        let instr = orch.get_next_instruction(&ProcessId::must("p1"), &mut envelope).unwrap();
+        assert_eq!(instr.kind, InstructionKind::WaitInterrupt);
+    }
+
+    // =========================================================================
+    // Break tests
+    // =========================================================================
+
+    #[test]
+    fn test_break_terminates_pipeline() {
+        // break_loop=true → BREAK_REQUESTED, outcome "completed"
+        let mut orch = Orchestrator::new();
+        let pipeline = PipelineConfig {
+            name: "test".to_string(),
+            stages: vec![
+                stage("s1", "a1", vec![always_to("s2")], None),
+                stage("s2", "a2", vec![], None),
+            ],
+            max_iterations: 20,
+            max_llm_calls: 50,
+            max_agent_hops: 10,
+            edge_limits: vec![],
+            step_limit: None,
+            state_schema: vec![],
+        };
+        let mut envelope = create_test_envelope();
+        orch.initialize_session(ProcessId::must("p1"), pipeline, &mut envelope, false).unwrap();
+
+        // Agent reports break
+        orch.report_agent_result(&ProcessId::must("p1"), zero_metrics(), &mut envelope, false, true).unwrap();
+
+        assert!(envelope.bounds.terminated);
+        assert_eq!(envelope.bounds.terminal_reason, Some(TerminalReason::BreakRequested));
+
+        // Verify outcome is "completed" (clean exit)
+        let instr = orch.get_next_instruction(&ProcessId::must("p1"), &mut envelope).unwrap();
+        assert_eq!(instr.kind, InstructionKind::Terminate);
+        assert_eq!(instr.terminal_reason.unwrap().outcome(), "completed");
+    }
+
+    #[test]
+    fn test_break_stores_output_first() {
+        // Output is stored in envelope.outputs before termination
+        let mut orch = Orchestrator::new();
+        let pipeline = PipelineConfig {
+            name: "test".to_string(),
+            stages: vec![
+                stage("s1", "a1", vec![always_to("s1")], None),
+            ],
+            max_iterations: 20,
+            max_llm_calls: 50,
+            max_agent_hops: 10,
+            edge_limits: vec![],
+            step_limit: None,
+            state_schema: vec![],
+        };
+        let mut envelope = create_test_envelope();
+        orch.initialize_session(ProcessId::must("p1"), pipeline, &mut envelope, false).unwrap();
+
+        // Store output before reporting (simulates kernel/mod.rs behavior)
+        let mut agent_output = std::collections::HashMap::new();
+        agent_output.insert("result".to_string(), serde_json::json!("done"));
+        envelope.outputs.insert("a1".to_string(), agent_output);
+
+        // Break
+        orch.report_agent_result(&ProcessId::must("p1"), zero_metrics(), &mut envelope, false, true).unwrap();
+
+        // Output should still be there
+        assert!(envelope.outputs.contains_key("a1"));
+        assert_eq!(envelope.outputs["a1"]["result"], serde_json::json!("done"));
+        assert!(envelope.bounds.terminated);
+        assert_eq!(envelope.bounds.terminal_reason, Some(TerminalReason::BreakRequested));
+    }
+
+    #[test]
+    fn test_break_exits_loop() {
+        // Agent in routing loop, reports break_loop=true → clean exit
+        let mut orch = Orchestrator::new();
+        let pipeline = PipelineConfig {
+            name: "test".to_string(),
+            stages: vec![
+                stage("loop", "loop_agent", vec![always_to("loop")], None),
+            ],
+            max_iterations: 100,
+            max_llm_calls: 100,
+            max_agent_hops: 100,
+            edge_limits: vec![],
+            step_limit: None,
+            state_schema: vec![],
+        };
+        let mut envelope = create_test_envelope();
+        orch.initialize_session(ProcessId::must("p1"), pipeline, &mut envelope, false).unwrap();
+
+        // First iteration — no break, should loop
+        orch.report_agent_result(&ProcessId::must("p1"), zero_metrics(), &mut envelope, false, false).unwrap();
+        assert!(!envelope.bounds.terminated);
+        assert_eq!(envelope.pipeline.current_stage, "loop");
+
+        // Second iteration — break
+        orch.report_agent_result(&ProcessId::must("p1"), zero_metrics(), &mut envelope, false, true).unwrap();
+        assert!(envelope.bounds.terminated);
+        assert_eq!(envelope.bounds.terminal_reason, Some(TerminalReason::BreakRequested));
+    }
+
+    #[test]
+    fn test_break_wins_over_interrupt() {
+        // break_loop=true checked BEFORE interrupt injection
+        let mut orch = Orchestrator::new();
+        let pipeline = PipelineConfig {
+            name: "test".to_string(),
+            stages: vec![
+                stage("s1", "a1", vec![always_to("s1")], None),
+            ],
+            max_iterations: 20,
+            max_llm_calls: 50,
+            max_agent_hops: 10,
+            edge_limits: vec![],
+            step_limit: None,
+            state_schema: vec![],
+        };
+        let mut envelope = create_test_envelope();
+        orch.initialize_session(ProcessId::must("p1"), pipeline, &mut envelope, false).unwrap();
+
+        // Set interrupt pending — but break should win
+        envelope.interrupts.interrupt_pending = true;
+
+        orch.report_agent_result(&ProcessId::must("p1"), zero_metrics(), &mut envelope, false, true).unwrap();
+        assert!(envelope.bounds.terminated);
+        assert_eq!(envelope.bounds.terminal_reason, Some(TerminalReason::BreakRequested));
     }
 }

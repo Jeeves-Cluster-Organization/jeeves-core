@@ -239,6 +239,10 @@ pub struct Envelope {
     /// Outputs from agents: map[agent_name] = map[output_key] = value
     pub outputs: HashMap<String, HashMap<String, serde_json::Value>>,
 
+    /// Merged accumulator state: map[key] = value (schema-driven merge)
+    #[serde(default, skip_serializing_if = "HashMap::is_empty")]
+    pub state: HashMap<String, serde_json::Value>,
+
     pub pipeline: Pipeline,
     pub bounds: Bounds,
     pub interrupts: InterruptState,
@@ -263,6 +267,7 @@ impl Envelope {
             raw_input: String::new(),
             received_at: now,
             outputs: HashMap::new(),
+            state: HashMap::new(),
 
             pipeline: Pipeline {
                 current_stage: "start".to_string(),
@@ -310,6 +315,83 @@ impl Envelope {
                 created_at: now,
                 completed_at: None,
                 metadata: HashMap::new(),
+            },
+        }
+    }
+
+    /// Create a minimal envelope from Python's 4 required params.
+    ///
+    /// Generates identity fields internally. Bounds are set to safe placeholders
+    /// (the kernel's `initialize_orchestration` overwrites them from PipelineConfig).
+    pub fn new_minimal(
+        user_id: &str,
+        session_id: &str,
+        raw_input: &str,
+        metadata: Option<serde_json::Value>,
+    ) -> Self {
+        let now = Utc::now();
+        let uuid_short = || uuid::Uuid::new_v4().simple().to_string()[..16].to_string();
+
+        let mut audit_metadata = HashMap::new();
+        if let Some(serde_json::Value::Object(map)) = metadata {
+            for (k, v) in map {
+                audit_metadata.insert(k, v);
+            }
+        }
+
+        Self {
+            identity: Identity {
+                envelope_id: EnvelopeId::must(format!("env_{}", uuid_short())),
+                request_id: RequestId::must(format!("req_{}", uuid_short())),
+                user_id: UserId::must(user_id),
+                session_id: SessionId::must(session_id),
+            },
+            raw_input: raw_input.to_string(),
+            received_at: now,
+            outputs: HashMap::new(),
+            state: HashMap::new(),
+            pipeline: Pipeline {
+                current_stage: String::new(),
+                stage_order: Vec::new(),
+                iteration: 0,
+                max_iterations: 100,  // placeholder — overwritten by PipelineConfig
+                active_stages: HashSet::new(),
+                completed_stage_set: HashSet::new(),
+                failed_stages: HashMap::new(),
+                parallel_mode: false,
+            },
+            bounds: Bounds {
+                llm_call_count: 0,
+                max_llm_calls: 100,  // placeholder — overwritten by PipelineConfig
+                tool_call_count: 0,
+                agent_hop_count: 0,
+                max_agent_hops: 100,  // placeholder — overwritten by PipelineConfig
+                tokens_in: 0,
+                tokens_out: 0,
+                terminal_reason: None,
+                terminated: false,
+                termination_reason: None,
+            },
+            interrupts: InterruptState {
+                interrupt_pending: false,
+                interrupt: None,
+            },
+            execution: Execution {
+                completed_stages: Vec::new(),
+                current_stage_number: 0,
+                max_stages: 0,
+                all_goals: Vec::new(),
+                remaining_goals: Vec::new(),
+                goal_completion_status: HashMap::new(),
+                prior_plans: Vec::new(),
+                loop_feedback: Vec::new(),
+            },
+            audit: Audit {
+                processing_history: Vec::new(),
+                errors: Vec::new(),
+                created_at: now,
+                completed_at: None,
+                metadata: audit_metadata,
             },
         }
     }
