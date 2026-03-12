@@ -10,9 +10,11 @@ from jeeves_core.memory.session_state_service import (
     SessionState,
     EntityRef,
 )
+from jeeves_core.memory.conversation import InMemoryConversationHistory
 
 __all__ = [
     "SessionStateService",
     "SessionState",
     "EntityRef",
+    "InMemoryConversationHistory",
 ]

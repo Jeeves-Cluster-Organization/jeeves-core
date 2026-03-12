@@ -16,8 +16,6 @@ Usage:
 
     # Pass to components
     service = MyService(context=app_context)
-    # Access config via context
-    bounds = app_context.core_config.context_bounds
 """
 
 from dataclasses import dataclass, field
@@ -32,7 +30,6 @@ from jeeves_core.protocols import (
     LLMProviderProtocol,
     LoggerProtocol,
 )
-from jeeves_core.protocols import ExecutionConfig, ContextBounds, OrchestrationFlags
 
 if TYPE_CHECKING:
     from jeeves_core.settings import Settings
@@ -73,8 +70,6 @@ class AppContext:
         logger: Root logger (implements LoggerProtocol)
         clock: Time provider (implements ClockProtocol)
         config_registry: Configuration registry (implements ConfigRegistryProtocol)
-        core_config: Core runtime configuration (bounds, timeouts, etc.)
-        orchestration_flags: Orchestration feature flags
 
     Usage:
         # In composition root
@@ -82,15 +77,7 @@ class AppContext:
             settings=settings,
             feature_flags=feature_flags,
             logger=logger,
-            core_config=ExecutionConfig(),
-            orchestration_flags=OrchestrationFlags(),
         )
-
-        # In components
-        class MyService:
-            def __init__(self, context: AppContext):
-                self._settings = context.settings
-                self._bounds = context.core_config.context_bounds
     """
 
     settings: Any  # Concrete: Settings (pydantic BaseSettings)
@@ -102,10 +89,6 @@ class AppContext:
     # LLM Provider Factory - creates LLM providers per agent role
     # Eagerly provisioned by bootstrap — required, fail-loud on init
     llm_provider_factory: Callable[[str], LLMProviderProtocol] = None  # type: ignore[assignment]  # Set by bootstrap, never None at runtime
-
-    # Core configuration (previously global state in protocols)
-    core_config: ExecutionConfig = field(default_factory=ExecutionConfig)
-    orchestration_flags: OrchestrationFlags = field(default_factory=OrchestrationFlags)
 
     # Kernel Client - IPC client to Rust kernel for orchestration (TCP+msgpack)
     # Uses string annotation for TYPE_CHECKING-only import (layer extraction support)
@@ -165,8 +148,6 @@ class AppContext:
             clock=self.clock,
             config_registry=self.config_registry,
             llm_provider_factory=self.llm_provider_factory,
-            core_config=self.core_config,
-            orchestration_flags=self.orchestration_flags,
             kernel_client=self.kernel_client,
             tool_health_service=self.tool_health_service,
             db=self.db,
@@ -178,10 +159,6 @@ class AppContext:
         )
 
     # ─── Config Accessors ───
-
-    def get_context_bounds(self) -> ContextBounds:
-        """Get context bounds from core config."""
-        return self.core_config.context_bounds
 
     def get_bound_logger(self, component: str, **extra: Any) -> LoggerProtocol:
         """Get a logger bound to this context and component.

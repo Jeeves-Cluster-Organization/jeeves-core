@@ -176,33 +176,11 @@ class LLMProviderProtocol(Protocol):
 # =============================================================================
 
 @runtime_checkable
-class ToolProtocol(Protocol):
-    """Tool interface for individual tool implementations."""
-
-    @property
-    def name(self) -> str: ...
-
-    @property
-    def description(self) -> str: ...
-
-    async def execute(self, params: Dict[str, Any]) -> Dict[str, Any]: ...
-
-
-@runtime_checkable
-class ToolDefinitionProtocol(Protocol):
-    """Tool definition returned by registry lookups."""
-    name: str
-    function: Any  # Callable - using Any for protocol compatibility
-    parameters: Dict[str, str]
-    description: str
-
-
-@runtime_checkable
 class ToolRegistryProtocol(Protocol):
     """Tool registry interface for managing and accessing tools."""
 
     def has_tool(self, name: str) -> bool: ...
-    def get_tool(self, name: str) -> Optional[ToolDefinitionProtocol]: ...
+    def get_tool(self, name: str) -> Optional[Any]: ...
 
 
 # =============================================================================
@@ -232,33 +210,6 @@ class AppContextProtocol(Protocol):
 
 
 # =============================================================================
-# MEMORY
-# =============================================================================
-
-@dataclass
-class SearchResult:
-    """Search result from semantic search."""
-    id: str
-    content: str
-    score: float
-    metadata: Dict[str, Any]
-
-
-@runtime_checkable
-class SemanticSearchProtocol(Protocol):
-    """Semantic search interface."""
-
-    async def search(
-        self,
-        query: str,
-        limit: int = 10,
-        filters: Optional[Dict[str, Any]] = None,
-    ) -> List[SearchResult]: ...
-
-    async def index(self, id: str, content: str, metadata: Dict[str, Any]) -> None: ...
-
-
-# =============================================================================
 # RETRIEVAL
 # =============================================================================
 
@@ -283,6 +234,29 @@ class EmbeddingProviderProtocol(Protocol):
 
     @property
     def dimension(self) -> int: ...
+
+
+@runtime_checkable
+class ConversationHistoryProtocol(Protocol):
+    """Protocol for conversation history storage and retrieval."""
+
+    async def add_turn(
+        self,
+        session_id: str,
+        role: str,
+        content: str,
+        *,
+        metadata: Optional[Dict[str, Any]] = None,
+    ) -> None: ...
+
+    async def get_history(
+        self,
+        session_id: str,
+        *,
+        limit: int = 20,
+    ) -> List[Dict[str, Any]]: ...
+
+    async def clear(self, session_id: str) -> None: ...
 
 
 # =============================================================================
@@ -418,28 +392,6 @@ class AgentLLMConfig:
 
 
 # =============================================================================
-# INFRASTRUCTURE PROTOCOLS
-# =============================================================================
-
-@runtime_checkable
-class WebSocketManagerProtocol(Protocol):
-    """WebSocket event streaming interface."""
-
-    async def broadcast(self, event_type: str, payload: Dict[str, Any]) -> None: ...
-
-    @property
-    def connection_count(self) -> int: ...
-
-
-@runtime_checkable
-class EventBridgeProtocol(Protocol):
-    """Bridge for kernel events to external systems."""
-
-    async def emit(self, event_type: str, payload: Dict[str, Any]) -> None: ...
-
-
-
-# =============================================================================
 # EXPORTS
 # =============================================================================
 
@@ -453,15 +405,10 @@ __all__ = [
     # LLM
     "LLMProviderProtocol",
     # Tools
-    "ToolProtocol",
-    "ToolDefinitionProtocol",
     "ToolRegistryProtocol",
     # App Context
     "ClockProtocol",
     "AppContextProtocol",
-    # Memory
-    "SearchResult",
-    "SemanticSearchProtocol",
     # Distributed Bus (kept for Redis scaling)
     "DistributedTask",
     "QueueStats",
@@ -475,7 +422,4 @@ __all__ = [
     # Retrieval
     "ContextRetrieverProtocol",
     "EmbeddingProviderProtocol",
-    # Infrastructure Protocols
-    "WebSocketManagerProtocol",
-    "EventBridgeProtocol",
 ]

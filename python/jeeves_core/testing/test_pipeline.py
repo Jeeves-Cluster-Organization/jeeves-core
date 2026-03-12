@@ -118,6 +118,7 @@ class TestPipeline:
                 llm=llm,
                 tools=tools,
                 prompt_registry=prompt_registry,
+                use_mock=agent_config.mock_handler is not None,
                 pre_process=agent_config.pre_process,
                 post_process=agent_config.post_process,
                 mock_handler=agent_config.mock_handler,
