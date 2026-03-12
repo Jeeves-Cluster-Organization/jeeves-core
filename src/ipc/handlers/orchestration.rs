@@ -269,3 +269,150 @@ pub fn session_state_to_value(state: &crate::kernel::orchestrator::SessionState)
 
     serde_json::to_value(dto).unwrap_or_default()
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::kernel::Kernel;
+
+    async fn call(kernel: &mut Kernel, method: &str, body: Value) -> Value {
+        match handle(kernel, method, body).await.unwrap() {
+            DispatchResponse::Single(v) => v,
+            _ => panic!("Expected Single response"),
+        }
+    }
+
+    fn two_stage_pipeline() -> Value {
+        serde_json::json!({
+            "name": "test_pipeline",
+            "stages": [
+                {"name": "understand", "agent": "understand", "default_next": "respond", "has_llm": true},
+                {"name": "respond", "agent": "respond", "has_llm": true},
+            ],
+            "max_iterations": 10,
+            "max_llm_calls": 5,
+            "max_agent_hops": 5,
+            "edge_limits": [],
+        })
+    }
+
+    fn init_body(pid: &str) -> Value {
+        serde_json::json!({
+            "process_id": pid,
+            "pipeline_config": two_stage_pipeline(),
+            "user_id": "test-user",
+            "session_id": "test-session",
+            "raw_input": "hello",
+        })
+    }
+
+    #[tokio::test]
+    async fn test_initialize_session() {
+        let mut kernel = Kernel::new();
+        let r = call(&mut kernel, "InitializeSession", init_body("p1")).await;
+        assert_eq!(r["process_id"], "p1");
+        assert!(!r["stage_order"].as_array().unwrap().is_empty());
+    }
+
+    #[tokio::test]
+    async fn test_initialize_session_duplicate_errors() {
+        let mut kernel = Kernel::new();
+        call(&mut kernel, "InitializeSession", init_body("p1")).await;
+        let err = match handle(&mut kernel, "InitializeSession", init_body("p1")).await {
+            Err(e) => e,
+            Ok(_) => panic!("Expected error"),
+        };
+        assert!(err.to_string().contains("already"));
+    }
+
+    #[tokio::test]
+    async fn test_initialize_session_force() {
+        let mut kernel = Kernel::new();
+        call(&mut kernel, "InitializeSession", init_body("p1")).await;
+        let mut body = init_body("p1");
+        body["force"] = serde_json::json!(true);
+        let r = call(&mut kernel, "InitializeSession", body).await;
+        assert_eq!(r["process_id"], "p1");
+    }
+
+    #[tokio::test]
+    async fn test_get_next_instruction_returns_run_agent() {
+        let mut kernel = Kernel::new();
+        call(&mut kernel, "InitializeSession", init_body("p1")).await;
+        let r = call(
+            &mut kernel,
+            "GetNextInstruction",
+            serde_json::json!({"process_id": "p1"}),
+        )
+        .await;
+        assert_eq!(r["kind"], "RUN_AGENT");
+        assert!(!r["agents"].as_array().unwrap().is_empty());
+    }
+
+    #[tokio::test]
+    async fn test_report_agent_result_advances() {
+        let mut kernel = Kernel::new();
+        call(&mut kernel, "InitializeSession", init_body("p1")).await;
+        call(
+            &mut kernel,
+            "GetNextInstruction",
+            serde_json::json!({"process_id": "p1"}),
+        )
+        .await;
+        let r = call(
+            &mut kernel,
+            "ReportAgentResult",
+            serde_json::json!({
+                "process_id": "p1",
+                "agent_name": "understand",
+                "output": {"intent": "chat"},
+                "success": true,
+                "metrics": {"llm_calls": 1, "tool_calls": 0, "duration_ms": 100},
+            }),
+        )
+        .await;
+        let kind = r["kind"].as_str().unwrap();
+        assert!(kind == "RUN_AGENT" || kind == "TERMINATE");
+    }
+
+    #[tokio::test]
+    async fn test_get_session_state() {
+        let mut kernel = Kernel::new();
+        call(&mut kernel, "InitializeSession", init_body("p1")).await;
+        let r = call(
+            &mut kernel,
+            "GetSessionState",
+            serde_json::json!({"process_id": "p1"}),
+        )
+        .await;
+        assert_eq!(r["process_id"], "p1");
+        assert!(r.get("current_stage").is_some());
+    }
+
+    #[tokio::test]
+    async fn test_missing_process_id_errors() {
+        let mut kernel = Kernel::new();
+        let err = match handle(
+            &mut kernel,
+            "GetNextInstruction",
+            serde_json::json!({"process_id": "nonexistent"}),
+        )
+        .await
+        {
+            Err(e) => e,
+            Ok(_) => panic!("Expected error"),
+        };
+        let msg = err.to_string().to_lowercase();
+        assert!(msg.contains("not found") || msg.contains("no orchestration"));
+    }
+
+    #[tokio::test]
+    async fn test_unknown_method_returns_error() {
+        let mut kernel = Kernel::new();
+        let err = match handle(&mut kernel, "Bogus", serde_json::json!({})).await {
+            Err(e) => e,
+            Ok(_) => panic!("Expected error"),
+        };
+        assert!(err.to_string().contains("Unknown orchestration method"));
+    }
+}

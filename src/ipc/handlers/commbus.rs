@@ -169,3 +169,60 @@ fn payload_bytes(body: &Value) -> Result<Vec<u8>> {
         .map_err(|e| Error::validation(format!("Invalid JSON payload: {}", e)))?;
     Ok(s.as_bytes().to_vec())
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::kernel::Kernel;
+
+    async fn call(kernel: &mut Kernel, method: &str, body: Value) -> Value {
+        let config = IpcConfig::default();
+        match handle(kernel, method, body, &config).await.unwrap() {
+            DispatchResponse::Single(v) => v,
+            _ => panic!("Expected Single response"),
+        }
+    }
+
+    #[tokio::test]
+    async fn test_publish_event() {
+        let mut kernel = Kernel::new();
+        let r = call(
+            &mut kernel,
+            "Publish",
+            serde_json::json!({
+                "event_type": "test.event",
+                "payload": "{}",
+                "source": "test",
+            }),
+        )
+        .await;
+        assert_eq!(r["success"], true);
+    }
+
+    #[tokio::test]
+    async fn test_publish_with_payload() {
+        let mut kernel = Kernel::new();
+        let r = call(
+            &mut kernel,
+            "Publish",
+            serde_json::json!({
+                "event_type": "test.event2",
+                "payload": "{\"key\": \"value\"}",
+                "source": "test",
+            }),
+        )
+        .await;
+        assert_eq!(r["success"], true);
+    }
+
+    #[tokio::test]
+    async fn test_unknown_method_returns_error() {
+        let mut kernel = Kernel::new();
+        let config = IpcConfig::default();
+        let err = match handle(&mut kernel, "Bogus", serde_json::json!({}), &config).await {
+            Err(e) => e,
+            Ok(_) => panic!("Expected error"),
+        };
+        assert!(err.to_string().contains("Unknown commbus method"));
+    }
+}

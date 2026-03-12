@@ -229,3 +229,116 @@ pub async fn handle(kernel: &mut Kernel, method: &str, body: Value) -> Result<Di
     }
 }
 
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::kernel::Kernel;
+
+    async fn call(kernel: &mut Kernel, method: &str, body: Value) -> Value {
+        match handle(kernel, method, body).await.unwrap() {
+            DispatchResponse::Single(v) => v,
+            _ => panic!("Expected Single response"),
+        }
+    }
+
+    fn tool_json(id: &str) -> Value {
+        serde_json::json!({
+            "id": id,
+            "description": format!("Test tool {}", id),
+            "parameters": [],
+            "category": "read",
+            "risk_semantic": "read_only",
+            "risk_severity": "low",
+        })
+    }
+
+    #[tokio::test]
+    async fn test_register_and_get_tool() {
+        let mut kernel = Kernel::new();
+        let r = call(&mut kernel, "RegisterTool", tool_json("my_tool")).await;
+        assert_eq!(r["registered"], true);
+
+        let t = call(
+            &mut kernel,
+            "GetToolEntry",
+            serde_json::json!({"tool_id": "my_tool"}),
+        )
+        .await;
+        assert_eq!(t["id"], "my_tool");
+        assert_eq!(t["description"], "Test tool my_tool");
+    }
+
+    #[tokio::test]
+    async fn test_list_tools() {
+        let mut kernel = Kernel::new();
+        call(&mut kernel, "RegisterTool", tool_json("a")).await;
+        call(&mut kernel, "RegisterTool", tool_json("b")).await;
+        let r = call(&mut kernel, "ListTools", serde_json::json!({})).await;
+        assert_eq!(r["count"], 2);
+    }
+
+    #[tokio::test]
+    async fn test_grant_and_check_access() {
+        let mut kernel = Kernel::new();
+        call(
+            &mut kernel,
+            "GrantToolAccess",
+            serde_json::json!({"agent_name": "a1", "tool_ids": ["t1", "t2"]}),
+        )
+        .await;
+        let r = call(
+            &mut kernel,
+            "CheckToolAccess",
+            serde_json::json!({"agent_name": "a1", "tool_id": "t1"}),
+        )
+        .await;
+        assert_eq!(r["allowed"], true);
+    }
+
+    #[tokio::test]
+    async fn test_check_access_not_granted() {
+        let mut kernel = Kernel::new();
+        let r = call(
+            &mut kernel,
+            "CheckToolAccess",
+            serde_json::json!({"agent_name": "a1", "tool_id": "t1"}),
+        )
+        .await;
+        assert_eq!(r["allowed"], false);
+    }
+
+    #[tokio::test]
+    async fn test_revoke_access() {
+        let mut kernel = Kernel::new();
+        call(
+            &mut kernel,
+            "GrantToolAccess",
+            serde_json::json!({"agent_name": "a1", "tool_ids": ["t1"]}),
+        )
+        .await;
+        call(
+            &mut kernel,
+            "RevokeToolAccess",
+            serde_json::json!({"agent_name": "a1", "tool_id": "t1"}),
+        )
+        .await;
+        let r = call(
+            &mut kernel,
+            "CheckToolAccess",
+            serde_json::json!({"agent_name": "a1", "tool_id": "t1"}),
+        )
+        .await;
+        assert_eq!(r["allowed"], false);
+    }
+
+    #[tokio::test]
+    async fn test_unknown_method_returns_error() {
+        let mut kernel = Kernel::new();
+        let err = match handle(&mut kernel, "Bogus", serde_json::json!({})).await {
+            Err(e) => e,
+            Ok(_) => panic!("Expected error"),
+        };
+        assert!(err.to_string().contains("Unknown tools method"));
+    }
+}
+

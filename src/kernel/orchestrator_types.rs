@@ -90,6 +90,98 @@ pub struct Instruction {
     pub allowed_tools: Option<Vec<String>>,
 }
 
+impl Instruction {
+    /// Create a Terminate instruction.
+    pub fn terminate(reason: TerminalReason, message: impl Into<String>) -> Self {
+        Self {
+            kind: InstructionKind::Terminate,
+            agents: vec![],
+            terminal_reason: Some(reason),
+            termination_message: Some(message.into()),
+            interrupt_pending: false,
+            interrupt: None,
+            agent_context: None,
+            output_schema: None,
+            allowed_tools: None,
+        }
+    }
+
+    /// Create a Terminate instruction with reason only (no message).
+    pub fn terminate_completed() -> Self {
+        Self {
+            kind: InstructionKind::Terminate,
+            agents: vec![],
+            terminal_reason: Some(TerminalReason::Completed),
+            termination_message: None,
+            interrupt_pending: false,
+            interrupt: None,
+            agent_context: None,
+            output_schema: None,
+            allowed_tools: None,
+        }
+    }
+
+    /// Create a RunAgent instruction for a single agent.
+    pub fn run_agent(name: impl Into<String>) -> Self {
+        Self {
+            kind: InstructionKind::RunAgent,
+            agents: vec![name.into()],
+            terminal_reason: None,
+            termination_message: None,
+            interrupt_pending: false,
+            interrupt: None,
+            agent_context: None,
+            output_schema: None,
+            allowed_tools: None,
+        }
+    }
+
+    /// Create a RunAgents instruction for parallel fan-out.
+    pub fn run_agents(names: Vec<String>) -> Self {
+        Self {
+            kind: InstructionKind::RunAgents,
+            agents: names,
+            terminal_reason: None,
+            termination_message: None,
+            interrupt_pending: false,
+            interrupt: None,
+            agent_context: None,
+            output_schema: None,
+            allowed_tools: None,
+        }
+    }
+
+    /// Create a WaitParallel instruction.
+    pub fn wait_parallel() -> Self {
+        Self {
+            kind: InstructionKind::WaitParallel,
+            agents: vec![],
+            terminal_reason: None,
+            termination_message: None,
+            interrupt_pending: false,
+            interrupt: None,
+            agent_context: None,
+            output_schema: None,
+            allowed_tools: None,
+        }
+    }
+
+    /// Create a WaitInterrupt instruction.
+    pub fn wait_interrupt(interrupt: FlowInterrupt) -> Self {
+        Self {
+            kind: InstructionKind::WaitInterrupt,
+            agents: vec![],
+            terminal_reason: None,
+            termination_message: None,
+            interrupt_pending: true,
+            interrupt: Some(interrupt),
+            agent_context: None,
+            output_schema: None,
+            allowed_tools: None,
+        }
+    }
+}
+
 /// AgentExecutionMetrics contains metrics from agent execution.
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct AgentExecutionMetrics {

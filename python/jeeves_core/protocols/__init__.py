@@ -100,6 +100,7 @@ from jeeves_core.protocols.capability import (
 
 from jeeves_core.protocols import routing  # noqa: F401 — routing builder module
 
+from jeeves_core.llm.providers.base import TokenChunk
 from jeeves_core.utils.json_repair import JSONRepairKit
 from jeeves_core.utils.strings import normalize_string_list
 
@@ -175,6 +176,8 @@ __all__ = [
     "CapabilityContractsConfig",
     "DomainServiceConfig",
     "DomainModeConfig",
+    # Streaming
+    "TokenChunk",
     # Utilities
     "JSONRepairKit",
     "normalize_string_list",

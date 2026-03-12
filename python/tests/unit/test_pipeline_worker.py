@@ -603,6 +603,92 @@ async def test_pipeline_worker_streaming(mock_kernel_client, mock_agents, minima
     assert "__end__" in event_names
 
 
+@pytest.mark.asyncio
+async def test_streaming_agent_exception_reports_failure(mock_kernel_client, minimal_params, pipeline_config):
+    """When a streaming agent raises mid-execution, error is reported to kernel."""
+    mock_kernel_client.initialize_orchestration_session.return_value = OrchestrationSessionState(
+        process_id="test-envelope-1",
+        current_stage="understand",
+        stage_order=["understand"],
+    )
+    mock_kernel_client.get_next_instruction.return_value = OrchestratorInstruction(
+        kind="RUN_AGENT",
+        agents=["understand"],
+        envelope={"current_stage": "understand"},
+    )
+    mock_kernel_client.report_agent_result.return_value = OrchestratorInstruction(
+        kind="TERMINATE",
+        terminal_reason="TOOL_FAILED_FATALLY",
+        envelope={"terminated": True},
+    )
+
+    # Agent that raises during process()
+    failing_agent = MagicMock()
+    failing_agent.name = "understand"
+    failing_agent.process = AsyncMock(side_effect=RuntimeError("LLM timeout"))
+    failing_agent.get_run_metrics = MagicMock(return_value={"llm_calls": 0, "tokens_in": 0, "tokens_out": 0})
+
+    worker = PipelineWorker(
+        kernel_client=mock_kernel_client,
+        agents={"understand": failing_agent},
+        logger=test_logger,
+    )
+
+    events = []
+    async for event in worker.execute_streaming(
+        process_id="test-envelope-1",
+        pipeline_config=pipeline_config,
+        **minimal_params,
+    ):
+        events.append(event)
+
+    # Verify error was reported to kernel with success=False
+    mock_kernel_client.report_agent_result.assert_called_once()
+    call_args = mock_kernel_client.report_agent_result.call_args
+    assert call_args.kwargs["success"] is False
+    assert "LLM timeout" in call_args.kwargs["error"]
+
+    # Verify we still get the __end__ event
+    event_names = [e[0] for e in events]
+    assert "__end__" in event_names
+
+
+@pytest.mark.asyncio
+async def test_streaming_interrupt_emits_interrupt_event(mock_kernel_client, mock_agents, minimal_params, pipeline_config):
+    """execute_streaming emits __interrupt__ event when kernel returns WAIT_INTERRUPT."""
+    mock_kernel_client.initialize_orchestration_session.return_value = OrchestrationSessionState(
+        process_id="test-envelope-1",
+        current_stage="understand",
+        stage_order=["understand"],
+    )
+    mock_kernel_client.get_next_instruction.return_value = OrchestratorInstruction(
+        kind="WAIT_INTERRUPT",
+        interrupt_pending=True,
+        interrupt={"kind": "CLARIFICATION", "question": "What do you mean?"},
+        envelope={"current_stage": "understand"},
+    )
+
+    worker = PipelineWorker(
+        kernel_client=mock_kernel_client,
+        agents=mock_agents,
+        logger=test_logger,
+    )
+
+    events = []
+    async for event in worker.execute_streaming(
+        process_id="test-envelope-1",
+        pipeline_config=pipeline_config,
+        **minimal_params,
+    ):
+        events.append(event)
+
+    event_names = [e[0] for e in events]
+    assert "__interrupt__" in event_names
+
+    interrupt_event = next(e for e in events if e[0] == "__interrupt__")
+    assert interrupt_event[1]["kind"] == "CLARIFICATION"
+
+
 # =============================================================================
 # Kernel Instruction Timing Tests (W13)
 # =============================================================================

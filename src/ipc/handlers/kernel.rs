@@ -634,3 +634,146 @@ pub fn pcb_to_value(pcb: &crate::kernel::ProcessControlBlock) -> Value {
 fn quota_to_value(q: &ResourceQuota) -> Value {
     serde_json::to_value(q).unwrap_or_default()
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::kernel::Kernel;
+
+    async fn call(kernel: &mut Kernel, method: &str, body: Value) -> Value {
+        match handle(kernel, method, body).await.unwrap() {
+            DispatchResponse::Single(v) => v,
+            _ => panic!("Expected Single response"),
+        }
+    }
+
+    fn create_body(pid: &str) -> Value {
+        serde_json::json!({
+            "pid": pid,
+            "request_id": "req-1",
+            "user_id": "user-1",
+            "session_id": "sess-1",
+        })
+    }
+
+    #[tokio::test]
+    async fn test_create_process() {
+        let mut kernel = Kernel::new();
+        let r = call(&mut kernel, "CreateProcess", create_body("p1")).await;
+        assert_eq!(r["pid"], "p1");
+        // create_process returns PCB snapshot before auto-schedule
+        assert!(r.get("state").is_some());
+    }
+
+    #[tokio::test]
+    async fn test_create_process_duplicate_errors() {
+        let mut kernel = Kernel::new();
+        call(&mut kernel, "CreateProcess", create_body("p1")).await;
+        let err = match handle(&mut kernel, "CreateProcess", create_body("p1")).await {
+            Err(e) => e,
+            Ok(_) => panic!("Expected error"),
+        };
+        // Error message varies — just assert it's an error
+        assert!(!err.to_string().is_empty());
+    }
+
+    #[tokio::test]
+    async fn test_get_process() {
+        let mut kernel = Kernel::new();
+        call(&mut kernel, "CreateProcess", create_body("p1")).await;
+        let r = call(
+            &mut kernel,
+            "GetProcess",
+            serde_json::json!({"pid": "p1"}),
+        )
+        .await;
+        assert_eq!(r["pid"], "p1");
+        assert_eq!(r["user_id"], "user-1");
+    }
+
+    #[tokio::test]
+    async fn test_get_process_not_found() {
+        let mut kernel = Kernel::new();
+        let err = match handle(
+            &mut kernel,
+            "GetProcess",
+            serde_json::json!({"pid": "nonexistent"}),
+        )
+        .await
+        {
+            Err(e) => e,
+            Ok(_) => panic!("Expected error"),
+        };
+        assert!(err.to_string().contains("not found"));
+    }
+
+    #[tokio::test]
+    async fn test_terminate_process() {
+        let mut kernel = Kernel::new();
+        call(&mut kernel, "CreateProcess", create_body("p1")).await;
+        // create_process auto-schedules (New→Ready), so we can terminate directly
+        let r = call(
+            &mut kernel,
+            "TerminateProcess",
+            serde_json::json!({"pid": "p1"}),
+        )
+        .await;
+        assert_eq!(r["state"], "TERMINATED");
+    }
+
+    #[tokio::test]
+    async fn test_set_and_get_quota_defaults() {
+        let mut kernel = Kernel::new();
+        call(
+            &mut kernel,
+            "SetQuotaDefaults",
+            serde_json::json!({
+                "quota": {
+                    "max_llm_calls": 50,
+                    "max_tool_calls": 100,
+                    "max_agent_hops": 20,
+                }
+            }),
+        )
+        .await;
+        let r = call(
+            &mut kernel,
+            "GetQuotaDefaults",
+            serde_json::json!({}),
+        )
+        .await;
+        assert_eq!(r["max_llm_calls"], 50);
+        assert_eq!(r["max_tool_calls"], 100);
+    }
+
+    #[tokio::test]
+    async fn test_record_usage() {
+        let mut kernel = Kernel::new();
+        call(&mut kernel, "CreateProcess", create_body("p1")).await;
+        let r = call(
+            &mut kernel,
+            "RecordUsage",
+            serde_json::json!({
+                "pid": "p1",
+                "llm_calls": 2,
+                "tool_calls": 3,
+                "tokens_in": 1000,
+                "tokens_out": 500,
+            }),
+        )
+        .await;
+        assert_eq!(r["llm_calls"], 2);
+        assert_eq!(r["tool_calls"], 3);
+        assert_eq!(r["tokens_in"], 1000);
+    }
+
+    #[tokio::test]
+    async fn test_unknown_method_returns_error() {
+        let mut kernel = Kernel::new();
+        let err = match handle(&mut kernel, "Bogus", serde_json::json!({})).await {
+            Err(e) => e,
+            Ok(_) => panic!("Expected error"),
+        };
+        assert!(err.to_string().contains("Unknown kernel method"));
+    }
+}
