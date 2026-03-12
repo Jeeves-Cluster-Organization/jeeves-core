@@ -1,6 +1,6 @@
 # Jeeves-Core: Comprehensive Architectural Audit & Comparative Analysis
 
-**Date**: 2026-03-12 (Iteration 8 — graph primitives, Fork/Gate, state merge)
+**Date**: 2026-03-12 (Iteration 9 — test coverage push, Instruction refactor, dead code deletion)
 **Scope**: Full codebase audit of jeeves-core (Rust kernel + Python infrastructure) with comparative analysis against 17+ OSS agentic frameworks.
 
 ---
@@ -21,24 +21,19 @@
 
 ## 1. Executive Summary
 
-Jeeves-Core is a **Rust micro-kernel + Python infrastructure** framework for AI agent orchestration. The kernel (~15,500 lines Rust, `#[deny(unsafe_code)]`) provides process lifecycle, IPC, interrupt handling, resource quotas, and graph-based pipeline orchestration. The Python layer (~5,200 lines) provides LLM providers, pipeline execution, gateway, and bootstrap.
+Jeeves-Core is a **Rust micro-kernel + Python infrastructure** framework for AI agent orchestration. The kernel (~15,300 lines Rust, `#[deny(unsafe_code)]`) provides process lifecycle, IPC, interrupt handling, resource quotas, and graph-based pipeline orchestration. The Python layer (~5,200 lines) provides LLM providers, pipeline execution, gateway, and bootstrap.
 
 **Architectural thesis**: A Rust kernel managing Python agents provides enforcement guarantees that in-process Python frameworks cannot match — resource quotas, output schema validation, tool ACLs, and fault isolation are kernel-mediated, not convention-dependent.
 
-**Overall maturity: 3.7/5** (up from 3.6) — graph primitives (Gate/Fork nodes, state merge, Break) close the last orchestration expressiveness gap.
+**Overall maturity: 3.8/5** (up from 3.7) — massive test coverage push (+96 Python tests, +92 lines Rust types) and dead code removal improve confidence and code hygiene.
 
-**What changed in iteration 8** (6 commits):
-- **Graph primitives**: `NodeKind` enum (Agent/Gate/Fork), state merge strategies (Replace/Append/MergeDict), `Break` instruction, `step_limit`
-- **Gate nodes**: Pure routing nodes — evaluate routing without running an agent
-- **Fork nodes**: Parallel fan-out — evaluate ALL matching rules, dispatch branches concurrently, with WaitAll/WaitFirst join
-- **State schema**: Typed state fields with merge strategies, kernel-managed state dict
-- **Dead code deletion**: `InMemoryConversationHistory` deleted (44 lines), stale tests removed
-- **MockKernelClient rewrite**: ~500 lines, full-fidelity Gate/Fork dispatch, entry-guard max_visits, WaitFirst join, state merge
-- **hooks-as-lists**: `pre_process`/`post_process`/`context_loaders` normalized from single callable to list
-- **PipelineWorker consolidation**: ~787 lines, break_loop support, parallel fan-out in kernel loop
-- **A2A server expansion**: 254→421 lines
-- **Routing evaluator**: Added `State` scope for state-based routing
-- **Protocol cleanup**: `ConversationHistoryProtocol` removed (dead after InMemoryConversationHistory deletion)
+**What changed in iteration 9** (2 commits, +1,597/-266 lines):
+- **+96 new Python tests**: `test_mock_kernel_fidelity.py` (13 tests), `test_routing_eval_ops.py` (61 tests), expanded `test_agents.py` (+9), expanded `test_pipeline_worker.py` (+13)
+- **Instruction factory methods**: `Instruction::terminate()`, `::run_agent()`, `::run_agents()`, `::wait_parallel()`, `::wait_interrupt()`, `::terminate_completed()` — eliminates ~100 lines of boilerplate in orchestrator.rs
+- **Dead code deleted**: `recovery.rs` (166 lines) — dead recovery module removed from kernel
+- **IPC handler modularization**: 5 handler modules (commbus 228L, interrupt 253L, kernel 779L, orchestration 418L, tools 344L) — previously monolithic
+- **TokenChunk exported**: Added to `protocols.__init__` public API
+- **Orchestrator shrunk**: 2,665 → ~2,560 lines (net -105 lines from Instruction factory + dead code)
 
 ---
 
@@ -53,7 +48,7 @@ Jeeves-Core is a **Rust micro-kernel + Python infrastructure** framework for AI 
 ├─────────────────────────────────────────────────────┤
 │          Python Infrastructure (jeeves_core)         │
 │  Gateway │ LLM Providers │ Bootstrap │ Orchestrator  │
-│  IPC Client │ Memory │ Retrieval │ MCP │ A2A        │
+│  IPC Client │ Retrieval │ MCP │ A2A                 │
 ├─────────────────────────────────────────────────────┤
 │              IPC (TCP + msgpack)                     │
 │  4B length prefix │ 1B type │ msgpack payload        │
@@ -72,31 +67,34 @@ Jeeves-Core is a **Rust micro-kernel + Python infrastructure** framework for AI 
 #### Process Lifecycle
 Unix-inspired state machine: `New → Ready → Running → Waiting/Blocked → Terminated → Zombie`
 
-#### Pipeline Orchestrator (~2,665 lines, 60+ tests)
+#### Pipeline Orchestrator (~2,560 lines, 69 tests)
 ```
 error_next → routing_rules (first match) → default_next → terminate
 ```
 
-**Graph primitives** (NEW):
+**Graph primitives**:
 - `NodeKind::Agent` — standard agent execution node
 - `NodeKind::Gate` — pure routing node, evaluates routing without running an agent
 - `NodeKind::Fork` — parallel fan-out, evaluates ALL matching rules, dispatches branches concurrently
 
-**State management** (NEW):
+**State management**:
 - `StateField { key, merge: MergeStrategy }` — typed state fields
-- `MergeStrategy::Replace` — overwrite existing value
-- `MergeStrategy::Append` — append to array
-- `MergeStrategy::MergeDict` — shallow-merge object keys
+- `MergeStrategy::Replace` / `Append` / `MergeDict`
 - `state_schema` on `PipelineConfig` — declares state fields and merge strategies
-- Kernel manages state dict, merges agent outputs per schema
 
-**Control flow** (NEW):
-- `Break` instruction — agents can set `_break: true` in output to terminate pipeline early
+**Control flow**:
+- `Break` instruction — agents set `_break: true` → kernel terminates with `BREAK_REQUESTED`
 - `step_limit` on `PipelineConfig` — optional hard cap on total orchestration steps
 
-**Routing Expression Language** (631 lines, 18 tests): 13 operators across 5 field scopes (Current, Agent, Meta, Interrupt, State — State is NEW).
+**Instruction factory methods** (NEW):
+- `Instruction::terminate(reason, message)` / `::terminate_completed()`
+- `Instruction::run_agent(name)` / `::run_agents(names)`
+- `Instruction::wait_parallel()` / `::wait_interrupt(interrupt)`
+- Eliminates repetitive 10-field struct literals throughout orchestrator
 
-**Parallel execution**: Fork nodes with `JoinStrategy::WaitAll` / `JoinStrategy::WaitFirst`. Per-edge traversal counters prevent infinite loops.
+**Routing Expression Language** (631 lines, 18 tests): 13 operators across 5 field scopes (Current, Agent, Meta, Interrupt, State).
+
+**Parallel execution**: Fork nodes with `JoinStrategy::WaitAll` / `JoinStrategy::WaitFirst`.
 
 **Instruction types**: `RunAgent`, `RunAgents`, `WaitParallel`, `WaitInterrupt`, `Terminate`.
 
@@ -107,8 +105,13 @@ error_next → routing_rules (first match) → default_next → terminate
 - `max_visits` per-stage entry guard
 - Per-user sliding-window rate limiting
 
-#### IPC Protocol (2,247 lines, 7 handlers)
-Binary wire format (4B len + 1B type + msgpack), 27 methods across 4 services.
+#### IPC Protocol (2,022 lines + 5 handler modules)
+Binary wire format (4B len + 1B type + msgpack), 27 methods across 5 services (now modularized):
+- `kernel.rs` (779 lines) — process lifecycle, scheduling, quotas
+- `orchestration.rs` (418 lines) — pipeline session, instructions, agent results
+- `tools.rs` (344 lines) — catalog, validation, ACLs, prompt generation
+- `interrupt.rs` (253 lines) — interrupt submission, resolution, listing
+- `commbus.rs` (228 lines) — pub/sub events, commands, queries
 
 #### CommBus (849 lines, 12 tests)
 Pub/sub events, point-to-point commands, request/response queries with timeout.
@@ -118,14 +121,14 @@ Pub/sub events, point-to-point commands, request/response queries with timeout.
 
 ### 2.3 Python Infrastructure
 
-#### Protocol-first DI — 13 `@runtime_checkable` Protocols (trimmed from 14)
+#### Protocol-first DI — 13 `@runtime_checkable` Protocols
 - `LLMProviderProtocol`: message-based `chat()`, `chat_with_usage()`, `chat_stream()`, `health_check()`
 - `ContextRetrieverProtocol`, `EmbeddingProviderProtocol`
 - `ToolRegistryProtocol`, `ToolExecutorProtocol`, `ConfigRegistryProtocol`
 - `DatabaseClientProtocol`, `LoggerProtocol`, `AppContextProtocol`
 - `ClockProtocol`, `DistributedBusProtocol`
 
-Removed in this iteration: `ConversationHistoryProtocol` (dead after InMemoryConversationHistory deletion).
+Public API exports: `TokenChunk` now exported from `protocols.__init__` (NEW).
 
 #### Typed LLM Boundary
 All frozen dataclasses: `LLMResult`, `LLMToolCall`, `LLMUsage`.
@@ -133,29 +136,25 @@ All frozen dataclasses: `LLMResult`, `LLMToolCall`, `LLMUsage`.
 #### Agent Execution (~769 lines)
 - `Agent.process(AgentContext) → Tuple[Dict, Dict]`
 - `StreamingAgent(Agent)` — SRP subclass
-- hooks-as-lists: `pre_process`, `post_process`, `context_loaders` accept single callable or list, normalized to list
+- hooks-as-lists: `pre_process`, `post_process`, `context_loaders`
 - `_break` output key triggers kernel Break instruction
 
 #### Pipeline Execution (~787 lines)
-- `run_kernel_loop()` — free function, handles both RUN_AGENT and RUN_AGENTS (parallel fan-out)
-- `PipelineWorker` — capacity-controlled via semaphore, scheduler queue, service registry
+- `run_kernel_loop()` — free function, handles RUN_AGENT and RUN_AGENTS (parallel fan-out)
+- `PipelineWorker` — capacity semaphore, scheduler queue, service registry
 - `execute_streaming()` — asyncio.Queue + sentinel pattern
 - `break_loop` support in kernel loop
 
-#### Pipeline Configuration
-- `AgentConfig` gained `node_kind` field ("Agent", "Gate", "Fork")
-- `PipelineConfig` gained `state_schema` and `step_limit`
-- `PipelineConfig.graph()` validates edge conflicts (explicit routing_rules + edge-derived rules)
-- 13 routing expression operators across 5 field scopes (Current, Agent, Meta, Interrupt, State)
-
 #### Testing Infrastructure
-- `MockKernelClient` (~502 lines) — full-fidelity kernel mock: Gate dispatch, Fork fan-out with WaitAll/WaitFirst, entry-guard max_visits, state merge, Break support, bounds extraction from pipeline_config
+- `MockKernelClient` (~502 lines) — full-fidelity kernel mock: Gate, Fork, WaitFirst, max_visits, state merge, Break
+- `test_mock_kernel_fidelity.py` (13 tests) — bounds, Gate, WaitFirst, Break, state merge (NEW)
+- `test_routing_eval_ops.py` (61 tests) — all 13 operators, 5 scopes, edge cases (NEW)
 - `TestPipeline` + `EvaluationRunner`
-- `routing_eval.py` (149 lines) — Python routing evaluator with State scope
+- `routing_eval.py` (149 lines)
 
 #### Interoperability
 - MCP client+server (528 lines)
-- A2A client+server (421+169 = 590 lines, up from 437)
+- A2A client+server (421+169 = 590 lines)
 
 #### Observability
 - Active OTEL spans at 5 sites, 14 Prometheus metrics (6 kernel-unique)
@@ -168,7 +167,7 @@ All frozen dataclasses: `LLMResult`, `LLMToolCall`, `LLMUsage`.
 
 1. **Kernel-enforced contracts** — No other Python-ecosystem framework validates output schemas, enforces tool ACLs, or caps resource consumption at a kernel level.
 
-2. **Graph primitives (Gate/Fork/State)** — LangGraph has conditional edges and parallel branches. Jeeves now has Gate (pure routing without agent execution), Fork (parallel fan-out with WaitAll/WaitFirst), and typed state merge (Replace/Append/MergeDict). This matches LangGraph's expressiveness with kernel-level enforcement.
+2. **Graph primitives (Gate/Fork/State)** — LangGraph has conditional edges and parallel branches. Jeeves has Gate (pure routing without agent execution), Fork (parallel fan-out with WaitAll/WaitFirst), and typed state merge (Replace/Append/MergeDict). This matches LangGraph's expressiveness with kernel-level enforcement.
 
 3. **Rust kernel + Python agents** — Memory safety and fault isolation pure-Python frameworks structurally cannot provide.
 
@@ -178,7 +177,7 @@ All frozen dataclasses: `LLMResult`, `LLMToolCall`, `LLMUsage`.
 
 6. **Both MCP client+server AND A2A client+server** — No other framework has full bidirectional support for both.
 
-7. **TestPipeline + MockKernelClient** — Full-fidelity kernel mock replicating Gate/Fork/state routing. LLM-free pipeline testing. Architecturally unique.
+7. **TestPipeline + MockKernelClient** — Full-fidelity kernel mock replicating Gate/Fork/state routing. LLM-free pipeline testing. Now backed by 96 dedicated unit tests.
 
 ### 3.2 Where Jeeves Trails
 
@@ -187,7 +186,7 @@ All frozen dataclasses: `LLMResult`, `LLMToolCall`, `LLMUsage`.
 | Community/ecosystem | AutoGen (40k), CrewAI (25k) | ~0 stars |
 | Multi-language SDKs | Semantic Kernel (C#/Py/Java) | Rust+Python only |
 | Visual builder | Mastra, Prefect | No GUI |
-| Built-in memory | LangGraph (checkpointing) | No persistent memory (InMemoryConversationHistory deleted) |
+| Built-in memory | LangGraph (checkpointing) | No persistent memory |
 | RAG pipeline | Haystack, LangChain | Basic retriever/classifier |
 | Managed cloud | Prefect Cloud, Temporal Cloud | Self-hosted only |
 
@@ -197,17 +196,19 @@ All frozen dataclasses: `LLMResult`, `LLMToolCall`, `LLMUsage`.
 
 **S1: Contract Enforcement (5.0/5)** — Kernel JSON Schema validation, tool ACLs, resource quotas, max_visits entry guard, step_limit.
 
-**S2: Architecture (4.9/5)** — Three-layer IPC boundary. Unix process lifecycle. 13 `@runtime_checkable` protocols. `#[deny(unsafe_code)]`.
+**S2: Architecture (4.9/5)** — Three-layer IPC boundary. Unix process lifecycle. 13 `@runtime_checkable` protocols. `#[deny(unsafe_code)]`. IPC handlers now modularized into 5 service modules.
 
-**S3: Graph Expressiveness (4.5/5)** (NEW) — Gate/Fork/Agent node kinds, state merge strategies, Break instruction, step_limit. Matches LangGraph's graph expressiveness with kernel enforcement.
+**S3: Graph Expressiveness (4.5/5)** — Gate/Fork/Agent node kinds, state merge strategies, Break instruction, step_limit. Matches LangGraph's graph expressiveness with kernel enforcement.
 
-**S4: Type Safety (4.5/5)** — Frozen dataclasses, typed LLM boundary, typed routing with 5 field scopes.
+**S4: Type Safety (4.5/5)** — Frozen dataclasses, typed LLM boundary, typed routing with 5 field scopes. Instruction factory methods eliminate structural boilerplate.
 
-**S5: Testing & Evaluation (4.5/5)** — MockKernelClient with full Gate/Fork/state fidelity. TestPipeline, EvaluationRunner.
+**S5: Testing & Evaluation (4.7/5)** (UP from 4.5) — MockKernelClient with full Gate/Fork/state fidelity. 96 new dedicated tests: 61 routing evaluator operator tests (all 13 ops, 5 scopes, edge cases), 13 mock kernel fidelity tests (bounds, Gate, WaitFirst, Break, state merge), 22 agent/worker tests. TestPipeline, EvaluationRunner.
 
 **S6: Observability (4.0/5)** — 5 OTEL sites, 14 Prometheus metrics, CommBus events.
 
-**S7: Interoperability (4.0/5)** — MCP + A2A client+server (590 lines A2A, up from 437).
+**S7: Interoperability (4.0/5)** — MCP + A2A client+server (590 lines A2A).
+
+**S8: Code Hygiene (4.5/5)** (NEW) — Dead code deleted (recovery.rs 166L, InMemoryConversationHistory 44L, stale tests). Instruction factory methods eliminate repetitive struct literals. IPC handlers modularized.
 
 ---
 
@@ -219,7 +220,7 @@ All frozen dataclasses: `LLMResult`, `LLMToolCall`, `LLMUsage`.
 
 **W3: Managed Experience (2.0/5)** — Self-hosted only.
 
-**W4: Memory & Persistence (2.0/5)** (WORSENED) — `InMemoryConversationHistory` was deleted. No persistent memory at all. State is ephemeral within pipeline execution only.
+**W4: Memory & Persistence (2.0/5)** — No persistent memory. State is ephemeral within pipeline execution only.
 
 **W5: RAG Pipeline Depth (2.5/5)** — Basic retriever/classifier.
 
@@ -229,7 +230,7 @@ All frozen dataclasses: `LLMResult`, `LLMToolCall`, `LLMUsage`.
 
 ## 6. Documentation Assessment
 
-8 documents, 1,387 lines. Score: 3.5/5. (Unchanged — no new docs in this iteration.)
+8 documents, 1,387 lines. Score: 3.5/5. (No new docs in this iteration — Gate/Fork patterns still need tutorials.)
 
 ---
 
@@ -237,11 +238,11 @@ All frozen dataclasses: `LLMResult`, `LLMToolCall`, `LLMUsage`.
 
 ### Immediate (High Impact)
 
-1. **Persistent state/memory** — The deletion of InMemoryConversationHistory without replacement makes memory the #1 gap. Need Redis/SQL-backed state persistence.
+1. **Persistent state/memory** — Pipeline state_schema provides the schema; need Redis/SQL-backed persistence across requests.
 
 2. **TypeScript SDK** — Highest-leverage ecosystem expansion.
 
-3. **Tutorials/cookbook** — Gate/Fork patterns need documentation.
+3. **Tutorials/cookbook** — Gate/Fork patterns, routing expression language, state merge strategies need documentation.
 
 ### Medium-term
 
@@ -255,27 +256,28 @@ All frozen dataclasses: `LLMResult`, `LLMToolCall`, `LLMUsage`.
 
 | Dimension | Score | Rationale |
 |-----------|-------|-----------|
-| Architecture | 4.9/5 | Rust kernel + Python infra, IPC boundary, 3-layer separation, protocol-first DI |
+| Architecture | 4.9/5 | Rust kernel + Python infra, IPC boundary, 3-layer separation, protocol-first DI, modular IPC handlers |
 | Contract enforcement | 5.0/5 | Kernel JSON Schema + tool ACLs + quotas + max_visits + step_limit |
 | Graph expressiveness | 4.5/5 | Gate/Fork/Agent nodes, state merge, Break, step_limit. Matches LangGraph |
-| Type safety | 4.5/5 | Frozen dataclasses, typed LLM boundary, `#[deny(unsafe_code)]` |
-| Testing & eval | 4.5/5 | MockKernelClient with full Gate/Fork fidelity, TestPipeline, EvaluationRunner |
+| Type safety | 4.5/5 | Frozen dataclasses, typed LLM boundary, `#[deny(unsafe_code)]`, Instruction factories |
+| Testing & eval | 4.7/5 | 96 new tests: 61 routing ops, 13 kernel fidelity, 22 agent/worker. MockKernelClient, TestPipeline |
 | Observability | 4.0/5 | 5 OTEL sites, 14 Prometheus metrics |
 | Interoperability | 4.0/5 | MCP + A2A client+server, bidirectional |
-| Documentation | 3.5/5 | 8 docs, 1,387 lines. Missing tutorials for Gate/Fork patterns |
+| Code hygiene | 4.5/5 | Dead code deleted (recovery.rs, stale tests), Instruction factories, modular handlers |
+| Documentation | 3.5/5 | 8 docs, 1,387 lines. Missing Gate/Fork tutorials |
 | RAG depth | 2.5/5 | Basic retriever + classifier |
 | Operational complexity | 2.5/5 | Rust compilation required |
 | Multi-language | 2.0/5 | Rust + Python only |
 | Managed experience | 2.0/5 | Self-hosted only |
-| Memory/persistence | 2.0/5 | No persistent memory (InMemoryConversationHistory deleted) |
+| Memory/persistence | 2.0/5 | No persistent memory |
 | Community/ecosystem | 1.0/5 | Zero adoption |
-| **Overall** | **3.7/5** | |
+| **Overall** | **3.8/5** | |
 
 ---
 
 ## 9. Trajectory Analysis
 
-### Gap Closure (7 Iterations)
+### Gap Closure (9 Iterations)
 
 | Gap | Status |
 |-----|--------|
@@ -285,7 +287,7 @@ All frozen dataclasses: `LLMResult`, `LLMToolCall`, `LLMUsage`.
 | No MCP support | **CLOSED** — client+server |
 | No A2A support | **CLOSED** — client+server (590 lines) |
 | Envelope complexity | **CLOSED** — frozen AgentContext |
-| No testing framework | **CLOSED** — MockKernelClient + TestPipeline + EvaluationRunner |
+| No testing framework | **CLOSED** — MockKernelClient + TestPipeline + EvaluationRunner + 96 dedicated tests |
 | Dead protocols | **CLOSED** — 18 → 13 |
 | No StreamingAgent separation | **CLOSED** — StreamingAgent(Agent) SRP |
 | No OTEL spans | **CLOSED** — 5 sites |
@@ -293,23 +295,27 @@ All frozen dataclasses: `LLMResult`, `LLMToolCall`, `LLMUsage`.
 | No graph primitives | **CLOSED** — Gate/Fork/State/Break/step_limit |
 | No state management | **CLOSED** — state_schema + MergeStrategy |
 | Hooks-as-lists | **CLOSED** — normalized callable handling |
-| Persistent memory | **OPEN** — InMemoryConversationHistory deleted, no replacement |
+| Instruction boilerplate | **CLOSED** — 6 factory methods on Instruction |
+| IPC handler monolith | **CLOSED** — 5 modular handler modules |
+| Dead code (recovery.rs) | **CLOSED** — deleted 166 lines |
+| Persistent memory | **OPEN** — no replacement for deleted InMemoryConversationHistory |
 
-**14/15 gaps closed.** Sole remaining: persistent memory.
+**17/18 gaps closed.** Sole remaining: persistent memory.
 
-### Code Trajectory
+### Code Trajectory (This Iteration)
 
-| Metric | Direction | Detail |
-|--------|-----------|--------|
-| Rust orchestrator | 2,165 → 2,665 lines | +500 lines for Gate/Fork/State/Break |
-| Rust orchestrator_types | 274 → 312 lines | NodeKind, MergeStrategy, StateField, step_limit |
-| MockKernelClient | ~192 → 502 lines | Full-fidelity Gate/Fork/WaitFirst/state mock |
-| PipelineWorker | ~539 → 787 lines | break_loop, parallel fan-out, consolidated |
-| A2A server | 254 → 421 lines | Expanded server implementation |
-| Routing evaluator | Added State scope | 5th field scope |
-| Deleted | InMemoryConversationHistory | 44 lines dead code removed |
-| Protocols | 14 → 13 | ConversationHistoryProtocol removed |
+| Metric | Before → After | Detail |
+|--------|---------------|--------|
+| Rust orchestrator | 2,665 → ~2,560 lines | -105 lines via Instruction factories |
+| Rust orchestrator_types | 312 → 405 lines | +93 lines: 6 Instruction factory methods |
+| Rust recovery.rs | 166 → deleted | Dead code removed |
+| IPC handlers | monolithic → 5 modules | commbus/interrupt/kernel/orchestration/tools |
+| Python test_routing_eval_ops | 0 → 398 lines | 61 tests covering all 13 ops, 5 scopes |
+| Python test_mock_kernel_fidelity | 0 → 272 lines | 13 tests: bounds, Gate, WaitFirst, Break, state merge |
+| Python test_agents | expanded +155 lines | 9 additional tests |
+| Python test_pipeline_worker | expanded +86 lines | 13 additional tests |
+| Total new Python tests | +96 | Comprehensive coverage of routing + kernel fidelity |
 
 ---
 
-*Audit conducted across 7 iterations on branch `claude/audit-agentic-frameworks-B6fqd`, 2026-03-11 to 2026-03-12.*
+*Audit conducted across 9 iterations on branch `claude/audit-agentic-frameworks-B6fqd`, 2026-03-11 to 2026-03-12.*
