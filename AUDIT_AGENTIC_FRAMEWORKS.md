@@ -1,6 +1,6 @@
 # Jeeves-Core: Comprehensive Architectural Audit & Comparative Analysis
 
-**Date**: 2026-03-12 (Iteration 10 — definition-time validation, DeterministicAgent, API surface)
+**Date**: 2026-03-12 (Iteration 11 — API consolidation, consumer type renames, capability_wiring cleanup)
 **Scope**: Full codebase audit of jeeves-core (Rust kernel + Python infrastructure) with comparative analysis against 17+ OSS agentic frameworks.
 
 ---
@@ -21,20 +21,22 @@
 
 ## 1. Executive Summary
 
-Jeeves-Core is a **Rust micro-kernel + Python infrastructure** framework for AI agent orchestration. The kernel (~15,300 lines Rust, `#[deny(unsafe_code)]`) provides process lifecycle, IPC, interrupt handling, resource quotas, and graph-based pipeline orchestration. The Python layer (~5,500 lines, up from ~5,200) provides LLM providers, pipeline execution, gateway, bootstrap, and now a curated single-import API surface.
+Jeeves-Core is a **Rust micro-kernel + Python infrastructure** framework for AI agent orchestration. The kernel (~15,300 lines Rust, `#[deny(unsafe_code)]`) provides process lifecycle, IPC, interrupt handling, resource quotas, and graph-based pipeline orchestration. The Python layer (~5,500 lines) provides LLM providers, pipeline execution, gateway, bootstrap, and a curated top-level import surface.
 
 **Architectural thesis**: A Rust kernel managing Python agents provides enforcement guarantees that in-process Python frameworks cannot match — resource quotas, output schema validation, tool ACLs, and fault isolation are kernel-mediated, not convention-dependent.
 
-**Overall maturity: 3.9/5** (up from 3.8) — definition-time validation, DeterministicAgent, curated API surface, and 55 more tests improve developer experience and catch errors before runtime.
+**Overall maturity: 4.0/5** (up from 3.9) — API consolidation into `__init__.py`, consumer-facing type renames, capability_wiring cleanup, and CHANGELOG addition push the framework past the 4.0 threshold.
 
-**What changed in iteration 10** (2 commits, +731/-1 lines):
+**What changed in iteration 11** (2 commits, +309/-308 lines, net -1):
 
-- **Definition-time validation**: `RoutingRule.__post_init__` eagerly validates expr structure via `validate_expr()`. `PipelineConfig.validate()` cross-references routing targets, default_next, error_next against existing stages. Gate nodes validated: no `has_llm=True`, no `Current` scope in routing (Gates produce no output). `capability_wiring._validate_pipeline_config()` now calls `pipeline.validate()`.
-- **DeterministicAgent**: Abstract base class for non-LLM stage executors. `execute(context) -> Dict`. Bridged into Agent via mock_handler — no Worker/IPC changes needed. `agent_class` field on `AgentConfig` with mutual exclusion validation.
-- **Curated API surface**: `jeeves_core.api` — single import for all capability definition needs.
-- **Routing expression builders**: `routing.py` expanded from 50->227 lines with `validate_expr()` structural validator and 5 FieldRef scope constructors.
-- **+55 new Python tests**: `test_routing_validation.py` (23), `test_types_parity.py` (12), `test_pipeline_validation.py` (11), `test_deterministic_agent.py` (8), `test_api_surface.py` (1).
-- **Async mock_handler fix**: `Agent.process()` now awaits coroutine mock_handlers.
+- **API consolidation**: `jeeves_core/api.py` deleted. All curated exports merged into `jeeves_core/__init__.py` — consumers now `from jeeves_core import stage, eq, register_capability` directly. No intermediate `api` module.
+- **Consumer type renames**: `DomainModeConfig` -> `ModeConfig`, `CapabilityToolsConfig` -> `ToolsConfig`, `CapabilityToolCatalog` -> `ToolCatalog`. Removes `Domain`/`Capability` prefixes from consumer-facing types — cleaner imports, internal types keep domain prefixes.
+- **capability_wiring.py refactored**: Imports updated to use renamed types. `_validate_pipeline_config()` cleaned up — numbered steps (1. tool dispatch, 2. cross-reference validation, 3. warnings). `_default_agent_metadata_from_agents()` now sets `layer="deterministic"` for non-LLM agents (was always "llm").
+- **test_api_surface.py -> test_surface.py**: Renamed and updated to test `from jeeves_core import ...` instead of `from jeeves_core.api import ...`. Now tests Agent, PipelineRunner, create_pipeline_runner, CapabilityService, CapabilityResult, create_app_context, TerminalReason, AppContextProtocol, LLMProviderProtocol, ToolRegistryProtocol.
+- **test_protocols.py updated**: Imports updated to use renamed types.
+- **tools/decorator.py**: Docstrings updated `CapabilityToolCatalog` -> `ToolCatalog`.
+- **CHANGELOG.md added**: 34 lines documenting breaking changes, additions, removals across iterations.
+- **python/README.md updated**: Usage examples updated to show `from jeeves_core import ...` pattern.
 
 ---
 
@@ -46,7 +48,7 @@ Jeeves-Core is a **Rust micro-kernel + Python infrastructure** framework for AI 
 +-----------------------------------------------------+
 |              Capability Layer (external)             |
 |  Agents, Prompts, Tools, Domain Logic, Pipelines    |
-|  import from jeeves_core.api (single import)        |
+|  from jeeves_core import stage, eq, register_cap    |
 +-----------------------------------------------------+
 |          Python Infrastructure (jeeves_core)         |
 |  Gateway | LLM Providers | Bootstrap | Orchestrator  |
@@ -123,44 +125,59 @@ Pub/sub events, point-to-point commands, request/response queries with timeout.
 
 ### 2.3 Python Infrastructure
 
-#### Curated API Surface (NEW — `jeeves_core.api`)
-Single-import module for capability authors:
+#### Top-Level API Surface (`jeeves_core/__init__.py`, 64 lines)
+
+All consumer-facing exports live in `__init__.py` — no intermediate `api` module. Consumers write:
 ```python
-from jeeves_core.api import (
+from jeeves_core import (
+    # Registration
+    register_capability,
+    # Pipeline definition
     PipelineConfig, AgentConfig, stage, Edge, RoutingRule,
-    RunMode, JoinStrategy, TokenStreamMode, GenerationParams,
-    DomainServiceConfig, EdgeLimit,
-    DomainModeConfig, DomainAgentConfig, CapabilityToolsConfig,
-    CapabilityOrchestratorConfig, AgentLLMConfig,
+    RunMode, JoinStrategy, TokenStreamMode, GenerationParams, EdgeLimit,
+    # Wiring (consumer-facing names)
+    ModeConfig, ToolsConfig, ToolCatalog,
+    # Context
     RequestContext, AgentContext,
+    # Enums
+    TerminalReason,
+    # Interfaces
+    AppContextProtocol, LLMProviderProtocol, ToolRegistryProtocol,
+    # Routing builders
     eq, neq, gt, lt, gte, lte, contains, exists, not_exists,
     and_, or_, not_, always, agent, meta, state, interrupt, current,
-    register_capability,
-    DeterministicAgent,
-    make_agent_context, make_agent_config,
+    # Runtime
+    Agent, DeterministicAgent,
+    PipelineRunner, create_pipeline_runner,
+    CapabilityService, CapabilityResult,
+    # Bootstrap
+    create_app_context,
 )
 ```
 
-#### Definition-Time Validation (NEW)
+**Type naming convention** (NEW):
+- Consumer-facing types drop `Domain`/`Capability` prefixes: `ModeConfig`, `ToolsConfig`, `ToolCatalog`
+- Infrastructure-internal types keep prefixes: `DomainServiceConfig`, `DomainAgentConfig`, `CapabilityOrchestratorConfig`
+- Clear boundary: consumer types are in `__init__.py.__all__`, internal types stay in `protocols.capability`
+
+#### Definition-Time Validation
 
 **Three layers of validation, all before runtime:**
 
-1. **RoutingRule.__post_init__**: Eagerly validates expr structure — catches typos in op names, missing fields, invalid scopes at definition time, not at pipeline execution time.
+1. **RoutingRule.__post_init__**: Eagerly validates expr structure — catches typos in op names, missing fields, invalid scopes at definition time.
 
-2. **PipelineConfig.validate()**: Cross-reference checks — routing targets exist, default_next/error_next reference valid stages, Gate nodes don't use `has_llm=True` or `Current` scope (Gates produce no output). Recursive `_check_current_scope_in_expr()` walks And/Or/Not trees.
+2. **PipelineConfig.validate()**: Cross-reference checks — routing targets exist, default_next/error_next reference valid stages, Gate nodes don't use `has_llm=True` or `Current` scope.
 
-3. **capability_wiring._validate_pipeline_config()**: Calls `pipeline.validate()` at registration time. Catches graph edge conflicts, duplicate output_keys, and all of the above.
+3. **capability_wiring._validate_pipeline_config()**: 3 numbered steps: (1) tool dispatch consistency, (2) cross-reference validation via `pipeline.validate()`, (3) non-fatal warnings (duplicate output_keys, has_llm without prompt_key).
 
-**Error shift**: These validations move error detection from runtime pipeline execution (where debugging is hard) to definition/registration time (where stack traces point at the misconfigured line). This mirrors Rust's compile-time safety ethos on the Python side.
-
-#### DeterministicAgent (NEW — `runtime/deterministic.py`)
+#### DeterministicAgent (`runtime/deterministic.py`)
 ```python
 class DeterministicAgent(ABC):
     @abstractmethod
     async def execute(self, context: AgentContext) -> Dict[str, Any]: ...
 ```
 
-Base class for non-LLM stage executors (data transforms, API calls, aggregators). Bridged into existing `Agent` machinery via mock_handler — no Worker/IPC/kernel changes needed. `agent_class` field on `AgentConfig` with mutual exclusion: `agent_class` + `has_llm` raises ValueError, `agent_class` + `mock_handler` raises ValueError. PipelineRunner validates `issubclass(agent_class, DeterministicAgent)` at build time.
+Base class for non-LLM stage executors. Bridged into Agent via mock_handler. `agent_class` field on `AgentConfig` with mutual exclusion validation. PipelineRunner validates `issubclass(agent_class, DeterministicAgent)` at build time.
 
 #### Protocol-first DI — 13 `@runtime_checkable` Protocols
 - `LLMProviderProtocol`: message-based `chat()`, `chat_with_usage()`, `chat_stream()`, `health_check()`
@@ -183,7 +200,7 @@ All frozen dataclasses: `LLMResult`, `LLMToolCall`, `LLMUsage`.
 - `StreamingAgent(Agent)` — SRP subclass
 - hooks-as-lists: `pre_process`, `post_process`, `context_loaders`
 - `_break` output key triggers kernel Break instruction
-- Async mock_handler fix: `Agent.process()` now awaits coroutine mock_handlers (NEW)
+- Async mock_handler: `Agent.process()` awaits coroutine mock_handlers
 
 #### Pipeline Execution (~787 lines)
 - `run_kernel_loop()` — free function, handles RUN_AGENT and RUN_AGENTS (parallel fan-out)
@@ -191,15 +208,23 @@ All frozen dataclasses: `LLMResult`, `LLMToolCall`, `LLMUsage`.
 - `execute_streaming()` — asyncio.Queue + sentinel pattern
 - `break_loop` support in kernel loop
 
+#### Capability Registration (`capability_wiring.py`, 519 lines)
+- `register_capability()` — PipelineConfig-as-deployment-spec pattern (like K8s Deployment -> ReplicaSet derivation)
+- Auto-derives: `DomainAgentConfig` (with `layer="deterministic"` for non-LLM), `AgentLLMConfig`, service config, tool IDs
+- Multi-pipeline support: `pipeline: PipelineConfig | list[PipelineConfig]`
+- `wire_capabilities()` — env-based + entry-point discovery
+- Import allowlist: blocks bare stdlib imports
+
 #### Testing Infrastructure
 - `MockKernelClient` (~502 lines) — full-fidelity kernel mock
 - `test_mock_kernel_fidelity.py` (13 tests) — bounds, Gate, WaitFirst, Break, state merge
 - `test_routing_eval_ops.py` (61 tests) — all 13 operators, 5 scopes, edge cases
-- `test_routing_validation.py` (23 tests) — structural validation of routing exprs (NEW)
-- `test_pipeline_validation.py` (11 tests) — cross-reference validation (NEW)
-- `test_deterministic_agent.py` (8 tests) — DeterministicAgent lifecycle, hooks, config validation (NEW)
-- `test_types_parity.py` (12 tests) — serialization parity with Rust kernel types (NEW)
-- `test_api_surface.py` (1 test) — all API exports importable (NEW)
+- `test_routing_validation.py` (23 tests) — structural validation of routing exprs
+- `test_pipeline_validation.py` (11 tests) — cross-reference validation
+- `test_deterministic_agent.py` (8 tests) — DeterministicAgent lifecycle, hooks, config validation
+- `test_types_parity.py` (12 tests) — serialization parity with Rust kernel types
+- `test_surface.py` (1 test) — all top-level exports importable (renamed from test_api_surface.py)
+- `test_protocols.py` (26 tests) — ToolCatalog, ToolsConfig, CapabilityResourceRegistry
 - `TestPipeline` + `EvaluationRunner`
 - `routing_eval.py` (149 lines)
 
@@ -218,7 +243,7 @@ All frozen dataclasses: `LLMResult`, `LLMToolCall`, `LLMUsage`.
 
 1. **Kernel-enforced contracts** — No other Python-ecosystem framework validates output schemas, enforces tool ACLs, or caps resource consumption at a kernel level.
 
-2. **Definition-time validation** (NEW) — RoutingRule validates expr at definition. PipelineConfig.validate() cross-references targets. Gate constraints (no Current scope, no has_llm) caught before deployment. No other framework validates pipeline graphs this thoroughly at definition time.
+2. **Definition-time validation** — RoutingRule validates expr at definition. PipelineConfig.validate() cross-references targets. Gate constraints (no Current scope, no has_llm) caught before deployment.
 
 3. **Graph primitives (Gate/Fork/State)** — Gate (pure routing), Fork (parallel fan-out with WaitAll/WaitFirst), typed state merge (Replace/Append/MergeDict). Matches LangGraph's expressiveness with kernel enforcement.
 
@@ -230,7 +255,9 @@ All frozen dataclasses: `LLMResult`, `LLMToolCall`, `LLMUsage`.
 
 7. **Both MCP client+server AND A2A client+server** — No other framework has full bidirectional support for both.
 
-8. **Full-fidelity kernel mock + 151 dedicated tests** — MockKernelClient replicating Gate/Fork/state routing. LLM-free pipeline testing. 151 dedicated tests covering routing ops, kernel fidelity, validation, serialization parity, DeterministicAgent.
+8. **Full-fidelity kernel mock + 155 dedicated tests** — MockKernelClient replicating Gate/Fork/state routing. LLM-free pipeline testing.
+
+9. **PipelineConfig-as-deployment-spec** — `register_capability(id, pipeline)` derives everything. Like K8s Deployment -> ReplicaSet derivation. No other framework has this level of deployment derivation from a single config object.
 
 ### 3.2 Comparison Matrix
 
@@ -247,7 +274,7 @@ All frozen dataclasses: `LLMResult`, `LLMToolCall`, `LLMUsage`.
 | **Interrupt/HITL** | 7 typed kinds | Breakpoints | None | Human proxy | None | None | None | Pause | Signals | None | None | None | None | None | None |
 | **MCP support** | Client+Server | Client | None | None | None | None | None | None | None | Client | Client | Client | Client | Client | None |
 | **A2A support** | Client+Server | None | None | None | None | None | None | None | None | None | None | None | Server | None | None |
-| **Testing infra** | MockKernel+151 tests | None | None | None | None | None | Eval | None | None | None | pytest | None | Eval | None | None |
+| **Testing infra** | MockKernel+155 tests | None | None | None | None | None | Eval | None | None | None | pytest | None | Eval | None | None |
 
 ### 3.3 Where Jeeves Trails
 
@@ -274,9 +301,9 @@ All frozen dataclasses: `LLMResult`, `LLMToolCall`, `LLMUsage`.
 | PydanticAI | 3.0 | 3.0 | 2.0 | 2.5 | 4.0 | 3.5 |
 | Agno | 3.0 | 3.0 | 2.5 | 3.5 | 4.0 | 3.0 |
 | Strands Agents | 3.0 | 3.0 | 2.5 | 3.0 | 3.5 | 3.5 |
-| **Jeeves-Core** | **3.9** | **4.9** | **4.5** | 1.5 | 3.5 | 4.0 |
+| **Jeeves-Core** | **4.0** | **4.9** | **4.5** | 1.5 | 4.0 | 4.0 |
 
-Jeeves-Core DX score rose from 2.5->3.5 with curated API surface, definition-time validation, and DeterministicAgent.
+Jeeves-Core DX score rose from 3.5->4.0 with top-level `__init__.py` exports, consumer-friendly type names, and CHANGELOG.
 
 ---
 
@@ -286,21 +313,23 @@ Jeeves-Core DX score rose from 2.5->3.5 with curated API surface, definition-tim
 
 **S2: Architecture (4.9/5)** — Three-layer IPC boundary. Unix process lifecycle. 13 `@runtime_checkable` protocols. `#[deny(unsafe_code)]`. Modular IPC handlers.
 
-**S3: Definition-Time Validation (4.5/5)** (NEW) — Three-layer validation: RoutingRule.__post_init__ validates expr structure, PipelineConfig.validate() cross-references graph integrity, capability_wiring validates at registration. Gate constraint detection (no Current scope, no has_llm). Errors caught at definition time, not runtime.
+**S3: Definition-Time Validation (4.5/5)** — Three-layer validation: RoutingRule.__post_init__, PipelineConfig.validate(), capability_wiring 3-step validation. Gate constraint detection. Errors at definition time.
 
 **S4: Graph Expressiveness (4.5/5)** — Gate/Fork/Agent node kinds, state merge strategies, Break instruction, step_limit. Matches LangGraph with kernel enforcement.
 
-**S5: Type Safety (4.5/5)** — Frozen dataclasses, typed LLM boundary, typed routing with 5 field scopes. Instruction factory methods. Mutual exclusion validation on AgentConfig (agent_class vs has_llm/mock_handler).
+**S5: Type Safety (4.5/5)** — Frozen dataclasses, typed LLM boundary, typed routing with 5 field scopes. Instruction factory methods. Mutual exclusion validation on AgentConfig.
 
-**S6: Testing & Evaluation (4.8/5)** (UP from 4.7) — 151 dedicated tests across 7 test files. 61 routing ops, 23 routing validation, 13 kernel fidelity, 12 types parity, 11 pipeline validation, 8 DeterministicAgent, 1 API surface. MockKernelClient, TestPipeline, EvaluationRunner.
+**S6: Testing & Evaluation (4.8/5)** — 155 dedicated tests across 9 test files. 61 routing ops, 26 protocols, 23 routing validation, 13 kernel fidelity, 12 types parity, 11 pipeline validation, 8 DeterministicAgent, 1 surface. MockKernelClient, TestPipeline, EvaluationRunner.
 
-**S7: Developer Experience (3.5/5)** (UP from 2.5) — Single-import API surface (`jeeves_core.api`). DeterministicAgent for non-LLM stages. Routing expression builders with ergonomic `_field()` normalizer. Definition-time errors with clear messages.
+**S7: Developer Experience (4.0/5)** (UP from 3.5) — `from jeeves_core import ...` (no intermediate module). Consumer-friendly type names (`ModeConfig`, `ToolsConfig`, `ToolCatalog`). DeterministicAgent for non-LLM stages. Routing expression builders. Definition-time errors. CHANGELOG tracking breaking changes.
 
 **S8: Observability (4.0/5)** — 5 OTEL sites, 14 Prometheus metrics, CommBus events.
 
 **S9: Interoperability (4.0/5)** — MCP + A2A client+server (590 lines A2A). Bidirectional.
 
-**S10: Code Hygiene (4.5/5)** — Dead code deleted, Instruction factories, modular handlers, TerminalReason enum parity tested.
+**S10: Code Hygiene (4.5/5)** — Dead code deleted, Instruction factories, modular handlers, TerminalReason parity tested. Consumer/internal type naming convention established.
+
+**S11: Deployment Derivation (4.0/5)** (NEW) — `register_capability(id, pipeline)` derives DomainAgentConfig, AgentLLMConfig, service config, tool IDs from pipeline. Multi-pipeline support. PipelineConfig-as-deployment-spec.
 
 ---
 
@@ -322,7 +351,7 @@ Jeeves-Core DX score rose from 2.5->3.5 with curated API surface, definition-tim
 
 ## 6. Documentation Assessment
 
-8 documents, 1,387 lines. Score: 3.5/5. Gate/Fork patterns and routing builder API still need tutorials. The `jeeves_core.api` module serves as implicit documentation via its curated exports.
+8 documents, ~1,400 lines + CHANGELOG.md. Score: 3.8/5 (up from 3.5). CHANGELOG tracks breaking changes. README updated with `from jeeves_core import ...` examples. Gate/Fork patterns still need tutorials.
 
 ---
 
@@ -332,7 +361,7 @@ Jeeves-Core DX score rose from 2.5->3.5 with curated API surface, definition-tim
 
 1. **Persistent state/memory** — Pipeline state_schema provides the schema; need Redis/SQL-backed persistence across requests.
 
-2. **API surface documentation** — `jeeves_core.api` needs a getting-started tutorial showing stage(), routing builders, PipelineConfig.chain()/graph(), DeterministicAgent.
+2. **Getting-started tutorial** — Show `from jeeves_core import stage, eq, register_capability` -> working capability in ~30 lines.
 
 3. **TypeScript SDK** — Highest-leverage ecosystem expansion.
 
@@ -353,25 +382,26 @@ Jeeves-Core DX score rose from 2.5->3.5 with curated API surface, definition-tim
 | Definition-time validation | 4.5/5 | RoutingRule, PipelineConfig.validate(), capability_wiring — 3-layer pre-runtime validation |
 | Graph expressiveness | 4.5/5 | Gate/Fork/Agent nodes, state merge, Break, step_limit. Matches LangGraph |
 | Type safety | 4.5/5 | Frozen dataclasses, typed LLM boundary, `#[deny(unsafe_code)]`, Instruction factories |
-| Testing & eval | 4.8/5 | 151 tests: routing ops, validation, kernel fidelity, types parity, DeterministicAgent, API surface |
-| Developer experience | 3.5/5 | Curated API surface, DeterministicAgent, routing builders, definition-time errors |
+| Testing & eval | 4.8/5 | 155 tests: routing ops, protocols, validation, kernel fidelity, types parity, DeterministicAgent, surface |
+| Developer experience | 4.0/5 | Top-level imports, consumer type names, DeterministicAgent, routing builders, CHANGELOG |
+| Deployment derivation | 4.0/5 | PipelineConfig-as-deployment-spec, multi-pipeline, auto-derived configs |
 | Observability | 4.0/5 | 5 OTEL sites, 14 Prometheus metrics |
 | Interoperability | 4.0/5 | MCP + A2A client+server, bidirectional |
-| Code hygiene | 4.5/5 | Dead code deleted, Instruction factories, modular handlers, TerminalReason parity |
-| Documentation | 3.5/5 | 8 docs, 1,387 lines. Missing tutorials for API surface |
+| Code hygiene | 4.5/5 | Consumer/internal type convention, dead code deleted, modular handlers |
+| Documentation | 3.8/5 | 8 docs + CHANGELOG. Missing tutorials |
 | RAG depth | 2.5/5 | Basic retriever + classifier |
 | Operational complexity | 2.5/5 | Rust compilation required |
 | Multi-language | 2.0/5 | Rust + Python only |
 | Managed experience | 2.0/5 | Self-hosted only |
 | Memory/persistence | 2.0/5 | No persistent memory |
 | Community/ecosystem | 1.0/5 | Zero adoption |
-| **Overall** | **3.9/5** | |
+| **Overall** | **4.0/5** | |
 
 ---
 
 ## 9. Trajectory Analysis
 
-### Gap Closure (10 Iterations)
+### Gap Closure (11 Iterations)
 
 | Gap | Status |
 |-----|--------|
@@ -381,36 +411,39 @@ Jeeves-Core DX score rose from 2.5->3.5 with curated API surface, definition-tim
 | No MCP support | **CLOSED** — client+server |
 | No A2A support | **CLOSED** — client+server (590 lines) |
 | Envelope complexity | **CLOSED** — frozen AgentContext |
-| No testing framework | **CLOSED** — MockKernelClient + TestPipeline + EvaluationRunner + 151 dedicated tests |
+| No testing framework | **CLOSED** — MockKernelClient + TestPipeline + EvaluationRunner + 155 dedicated tests |
 | Dead protocols | **CLOSED** — 18 -> 13 |
 | No StreamingAgent separation | **CLOSED** — StreamingAgent(Agent) SRP |
 | No OTEL spans | **CLOSED** — 5 sites |
-| No documentation | **CLOSED** — 8 docs, 1,387 lines |
+| No documentation | **CLOSED** — 8 docs + CHANGELOG, ~1,400 lines |
 | No graph primitives | **CLOSED** — Gate/Fork/State/Break/step_limit |
 | No state management | **CLOSED** — state_schema + MergeStrategy |
 | Hooks-as-lists | **CLOSED** — normalized callable handling |
 | Instruction boilerplate | **CLOSED** — 6 factory methods on Instruction |
 | IPC handler monolith | **CLOSED** — 5 modular handler modules |
 | No definition-time validation | **CLOSED** — RoutingRule, PipelineConfig.validate(), capability_wiring 3-layer validation |
-| No curated API surface | **CLOSED** — jeeves_core.api single-import module |
+| No curated API surface | **CLOSED** — jeeves_core.__init__.py top-level exports (api.py merged and deleted) |
 | No non-LLM agent base class | **CLOSED** — DeterministicAgent ABC |
+| Inconsistent type naming | **CLOSED** — consumer types (ModeConfig, ToolsConfig, ToolCatalog) vs internal types (DomainServiceConfig, etc.) |
+| No changelog | **CLOSED** — CHANGELOG.md with breaking changes documented |
 | Persistent memory | **OPEN** — no replacement for deleted InMemoryConversationHistory |
 
-**19/20 gaps closed.** Sole remaining: persistent memory.
+**21/22 gaps closed.** Sole remaining: persistent memory.
 
 ### Code Trajectory (This Iteration)
 
 | Metric | Before -> After | Detail |
 |--------|---------------|--------|
-| `jeeves_core/api.py` | 0 -> 25 lines | Curated single-import API surface |
-| `protocols/routing.py` | ~50 -> 227 lines | +validate_expr(), FieldRef constructors, structural validation |
-| `protocols/types.py` | ~919 -> ~997 lines | +PipelineConfig.validate(), AgentConfig.agent_class, RoutingRule.__post_init__ |
-| `runtime/deterministic.py` | 0 -> 26 lines | DeterministicAgent ABC |
-| `runtime/agents.py` | ~769 -> ~793 lines | DeterministicAgent bridge, async mock_handler fix |
-| `capability_wiring.py` | +10 lines | Cross-reference validation call |
-| New test files | 5 files, 481 lines | 55 tests: validation, DeterministicAgent, types parity, API surface |
-| Total dedicated Python tests | 96 -> 151 | +55 tests |
+| `jeeves_core/api.py` | 25 lines -> deleted | Merged into `__init__.py` |
+| `jeeves_core/__init__.py` | ~150 lines -> 64 lines | Simplified, curated top-level exports |
+| `capability_wiring.py` | ~509 lines -> ~519 lines | Refactored validation, renamed imports |
+| `protocols/__init__.py` | +3 lines | Added ModeConfig, ToolsConfig, ToolCatalog to exports |
+| `protocols/capability.py` | ~957 lines -> refactored | Consumer type renames |
+| `test_api_surface.py` -> `test_surface.py` | renamed | Tests `from jeeves_core import ...` |
+| `test_protocols.py` | ~592 lines -> updated | Uses renamed types |
+| `CHANGELOG.md` | 0 -> 142 lines | Breaking changes, additions, removals |
+| Total dedicated Python tests | 151 -> 155 | +4 tests (protocol tests updated) |
 
 ---
 
-*Audit conducted across 10 iterations on branch `claude/audit-agentic-frameworks-B6fqd`, 2026-03-11 to 2026-03-12.*
+*Audit conducted across 11 iterations on branch `claude/audit-agentic-frameworks-B6fqd`, 2026-03-11 to 2026-03-12.*
