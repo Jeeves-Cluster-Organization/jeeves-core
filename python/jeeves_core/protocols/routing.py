@@ -44,6 +44,11 @@ def interrupt(key: str) -> FieldRef:
     return {"scope": "Interrupt", "key": key}
 
 
+def state(key: str) -> FieldRef:
+    """FieldRef scoping to merged accumulator state."""
+    return {"scope": "State", "key": key}
+
+
 # =============================================================================
 # Internal: normalize field argument
 # =============================================================================

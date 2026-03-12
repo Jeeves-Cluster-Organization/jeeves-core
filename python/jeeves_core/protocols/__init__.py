@@ -49,8 +49,6 @@ from jeeves_core.protocols.types import (
     # Retrieval types
     RetrievedContext,
     ClassificationResult,
-    RetrievalConfig,
-    ConversationConfig,
 )
 
 # =============================================================================
@@ -73,7 +71,6 @@ from jeeves_core.protocols.interfaces import (
     AgentLLMConfig,
     ContextRetrieverProtocol,
     EmbeddingProviderProtocol,
-    ConversationHistoryProtocol,
 )
 
 # =============================================================================
@@ -161,11 +158,8 @@ __all__ = [
     # Retrieval types
     "RetrievedContext",
     "ClassificationResult",
-    "RetrievalConfig",
-    "ConversationConfig",
     "ContextRetrieverProtocol",
     "EmbeddingProviderProtocol",
-    "ConversationHistoryProtocol",
     # Capability registration
     "get_capability_resource_registry",
     "reset_capability_resource_registry",

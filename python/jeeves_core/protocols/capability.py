@@ -41,7 +41,7 @@ T = TypeVar('T')
 @dataclass(frozen=True)
 class ToolCatalogEntry:
     """Immutable tool metadata for capability tools.
-    
+
     Frozen dataclass ensures entries cannot be modified after creation.
     """
     id: str
@@ -50,6 +50,17 @@ class ToolCatalogEntry:
     category: str  # ToolCategory value as string
     risk_semantic: str  # RiskSemantic value as string
     risk_severity: str  # RiskSeverity value as string
+
+    def to_dict(self) -> Dict[str, Any]:
+        """Serialize for kernel tool registration."""
+        return {
+            "id": self.id,
+            "description": self.description,
+            "parameters": dict(self.parameters),
+            "category": self.category,
+            "risk_semantic": self.risk_semantic,
+            "risk_severity": self.risk_severity,
+        }
 
 
 @dataclass
@@ -186,11 +197,19 @@ class CapabilityToolCatalog:
     
     def get_entries(self) -> List[ToolCatalogEntry]:
         """Get all tool entries.
-        
+
         Returns:
             List of all ToolCatalogEntry objects
         """
         return list(self._entries.values())
+
+    def list_entries(self) -> List[Dict[str, Any]]:
+        """Get all tool entries as dicts for kernel registration.
+
+        Returns:
+            List of tool entry dicts suitable for kernel_client.register_tool().
+        """
+        return [entry.to_dict() for entry in self._entries.values()]
     
     def generate_prompt_section(self) -> str:
         """Generate tool descriptions for LLM prompts.

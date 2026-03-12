@@ -22,6 +22,7 @@ class TerminalReason(str, Enum):
     LLM_FAILED_FATALLY = "LLM_FAILED_FATALLY"
     POLICY_VIOLATION = "POLICY_VIOLATION"
     MAX_STAGE_VISITS_EXCEEDED = "MAX_STAGE_VISITS_EXCEEDED"
+    BREAK_REQUESTED = "BREAK_REQUESTED"
 
 # Interrupt type.
 class InterruptKind(str, Enum):
