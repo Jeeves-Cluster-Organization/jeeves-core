@@ -1,17 +1,17 @@
-"""Test that jeeves_core.api re-exports work (Phase 4a)."""
+"""Test that jeeves_core top-level re-exports work."""
 
 
-def test_api_imports():
-    """All curated api.py exports are importable."""
-    from jeeves_core.api import (
+def test_surface_imports():
+    """All curated __init__.py exports are importable."""
+    from jeeves_core import (
         # Stage/pipeline
         PipelineConfig, AgentConfig, stage, Edge, RoutingRule,
         RunMode, JoinStrategy, TokenStreamMode, GenerationParams,
-        DomainServiceConfig, EdgeLimit,
-        # Wiring infrastructure
-        DomainModeConfig, DomainAgentConfig,
-        CapabilityToolsConfig, CapabilityOrchestratorConfig,
-        AgentLLMConfig,
+        EdgeLimit,
+        # Wiring (consumer-facing)
+        ModeConfig,
+        ToolsConfig,
+        ToolCatalog,
         # Context types
         RequestContext, AgentContext,
         # Routing builders
@@ -20,9 +20,15 @@ def test_api_imports():
         # Registration
         register_capability,
         # Runtime
-        DeterministicAgent,
-        # Testing
-        make_agent_context, make_agent_config,
+        Agent, DeterministicAgent,
+        PipelineRunner, create_pipeline_runner,
+        CapabilityService, CapabilityResult,
+        # Enums
+        TerminalReason,
+        # Interfaces
+        AppContextProtocol, LLMProviderProtocol, ToolRegistryProtocol,
+        # Bootstrap
+        create_app_context,
     )
     # Smoke: construct a stage
     s = stage("test", prompt_key="p.test", default_next=None)

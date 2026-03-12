@@ -15,7 +15,7 @@ Usage:
 
     registry = get_capability_resource_registry()
     registry.register_schema("my_capability", "database/schemas/my_schema.sql")
-    registry.register_mode("my_capability", DomainModeConfig(...))
+    registry.register_mode("my_capability", ModeConfig(...))
     registry.register_service("my_capability", DomainServiceConfig(...))
 
     # In infrastructure (jeeves_core)
@@ -72,7 +72,7 @@ class ToolDefinition:
     description: str = ""
 
 
-class CapabilityToolCatalog:
+class ToolCatalog:
     """Tool catalog scoped to a single capability.
     
     Each capability owns its own catalog instance. Infrastructure queries via
@@ -85,7 +85,7 @@ class CapabilityToolCatalog:
     
     Usage:
         # In capability layer
-        catalog = CapabilityToolCatalog("assistant")
+        catalog = ToolCatalog("assistant")
         catalog.register(
             tool_id="add_task",
             func=add_task,
@@ -230,7 +230,7 @@ class CapabilityToolCatalog:
         return "\n".join(lines)
     
     @classmethod
-    def from_decorated(cls, capability_id: str, *modules) -> "CapabilityToolCatalog":
+    def from_decorated(cls, capability_id: str, *modules) -> "ToolCatalog":
         """Build catalog from @tool-decorated functions in given modules.
 
         Scans each module for functions with a _tool_meta attribute
@@ -241,7 +241,7 @@ class CapabilityToolCatalog:
             *modules: Modules to scan for decorated functions.
 
         Returns:
-            Populated CapabilityToolCatalog instance.
+            Populated ToolCatalog instance.
         """
         catalog = cls(capability_id)
         for module in modules:
@@ -287,28 +287,28 @@ class CapabilityPromptConfig:
 
 
 @dataclass
-class CapabilityToolsConfig:
+class ToolsConfig:
     """Configuration for tools registered by a capability.
     
     Supports two patterns:
     1. Lazy initialization: Provide `initializer` function that creates catalog on demand
     2. Eager initialization: Provide `catalog` instance directly
     
-    The capability owns its CapabilityToolCatalog instance, ensuring full isolation
+    The capability owns its ToolCatalog instance, ensuring full isolation
     from other capabilities and no coupling to infrastructure.
     """
     tool_ids: List[str] = field(default_factory=list)  # List of tool IDs provided
-    catalog: Optional["CapabilityToolCatalog"] = None  # The capability's tool catalog
-    initializer: Optional[Callable[..., "CapabilityToolCatalog"]] = None  # Lazy: (db) -> catalog
+    catalog: Optional["ToolCatalog"] = None  # The capability's tool catalog
+    initializer: Optional[Callable[..., "ToolCatalog"]] = None  # Lazy: (db) -> catalog
     
-    def get_catalog(self, **kwargs) -> Optional["CapabilityToolCatalog"]:
+    def get_catalog(self, **kwargs) -> Optional["ToolCatalog"]:
         """Get or initialize the tool catalog.
 
         Args:
             **kwargs: Arguments passed to initializer (e.g., db=connection)
 
         Returns:
-            CapabilityToolCatalog instance or None
+            ToolCatalog instance or None
         """
         if self.catalog is not None:
             return self.catalog
@@ -342,14 +342,19 @@ class CapabilityContractsConfig:
 
 @dataclass
 class DomainServiceConfig:
-    """Configuration for a capability service (kernel registration).
+    """Gateway-level policy for a capability service.
 
-    Services define how capabilities are registered with the kernel
-    for request dispatch and resource management.
+    Static declarations read by the gateway and governance layer.
+    NOT the same as Rust ServiceInfo (runtime health, load, capacity).
 
-    The additional metadata fields (is_readonly, requires_confirmation, etc.)
-    enable the mission system to adapt its behavior based on capability
-    characteristics without hardcoding assumptions about specific capabilities.
+    Gateway policy (read by Python infra):
+        service_id — identity
+        is_default — gateway routing
+        is_readonly, requires_confirmation — governance policy
+        default_session_title — UI presentation
+
+    Runtime (defaults here, pushed to Rust ServiceInfo at startup):
+        service_type, capabilities, max_concurrent
     """
     service_id: str
     service_type: str = "flow"  # "flow", "tool", "query"
@@ -357,15 +362,14 @@ class DomainServiceConfig:
     max_concurrent: int = 10
     is_default: bool = False  # If True, this is the default service for the kernel
 
-    # Capability behavior metadata (enables generic mission system behavior)
+    # Gateway policy (read by Python infra)
     is_readonly: bool = True  # Whether this capability only reads (no modifications)
     requires_confirmation: bool = False  # Whether actions need user confirmation
     default_session_title: str = "Session"  # Default title for new sessions
-    pipeline_stages: List[str] = field(default_factory=list)  # Agent pipeline stages if any
 
 
 @dataclass
-class DomainModeConfig:
+class ModeConfig:
     """Configuration for a capability mode.
 
     Modes define how the gateway should handle requests for a specific capability.
@@ -394,7 +398,7 @@ class CapabilityResourceRegistryProtocol(Protocol):
         """
         ...
 
-    def register_mode(self, capability_id: str, mode_config: DomainModeConfig) -> None:
+    def register_mode(self, capability_id: str, mode_config: ModeConfig) -> None:
         """Register a gateway mode for a capability.
 
         Args:
@@ -415,14 +419,14 @@ class CapabilityResourceRegistryProtocol(Protocol):
         """
         ...
 
-    def get_mode_config(self, mode_id: str) -> Optional[DomainModeConfig]:
+    def get_mode_config(self, mode_id: str) -> Optional[ModeConfig]:
         """Get mode configuration by mode ID.
 
         Args:
             mode_id: Mode identifier (e.g., "code_analysis")
 
         Returns:
-            DomainModeConfig if registered, None otherwise
+            ModeConfig if registered, None otherwise
         """
         ...
 
@@ -501,14 +505,14 @@ class CapabilityResourceRegistry:
 
     def __init__(self):
         self._schemas: Dict[str, List[str]] = {}
-        self._modes: Dict[str, DomainModeConfig] = {}
+        self._modes: Dict[str, ModeConfig] = {}
         self._capability_modes: Dict[str, List[str]] = {}
         self._services: Dict[str, DomainServiceConfig] = {}
         self._capability_services: Dict[str, List[str]] = {}
         self._capabilities: List[str] = []
         # Extended registrations
         self._orchestrators: Dict[str, CapabilityOrchestratorConfig] = {}
-        self._tools: Dict[str, CapabilityToolsConfig] = {}
+        self._tools: Dict[str, ToolsConfig] = {}
         self._prompts: Dict[str, List[CapabilityPromptConfig]] = {}
         self._agents: Dict[str, List[DomainAgentConfig]] = {}
         self._contracts: Dict[str, CapabilityContractsConfig] = {}
@@ -529,7 +533,7 @@ class CapabilityResourceRegistry:
         if schema_path not in self._schemas[capability_id]:
             self._schemas[capability_id].append(schema_path)
 
-    def register_mode(self, capability_id: str, mode_config: DomainModeConfig) -> None:
+    def register_mode(self, capability_id: str, mode_config: ModeConfig) -> None:
         """Register a gateway mode for a capability."""
         self._track_capability(capability_id)
         self._modes[mode_config.mode_id] = mode_config
@@ -548,7 +552,7 @@ class CapabilityResourceRegistry:
             all_schemas.extend(schemas)
         return all_schemas
 
-    def get_mode_config(self, mode_id: str) -> Optional[DomainModeConfig]:
+    def get_mode_config(self, mode_id: str) -> Optional[ModeConfig]:
         """Get mode configuration by mode ID."""
         return self._modes.get(mode_id)
 
@@ -643,7 +647,7 @@ class CapabilityResourceRegistry:
     def register_tools(
         self,
         capability_id: str,
-        config: CapabilityToolsConfig,
+        config: ToolsConfig,
     ) -> None:
         """Register a tools initializer for a capability.
 
@@ -660,7 +664,7 @@ class CapabilityResourceRegistry:
     def get_tools(
         self,
         capability_id: Optional[str] = None,
-    ) -> Optional[CapabilityToolsConfig]:
+    ) -> Optional[ToolsConfig]:
         """Get tools configuration.
 
         Args:
@@ -668,7 +672,7 @@ class CapabilityResourceRegistry:
                           If None, returns the first registered (default).
 
         Returns:
-            CapabilityToolsConfig or None
+            ToolsConfig or None
         """
         if capability_id:
             return self._tools.get(capability_id)
@@ -934,13 +938,14 @@ __all__ = [
     # Tool catalog (capability-scoped)
     "ToolCatalogEntry",
     "ToolDefinition",
-    "CapabilityToolCatalog",
-    # Config types
+    "ToolCatalog",
+    # Config types (consumer-facing)
+    "ModeConfig",
+    "ToolsConfig",
+    # Config types (infrastructure-internal)
     "DomainServiceConfig",
-    "DomainModeConfig",
     "DomainAgentConfig",
     "CapabilityPromptConfig",
-    "CapabilityToolsConfig",
     "CapabilityOrchestratorConfig",
     "CapabilityContractsConfig",
     # Registry protocol and implementation

@@ -11,8 +11,7 @@ pip install jeeves-core
 ## Usage
 
 ```python
-from jeeves_core.bootstrap import create_app_context
-from jeeves_core.protocols import PipelineConfig, AgentConfig, Envelope
+from jeeves_core import PipelineConfig, stage, eq, create_app_context
 
 # Bootstrap provisions: kernel_client, llm_provider_factory, config_registry
 app_context = create_app_context()
@@ -27,6 +26,7 @@ app_context = create_app_context()
 
 | Module | Description |
 |--------|-------------|
+| `jeeves_core` | **Top-level import surface** — pipeline types, routing DSL, registration, runtime |
 | `jeeves_core.kernel_client` | IPC bridge to Rust kernel (TCP+msgpack) |
 | `jeeves_core.gateway` | FastAPI HTTP/WS/SSE server |
 | `jeeves_core.llm` | LLM provider abstraction (OpenAI, LiteLLM, mock) |
@@ -38,38 +38,32 @@ app_context = create_app_context()
 
 ```python
 from jeeves_core import (
-    PipelineConfig, AgentConfig, RoutingRule,
-    DomainServiceConfig, create_app_context, CapabilityService,
+    PipelineConfig, stage, eq, always,
+    register_capability,
+    DeterministicAgent, AgentContext,
 )
-from jeeves_core.protocols.routing import eq, always
 
-# 1. Define your pipeline
+# 1. Define a deterministic agent (no LLM)
+class MyPreprocessor(DeterministicAgent):
+    async def execute(self, context: AgentContext) -> dict:
+        context.metadata["enriched"] = True
+        return {"status": "ready"}
+
+# 2. Define your pipeline
 config = PipelineConfig(
     name="my_pipeline",
     agents=[
-        AgentConfig(
-            name="understand",
-            agent="understand_agent",
-            routing=[RoutingRule(expr=always(), target="respond")],
-        ),
-        AgentConfig(
-            name="respond",
-            agent="respond_agent",
-        ),
+        stage("preprocess", agent_class=MyPreprocessor, default_next="respond"),
+        stage("respond", prompt_key="my.respond"),
     ],
+    max_iterations=3, max_llm_calls=2, max_agent_hops=3,
 )
 
-# 2. Register your capability
-service_config = DomainServiceConfig(
-    name="my_capability",
-    pipeline_configs={"default": config},
-)
-
-# 3. Bootstrap and run
-app_context = create_app_context()
+# 3. Register — PipelineConfig IS the deployment spec
+register_capability("my_capability", config, is_default=True)
 ```
 
-See `jeeves_core.protocols.routing` for expression builders (`eq()`, `not_()`, `and_()`, `agent()`, `meta()`).
+`jeeves_core` exports everything needed: pipeline types, routing builders (`eq`, `not_`, `always`, `agent`, `meta`, `state`), wiring types, `DeterministicAgent`, and runtime.
 
 ## License
 

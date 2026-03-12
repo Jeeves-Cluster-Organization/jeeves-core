@@ -7,6 +7,40 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## [Unreleased]
 
+### Changed
+
+**Infrastructure (Python):**
+- **BREAKING:** `register_capability()` signature rewritten — `pipeline` is now a required positional arg (single or list), `DomainServiceConfig` replaced by kwargs (`is_default`, `is_readonly`, `capabilities`, etc.), `orchestrator_config` replaced by `orchestrator_factory` callable
+- Agent metadata (`DomainAgentConfig`), LLM configs (`AgentLLMConfig`), and `pipeline_stages` are now derived from `PipelineConfig` by default — capabilities only override when needed
+- Multi-pipeline support: pass `list[PipelineConfig]` for capabilities with multiple pipelines (e.g., game-mvp with 4 pipelines)
+- `CapabilityToolCatalog` added to `jeeves_core.api` exports
+
+### Removed
+
+**Infrastructure (Python):**
+- `get_agent_config()` deleted from `capability_wiring.py` (zero callers — dead code)
+- Capabilities no longer need to construct `DomainServiceConfig`, `AGENT_LLM_CONFIGS`, or `AGENT_DEFINITIONS` — all derived from pipeline
+
+### Previous [Unreleased]
+
+### Added
+
+**Infrastructure (Python):**
+- `jeeves_core.api` expanded — single-import surface now includes wiring types (`DomainModeConfig`, `DomainAgentConfig`, `CapabilityToolsConfig`, `CapabilityOrchestratorConfig`, `AgentLLMConfig`), `RequestContext`, and `AgentContext`
+- `DeterministicAgent` ABC for no-LLM stages — replaces pre/post hook pattern with typed `execute()` method
+- `agent_class` parameter on `stage()` — wires `DeterministicAgent` subclasses into pipeline stages
+
+### Changed
+
+**Infrastructure (Python):**
+- Capabilities now import from `jeeves_core.api` instead of separate `protocols`, `protocols.routing`, and `capability_wiring` modules
+- hello-world: `think_knowledge` and `think_tools` stages migrated from hook functions to `DeterministicAgent` classes
+- `api.py` docstring updated: "Single-import surface for capability definition and registration"
+
+---
+
+## Previous [Unreleased]
+
 ### Added
 
 **Kernel (Rust):**
