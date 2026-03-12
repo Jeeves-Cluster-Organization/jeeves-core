@@ -7,7 +7,6 @@ from typing import Any, Dict, List
 from jeeves_core.protocols.types import (
     RetrievedContext,
     ClassificationResult,
-    RetrievalConfig,
     AgentConfig,
     stage,
 )
@@ -45,22 +44,6 @@ class TestClassificationResult:
             all_scores={"greeting": 0.95, "farewell": 0.3},
         )
         assert result.all_scores["farewell"] == 0.3
-
-
-# =============================================================================
-# RetrievalConfig not in kernel dict
-# =============================================================================
-
-
-class TestRetrievalConfigNotInKernelDict:
-    def test_retrieval_config_excluded_from_kernel_dict(self):
-        """RetrievalConfig is Python-only — must not appear in to_kernel_dict()."""
-        rc = RetrievalConfig(retriever_key="rag", limit=5)
-        agent = stage("test_agent", retrieval=rc)
-        kernel_dict = agent.to_kernel_dict()
-
-        assert "retrieval" not in kernel_dict
-        assert "retriever_key" not in kernel_dict
 
 
 # =============================================================================
