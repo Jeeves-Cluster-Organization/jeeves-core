@@ -20,7 +20,7 @@ Usage:
     service = MyService(context=app_context)
 
     # Access configuration via context
-    bounds = app_context.core_config.context_bounds
+    flags = app_context.feature_flags
 """
 
 import os
@@ -31,7 +31,6 @@ from jeeves_core.context import AppContext, SystemClock
 from jeeves_core.logging import configure_logging
 from jeeves_core.settings import Settings, get_settings
 from jeeves_core.feature_flags import FeatureFlags, get_feature_flags
-from jeeves_core.protocols import ExecutionConfig, ContextBounds, OrchestrationFlags
 from jeeves_core.protocols import get_capability_resource_registry
 from jeeves_core.config.registry import ConfigRegistry
 
@@ -79,46 +78,6 @@ def request_pid_context(pid: str):
 
 
 
-def create_core_config_from_env() -> ExecutionConfig:
-    """Create ExecutionConfig from environment variables.
-
-    Environment Variables:
-        CORE_MAX_ITERATIONS: Max pipeline iterations
-        CORE_MAX_LLM_CALLS: Max LLM calls per request
-        CORE_MAX_AGENT_HOPS: Max agent transitions
-        CORE_MAX_INPUT_TOKENS: Max input tokens
-        CORE_MAX_OUTPUT_TOKENS: Max output tokens
-        CORE_MAX_CONTEXT_TOKENS: Max context window tokens
-        CORE_RESERVED_TOKENS: Reserved tokens for system
-
-    Returns:
-        ExecutionConfig with environment-parsed values
-    """
-    return ExecutionConfig(
-        max_iterations=int(os.getenv("CORE_MAX_ITERATIONS", "3")),
-        max_llm_calls=int(os.getenv("CORE_MAX_LLM_CALLS", "10")),
-        max_agent_hops=int(os.getenv("CORE_MAX_AGENT_HOPS", "21")),
-        context_bounds=ContextBounds(
-            max_input_tokens=int(os.getenv("CORE_MAX_INPUT_TOKENS", "4096")),
-            max_output_tokens=int(os.getenv("CORE_MAX_OUTPUT_TOKENS", "2048")),
-            max_context_tokens=int(os.getenv("CORE_MAX_CONTEXT_TOKENS", "16384")),
-            reserved_tokens=int(os.getenv("CORE_RESERVED_TOKENS", "512")),
-        ),
-    )
-
-
-def create_orchestration_flags_from_env() -> OrchestrationFlags:
-    """Create OrchestrationFlags from environment variables.
-
-    Environment Variables:
-        ORCH_MAX_CONCURRENT_AGENTS: Max concurrent agents
-
-    Returns:
-        OrchestrationFlags with environment-parsed values
-    """
-    return OrchestrationFlags(
-        max_concurrent_agents=int(os.getenv("ORCH_MAX_CONCURRENT_AGENTS", "4")),
-    )
 
 
 def _validate_bootstrap_env(logger) -> None:
@@ -156,8 +115,6 @@ def _check_kernel_reachable(host: str, port: int, logger) -> None:
 def create_app_context(
     settings: Optional[Settings] = None,
     feature_flags: Optional[FeatureFlags] = None,
-    core_config: Optional[ExecutionConfig] = None,
-    orchestration_flags: Optional[OrchestrationFlags] = None,
 ) -> AppContext:
     """Create AppContext once per process.
 
@@ -167,8 +124,6 @@ def create_app_context(
     Args:
         settings: Optional pre-configured settings. Uses get_settings() if None.
         feature_flags: Optional pre-configured flags. Uses get_feature_flags() if None.
-        core_config: Optional ExecutionConfig. Parses from env if None.
-        orchestration_flags: Optional OrchestrationFlags. Parses from env if None.
 
     Returns:
         AppContext with all dependencies wired.
@@ -176,11 +131,6 @@ def create_app_context(
     Usage:
         # At application startup
         app_context = create_app_context()
-
-        # Or with custom config
-        app_context = create_app_context(
-            core_config=ExecutionConfig(max_iterations=5),
-        )
     """
     # Build settings (from env/files)
     if settings is None:
@@ -189,14 +139,6 @@ def create_app_context(
     # Build feature flags (validation runs automatically via @model_validator)
     if feature_flags is None:
         feature_flags = get_feature_flags()
-
-    # Build core config from environment
-    if core_config is None:
-        core_config = create_core_config_from_env()
-
-    # Build orchestration flags from environment
-    if orchestration_flags is None:
-        orchestration_flags = create_orchestration_flags_from_env()
 
     # Configure logging based on settings
     configure_logging(
@@ -279,9 +221,6 @@ def create_app_context(
     root_logger.info(
         "app_context_created",
         default_service=default_service,
-        max_llm_calls=core_config.max_llm_calls,
-        max_iterations=core_config.max_iterations,
-        max_agent_hops=core_config.max_agent_hops,
     )
 
     return AppContext(
@@ -291,8 +230,6 @@ def create_app_context(
         clock=SystemClock(),
         config_registry=config_registry,
         llm_provider_factory=llm_provider_factory,
-        core_config=core_config,
-        orchestration_flags=orchestration_flags,
         kernel_client=kernel_client,
         state_backend=state_backend,
         distributed_bus=distributed_bus,
@@ -325,41 +262,10 @@ def create_tool_executor_with_access(
 
 
 
-async def sync_quota_defaults_to_kernel(app_context: AppContext) -> None:
-    """Push env-parsed quota defaults to the kernel (single source of truth).
-
-    Call this once at startup after the kernel is running and the
-    transport is connected. The kernel merges non-zero fields, so only
-    the values present in create_core_config_from_env() are overwritten.
-
-    Args:
-        app_context: AppContext with connected kernel_client.
-    """
-    cfg = app_context.core_config
-    try:
-        await app_context.kernel_client.set_quota_defaults(
-            max_llm_calls=cfg.max_llm_calls,
-            max_iterations=cfg.max_iterations,
-            max_input_tokens=cfg.context_bounds.max_input_tokens,
-            max_output_tokens=cfg.context_bounds.max_output_tokens,
-            max_context_tokens=cfg.context_bounds.max_context_tokens,
-            max_agent_hops=cfg.max_agent_hops,
-        )
-        app_context.logger.info("quota_defaults_synced_to_kernel")
-    except Exception as e:
-        app_context.logger.warning(
-            "quota_defaults_sync_failed",
-            error=str(e),
-            detail="Kernel will use its built-in defaults",
-        )
-
 
 __all__ = [
     "create_app_context",
     "create_tool_executor_with_access",
-    "create_core_config_from_env",
-    "create_orchestration_flags_from_env",
-    "sync_quota_defaults_to_kernel",
     # Per-request PID context for resource tracking
     "set_request_pid",
     "clear_request_pid",

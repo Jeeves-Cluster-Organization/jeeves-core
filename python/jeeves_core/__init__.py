@@ -50,7 +50,7 @@ __version__ = "0.0.1"
 from jeeves_core.protocols import (
     # Core types
     PipelineConfig, AgentConfig, AgentContext, RoutingRule, EdgeLimit,
-    ContextBounds, ExecutionConfig, OrchestrationFlags, GenerationParams,
+    GenerationParams,
     # Enums
     TerminalReason, JoinStrategy, RunMode,
     # Routing builders
@@ -71,7 +71,7 @@ __all__ = [
     "__version__",
     # Core types
     "PipelineConfig", "AgentConfig", "AgentContext", "RoutingRule", "EdgeLimit",
-    "ContextBounds", "ExecutionConfig", "OrchestrationFlags", "GenerationParams",
+    "GenerationParams",
     # Enums
     "TerminalReason", "JoinStrategy", "RunMode",
     # Routing builders

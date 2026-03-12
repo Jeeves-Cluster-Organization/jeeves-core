@@ -373,6 +373,15 @@ class RetrievalConfig:
 
 
 @dataclass
+class ConversationConfig:
+    """Conversation history injection config. Python-only, not serialized to kernel."""
+    history_key: str = ""
+    inject_as: str = "conversation_history"
+    limit: int = 20
+    format: str = "list"  # "list" (raw dicts) or "text" (formatted string)
+
+
+@dataclass
 class AgentConfig:
     """Declarative agent configuration."""
     name: str
@@ -402,6 +411,8 @@ class AgentConfig:
     mock_handler: Optional[Callable] = None
     # Retrieval hints (Python-only, not serialized to kernel)
     retrieval: Optional[RetrievalConfig] = None
+    # Conversation history injection (Python-only, not serialized to kernel)
+    conversation: Optional[ConversationConfig] = None
     # Tool dispatch mode (deterministic, no LLM) — Python-only, not serialized to kernel
     tool_dispatch: Optional[str] = None        # "auto" = framework handles dispatch
     tool_source_agent: Optional[str] = None    # output_key of agent with tool selection
@@ -468,6 +479,7 @@ def stage(
     streaming_prompt_key: str | None = None,
     allowed_tools: Set[str] | None = None,
     retrieval: RetrievalConfig | None = None,
+    conversation: ConversationConfig | None = None,
 ) -> AgentConfig:
     """Shorthand for AgentConfig with inference.
 
@@ -508,6 +520,7 @@ def stage(
         tool_params_field=tool_params_field,
         allowed_tools=allowed_tools,
         retrieval=retrieval,
+        conversation=conversation,
     )
 
 
@@ -681,28 +694,6 @@ class PipelineConfig:
 
 
 
-@dataclass
-class ContextBounds:
-    """Context window bounds."""
-    max_input_tokens: int = 4096
-    max_output_tokens: int = 2048
-    max_context_tokens: int = 16384
-    reserved_tokens: int = 512
-
-
-@dataclass
-class ExecutionConfig:
-    """Core runtime configuration."""
-    max_iterations: int = 3
-    max_llm_calls: int = 10
-    max_agent_hops: int = 21
-    context_bounds: ContextBounds = field(default_factory=ContextBounds)
-
-
-@dataclass
-class OrchestrationFlags:
-    """Runtime orchestration flags."""
-    max_concurrent_agents: int = 4
 
 
 # =============================================================================
@@ -915,9 +906,6 @@ __all__ = [
     "stage",
     "Edge",
     "PipelineConfig",
-    "ContextBounds",
-    "ExecutionConfig",
-    "OrchestrationFlags",
     # Instruction config
     "InstructionContext",
     "InstructionConfig",

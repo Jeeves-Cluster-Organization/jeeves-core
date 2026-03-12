@@ -30,6 +30,9 @@ from jeeves_core.protocols.types import AgentContext
 if TYPE_CHECKING:
     from jeeves_core.runtime.agents import Agent
 
+from jeeves_core.runtime.agents import StreamingAgent
+from jeeves_core.protocols.types import TokenStreamMode
+
 logger = logging.getLogger(__name__)
 
 
@@ -91,11 +94,19 @@ async def run_kernel_loop(
         force: If True, replace any existing session.
         on_event: Optional async callback invoked after each successful agent run.
     """
+    from contextlib import nullcontext
     from jeeves_core.observability.metrics import (
         record_kernel_instruction,
         record_pipeline_termination,
         record_agent_duration,
     )
+    from jeeves_core.observability.otel_adapter import get_global_otel_adapter
+    otel = get_global_otel_adapter()
+
+    def _ipc_span(method: str):
+        return otel.start_span("kernel.ipc", attributes={
+            "method": method, "process_id": process_id,
+        }) if otel and otel.enabled else nullcontext()
 
     await kernel.initialize_orchestration_session(
         process_id=process_id,
@@ -104,7 +115,8 @@ async def run_kernel_loop(
         force=force,
     )
     _t_ipc = time.time()
-    instruction = await kernel.get_next_instruction(process_id)
+    with _ipc_span("get_next_instruction"):
+        instruction = await kernel.get_next_instruction(process_id)
     record_kernel_instruction(instruction.kind, time.time() - _t_ipc)
 
     while instruction.kind in ("RUN_AGENT", "RUN_AGENTS"):
@@ -128,21 +140,23 @@ async def run_kernel_loop(
             # Report each result sequentially (kernel expects ordered reports)
             for agent_name, (output, success, error, metrics) in results:
                 _t_ipc = time.time()
-                instruction = await kernel.report_agent_result(
-                    process_id=process_id,
-                    agent_name=agent_name,
-                    output=output,
-                    metrics=metrics,
-                    success=success,
-                    error=error,
-                )
+                with _ipc_span("report_agent_result"):
+                    instruction = await kernel.report_agent_result(
+                        process_id=process_id,
+                        agent_name=agent_name,
+                        output=output,
+                        metrics=metrics,
+                        success=success,
+                        error=error,
+                    )
                 record_kernel_instruction("report_agent_result", time.time() - _t_ipc)
                 if instruction.kind == "TERMINATE":
                     record_pipeline_termination(instruction.terminal_reason or "COMPLETED")
                     return instruction
             # After all parallel agents reported, get next instruction
             _t_ipc = time.time()
-            instruction = await kernel.get_next_instruction(process_id)
+            with _ipc_span("get_next_instruction"):
+                instruction = await kernel.get_next_instruction(process_id)
             record_kernel_instruction(instruction.kind, time.time() - _t_ipc)
         else:
             # Single agent
@@ -151,14 +165,15 @@ async def run_kernel_loop(
             output, success, error, metrics = await run_agent(instruction)
             record_agent_duration(agent_name, time.time() - _t0)
             _t_ipc = time.time()
-            instruction = await kernel.report_agent_result(
-                process_id=process_id,
-                agent_name=agent_name,
-                output=output,
-                metrics=metrics,
-                success=success,
-                error=error,
-            )
+            with _ipc_span("report_agent_result"):
+                instruction = await kernel.report_agent_result(
+                    process_id=process_id,
+                    agent_name=agent_name,
+                    output=output,
+                    metrics=metrics,
+                    success=success,
+                    error=error,
+                )
             record_kernel_instruction(instruction.kind, time.time() - _t_ipc)
 
     # Terminal instruction
@@ -190,11 +205,13 @@ class PipelineWorker:
         agents: Dict[str, AgentProtocol],
         logger: Optional[logging.Logger] = None,
         persistence: Optional[Any] = None,
+        service_registry: Optional[Dict[str, Any]] = None,
     ):
         self._kernel = kernel_client
         self._agents = agents
         self._logger = logger or logging.getLogger(__name__)
         self._persistence = persistence
+        self._services = service_registry or {}
 
     async def execute(
         self,
@@ -343,11 +360,8 @@ class PipelineWorker:
 
             # Check if agent supports token streaming
             has_streaming = (
-                hasattr(agent, 'config')
-                and hasattr(agent.config, 'token_stream')
-                and hasattr(agent.config.token_stream, 'value')
-                and agent.config.token_stream.value != "off"
-                and hasattr(agent, 'stream')
+                isinstance(agent, StreamingAgent)
+                and agent.config.token_stream != TokenStreamMode.OFF
             )
 
             if has_streaming:
@@ -445,6 +459,31 @@ class PipelineWorker:
 
         # Build AgentContext from enriched instruction
         context = AgentContext.from_instruction(instruction)
+
+        # Auto-inject retrieval results if agent has RetrievalConfig
+        if hasattr(agent, 'config') and hasattr(agent.config, 'retrieval'):
+            rc = agent.config.retrieval
+            if rc and rc.retriever_key:
+                retriever = self._services.get(f"retriever:{rc.retriever_key}")
+                if retriever:
+                    results = await retriever.retrieve(
+                        context.raw_input, limit=rc.limit, filters=rc.filters,
+                    )
+                    context.metadata[rc.inject_as] = [
+                        {"content": r.content, "source": r.source, "score": r.score}
+                        for r in results
+                    ]
+
+        # Auto-inject conversation history if agent has ConversationConfig
+        if hasattr(agent, 'config') and hasattr(agent.config, 'conversation'):
+            cc = agent.config.conversation
+            if cc and cc.history_key:
+                history = self._services.get(f"history:{cc.history_key}")
+                if history:
+                    turns = await history.get_history(
+                        context.session_id, limit=cc.limit,
+                    )
+                    context.metadata[cc.inject_as] = turns
 
         try:
             output, metadata_updates = await agent.process(context)

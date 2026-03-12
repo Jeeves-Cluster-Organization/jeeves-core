@@ -53,7 +53,6 @@ class ToolCatalogEntry:
 class ToolDefinition:
     """Tool definition for ToolExecutor.
 
-    Implements ToolDefinitionProtocol from protocols.
     This is the object returned by ToolCatalog.get_tool().
     """
     name: str

@@ -255,6 +255,10 @@ class Agent:
 
     async def _call_llm(self, context) -> Dict[str, Any]:
         """Call LLM with optional structured output via output_schema."""
+        from contextlib import nullcontext
+        from jeeves_core.observability.otel_adapter import get_global_otel_adapter
+        otel = get_global_otel_adapter()
+
         if not self.prompt_registry:
             raise ValueError(f"Agent {self.name} requires prompt_registry")
 
@@ -278,11 +282,18 @@ class Agent:
             options["tool_choice"] = {"type": "function", "function": {"name": f"{self.config.name}_output"}}
 
         # Call LLM provider's chat() method
-        result, usage = await self.llm.chat_with_usage(
-            model="",
-            messages=messages,
-            options=options,
-        )
+        llm_span = otel.start_span("agent.llm_call", attributes={
+            "agent": self.name,
+            "model_role": self.config.model_role or "",
+            "prompt_key": prompt_key,
+            "has_tools": bool(options.get("tools")),
+        }) if otel and otel.enabled else nullcontext()
+        with llm_span:
+            result, usage = await self.llm.chat_with_usage(
+                model="",
+                messages=messages,
+                options=options,
+            )
 
         self._last_llm_usage = {
             "tokens_in": usage.prompt_tokens,
@@ -299,26 +310,35 @@ class Agent:
 
     async def _execute_tools(self, context, output: Dict[str, Any]) -> Dict[str, Any]:
         """Execute tool calls from LLM output."""
+        from contextlib import nullcontext
+        from jeeves_core.observability.otel_adapter import get_global_otel_adapter
+        otel = get_global_otel_adapter()
+
         tool_calls = output.get("tool_calls", [])
         results = []
+        tool_span = otel.start_span("agent.tool_execution", attributes={
+            "agent": self.name,
+            "tool_count": len(tool_calls),
+        }) if otel and otel.enabled else nullcontext()
 
-        for call in tool_calls:
-            tool_name = call.get("name")
-            params = call.get("params", {})
+        with tool_span:
+            for call in tool_calls:
+                tool_name = call.get("name")
+                params = call.get("params", {})
 
-            if self.config.allowed_tools is not None and tool_name not in self.config.allowed_tools:
-                results.append({"tool": tool_name, "error": f"Agent '{self.name}' not allowed to call '{tool_name}'"})
-                continue
+                if self.config.allowed_tools is not None and tool_name not in self.config.allowed_tools:
+                    results.append({"tool": tool_name, "error": f"Agent '{self.name}' not allowed to call '{tool_name}'"})
+                    continue
 
-            _inject_services(params, context.metadata)
+                _inject_services(params, context.metadata)
 
-            try:
-                result = await self.tools.execute(tool_name, params)
-                results.append({"tool": tool_name, "result": result})
-            except Exception as e:
-                results.append({"tool": tool_name, "error": str(e)})
+                try:
+                    result = await self.tools.execute(tool_name, params)
+                    results.append({"tool": tool_name, "result": result})
+                except Exception as e:
+                    results.append({"tool": tool_name, "error": str(e)})
 
-        output["tool_results"] = results
+            output["tool_results"] = results
         return output
 
     async def _dispatch_tool(self, context: "AgentContext") -> Dict[str, Any]:
@@ -356,12 +376,62 @@ class Agent:
             metrics["tokens_out"] = self._last_llm_usage.get("tokens_out", 0)
         return metrics
 
+    def _build_prompt_context(self, context: "AgentContext") -> Dict[str, Any]:
+        """Build context for prompt template interpolation."""
+        return build_prompt_context(context, self.name)
+
+
+def build_prompt_context(context: "AgentContext", agent_name: str) -> Dict[str, Any]:
+    """Build context for prompt template interpolation.
+
+    Context is built generically from:
+    1. Base context fields (raw_input, user_id, session_id)
+    2. All prior agent outputs (flattened — both raw and field-level)
+    3. Metadata (capability-provided overrides and defaults)
+    """
+    import os
+    repo_path = os.environ.get("REPO_PATH", "/workspace")
+
+    prompt_ctx: Dict[str, Any] = {
+        "raw_input": context.raw_input,
+        "user_input": context.raw_input,
+        "user_id": context.user_id,
+        "session_id": context.session_id,
+        "user_query": context.raw_input,
+        "repo_path": repo_path,
+        "session_state": f"Session: {context.session_id}",
+        "role_description": f"As the {agent_name} agent in this pipeline stage.",
+    }
+
+    # Generically flatten all prior agent outputs into context.
+    _base_keys = frozenset(prompt_ctx.keys())
+    for output_key, output_value in context.outputs.items():
+        prompt_ctx[output_key] = output_value
+        if isinstance(output_value, dict):
+            for field_key, field_value in output_value.items():
+                if field_key not in _base_keys:
+                    prompt_ctx[field_key] = field_value
+
+    # Metadata last — capabilities inject defaults and overrides here
+    prompt_ctx.update(context.metadata)
+
+    return prompt_ctx
+
+
+@dataclass
+class StreamingAgent(Agent):
+    """Agent with streaming token emission.
+
+    Extends Agent with stream(), _call_llm_stream(), and citation extraction.
+    Use when pipeline stages have token_stream != OFF.
+    """
+    _stream_output: Dict[str, Any] = field(default_factory=dict, init=False, repr=False)
+
     async def stream(self, context: "AgentContext") -> AsyncIterator[Tuple[str, Any]]:
         """Streaming execution (token/event emission).
 
         Yields:
             Tuple[str, Any]: (event_type, event_data) pairs.
-            Also returns (output, metadata_updates) on the final internal state.
         """
         from jeeves_core.protocols import PipelineEvent
         from jeeves_core.protocols import TokenStreamMode
@@ -369,7 +439,7 @@ class Agent:
         self.logger.info(f"{self.name}_stream_started", envelope_id=context.envelope_id)
         self._last_llm_usage = None
         self._llm_calls_this_run = 0
-        self._stream_output: Dict[str, Any] = {}
+        self._stream_output = {}
 
         # Pre-process hook
         if self.pre_process:
@@ -395,7 +465,7 @@ class Agent:
             if is_authoritative:
                 self._stream_output = {
                     "response": accumulated,
-                    "citations": self._extract_citations(accumulated),
+                    "citations": _extract_citations(accumulated),
                 }
             else:
                 self._stream_output = await self._call_llm(context)
@@ -448,60 +518,23 @@ class Agent:
 
         self._llm_calls_this_run += 1
 
-    def _build_prompt_context(self, context: "AgentContext") -> Dict[str, Any]:
-        """Build context for prompt template interpolation.
 
-        Context is built generically from:
-        1. Base context fields (raw_input, user_id, session_id)
-        2. All prior agent outputs (flattened — both raw and field-level)
-        3. Metadata (capability-provided overrides and defaults)
-        """
-        import os
-        repo_path = os.environ.get("REPO_PATH", "/workspace")
+def _extract_citations(text: str) -> List[str]:
+    """Extract inline citations from streaming response.
 
-        prompt_ctx: Dict[str, Any] = {
-            "raw_input": context.raw_input,
-            "user_input": context.raw_input,
-            "user_id": context.user_id,
-            "session_id": context.session_id,
-            "user_query": context.raw_input,
-            "repo_path": repo_path,
-            "session_state": f"Session: {context.session_id}",
-            "role_description": f"As the {self.name} agent in this pipeline stage.",
-        }
-
-        # Generically flatten all prior agent outputs into context.
-        _base_keys = frozenset(prompt_ctx.keys())
-        for output_key, output_value in context.outputs.items():
-            prompt_ctx[output_key] = output_value
-            if isinstance(output_value, dict):
-                for field_key, field_value in output_value.items():
-                    if field_key not in _base_keys:
-                        prompt_ctx[field_key] = field_value
-
-        # Metadata last — capabilities inject defaults and overrides here
-        prompt_ctx.update(context.metadata)
-
-        return prompt_ctx
-
-    def _extract_citations(self, text: str) -> List[str]:
-        """Extract inline citations from streaming response.
-
-        Inline citations are v0 best-effort and display-only.
-        Not for governance/verification.
-        """
-        import re
-        # Match [Source Name] pattern
-        pattern = r'\[([^\]]+)\]'
-        matches = re.findall(pattern, text)
-        # Deduplicate while preserving order
-        seen = set()
-        citations = []
-        for match in matches:
-            if match not in seen:
-                seen.add(match)
-                citations.append(match)
-        return citations
+    Inline citations are v0 best-effort and display-only.
+    Not for governance/verification.
+    """
+    import re
+    pattern = r'\[([^\]]+)\]'
+    matches = re.findall(pattern, text)
+    seen = set()
+    citations = []
+    for match in matches:
+        if match not in seen:
+            seen.add(match)
+            citations.append(match)
+    return citations
 
 
 # =============================================================================

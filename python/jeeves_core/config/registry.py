@@ -87,14 +87,6 @@ class ConfigRegistry:
         """
         return list(self._configs.keys())
 
-    def to_dict(self) -> Dict[str, Any]:
-        """Export all configs as dictionary.
-
-        Returns:
-            Dict mapping keys to configs (shallow copy)
-        """
-        return dict(self._configs)
-
     def __repr__(self) -> str:
         """String representation showing registered keys."""
         return f"ConfigRegistry(keys={self.keys()})"

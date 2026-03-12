@@ -23,6 +23,7 @@ from jeeves_core.runtime.agents import (
     # Classes
     AgentFeatures,
     Agent,
+    StreamingAgent,
     PromptRegistry,
     PipelineRunner,
     OptionalCheckpoint,
@@ -50,6 +51,7 @@ __all__ = [
     # Classes
     "AgentFeatures",
     "Agent",
+    "StreamingAgent",
     "PromptRegistry",
     "PipelineRunner",
     "OptionalCheckpoint",

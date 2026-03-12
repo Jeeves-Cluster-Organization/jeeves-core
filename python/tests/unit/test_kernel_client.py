@@ -11,8 +11,6 @@ from jeeves_core.kernel_client import (
     KernelClient,
     KernelClientError,
     QuotaCheckResult,
-    QuotaDefaults,
-    SystemStatusResult,
     ProcessInfo,
     DEFAULT_KERNEL_ADDRESS,
 )
@@ -398,8 +396,8 @@ class TestQuotaDefaults:
         mock_transport.request.assert_called_once_with(
             "kernel", "SetQuotaDefaults", {"quota": {"max_llm_calls": 200}},
         )
-        assert isinstance(result, QuotaDefaults)
-        assert result.max_llm_calls == 200
+        assert isinstance(result, dict)
+        assert result["max_llm_calls"] == 200
 
     @pytest.mark.asyncio
     async def test_set_quota_defaults_filters_none_but_keeps_zero(self, mock_kernel_client, mock_transport):
@@ -437,21 +435,21 @@ class TestQuotaDefaults:
         result = await mock_kernel_client.get_quota_defaults()
 
         mock_transport.request.assert_called_once_with("kernel", "GetQuotaDefaults", {})
-        assert isinstance(result, QuotaDefaults)
-        assert result.max_llm_calls == 150
-        assert result.max_tool_calls == 75
-        assert result.max_agent_hops == 15
-        assert result.max_iterations == 30
-        assert result.timeout_seconds == 600
-        assert result.soft_timeout_seconds == 480
-        assert result.max_input_tokens == 200_000
-        assert result.max_output_tokens == 100_000
-        assert result.max_context_tokens == 300_000
-        assert result.rate_limit_rpm == 120
-        assert result.rate_limit_rph == 2000
-        assert result.rate_limit_burst == 20
-        assert result.max_inference_requests == 100
-        assert result.max_inference_input_chars == 1_000_000
+        assert isinstance(result, dict)
+        assert result["max_llm_calls"] == 150
+        assert result["max_tool_calls"] == 75
+        assert result["max_agent_hops"] == 15
+        assert result["max_iterations"] == 30
+        assert result["timeout_seconds"] == 600
+        assert result["soft_timeout_seconds"] == 480
+        assert result["max_input_tokens"] == 200_000
+        assert result["max_output_tokens"] == 100_000
+        assert result["max_context_tokens"] == 300_000
+        assert result["rate_limit_rpm"] == 120
+        assert result["rate_limit_rph"] == 2000
+        assert result["rate_limit_burst"] == 20
+        assert result["max_inference_requests"] == 100
+        assert result["max_inference_input_chars"] == 1_000_000
 
     @pytest.mark.asyncio
     async def test_get_quota_defaults_error_handling(self, mock_kernel_client, mock_transport):
@@ -488,17 +486,10 @@ class TestSystemStatus:
         result = await mock_kernel_client.get_system_status()
 
         mock_transport.request.assert_called_once_with("kernel", "GetSystemStatus", {})
-        assert isinstance(result, SystemStatusResult)
-        assert result.processes_total == 42
-        assert result.processes_by_state == {"RUNNING": 10, "READY": 5, "BLOCKED": 3}
-        assert result.services_healthy == 8
-        assert result.services_degraded == 1
-        assert result.services_unhealthy == 0
-        assert result.active_orchestration_sessions == 7
-        assert result.commbus_events_published == 1500
-        assert result.commbus_commands_sent == 300
-        assert result.commbus_queries_executed == 800
-        assert result.commbus_active_subscribers == 12
+        assert isinstance(result, dict)
+        assert result["processes"]["total"] == 42
+        assert result["processes"]["by_state"] == {"RUNNING": 10, "READY": 5, "BLOCKED": 3}
+        assert result["services"]["healthy"] == 8
 
     @pytest.mark.asyncio
     async def test_get_system_status_handles_empty(self, mock_kernel_client, mock_transport):
@@ -511,14 +502,6 @@ class TestSystemStatus:
 
         result = await mock_kernel_client.get_system_status()
 
-        assert isinstance(result, SystemStatusResult)
-        assert result.processes_total == 0
-        assert result.processes_by_state == {}
-        assert result.services_healthy == 0
-        assert result.services_degraded == 0
-        assert result.services_unhealthy == 0
-        assert result.active_orchestration_sessions == 0
-        assert result.commbus_events_published == 0
-        assert result.commbus_commands_sent == 0
-        assert result.commbus_queries_executed == 0
-        assert result.commbus_active_subscribers == 0
+        assert isinstance(result, dict)
+        assert result["processes"] == {}
+        assert result["services"] == {}

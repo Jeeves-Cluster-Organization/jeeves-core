@@ -139,74 +139,6 @@ class OrchestrationSessionState:
         return self.envelope.get("outputs", {})
 
 
-@dataclass
-class QuotaDefaults:
-    """Kernel's default resource quota."""
-    max_llm_calls: int = 100
-    max_tool_calls: int = 50
-    max_agent_hops: int = 10
-    max_iterations: int = 20
-    timeout_seconds: int = 300
-    soft_timeout_seconds: int = 240
-    max_input_tokens: int = 100_000
-    max_output_tokens: int = 50_000
-    max_context_tokens: int = 150_000
-    rate_limit_rpm: int = 60
-    rate_limit_rph: int = 1000
-    rate_limit_burst: int = 10
-    max_inference_requests: int = 50
-    max_inference_input_chars: int = 500_000
-
-
-@dataclass
-class SystemStatusResult:
-    """Full system status snapshot from the kernel."""
-    processes_total: int = 0
-    processes_by_state: Dict[str, int] = field(default_factory=dict)
-    services_healthy: int = 0
-    services_degraded: int = 0
-    services_unhealthy: int = 0
-    active_orchestration_sessions: int = 0
-    commbus_events_published: int = 0
-    commbus_commands_sent: int = 0
-    commbus_queries_executed: int = 0
-    commbus_active_subscribers: int = 0
-
-
-@dataclass
-class ServiceInfoResult:
-    """Service information from the registry."""
-    name: str
-    service_type: str
-    version: str = ""
-    capabilities: List[str] = field(default_factory=list)
-    max_concurrent: int = 10
-    current_load: int = 0
-    status: str = "Healthy"
-    metadata: Dict[str, Any] = field(default_factory=dict)
-
-
-@dataclass
-class ServiceStatsResult:
-    """Statistics for a specific service."""
-    name: str
-    service_type: str
-    status: str = "Healthy"
-    current_load: int = 0
-    max_concurrent: int = 10
-    utilization: float = 0.0
-
-
-@dataclass
-class RegistryStatsResult:
-    """Overall registry statistics."""
-    total_services: int = 0
-    healthy_services: int = 0
-    degraded_services: int = 0
-    unhealthy_services: int = 0
-    total_load: int = 0
-    total_capacity: int = 0
-    services_by_type: Dict[str, int] = field(default_factory=dict)
 
 
 class KernelClient:
@@ -462,28 +394,26 @@ class KernelClient:
     # Quota Defaults (Single Source of Truth)
     # =========================================================================
 
-    async def set_quota_defaults(self, **overrides: int) -> QuotaDefaults:
+    async def set_quota_defaults(self, **overrides: int) -> Dict[str, Any]:
         """Set (merge) kernel default quota. Only non-zero fields overwrite.
 
         Args:
             **overrides: Quota fields to override (e.g. max_llm_calls=200).
 
         Returns:
-            The merged QuotaDefaults now active in the kernel.
+            Dict of the merged quota defaults now active in the kernel.
         """
         body = {"quota": {k: v for k, v in overrides.items() if v is not None}}
         try:
-            response = await self._transport.request("kernel", "SetQuotaDefaults", body)
-            return self._dict_to_quota_defaults(response)
+            return await self._transport.request("kernel", "SetQuotaDefaults", body)
         except IpcError as e:
             logger.error(f"Failed to set quota defaults: {e}")
             raise KernelClientError(f"SetQuotaDefaults failed: {e}", code=e.code) from e
 
-    async def get_quota_defaults(self) -> QuotaDefaults:
+    async def get_quota_defaults(self) -> Dict[str, Any]:
         """Get the kernel's current default quota."""
         try:
-            response = await self._transport.request("kernel", "GetQuotaDefaults", {})
-            return self._dict_to_quota_defaults(response)
+            return await self._transport.request("kernel", "GetQuotaDefaults", {})
         except IpcError as e:
             logger.error(f"Failed to get quota defaults: {e}")
             raise KernelClientError(f"GetQuotaDefaults failed: {e}", code=e.code) from e
@@ -492,26 +422,10 @@ class KernelClient:
     # System Status
     # =========================================================================
 
-    async def get_system_status(self) -> SystemStatusResult:
+    async def get_system_status(self) -> Dict[str, Any]:
         """Get full system status snapshot from the kernel."""
         try:
-            response = await self._transport.request("kernel", "GetSystemStatus", {})
-            procs = response.get("processes", {})
-            svcs = response.get("services", {})
-            orch = response.get("orchestration", {})
-            cb = response.get("commbus", {})
-            return SystemStatusResult(
-                processes_total=procs.get("total", 0),
-                processes_by_state=dict(procs.get("by_state", {})),
-                services_healthy=svcs.get("healthy", 0),
-                services_degraded=svcs.get("degraded", 0),
-                services_unhealthy=svcs.get("unhealthy", 0),
-                active_orchestration_sessions=orch.get("active_sessions", 0),
-                commbus_events_published=cb.get("events_published", 0),
-                commbus_commands_sent=cb.get("commands_sent", 0),
-                commbus_queries_executed=cb.get("queries_executed", 0),
-                commbus_active_subscribers=cb.get("active_subscribers", 0),
-            )
+            return await self._transport.request("kernel", "GetSystemStatus", {})
         except IpcError as e:
             logger.error(f"Failed to get system status: {e}")
             raise KernelClientError(f"GetSystemStatus failed: {e}", code=e.code) from e
@@ -1098,15 +1012,13 @@ class KernelClient:
         except IpcError as e:
             raise KernelClientError(f"UnregisterService failed: {e}", code=e.code) from e
 
-    async def get_service(self, name: str) -> Optional[ServiceInfoResult]:
+    async def get_service(self, name: str) -> Optional[Dict[str, Any]]:
         """Get service information by name. Returns None if not found."""
         try:
             response = await self._transport.request(
                 "services", "GetService", {"name": name},
             )
-            if response is None:
-                return None
-            return self._dict_to_service_info(response)
+            return response
         except IpcError as e:
             raise KernelClientError(f"GetService failed: {e}", code=e.code) from e
 
@@ -1114,7 +1026,7 @@ class KernelClient:
         self,
         service_type: Optional[str] = None,
         healthy_only: bool = False,
-    ) -> List[ServiceInfoResult]:
+    ) -> List[Dict[str, Any]]:
         """List services matching optional filters."""
         body: Dict[str, Any] = {}
         if service_type is not None:
@@ -1123,10 +1035,7 @@ class KernelClient:
             body["healthy_only"] = True
         try:
             response = await self._transport.request("services", "ListServices", body)
-            return [
-                self._dict_to_service_info(s)
-                for s in response.get("services", [])
-            ]
+            return response.get("services", [])
         except IpcError as e:
             raise KernelClientError(f"ListServices failed: {e}", code=e.code) from e
 
@@ -1178,38 +1087,19 @@ class KernelClient:
         except IpcError as e:
             raise KernelClientError(f"GetLoad failed: {e}", code=e.code) from e
 
-    async def get_service_stats(self, name: str) -> Optional[ServiceStatsResult]:
+    async def get_service_stats(self, name: str) -> Optional[Dict[str, Any]]:
         """Get statistics for a specific service."""
         try:
-            response = await self._transport.request(
+            return await self._transport.request(
                 "services", "GetServiceStats", {"name": name},
-            )
-            if response is None:
-                return None
-            return ServiceStatsResult(
-                name=response.get("name", ""),
-                service_type=response.get("service_type", ""),
-                status=response.get("status", "Healthy"),
-                current_load=response.get("current_load", 0),
-                max_concurrent=response.get("max_concurrent", 10),
-                utilization=response.get("utilization", 0.0),
             )
         except IpcError as e:
             raise KernelClientError(f"GetServiceStats failed: {e}", code=e.code) from e
 
-    async def get_registry_stats(self) -> RegistryStatsResult:
+    async def get_registry_stats(self) -> Dict[str, Any]:
         """Get overall registry statistics."""
         try:
-            response = await self._transport.request("services", "GetRegistryStats", {})
-            return RegistryStatsResult(
-                total_services=response.get("total_services", 0),
-                healthy_services=response.get("healthy_services", 0),
-                degraded_services=response.get("degraded_services", 0),
-                unhealthy_services=response.get("unhealthy_services", 0),
-                total_load=response.get("total_load", 0),
-                total_capacity=response.get("total_capacity", 0),
-                services_by_type=dict(response.get("services_by_type", {})),
-            )
+            return await self._transport.request("services", "GetRegistryStats", {})
         except IpcError as e:
             raise KernelClientError(f"GetRegistryStats failed: {e}", code=e.code) from e
 
@@ -1249,25 +1139,6 @@ class KernelClient:
             current_stage=d.get("current_stage", ""),
         )
 
-    def _dict_to_quota_defaults(self, d: Dict[str, Any]) -> QuotaDefaults:
-        """Convert response dict to QuotaDefaults."""
-        return QuotaDefaults(
-            max_llm_calls=d.get("max_llm_calls", 100),
-            max_tool_calls=d.get("max_tool_calls", 50),
-            max_agent_hops=d.get("max_agent_hops", 10),
-            max_iterations=d.get("max_iterations", 20),
-            timeout_seconds=d.get("timeout_seconds", 300),
-            soft_timeout_seconds=d.get("soft_timeout_seconds", 240),
-            max_input_tokens=d.get("max_input_tokens", 100_000),
-            max_output_tokens=d.get("max_output_tokens", 50_000),
-            max_context_tokens=d.get("max_context_tokens", 150_000),
-            rate_limit_rpm=d.get("rate_limit_rpm", 60),
-            rate_limit_rph=d.get("rate_limit_rph", 1000),
-            rate_limit_burst=d.get("rate_limit_burst", 10),
-            max_inference_requests=d.get("max_inference_requests", 50),
-            max_inference_input_chars=d.get("max_inference_input_chars", 500_000),
-        )
-
     def _dict_to_instruction(self, d: Dict[str, Any]) -> OrchestratorInstruction:
         """Convert response dict to OrchestratorInstruction."""
         from jeeves_core.protocols.types import InstructionConfig
@@ -1287,19 +1158,6 @@ class KernelClient:
             interrupt=d.get("interrupt"),
             agent_config=agent_config,
             outputs=d.get("outputs"),
-        )
-
-    def _dict_to_service_info(self, d: Dict[str, Any]) -> ServiceInfoResult:
-        """Convert response dict to ServiceInfoResult."""
-        return ServiceInfoResult(
-            name=d.get("name", ""),
-            service_type=d.get("service_type", ""),
-            version=d.get("version", ""),
-            capabilities=d.get("capabilities", []),
-            max_concurrent=d.get("max_concurrent", 10),
-            current_load=d.get("current_load", 0),
-            status=d.get("status", "Healthy"),
-            metadata=d.get("metadata", {}),
         )
 
     def _dict_to_session_state(self, d: Dict[str, Any]) -> OrchestrationSessionState:
@@ -1329,14 +1187,9 @@ __all__ = [
     "KernelClient",
     "KernelClientError",
     "QuotaCheckResult",
-    "QuotaDefaults",
-    "SystemStatusResult",
     "ProcessInfo",
     "AgentExecutionMetrics",
     "OrchestratorInstruction",
     "OrchestrationSessionState",
-    "ServiceInfoResult",
-    "ServiceStatsResult",
-    "RegistryStatsResult",
     "DEFAULT_KERNEL_ADDRESS",
 ]

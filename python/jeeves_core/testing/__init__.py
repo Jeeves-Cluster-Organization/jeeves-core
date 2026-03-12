@@ -7,6 +7,7 @@ from jeeves_core.testing.helpers import (
     make_agent_config,
     make_agent_context,
 )
+from jeeves_core.testing.evaluation import EvalCase, EvalResult, EvalReport, EvaluationRunner
 
 __all__ = [
     "TestPipeline",
@@ -14,4 +15,8 @@ __all__ = [
     "build_initial_envelope",
     "make_agent_context",
     "make_agent_config",
+    "EvalCase",
+    "EvalResult",
+    "EvalReport",
+    "EvaluationRunner",
 ]
