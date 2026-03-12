@@ -364,24 +364,6 @@ class ClassificationResult:
 
 
 @dataclass
-class RetrievalConfig:
-    """Retrieval hints for an agent stage. Python-only, not serialized to kernel."""
-    retriever_key: str = ""
-    limit: int = 10
-    inject_as: str = "retrieved_context"
-    filters: Dict[str, Any] = field(default_factory=dict)
-
-
-@dataclass
-class ConversationConfig:
-    """Conversation history injection config. Python-only, not serialized to kernel."""
-    history_key: str = ""
-    inject_as: str = "conversation_history"
-    limit: int = 20
-    format: str = "list"  # "list" (raw dicts) or "text" (formatted string)
-
-
-@dataclass
 class AgentConfig:
     """Declarative agent configuration."""
     name: str
@@ -404,15 +386,12 @@ class AgentConfig:
     routing_rules: List[RoutingRule] = field(default_factory=list)
     default_next: Optional[str] = None
     error_next: Optional[str] = None
-    parallel_group: Optional[str] = None
     max_visits: Optional[int] = None
-    pre_process: Optional[Callable] = None
-    post_process: Optional[Callable] = None
+    node_kind: str = "Agent"
+    context_loaders: List[Callable] = field(default_factory=list)
+    pre_process: List[Callable] = field(default_factory=list)
+    post_process: List[Callable] = field(default_factory=list)
     mock_handler: Optional[Callable] = None
-    # Retrieval hints (Python-only, not serialized to kernel)
-    retrieval: Optional[RetrievalConfig] = None
-    # Conversation history injection (Python-only, not serialized to kernel)
-    conversation: Optional[ConversationConfig] = None
     # Tool dispatch mode (deterministic, no LLM) — Python-only, not serialized to kernel
     tool_dispatch: Optional[str] = None        # "auto" = framework handles dispatch
     tool_source_agent: Optional[str] = None    # output_key of agent with tool selection
@@ -439,8 +418,7 @@ class AgentConfig:
             d["default_next"] = self.default_next
         if self.error_next is not None:
             d["error_next"] = self.error_next
-        if self.parallel_group is not None:
-            d["parallel_group"] = self.parallel_group
+        if self.node_kind == "Fork":
             d["join_strategy"] = "WaitAll" if self.join_strategy == JoinStrategy.ALL else "WaitFirst"
         if self.max_visits is not None:
             d["max_visits"] = self.max_visits
@@ -448,7 +426,20 @@ class AgentConfig:
             d["output_schema"] = self.output_schema
         if self.allowed_tools:
             d["allowed_tools"] = sorted(self.allowed_tools)
+        if self.node_kind != "Agent":
+            d["node_kind"] = self.node_kind
+        if self.output_key != self.name:
+            d["output_key"] = self.output_key
         return d
+
+
+def _normalize_hooks(value, default=None):
+    """Normalize hook argument: None → [], single callable → [callable], list → list."""
+    if value is None:
+        return default if default is not None else []
+    if callable(value):
+        return [value]
+    return list(value)
 
 
 def stage(
@@ -469,17 +460,16 @@ def stage(
     routing_rules: list[RoutingRule] | None = None,
     default_next: str | None = None,
     error_next: str | None = None,
-    parallel_group: str | None = None,
     join_strategy: JoinStrategy = JoinStrategy.ALL,
     max_visits: int | None = None,
-    pre_process: Callable | None = None,
-    post_process: Callable | None = None,
+    node_kind: str = "Agent",
+    context_loaders: Callable | List[Callable] | None = None,
+    pre_process: Callable | List[Callable] | None = None,
+    post_process: Callable | List[Callable] | None = None,
     mock_handler: Callable | None = None,
     token_stream: TokenStreamMode = TokenStreamMode.OFF,
     streaming_prompt_key: str | None = None,
     allowed_tools: Set[str] | None = None,
-    retrieval: RetrievalConfig | None = None,
-    conversation: ConversationConfig | None = None,
 ) -> AgentConfig:
     """Shorthand for AgentConfig with inference.
 
@@ -488,6 +478,8 @@ def stage(
     - has_tools=True if tools=True or tool_dispatch is set
     - output_key defaults to name
     - model_role defaults to name when has_llm and no explicit model_role
+
+    Normalizes hooks: single callable → [callable], None → [].
     """
     has_llm = prompt_key is not None
     has_tools = tools or tool_dispatch is not None
@@ -506,11 +498,12 @@ def stage(
         routing_rules=routing_rules or [],
         default_next=default_next,
         error_next=error_next,
-        parallel_group=parallel_group,
         join_strategy=join_strategy,
         max_visits=max_visits,
-        pre_process=pre_process,
-        post_process=post_process,
+        node_kind=node_kind,
+        context_loaders=_normalize_hooks(context_loaders),
+        pre_process=_normalize_hooks(pre_process),
+        post_process=_normalize_hooks(post_process),
         mock_handler=mock_handler,
         token_stream=token_stream,
         streaming_prompt_key=streaming_prompt_key,
@@ -519,8 +512,6 @@ def stage(
         tool_name_field=tool_name_field,
         tool_params_field=tool_params_field,
         allowed_tools=allowed_tools,
-        retrieval=retrieval,
-        conversation=conversation,
     )
 
 
@@ -544,6 +535,7 @@ class PipelineConfig:
     default_timeout_seconds: int = 300
     edge_limits: List[EdgeLimit] = field(default_factory=list)
     step_limit: Optional[int] = None
+    state_schema: List[Dict[str, Any]] = field(default_factory=list)
     clarification_resume_stage: Optional[str] = None
     confirmation_resume_stage: Optional[str] = None
     agent_review_resume_stage: Optional[str] = None
@@ -563,6 +555,8 @@ class PipelineConfig:
         }
         if self.step_limit is not None:
             d["step_limit"] = self.step_limit
+        if self.state_schema:
+            d["state_schema"] = self.state_schema
         return d
 
     def get_stage_order(self) -> List[str]:
@@ -673,9 +667,16 @@ class PipelineConfig:
 
         wired = []
         for i, (stage_name, agent_config) in enumerate(stages.items()):
+            # Fail loud if stage has pre-existing routing_rules AND edges also produce rules
+            if agent_config.routing_rules and conditional[stage_name]:
+                raise ValueError(
+                    f"Stage '{stage_name}' has both explicit routing_rules and "
+                    f"edge-derived rules. Use one or the other, not both."
+                )
+            merged_rules = agent_config.routing_rules or conditional[stage_name]
             wired.append(replace(agent_config,
                 stage_order=i,
-                routing_rules=conditional[stage_name],
+                routing_rules=merged_rules,
                 default_next=unconditional[stage_name],
                 error_next=(
                     agent_config.error_next if agent_config.error_next is not None
@@ -813,6 +814,7 @@ class AgentContext:
         )
 
 
+
 # =============================================================================
 # PROTOCOL FOR INTERRUPT SERVICE (from jeeves_core.types.interrupts)
 # =============================================================================
@@ -914,5 +916,4 @@ __all__ = [
     # Retrieval types
     "RetrievedContext",
     "ClassificationResult",
-    "RetrievalConfig",
 ]

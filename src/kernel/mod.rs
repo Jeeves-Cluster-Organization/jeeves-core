@@ -37,8 +37,48 @@ pub use types::{
 };
 
 use crate::envelope::{Envelope, FlowInterrupt, InterruptResponse};
+use crate::kernel::orchestrator_types::MergeStrategy;
 use crate::types::{Error, ProcessId, RequestId, Result, SessionId, UserId};
 use tracing::instrument;
+
+/// Merge a value into envelope.state according to the configured strategy.
+fn merge_state_field(
+    state: &mut HashMap<String, serde_json::Value>,
+    key: &str,
+    val: serde_json::Value,
+    strategy: MergeStrategy,
+) {
+    match strategy {
+        MergeStrategy::Replace => {
+            state.insert(key.to_string(), val);
+        }
+        MergeStrategy::Append => {
+            let arr = state.entry(key.to_string()).or_insert_with(|| serde_json::json!([]));
+            if let Some(existing) = arr.as_array_mut() {
+                existing.push(val);
+            } else {
+                // Not an array — replace with [existing, val]
+                let old = arr.clone();
+                *arr = serde_json::json!([old, val]);
+            }
+        }
+        MergeStrategy::MergeDict => {
+            if let serde_json::Value::Object(new_map) = val {
+                let existing = state.entry(key.to_string()).or_insert_with(|| serde_json::json!({}));
+                if let Some(existing_map) = existing.as_object_mut() {
+                    for (k, v) in new_map {
+                        existing_map.insert(k, v);
+                    }
+                } else {
+                    *existing = serde_json::Value::Object(new_map);
+                }
+            } else {
+                // Not an object — fall back to Replace
+                state.insert(key.to_string(), val);
+            }
+        }
+    }
+}
 
 /// Kernel - the main orchestrator.
 ///
@@ -556,6 +596,7 @@ impl Kernel {
                     "session_id": envelope.identity.session_id.as_str(),
                     "raw_input": &envelope.raw_input,
                     "outputs": &envelope.outputs,
+                    "state": &envelope.state,
                     "metadata": &envelope.audit.metadata,
                     "prompt_context": serde_json::Value::Object(prompt_context),
                     "llm_call_count": envelope.bounds.llm_call_count,
@@ -597,10 +638,11 @@ impl Kernel {
         process_id: &ProcessId,
         metrics: orchestrator::AgentExecutionMetrics,
         agent_failed: bool,
+        break_loop: bool,
     ) -> Result<()> {
         let envelope = self.process_envelopes.get_mut(process_id)
             .ok_or_else(|| Error::not_found(format!("Envelope not found for process: {}", process_id)))?;
-        self.orchestrator.report_agent_result(process_id, metrics, envelope, agent_failed)
+        self.orchestrator.report_agent_result(process_id, metrics, envelope, agent_failed, break_loop)
     }
 
     /// Process a complete agent result: merge output, report to orchestrator,
@@ -624,12 +666,18 @@ impl Kernel {
         metrics: orchestrator::AgentExecutionMetrics,
         success: bool,
         error_message: &str,
+        break_loop: bool,
     ) -> Result<orchestrator::Instruction> {
         // Extract scalars before passing metrics by value (avoids clone)
         let llm_calls = metrics.llm_calls;
         let tool_calls = metrics.tool_calls;
         let tokens_in = metrics.tokens_in.unwrap_or(0);
         let tokens_out = metrics.tokens_out.unwrap_or(0);
+
+        // Clone state_schema + output_key from orchestrator before mutable envelope borrow (C9)
+        let state_schema = self.orchestrator.get_state_schema(process_id).cloned().unwrap_or_default();
+        let output_key = self.orchestrator.get_stage_output_key(process_id, agent_name)
+            .unwrap_or_else(|| agent_name.to_string());
 
         // Phase 1: Merge output into envelope + run orchestrator
         // Scoped block so &mut envelope borrow drops before Phase 2 calls &mut self
@@ -658,6 +706,19 @@ impl Kernel {
                 );
             }
             envelope.outputs.insert(agent_name.to_string(), agent_output);
+
+            // State merge: write to state[output_key] per state_schema
+            for field in &state_schema {
+                if field.key == output_key {
+                    let output_value = serde_json::Value::Object(
+                        envelope.outputs.get(agent_name)
+                            .map(|m| m.iter().map(|(k, v)| (k.clone(), v.clone())).collect())
+                            .unwrap_or_default()
+                    );
+                    merge_state_field(&mut envelope.state, &field.key, output_value, field.merge);
+                    break;
+                }
+            }
 
             // Merge metadata updates from Python hooks
             if let Some(meta_updates) = metadata_updates {
@@ -705,7 +766,7 @@ impl Kernel {
             let effective_failed = !success || agent_failed_override;
 
             // Report to orchestrator (consumes metrics, adds to envelope, evaluates routing)
-            self.orchestrator.report_agent_result(process_id, metrics, envelope, effective_failed)?;
+            self.orchestrator.report_agent_result(process_id, metrics, envelope, effective_failed, break_loop)?;
 
             effective_failed
         }; // envelope borrow dropped

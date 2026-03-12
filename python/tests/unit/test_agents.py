@@ -53,30 +53,7 @@ def _make_context(**kwargs) -> AgentContext:
 
 
 class TestAllowedToolsEnforcement:
-    """Test that allowed_tools blocks unauthorized tool calls before execution."""
-
-    @pytest.mark.asyncio
-    async def test_denied_tool_returns_error(self):
-        """Tool not in allowed_tools should be blocked with error, not executed."""
-        agent = _make_agent(allowed_tools={"search", "summarize"})
-        context = _make_context()
-
-        # Simulate LLM output with tool_calls including a disallowed tool
-        output_with_tools = {
-            "tool_calls": [
-                {"name": "delete_all", "params": {}},
-            ],
-        }
-
-        result = await agent._execute_tools(context, output_with_tools)
-
-        # Should have error result for blocked tool
-        assert len(result["tool_results"]) == 1
-        assert "error" in result["tool_results"][0]
-        assert "not allowed" in result["tool_results"][0]["error"]
-
-        # Tool executor should NOT have been called
-        agent.tools.execute.assert_not_called()
+    """Test tool execution — allowed_tools enforcement is in Rust kernel."""
 
     @pytest.mark.asyncio
     async def test_allowed_tools_none_unrestricted(self):
@@ -112,23 +89,6 @@ class TestAllowedToolsEnforcement:
         # Tool should have been executed
         agent.tools.execute.assert_called_once()
         assert "result" in result["tool_results"][0]
-
-    @pytest.mark.asyncio
-    async def test_dispatch_tool_denied(self):
-        """_dispatch_tool should block unauthorized tools."""
-        agent = _make_agent(
-            allowed_tools={"search"},
-            tool_dispatch="auto",
-        )
-        context = _make_context(
-            outputs={"source": {"tool": "delete_all", "params": {}}},
-        )
-
-        result = await agent._dispatch_tool(context)
-
-        assert result["status"] == "error"
-        assert "not allowed" in result["error"]
-        agent.tools.execute.assert_not_called()
 
     @pytest.mark.asyncio
     async def test_dispatch_tool_allowed(self):

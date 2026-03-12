@@ -10,6 +10,41 @@ use std::collections::{HashMap, HashSet};
 use super::routing::RoutingRule;
 
 // =============================================================================
+// Graph Primitive Types
+// =============================================================================
+
+/// Node kind in the pipeline graph.
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, Default, PartialEq, Eq)]
+pub enum NodeKind {
+    /// Standard agent execution node
+    #[default]
+    Agent,
+    /// Pure routing node — evaluates routing without running an agent
+    Gate,
+    /// Parallel fan-out node — evaluates ALL matching rules, dispatches branches
+    Fork,
+}
+
+/// Merge strategy for state fields.
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, Default, PartialEq, Eq)]
+pub enum MergeStrategy {
+    /// Overwrite the existing value
+    #[default]
+    Replace,
+    /// Append to an array (creates array if not present)
+    Append,
+    /// Shallow-merge object keys
+    MergeDict,
+}
+
+/// Schema entry for a state field.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct StateField {
+    pub key: String,
+    pub merge: MergeStrategy,
+}
+
+// =============================================================================
 // Instruction Types
 // =============================================================================
 
@@ -84,6 +119,8 @@ pub struct PipelineConfig {
     pub edge_limits: Vec<EdgeLimit>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub step_limit: Option<i32>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub state_schema: Vec<StateField>,
 }
 
 impl PipelineConfig {
@@ -183,27 +220,16 @@ impl PipelineConfig {
             }
         }
 
-        // Validate parallel group topology
-        let mut groups: HashMap<&str, Vec<&PipelineStage>> = HashMap::new();
+        // Validate Fork stages: routing targets must exist
         for stage in &self.stages {
-            if let Some(ref pg) = stage.parallel_group {
-                groups.entry(pg.as_str()).or_default().push(stage);
-            }
-        }
-        for (group_name, stages) in &groups {
-            if stages.len() < 2 {
-                return Err(Error::validation(format!(
-                    "Parallel group '{}' has only {} stage(s), need at least 2",
-                    group_name, stages.len()
-                )));
-            }
-            let first_strategy = stages[0].join_strategy;
-            for s in &stages[1..] {
-                if s.join_strategy != first_strategy {
-                    return Err(Error::validation(format!(
-                        "Parallel group '{}': stage '{}' has join_strategy {:?} but '{}' has {:?}. All stages in a group must agree.",
-                        group_name, stages[0].name, first_strategy, s.name, s.join_strategy
-                    )));
+            if stage.node_kind == NodeKind::Fork {
+                for rule in &stage.routing {
+                    if !stage_names.contains(rule.target.as_str()) {
+                        return Err(Error::validation(format!(
+                            "Fork stage '{}' routing target '{}' not found in pipeline",
+                            stage.name, rule.target
+                        )));
+                    }
                 }
             }
         }
@@ -231,14 +257,16 @@ pub struct PipelineStage {
     pub error_next: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub max_visits: Option<i32>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub parallel_group: Option<String>,
     #[serde(default)]
     pub join_strategy: JoinStrategy,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub output_schema: Option<serde_json::Value>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub allowed_tools: Option<Vec<String>>,
+    #[serde(default)]
+    pub node_kind: NodeKind,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub output_key: Option<String>,
 }
 
 /// Join strategy for parallel execution groups.

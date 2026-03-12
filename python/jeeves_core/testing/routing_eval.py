@@ -6,9 +6,16 @@ Used by MockKernelClient for testing without the Rust kernel.
 
 from typing import Any, Dict, List, Optional
 
+__all__ = ["evaluate_routing", "evaluate_expr"]
 
-def _resolve_field(field_ref: Dict[str, str], outputs: Dict[str, Dict], metadata: Dict) -> Any:
-    """Resolve a FieldRef to its value from outputs/metadata."""
+
+def _resolve_field(
+    field_ref: Dict[str, str],
+    outputs: Dict[str, Dict],
+    metadata: Dict,
+    state: Optional[Dict[str, Any]] = None,
+) -> Any:
+    """Resolve a FieldRef to its value from outputs/metadata/state."""
     scope = field_ref.get("scope", "Current")
 
     if scope == "Current":
@@ -41,6 +48,10 @@ def _resolve_field(field_ref: Dict[str, str], outputs: Dict[str, Dict], metadata
         interrupt = metadata.get("interrupt", {})
         return interrupt.get(key) if isinstance(interrupt, dict) else None
 
+    elif scope == "State":
+        key = field_ref.get("key", "")
+        return (state or {}).get(key)
+
     return None
 
 
@@ -49,6 +60,7 @@ def evaluate_expr(
     outputs: Dict[str, Dict],
     metadata: Dict,
     current_agent_output: Optional[Dict] = None,
+    state: Optional[Dict[str, Any]] = None,
 ) -> bool:
     """Evaluate a RoutingExpr dict. Returns True if the expression matches."""
     op = expr.get("op")
@@ -61,10 +73,10 @@ def evaluate_expr(
         value = expr.get("value")
 
         # For Current scope, check current agent output first
-        if field_ref.get("scope") == "Current" and current_agent_output:
+        if field_ref.get("scope") == "Current" and current_agent_output is not None:
             resolved = current_agent_output.get(field_ref["key"])
         else:
-            resolved = _resolve_field(field_ref, outputs, metadata)
+            resolved = _resolve_field(field_ref, outputs, metadata, state)
 
         if op == "Eq":
             return resolved == value
@@ -87,35 +99,37 @@ def evaluate_expr(
 
     elif op == "Exists":
         field_ref = expr.get("field", {})
-        if field_ref.get("scope") == "Current" and current_agent_output:
+        if field_ref.get("scope") == "Current" and current_agent_output is not None:
             resolved = current_agent_output.get(field_ref["key"])
         else:
-            resolved = _resolve_field(field_ref, outputs, metadata)
+            resolved = _resolve_field(field_ref, outputs, metadata, state)
         return resolved is not None
 
     elif op == "NotExists":
         field_ref = expr.get("field", {})
-        if field_ref.get("scope") == "Current" and current_agent_output:
+        if field_ref.get("scope") == "Current" and current_agent_output is not None:
             resolved = current_agent_output.get(field_ref["key"])
         else:
-            resolved = _resolve_field(field_ref, outputs, metadata)
+            resolved = _resolve_field(field_ref, outputs, metadata, state)
         return resolved is None
 
     elif op == "And":
         return all(
-            evaluate_expr(sub, outputs, metadata, current_agent_output)
+            evaluate_expr(sub, outputs, metadata, current_agent_output, state)
             for sub in expr.get("exprs", [])
         )
 
     elif op == "Or":
         return any(
-            evaluate_expr(sub, outputs, metadata, current_agent_output)
+            evaluate_expr(sub, outputs, metadata, current_agent_output, state)
             for sub in expr.get("exprs", [])
         )
 
     elif op == "Not":
-        return not evaluate_expr(expr.get("expr", {}), outputs, metadata, current_agent_output)
+        return not evaluate_expr(expr.get("expr", {}), outputs, metadata, current_agent_output, state)
 
+    if op is not None:
+        raise ValueError(f"Unknown routing op: {op!r} — Python evaluator may be out of sync with Rust")
     return False
 
 
@@ -124,11 +138,12 @@ def evaluate_routing(
     outputs: Dict[str, Dict],
     metadata: Dict,
     current_agent_output: Optional[Dict] = None,
+    state: Optional[Dict[str, Any]] = None,
 ) -> Optional[str]:
     """Evaluate routing rules (first match wins). Returns target stage or None."""
     for rule in routing_rules:
         expr = rule.get("expr", {})
         target = rule.get("target", "")
-        if evaluate_expr(expr, outputs, metadata, current_agent_output):
+        if evaluate_expr(expr, outputs, metadata, current_agent_output, state):
             return target
     return None

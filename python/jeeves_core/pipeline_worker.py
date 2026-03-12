@@ -57,6 +57,7 @@ class WorkerResult:
     metadata: Dict[str, Any]
     terminated: bool
     terminal_reason: str = ""
+    outcome: str = ""  # "completed" | "bounds_exceeded" | "failed"
     interrupted: bool = False
     interrupt_kind: str = ""
 
@@ -70,12 +71,15 @@ async def run_kernel_loop(
     kernel: KernelClient,
     process_id: str,
     pipeline_config: Dict[str, Any],
-    initial_envelope: Dict[str, Any],
+    *,
+    user_id: str,
+    session_id: str,
+    raw_input: str,
+    metadata: Optional[Dict[str, Any]] = None,
     run_agent: Callable[
         [OrchestratorInstruction],
-        Awaitable[Tuple[Optional[Dict[str, Any]], bool, str, AgentExecutionMetrics]],
+        Awaitable[Tuple[Optional[Dict[str, Any]], Optional[Dict[str, Any]], bool, str, AgentExecutionMetrics]],
     ],
-    *,
     force: bool = False,
     on_event: Optional[Callable[[str, Dict[str, Any]], Awaitable[None]]] = None,
 ) -> OrchestratorInstruction:
@@ -89,8 +93,11 @@ async def run_kernel_loop(
         kernel: Connected KernelClient.
         process_id: Unique process identifier.
         pipeline_config: Pipeline configuration dict.
-        initial_envelope: Initial envelope dict (passed to kernel on init).
-        run_agent: async (instruction) → (output_dict, success, error, metrics).
+        user_id: User identifier.
+        session_id: Session identifier.
+        raw_input: Raw user input text.
+        metadata: Optional metadata dict.
+        run_agent: async (instruction) → (output_dict, metadata_updates, success, error, metrics).
         force: If True, replace any existing session.
         on_event: Optional async callback invoked after each successful agent run.
     """
@@ -111,7 +118,10 @@ async def run_kernel_loop(
     await kernel.initialize_orchestration_session(
         process_id=process_id,
         pipeline_config=pipeline_config,
-        envelope=initial_envelope,
+        user_id=user_id,
+        session_id=session_id,
+        raw_input=raw_input,
+        metadata=metadata,
         force=force,
     )
     _t_ipc = time.time()
@@ -138,18 +148,26 @@ async def run_kernel_loop(
                 *(_dispatch_one(name) for name in instruction.agents)
             )
             # Report each result sequentially (kernel expects ordered reports)
-            for agent_name, (output, success, error, metrics) in results:
+            for agent_name, (output, metadata_updates, success, error, metrics) in results:
+                _break = bool(output.get("_break")) if isinstance(output, dict) else False
                 _t_ipc = time.time()
                 with _ipc_span("report_agent_result"):
                     instruction = await kernel.report_agent_result(
                         process_id=process_id,
                         agent_name=agent_name,
                         output=output,
+                        metadata_updates=metadata_updates,
                         metrics=metrics,
                         success=success,
                         error=error,
+                        break_loop=_break,
                     )
                 record_kernel_instruction("report_agent_result", time.time() - _t_ipc)
+                if on_event:
+                    try:
+                        await on_event("agent_completed", {"agent": agent_name, "success": success})
+                    except Exception:
+                        pass
                 if instruction.kind == "TERMINATE":
                     record_pipeline_termination(instruction.terminal_reason or "COMPLETED")
                     return instruction
@@ -162,19 +180,27 @@ async def run_kernel_loop(
             # Single agent
             agent_name = instruction.agents[0] if instruction.agents else ""
             _t0 = time.time()
-            output, success, error, metrics = await run_agent(instruction)
+            output, metadata_updates, success, error, metrics = await run_agent(instruction)
             record_agent_duration(agent_name, time.time() - _t0)
+            _break = bool(output.get("_break")) if isinstance(output, dict) else False
             _t_ipc = time.time()
             with _ipc_span("report_agent_result"):
                 instruction = await kernel.report_agent_result(
                     process_id=process_id,
                     agent_name=agent_name,
                     output=output,
+                    metadata_updates=metadata_updates,
                     metrics=metrics,
                     success=success,
                     error=error,
+                    break_loop=_break,
                 )
             record_kernel_instruction(instruction.kind, time.time() - _t_ipc)
+            if on_event:
+                try:
+                    await on_event("agent_completed", {"agent": agent_name, "success": success})
+                except Exception:
+                    pass
 
     # Terminal instruction
     if instruction.kind == "TERMINATE":
@@ -187,16 +213,27 @@ async def run_kernel_loop(
 # Worker
 # =============================================================================
 
+@dataclass
+class PendingProcess:
+    """Holds config for a process submitted to the scheduler queue."""
+    pipeline_config: Dict[str, Any]
+    user_id: str
+    session_id: str
+    raw_input: str
+    metadata: Optional[Dict[str, Any]] = None
+    thread_id: str = ""
+    force: bool = False
+
+
 class PipelineWorker:
     """Executes agents under kernel control.
 
-    This worker has NO orchestration logic - it simply:
-    1. Initializes a session with the kernel
-    2. Gets instructions from the kernel
-    3. Builds AgentContext from enriched instructions
-    4. Executes agents as instructed
-    5. Reports results (output + metadata_updates) back to the kernel
-    6. Repeats until TERMINATE or WAIT_INTERRUPT
+    Supports two modes:
+    - execute(): submit + await result (synchronous from caller's perspective)
+    - submit(): fire-and-forget, result retrieved via future or polling
+
+    The scheduler loop pulls from the kernel's priority queue and dispatches.
+    execute() auto-starts the scheduler on first call (lazy init).
     """
 
     def __init__(
@@ -206,33 +243,90 @@ class PipelineWorker:
         logger: Optional[logging.Logger] = None,
         persistence: Optional[Any] = None,
         service_registry: Optional[Dict[str, Any]] = None,
+        max_concurrent: int = 10,
     ):
         self._kernel = kernel_client
         self._agents = agents
         self._logger = logger or logging.getLogger(__name__)
         self._persistence = persistence
         self._services = service_registry or {}
+        self._max_concurrent = max_concurrent
+
+        # Capacity control
+        self._execute_sem = asyncio.Semaphore(max_concurrent)
+
+        # Scheduler state
+        self._pending: Dict[str, PendingProcess] = {}
+        self._result_futures: Dict[str, asyncio.Future] = {}
+        self._scheduler_task: Optional[asyncio.Task] = None
+
+        # Service registry (Phase 12)
+        self._service_name: Optional[str] = None
 
     async def execute(
         self,
         process_id: str,
         pipeline_config: Dict[str, Any],
-        initial_envelope: Dict[str, Any],
+        *,
+        user_id: str,
+        session_id: str,
+        raw_input: str,
+        metadata: Optional[Dict[str, Any]] = None,
         thread_id: str = "",
         force: bool = False,
+        priority: str = "NORMAL",
     ) -> WorkerResult:
         """Execute pipeline under kernel control.
+
+        Runs the pipeline directly (no scheduler queue). For queued execution,
+        use submit() + _scheduler_loop(). This is the primary entry point for
+        synchronous callers (A2A task_send, capability orchestrators).
 
         Args:
             process_id: Unique process identifier
             pipeline_config: Pipeline configuration dict
-            initial_envelope: Initial envelope dict for kernel initialization
+            user_id: User identifier.
+            session_id: Session identifier.
+            raw_input: Raw user input text.
+            metadata: Optional metadata dict.
             thread_id: Optional thread ID for persistence
             force: If True, terminate any existing session before starting.
+            priority: Process priority (REALTIME, HIGH, NORMAL, LOW, IDLE).
 
         Returns:
             WorkerResult with collected outputs and termination status
         """
+        # Inject kernel_client into agents for tool health/circuit breaking
+        for agent in self._agents.values():
+            if hasattr(agent, '_kernel'):
+                agent._kernel = self._kernel
+
+        # Register tools in kernel catalog (best-effort, first call only)
+        await self._register_tools()
+
+        async with self._execute_sem:
+            return await self._execute_pipeline(
+                process_id=process_id,
+                pipeline_config=pipeline_config,
+                user_id=user_id,
+                session_id=session_id,
+                raw_input=raw_input,
+                metadata=metadata,
+                force=force,
+            )
+
+    async def _execute_pipeline(
+        self,
+        process_id: str,
+        pipeline_config: Dict[str, Any],
+        *,
+        user_id: str,
+        session_id: str,
+        raw_input: str,
+        metadata: Optional[Dict[str, Any]] = None,
+        force: bool = False,
+    ) -> WorkerResult:
+        """Core pipeline execution — shared by execute() and scheduler."""
         from contextlib import nullcontext
         from jeeves_core.observability.otel_adapter import get_global_otel_adapter
 
@@ -245,9 +339,20 @@ class PipelineWorker:
             },
         ) if otel else nullcontext()
 
+        # CommBus event bridge (Phase 13)
+        async def _on_commbus_event(event_type: str, data: Dict[str, Any]) -> None:
+            try:
+                await self._kernel.publish_event(
+                    f"pipeline.{event_type}",
+                    {"process_id": process_id, **data},
+                    source=process_id,
+                )
+            except Exception:
+                pass  # event publishing is best-effort
+
         async def _run_agent_dispatch(
             instruction: OrchestratorInstruction,
-        ) -> Tuple[Optional[Dict[str, Any]], bool, str, AgentExecutionMetrics]:
+        ) -> Tuple[Optional[Dict[str, Any]], Optional[Dict[str, Any]], bool, str, AgentExecutionMetrics]:
             agent_name = instruction.agents[0] if instruction.agents else ""
             agent = self._agents.get(agent_name)
 
@@ -257,7 +362,7 @@ class PipelineWorker:
                     process_id=process_id,
                     agent_name=agent_name,
                 )
-                return (None, False, f"Agent not found: {agent_name}", AgentExecutionMetrics())
+                return (None, None, False, f"Agent not found: {agent_name}", AgentExecutionMetrics())
 
             output, metadata_updates, success, error, metrics = await self._run_agent(
                 instruction=instruction,
@@ -266,14 +371,16 @@ class PipelineWorker:
                 agent=agent,
             )
 
-            return (output, success, error, metrics)
+            return (output, metadata_updates, success, error, metrics)
 
         with span_ctx:
             try:
                 terminal = await run_kernel_loop(
                     self._kernel, process_id, pipeline_config,
-                    initial_envelope, _run_agent_dispatch,
-                    force=force,
+                    user_id=user_id, session_id=session_id,
+                    raw_input=raw_input, metadata=metadata,
+                    run_agent=_run_agent_dispatch, force=force,
+                    on_event=_on_commbus_event,
                 )
             except KernelClientError as e:
                 self._logger.error("worker_kernel_loop_failed", error=str(e))
@@ -284,58 +391,216 @@ class PipelineWorker:
                     terminal_reason=str(e),
                 )
 
-            # Read outputs from terminal instruction (populated by kernel)
-            terminal_outputs = terminal.outputs or {}
+            return self._build_worker_result(process_id, terminal)
 
-            # Map terminal instruction to WorkerResult
-            if terminal.kind == "TERMINATE":
-                self._logger.info(
-                    "worker_pipeline_terminated",
-                    process_id=process_id,
-                    reason=terminal.terminal_reason,
-                )
-                return WorkerResult(
-                    outputs=terminal_outputs,
-                    metadata={},
-                    terminated=True,
-                    terminal_reason=terminal.terminal_reason,
-                )
+    def _build_worker_result(
+        self, process_id: str, terminal: OrchestratorInstruction,
+    ) -> WorkerResult:
+        """Map terminal instruction to WorkerResult."""
+        terminal_outputs = terminal.outputs or {}
 
-            elif terminal.kind == "WAIT_INTERRUPT":
-                interrupt_kind = ""
-                if terminal.interrupt:
-                    interrupt_kind = terminal.interrupt.get("kind", "")
-                self._logger.info(
-                    "worker_waiting_interrupt",
-                    process_id=process_id,
-                    interrupt_kind=interrupt_kind,
-                )
-                return WorkerResult(
-                    outputs=terminal_outputs,
-                    metadata={},
-                    terminated=False,
-                    interrupted=True,
-                    interrupt_kind=interrupt_kind,
-                )
+        if terminal.kind == "TERMINATE":
+            self._logger.info(
+                "worker_pipeline_terminated",
+                process_id=process_id,
+                reason=terminal.terminal_reason,
+            )
+            return WorkerResult(
+                outputs=terminal_outputs,
+                metadata={},
+                terminated=True,
+                terminal_reason=terminal.terminal_reason,
+                outcome=terminal.outcome,
+            )
 
+        elif terminal.kind == "WAIT_INTERRUPT":
+            interrupt_kind = ""
+            if terminal.interrupt:
+                interrupt_kind = terminal.interrupt.get("kind", "")
+            self._logger.info(
+                "worker_waiting_interrupt",
+                process_id=process_id,
+                interrupt_kind=interrupt_kind,
+            )
+            return WorkerResult(
+                outputs=terminal_outputs,
+                metadata={},
+                terminated=False,
+                interrupted=True,
+                interrupt_kind=interrupt_kind,
+            )
+
+        else:
+            self._logger.warning(
+                "worker_unknown_instruction",
+                process_id=process_id,
+                kind=terminal.kind,
+            )
+            return WorkerResult(
+                outputs=terminal_outputs,
+                metadata={},
+                terminated=True,
+                terminal_reason=f"Unknown instruction kind: {terminal.kind}",
+            )
+
+    async def _register_tools(self) -> None:
+        """Register agent tools in kernel catalog (best-effort)."""
+        for agent_name, agent in self._agents.items():
+            tools = getattr(agent, 'tools', None)
+            if tools and hasattr(tools, 'list_entries'):
+                try:
+                    entries = tools.list_entries()
+                    tool_ids = []
+                    for entry in entries:
+                        await self._kernel.register_tool(entry)
+                        tool_ids.append(entry["id"])
+                    if tool_ids:
+                        await self._kernel.grant_tool_access(agent_name, tool_ids)
+                except Exception as e:
+                    self._logger.warning(
+                        "worker_tool_registration_failed",
+                        agent_name=agent_name, error=str(e),
+                    )
+
+    # =========================================================================
+    # Scheduler: submit / run pattern (Phase 10)
+    # =========================================================================
+
+    async def submit(
+        self,
+        process_id: str,
+        pipeline_config: Dict[str, Any],
+        *,
+        priority: str = "NORMAL",
+        user_id: str,
+        session_id: str,
+        raw_input: str,
+        metadata: Optional[Dict[str, Any]] = None,
+    ) -> str:
+        """Submit a process to the scheduler queue (fire-and-forget).
+
+        Returns process_id. Use execute() for submit + await result.
+        """
+        self._pending[process_id] = PendingProcess(
+            pipeline_config=pipeline_config,
+            user_id=user_id,
+            session_id=session_id,
+            raw_input=raw_input,
+            metadata=metadata,
+        )
+        try:
+            await self._kernel.create_process(
+                pid=process_id,
+                request_id=process_id,
+                user_id=user_id,
+                session_id=session_id,
+                priority=priority,
+            )
+            await self._kernel.schedule_process(process_id)
+        except KernelClientError as e:
+            self._pending.pop(process_id, None)
+            raise
+        return process_id
+
+    async def setup(self, instance_id: str, max_concurrent: int = 10) -> None:
+        """Register this worker in the kernel service registry (Phase 12).
+
+        Args:
+            instance_id: Unique worker instance identifier.
+            max_concurrent: Max concurrent pipelines this worker handles.
+        """
+        self._service_name = f"worker-{instance_id}"
+        self._max_concurrent = max_concurrent
+        try:
+            await self._kernel.register_service(
+                name=self._service_name,
+                service_type="worker",
+                version="0.1.0",
+                capabilities=list(self._agents.keys()),
+                max_concurrent=max_concurrent,
+            )
+        except KernelClientError as e:
+            self._logger.warning("worker_registration_failed", error=str(e))
+
+    def _ensure_scheduler_running(self) -> None:
+        """Start the scheduler loop if not already running."""
+        if self._scheduler_task is None or self._scheduler_task.done():
+            self._scheduler_task = asyncio.create_task(self._scheduler_loop())
+
+    async def _scheduler_loop(self) -> None:
+        """Pull from kernel ready queue, dispatch, respect capacity."""
+        sem = asyncio.Semaphore(self._max_concurrent)
+        while True:
+            await sem.acquire()
+            try:
+                runnable = await self._kernel.get_next_runnable()
+            except Exception:
+                sem.release()
+                await asyncio.sleep(0.1)
+                continue
+            if runnable:
+                pid = runnable.pid
+                asyncio.create_task(self._execute_and_release(pid, sem))
             else:
-                self._logger.warning(
-                    "worker_unknown_instruction",
-                    process_id=process_id,
-                    kind=terminal.kind,
-                )
-                return WorkerResult(
-                    outputs=terminal_outputs,
-                    metadata={},
-                    terminated=True,
-                    terminal_reason=f"Unknown instruction kind: {terminal.kind}",
-                )
+                sem.release()
+                # No work — check if any futures are still waiting
+                if not self._result_futures:
+                    break  # No waiters, shut down scheduler
+                await asyncio.sleep(0.05)
+
+    async def _execute_and_release(
+        self, process_id: str, sem: asyncio.Semaphore,
+    ) -> None:
+        """Run pipeline for one process, notify awaiter, release semaphore."""
+        pending = self._pending.pop(process_id, None)
+        if not pending:
+            sem.release()
+            return
+
+        # Service registry load tracking (Phase 12)
+        if self._service_name:
+            try:
+                await self._kernel.increment_service_load(self._service_name)
+            except Exception:
+                pass
+
+        try:
+            result = await self._execute_pipeline(
+                process_id=process_id,
+                pipeline_config=pending.pipeline_config,
+                user_id=pending.user_id,
+                session_id=pending.session_id,
+                raw_input=pending.raw_input,
+                metadata=pending.metadata,
+                force=pending.force,
+            )
+        except Exception as e:
+            result = WorkerResult(
+                outputs={}, metadata={}, terminated=True,
+                terminal_reason=str(e),
+            )
+        finally:
+            sem.release()
+            if self._service_name:
+                try:
+                    await self._kernel.decrement_service_load(self._service_name)
+                except Exception:
+                    pass
+
+        # Notify sync awaiter
+        future = self._result_futures.pop(process_id, None)
+        if future and not future.done():
+            future.set_result(result)
 
     async def execute_streaming(
         self,
         process_id: str,
         pipeline_config: Dict[str, Any],
-        initial_envelope: Dict[str, Any],
+        *,
+        user_id: str,
+        session_id: str,
+        raw_input: str,
+        metadata: Optional[Dict[str, Any]] = None,
         thread_id: str = "",
         force: bool = False,
     ) -> AsyncIterator[Tuple[str, Dict[str, Any]]]:
@@ -351,12 +616,12 @@ class PipelineWorker:
 
         async def _streaming_dispatch(
             instruction: OrchestratorInstruction,
-        ) -> Tuple[Optional[Dict[str, Any]], bool, str, AgentExecutionMetrics]:
+        ) -> Tuple[Optional[Dict[str, Any]], Optional[Dict[str, Any]], bool, str, AgentExecutionMetrics]:
             agent_name = instruction.agents[0] if instruction.agents else ""
             agent = self._agents.get(agent_name)
 
             if not agent:
-                return (None, False, f"Agent not found: {agent_name}", AgentExecutionMetrics())
+                return (None, None, False, f"Agent not found: {agent_name}", AgentExecutionMetrics())
 
             # Check if agent supports token streaming
             has_streaming = (
@@ -365,9 +630,10 @@ class PipelineWorker:
             )
 
             if has_streaming:
-                return await self._run_streaming_agent(
+                output, success, error, metrics = await self._run_streaming_agent(
                     instruction, agent, agent_name, _on_event,
                 )
+                return (output, None, success, error, metrics)
             else:
                 output, metadata_updates, success, error, metrics = await self._run_agent(
                     instruction=instruction,
@@ -378,14 +644,15 @@ class PipelineWorker:
                 )
                 if success and output:
                     await _on_event(agent_name, output)
-                return (output, success, error, metrics)
+                return (output, metadata_updates, success, error, metrics)
 
         async def _run_loop() -> None:
             try:
                 terminal = await run_kernel_loop(
                     self._kernel, process_id, pipeline_config,
-                    initial_envelope, _streaming_dispatch,
-                    force=force,
+                    user_id=user_id, session_id=session_id,
+                    raw_input=raw_input, metadata=metadata,
+                    run_agent=_streaming_dispatch, force=force,
                 )
                 if terminal.kind == "TERMINATE":
                     await events.put(("__end__", {
@@ -460,31 +727,6 @@ class PipelineWorker:
         # Build AgentContext from enriched instruction
         context = AgentContext.from_instruction(instruction)
 
-        # Auto-inject retrieval results if agent has RetrievalConfig
-        if hasattr(agent, 'config') and hasattr(agent.config, 'retrieval'):
-            rc = agent.config.retrieval
-            if rc and rc.retriever_key:
-                retriever = self._services.get(f"retriever:{rc.retriever_key}")
-                if retriever:
-                    results = await retriever.retrieve(
-                        context.raw_input, limit=rc.limit, filters=rc.filters,
-                    )
-                    context.metadata[rc.inject_as] = [
-                        {"content": r.content, "source": r.source, "score": r.score}
-                        for r in results
-                    ]
-
-        # Auto-inject conversation history if agent has ConversationConfig
-        if hasattr(agent, 'config') and hasattr(agent.config, 'conversation'):
-            cc = agent.config.conversation
-            if cc and cc.history_key:
-                history = self._services.get(f"history:{cc.history_key}")
-                if history:
-                    turns = await history.get_history(
-                        context.session_id, limit=cc.limit,
-                    )
-                    context.metadata[cc.inject_as] = turns
-
         try:
             output, metadata_updates = await agent.process(context)
             success = True
@@ -539,6 +781,7 @@ class PipelineWorker:
 __all__ = [
     "run_kernel_loop",
     "PipelineWorker",
+    "PendingProcess",
     "WorkerResult",
     "AgentProtocol",
 ]

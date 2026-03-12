@@ -172,18 +172,6 @@ class LLMProviderProtocol(Protocol):
 
 
 # =============================================================================
-# TOOLS
-# =============================================================================
-
-@runtime_checkable
-class ToolRegistryProtocol(Protocol):
-    """Tool registry interface for managing and accessing tools."""
-
-    def has_tool(self, name: str) -> bool: ...
-    def get_tool(self, name: str) -> Optional[Any]: ...
-
-
-# =============================================================================
 # APP CONTEXT
 # =============================================================================
 
@@ -236,27 +224,17 @@ class EmbeddingProviderProtocol(Protocol):
     def dimension(self) -> int: ...
 
 
+
+# =============================================================================
+# TOOLS
+# =============================================================================
+
 @runtime_checkable
-class ConversationHistoryProtocol(Protocol):
-    """Protocol for conversation history storage and retrieval."""
+class ToolRegistryProtocol(Protocol):
+    """Tool registry interface for managing and accessing tools."""
 
-    async def add_turn(
-        self,
-        session_id: str,
-        role: str,
-        content: str,
-        *,
-        metadata: Optional[Dict[str, Any]] = None,
-    ) -> None: ...
-
-    async def get_history(
-        self,
-        session_id: str,
-        *,
-        limit: int = 20,
-    ) -> List[Dict[str, Any]]: ...
-
-    async def clear(self, session_id: str) -> None: ...
+    def has_tool(self, name: str) -> bool: ...
+    def get_tool(self, name: str) -> Optional[Any]: ...
 
 
 # =============================================================================
@@ -409,7 +387,7 @@ __all__ = [
     # App Context
     "ClockProtocol",
     "AppContextProtocol",
-    # Distributed Bus (kept for Redis scaling)
+    # Distributed Bus
     "DistributedTask",
     "QueueStats",
     "DistributedBusProtocol",

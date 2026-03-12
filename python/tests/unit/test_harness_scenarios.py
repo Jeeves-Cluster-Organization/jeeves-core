@@ -173,16 +173,13 @@ class TestInterruptInjection:
 
         worker = PipelineWorker(kernel_client=kernel, agents=agents, logger=logger)
         process_id = f"test-{uuid4().hex[:8]}"
-        initial_envelope = {
-            "identity": {"envelope_id": str(uuid4()), "request_id": process_id},
-            "raw_input": "test",
-            "outputs": {},
-        }
         pipeline_dict = config.to_kernel_dict()
         result = await worker.execute(
             process_id=process_id,
             pipeline_config=pipeline_dict,
-            initial_envelope=initial_envelope,
+            user_id="test-user",
+            session_id="test-session",
+            raw_input="test",
         )
 
         assert result.interrupted
@@ -196,26 +193,27 @@ class TestInterruptInjection:
 # =============================================================================
 
 
-class TestParallelFanOut:
-    """Parallel fan-out: stages with same parallel_group run concurrently."""
+class TestForkFanOut:
+    """Fork fan-out: Fork node evaluates ALL routing rules, dispatches parallel branches."""
 
     @pytest.mark.asyncio
-    async def test_parallel_stages_both_run(self):
-        config = PipelineConfig.graph(
-            "parallel_test",
-            {
-                "understand": stage("understand", mock_handler=lambda ctx: {"intent": "multi"}),
-                "think_a": stage("think_a", mock_handler=lambda ctx: {"a": 1},
-                                 parallel_group="think"),
-                "think_b": stage("think_b", mock_handler=lambda ctx: {"b": 2},
-                                 parallel_group="think"),
-                "respond": stage("respond", mock_handler=lambda ctx: {"done": True}),
-            },
-            [
-                Edge(source="understand", target="think_a"),  # default_next → triggers parallel group
-                Edge(source="think_a", target="respond", when=always()),
+    async def test_fork_dispatches_parallel_branches(self):
+        config = PipelineConfig(
+            name="fork_test",
+            agents=[
+                stage("understand", mock_handler=lambda ctx: {"intent": "multi"}, default_next="router"),
+                stage("router", node_kind="Fork",
+                      routing_rules=[
+                          RoutingRule(expr=always(), target="think_a"),
+                          RoutingRule(expr=always(), target="think_b"),
+                      ],
+                      default_next="respond"),
+                stage("think_a", mock_handler=lambda ctx: {"a": 1}),
+                stage("think_b", mock_handler=lambda ctx: {"b": 2}),
+                stage("respond", mock_handler=lambda ctx: {"done": True}),
             ],
             max_iterations=10,
+            max_agent_hops=10,
         )
         result = await TestPipeline(config).run()
         assert result.terminated
@@ -223,6 +221,8 @@ class TestParallelFanOut:
         assert "think_b" in result.outputs
         assert result.outputs["think_a"]["a"] == 1
         assert result.outputs["think_b"]["b"] == 2
+        assert "respond" in result.outputs
+        assert result.outputs["respond"]["done"] is True
 
 
 # =============================================================================

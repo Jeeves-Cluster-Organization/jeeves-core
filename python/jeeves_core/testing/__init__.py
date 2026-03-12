@@ -3,7 +3,6 @@
 from jeeves_core.testing.test_pipeline import TestPipeline
 from jeeves_core.testing.mock_kernel import MockKernelClient
 from jeeves_core.testing.helpers import (
-    build_initial_envelope,
     make_agent_config,
     make_agent_context,
 )
@@ -12,7 +11,6 @@ from jeeves_core.testing.evaluation import EvalCase, EvalResult, EvalReport, Eva
 __all__ = [
     "TestPipeline",
     "MockKernelClient",
-    "build_initial_envelope",
     "make_agent_context",
     "make_agent_config",
     "EvalCase",

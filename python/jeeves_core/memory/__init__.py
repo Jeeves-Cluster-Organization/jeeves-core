@@ -2,7 +2,6 @@
 
 Provides:
 - Session state management (working memory: focus, entities, context)
-- Tool health governance (L7)
 """
 
 from jeeves_core.memory.session_state_service import (
@@ -10,11 +9,9 @@ from jeeves_core.memory.session_state_service import (
     SessionState,
     EntityRef,
 )
-from jeeves_core.memory.conversation import InMemoryConversationHistory
 
 __all__ = [
     "SessionStateService",
     "SessionState",
     "EntityRef",
-    "InMemoryConversationHistory",
 ]

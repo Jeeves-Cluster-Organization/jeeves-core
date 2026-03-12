@@ -108,6 +108,7 @@ class OrchestratorInstruction:
     envelope: Optional[Dict[str, Any]] = None
     terminal_reason: str = ""
     termination_message: str = ""
+    outcome: str = ""  # "completed" | "bounds_exceeded" | "failed"
     interrupt_pending: bool = False
     interrupt: Optional[Dict[str, Any]] = None
     agent_config: "InstructionConfig" = field(default_factory=lambda: _empty_instruction_config())
@@ -434,6 +435,36 @@ class KernelClient:
     # CommBus Event Subscription
     # =========================================================================
 
+    async def publish_event(
+        self,
+        event_type: str,
+        payload: Dict[str, Any],
+        source: str = "",
+    ) -> int:
+        """Publish an event to the CommBus.
+
+        Args:
+            event_type: Event type string (e.g. "agent.completed").
+            payload: Event payload dict.
+            source: Source identifier (e.g. process_id).
+
+        Returns:
+            Number of subscribers that received the event.
+        """
+        import json as _json
+        body: Dict[str, Any] = {
+            "event_type": event_type,
+            "payload": _json.dumps(payload),
+        }
+        if source:
+            body["source"] = source
+        try:
+            response = await self._transport.request("commbus", "Publish", body)
+            return response.get("delivered", 0)
+        except IpcError as e:
+            logger.debug(f"CommBus publish failed (non-fatal): {e}")
+            return 0
+
     async def subscribe_events(
         self,
         event_types: List[str],
@@ -501,16 +532,27 @@ class KernelClient:
         self,
         process_id: str,
         pipeline_config: Dict[str, Any],
-        envelope: Dict[str, Any],
+        *,
+        user_id: str,
+        session_id: str,
+        raw_input: str,
+        metadata: Optional[Dict[str, Any]] = None,
         force: bool = False,
     ) -> OrchestrationSessionState:
-        """Initialize a new orchestration session."""
-        body = {
+        """Initialize a new orchestration session.
+
+        Sends minimal params — Rust kernel builds the Envelope internally.
+        """
+        body: Dict[str, Any] = {
             "process_id": process_id,
             "pipeline_config": pipeline_config,
-            "envelope": envelope,
+            "user_id": user_id,
+            "session_id": session_id,
+            "raw_input": raw_input,
             "force": force,
         }
+        if metadata:
+            body["metadata"] = metadata
         try:
             response = await self._transport.request("orchestration", "InitializeSession", body)
             return self._dict_to_session_state(response)
@@ -553,6 +595,7 @@ class KernelClient:
         metrics: Optional[AgentExecutionMetrics] = None,
         success: bool = True,
         error: str = "",
+        break_loop: bool = False,
     ) -> OrchestratorInstruction:
         """Report agent execution result and get next instruction."""
         body: Dict[str, Any] = {
@@ -562,6 +605,8 @@ class KernelClient:
             "success": success,
             "error": error,
         }
+        if break_loop:
+            body["break_loop"] = True
         if metadata_updates:
             body["metadata_updates"] = metadata_updates
         if metrics:
@@ -696,115 +741,6 @@ class KernelClient:
     # =========================================================================
     # High-Level Convenience Methods
     # =========================================================================
-
-    async def record_and_check(
-        self,
-        pid: str,
-        *,
-        llm_calls: int = 0,
-        tool_calls: int = 0,
-        agent_hops: int = 0,
-        tokens_in: int = 0,
-        tokens_out: int = 0,
-    ) -> QuotaCheckResult:
-        """Atomic record + bounds check in one round-trip.
-
-        Calls the RecordUsageAndCheck IPC handler which records usage
-        and checks bounds atomically.
-        """
-        body = {
-            "pid": pid,
-            "llm_calls": llm_calls,
-            "tool_calls": tool_calls,
-            "agent_hops": agent_hops,
-            "tokens_in": tokens_in,
-            "tokens_out": tokens_out,
-        }
-        try:
-            response = await self._transport.request("kernel", "RecordUsageAndCheck", body)
-            return QuotaCheckResult(
-                within_bounds=response.get("within_bounds", True),
-                exceeded_reason=response.get("exceeded_reason", ""),
-                llm_calls=response.get("llm_calls", 0),
-                tool_calls=response.get("tool_calls", 0),
-                agent_hops=response.get("agent_hops", 0),
-                tokens_in=response.get("tokens_in", 0),
-                tokens_out=response.get("tokens_out", 0),
-            )
-        except IpcError as e:
-            logger.error(f"Failed to record and check for {pid}: {e}")
-            raise KernelClientError(f"RecordUsageAndCheck failed: {e}", code=e.code) from e
-
-    async def record_llm_call(
-        self,
-        pid: str,
-        tokens_in: int = 0,
-        tokens_out: int = 0,
-    ) -> Optional[str]:
-        """Record an LLM call. Returns exceeded reason if quota exceeded."""
-        try:
-            result = await self.record_and_check(
-                pid, llm_calls=1, tokens_in=tokens_in, tokens_out=tokens_out,
-            )
-            return result.exceeded_reason if not result.within_bounds else None
-        except KernelClientError:
-            return None
-
-    async def record_tool_call(self, pid: str) -> Optional[str]:
-        """Record a tool call. Returns exceeded reason if quota exceeded."""
-        try:
-            result = await self.record_and_check(pid, tool_calls=1)
-            return result.exceeded_reason if not result.within_bounds else None
-        except KernelClientError:
-            return None
-
-    async def record_agent_hop(self, pid: str) -> Optional[str]:
-        """Record an agent hop. Returns exceeded reason if quota exceeded."""
-        try:
-            result = await self.record_and_check(pid, agent_hops=1)
-            return result.exceeded_reason if not result.within_bounds else None
-        except KernelClientError:
-            return None
-
-    # =========================================================================
-    # Inference Methods (Kernel-Tracked)
-    # =========================================================================
-
-    async def embed_batch(
-        self,
-        pid: str,
-        texts: list[str],
-        embedding_fn: "Callable[[list[str]], list[list[float]]] | None" = None,
-    ) -> list[list[float]]:
-        """Compute embeddings for multiple texts with kernel tracking."""
-        if not texts:
-            return []
-        if embedding_fn is None:
-            raise KernelClientError(
-                "embedding_fn is required. Pass a function like "
-                "EmbeddingService().embed_batch to compute embeddings."
-            )
-        try:
-            return embedding_fn(texts)
-        except Exception as e:
-            raise KernelClientError(f"Embedding computation failed: {e}") from e
-
-    async def embed(
-        self,
-        pid: str,
-        text: str,
-        embedding_fn: "Callable[[str], list[float]] | None" = None,
-    ) -> list[float]:
-        """Compute embedding for a single text with kernel tracking."""
-        if embedding_fn is None:
-            raise KernelClientError(
-                "embedding_fn is required. Pass a function like "
-                "EmbeddingService().embed to compute embeddings."
-            )
-        try:
-            return embedding_fn(text)
-        except Exception as e:
-            raise KernelClientError(f"Embedding computation failed: {e}") from e
 
     # =========================================================================
     # Tool Catalog & Access Control (tools service)
@@ -1154,6 +1090,7 @@ class KernelClient:
             envelope=envelope,
             terminal_reason=d.get("terminal_reason", ""),
             termination_message=d.get("termination_message", ""),
+            outcome=d.get("outcome", ""),
             interrupt_pending=d.get("interrupt_pending", False),
             interrupt=d.get("interrupt"),
             agent_config=agent_config,

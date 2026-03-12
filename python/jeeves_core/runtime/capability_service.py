@@ -124,76 +124,25 @@ class CapabilityService:
             await self._ensure_ready()
             self._ready = True
 
-    def _build_initial_envelope(
-        self,
-        message: str,
-        user_id: str,
-        session_id: str,
-        metadata: Optional[Dict[str, Any]] = None,
-    ) -> Dict[str, Any]:
-        """Build initial envelope dict for kernel initialization."""
-        from datetime import datetime, timezone
-        request_id = f"req_{uuid4().hex[:16]}"
-        now_iso = datetime.now(timezone.utc).isoformat()
-        pipeline = self._pipeline_config
-
-        return {
-            "identity": {
-                "envelope_id": str(uuid4()),
-                "request_id": request_id,
-                "user_id": user_id,
-                "session_id": session_id,
-            },
-            "raw_input": message,
-            "received_at": now_iso,
-            "outputs": {},
-            "pipeline": {
-                "current_stage": "",
-                "stage_order": [],
-                "iteration": 0,
-                "max_iterations": pipeline.max_iterations,
-            },
-            "bounds": {
-                "llm_call_count": 0,
-                "max_llm_calls": pipeline.max_llm_calls,
-                "tool_call_count": 0,
-                "agent_hop_count": 0,
-                "max_agent_hops": pipeline.max_agent_hops,
-                "tokens_in": 0,
-                "tokens_out": 0,
-                "terminated": False,
-            },
-            "interrupts": {"interrupt_pending": False},
-            "execution": {
-                "completed_stages": [],
-                "current_stage_number": 0,
-                "max_stages": len(pipeline.agents),
-                "all_goals": [],
-                "remaining_goals": [],
-                "goal_completion_status": {},
-                "prior_plans": [],
-                "loop_feedback": [],
-            },
-            "audit": {
-                "processing_history": [],
-                "errors": [],
-                "created_at": now_iso,
-                "metadata": metadata or {},
-            },
-        }
-
     async def _run_pipeline(
         self,
-        initial_envelope: Dict[str, Any],
-        thread_id: str,
+        *,
+        user_id: str,
+        session_id: str,
+        raw_input: str,
+        metadata: Optional[Dict[str, Any]] = None,
+        thread_id: str = "",
     ) -> WorkerResult:
         """Execute pipeline under kernel control."""
         pipeline_config_dict = self._pipeline_config.to_kernel_dict()
-        process_id = initial_envelope["identity"]["envelope_id"]
+        process_id = f"proc_{uuid4().hex[:16]}"
         return await self._worker.execute(
             process_id=process_id,
             pipeline_config=pipeline_config_dict,
-            initial_envelope=initial_envelope,
+            user_id=user_id,
+            session_id=session_id,
+            raw_input=raw_input,
+            metadata=metadata,
             thread_id=thread_id,
         )
 
@@ -214,8 +163,7 @@ class CapabilityService:
 
         meta = metadata or {}
         await self._enrich_metadata(meta, message, user_id, session_id)
-        initial_envelope = self._build_initial_envelope(message, user_id, session_id, meta)
-        request_id = initial_envelope["identity"]["request_id"]
+        request_id = f"req_{uuid4().hex[:16]}"
 
         otel = get_global_otel_adapter()
         span_ctx = otel.start_span(
@@ -232,7 +180,10 @@ class CapabilityService:
 
         with span_ctx:
             try:
-                result = await self._run_pipeline(initial_envelope, thread_id=session_id)
+                result = await self._run_pipeline(
+                    user_id=user_id, session_id=session_id,
+                    raw_input=message, metadata=meta, thread_id=session_id,
+                )
                 capability_result = self._build_result(result, request_id)
                 await self._on_result(
                     result, capability_result,
@@ -274,10 +225,9 @@ class CapabilityService:
 
         meta = metadata or {}
         await self._enrich_metadata(meta, message, user_id, session_id)
-        initial_envelope = self._build_initial_envelope(message, user_id, session_id, meta)
-        request_id = initial_envelope["identity"]["request_id"]
+        request_id = f"req_{uuid4().hex[:16]}"
         pipeline_config_dict = self._pipeline_config.to_kernel_dict()
-        process_id = initial_envelope["identity"]["envelope_id"]
+        process_id = f"proc_{uuid4().hex[:16]}"
 
         orchestrator_started()
         _start = time.time()
@@ -289,7 +239,10 @@ class CapabilityService:
             async for agent_name, output in self._worker.execute_streaming(
                 process_id=process_id,
                 pipeline_config=pipeline_config_dict,
-                initial_envelope=initial_envelope,
+                user_id=user_id,
+                session_id=session_id,
+                raw_input=message,
+                metadata=meta,
                 thread_id=session_id,
                 force=True,
             ):
@@ -353,45 +306,25 @@ class CapabilityService:
     def _build_result(self, worker_result: WorkerResult, request_id: str) -> CapabilityResult:
         """Convert WorkerResult to CapabilityResult."""
         final = worker_result.outputs.get(self.output_key, {})
-        reason = worker_result.terminal_reason
 
-        if not worker_result.terminated or reason in ("", "COMPLETED"):
+        if worker_result.outcome == "completed":
             response = final.get("response")
             if not response:
                 return CapabilityResult(
                     status="error",
-                    error="Pipeline completed but no response generated",
+                    error="No response generated",
                     request_id=request_id,
                 )
-            return CapabilityResult(
-                status="success",
-                response=response,
-                request_id=request_id,
-            )
+            return CapabilityResult(status="success", response=response, request_id=request_id)
 
-        bounds_reasons = {
-            "MAX_ITERATIONS_EXCEEDED",
-            "MAX_LLM_CALLS_EXCEEDED",
-            "MAX_AGENT_HOPS_EXCEEDED",
-            "MAX_STAGE_VISITS_EXCEEDED",
-        }
-        if reason in bounds_reasons:
+        if worker_result.outcome == "bounds_exceeded":
             partial = final.get("response")
             if partial:
-                return CapabilityResult(
-                    status="success",
-                    response=partial,
-                    request_id=request_id,
-                )
-            return CapabilityResult(
-                status="error",
-                error=f"Pipeline stopped: {reason}",
-                request_id=request_id,
-            )
+                return CapabilityResult(status="success", response=partial, request_id=request_id)
 
         return CapabilityResult(
             status="error",
-            error=reason or "Pipeline failed",
+            error=worker_result.terminal_reason or "Pipeline failed",
             request_id=request_id,
         )
 

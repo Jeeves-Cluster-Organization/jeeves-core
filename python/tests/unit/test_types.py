@@ -10,7 +10,6 @@ from jeeves_core.protocols.types import (
     stage,
     RetrievedContext,
     ClassificationResult,
-    RetrievalConfig,
 )
 from jeeves_core.protocols.routing import eq
 
@@ -22,21 +21,6 @@ from jeeves_core.protocols.routing import eq
 
 class TestChainUsesReplace:
     """Verify chain() auto-forwards all AgentConfig fields via replace()."""
-
-    def test_chain_forwards_retrieval_config(self):
-        """A new field (retrieval) on AgentConfig is auto-forwarded by chain()."""
-        rc = RetrievalConfig(retriever_key="my_retriever", limit=5)
-        agents = [
-            stage("a", prompt_key="a_prompt", retrieval=rc),
-            stage("b", prompt_key="b_prompt"),
-        ]
-        pipeline = PipelineConfig.chain("test", agents, max_iterations=5)
-        wired = {a.name: a for a in pipeline.agents}
-
-        # retrieval config should be forwarded unchanged
-        assert wired["a"].retrieval is rc
-        assert wired["a"].retrieval.retriever_key == "my_retriever"
-        assert wired["b"].retrieval is None
 
     def test_chain_preserves_all_existing_fields(self):
         """Ensure existing fields (temperature, allowed_tools, etc.) survive replace()."""
@@ -86,20 +70,6 @@ class TestChainUsesReplace:
 
 class TestGraphUsesReplace:
     """Verify graph() auto-forwards all AgentConfig fields via replace()."""
-
-    def test_graph_forwards_retrieval_config(self):
-        """A new field (retrieval) on AgentConfig is auto-forwarded by graph()."""
-        rc = RetrievalConfig(retriever_key="rag", limit=20)
-        stages = {
-            "a": stage("a", prompt_key="a_prompt", retrieval=rc),
-            "b": stage("b", prompt_key="b_prompt"),
-        }
-        edges = [Edge(source="a", target="b")]
-        pipeline = PipelineConfig.graph("test", stages, edges)
-        wired = {a.name: a for a in pipeline.agents}
-
-        assert wired["a"].retrieval is rc
-        assert wired["b"].retrieval is None
 
     def test_graph_preserves_all_existing_fields(self):
         """Ensure existing fields survive replace()."""

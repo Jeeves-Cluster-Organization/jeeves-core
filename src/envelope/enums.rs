@@ -17,6 +17,24 @@ pub enum TerminalReason {
     ToolFailedFatally,
     LlmFailedFatally,
     PolicyViolation,
+    BreakRequested,
+}
+
+impl TerminalReason {
+    /// Classify the terminal reason into a high-level outcome.
+    ///
+    /// Python reads this field instead of string-matching on reason variants.
+    /// Adding new TerminalReason variants only requires updating this match arm.
+    pub fn outcome(&self) -> &'static str {
+        match self {
+            Self::Completed | Self::BreakRequested => "completed",
+            Self::MaxIterationsExceeded
+            | Self::MaxLlmCallsExceeded
+            | Self::MaxAgentHopsExceeded
+            | Self::MaxStageVisitsExceeded => "bounds_exceeded",
+            _ => "failed",
+        }
+    }
 }
 
 /// Interrupt type.
