@@ -1,7 +1,7 @@
 """@tool decorator for declarative tool catalog metadata.
 
 Stores catalog metadata on the function object, enabling
-CapabilityToolCatalog.from_decorated() to auto-build catalogs.
+ToolCatalog.from_decorated() to auto-build catalogs.
 
 Usage:
     @tool(description="Create a new task", category="task", risk="write/low")
@@ -19,7 +19,7 @@ from typing import Any, Callable, Dict, List, Optional, get_type_hints
 # Keyword-only parameter names that are injected dependencies, not user params
 _INJECTED_DEPS = frozenset({"db", "event_emitter", "llm_provider"})
 
-# Map Python types to type strings matching CapabilityToolCatalog conventions
+# Map Python types to type strings matching ToolCatalog conventions
 _TYPE_MAP = {
     "str": "string",
     "int": "int",

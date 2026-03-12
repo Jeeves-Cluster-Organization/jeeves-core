@@ -9,15 +9,15 @@ from dataclasses import FrozenInstanceError
 from jeeves_core.protocols.capability import (
     ToolCatalogEntry,
     ToolDefinition,
-    CapabilityToolCatalog,
-    CapabilityToolsConfig,
+    ToolCatalog,
+    ToolsConfig,
     CapabilityResourceRegistry,
     CapabilityOrchestratorConfig,
     CapabilityPromptConfig,
     CapabilityContractsConfig,
     DomainAgentConfig,
     DomainServiceConfig,
-    DomainModeConfig,
+    ModeConfig,
     get_capability_resource_registry,
     reset_capability_resource_registry,
 )
@@ -108,21 +108,21 @@ class TestToolDefinition:
 
 
 # =============================================================================
-# Tests for CapabilityToolCatalog
+# Tests for ToolCatalog
 # =============================================================================
 
-class TestCapabilityToolCatalog:
-    """Tests for CapabilityToolCatalog."""
+class TestToolCatalog:
+    """Tests for ToolCatalog."""
 
     def test_init(self):
         """Test catalog initialization."""
-        catalog = CapabilityToolCatalog("assistant")
+        catalog = ToolCatalog("assistant")
         assert catalog.capability_id == "assistant"
         assert len(catalog) == 0
 
     def test_register_tool(self):
         """Test registering a tool."""
-        catalog = CapabilityToolCatalog("assistant")
+        catalog = ToolCatalog("assistant")
 
         async def add_task(title: str):
             return {"id": "1", "title": title}
@@ -142,7 +142,7 @@ class TestCapabilityToolCatalog:
 
     def test_get_tool(self):
         """Test getting a tool definition."""
-        catalog = CapabilityToolCatalog("assistant")
+        catalog = ToolCatalog("assistant")
 
         async def sample_func():
             pass
@@ -166,13 +166,13 @@ class TestCapabilityToolCatalog:
 
     def test_get_tool_not_found(self):
         """Test getting non-existent tool returns None."""
-        catalog = CapabilityToolCatalog("assistant")
+        catalog = ToolCatalog("assistant")
         tool = catalog.get_tool("nonexistent")
         assert tool is None
 
     def test_get_function(self):
         """Test getting tool function directly."""
-        catalog = CapabilityToolCatalog("assistant")
+        catalog = ToolCatalog("assistant")
 
         async def my_func():
             return "result"
@@ -192,7 +192,7 @@ class TestCapabilityToolCatalog:
 
     def test_has_tool(self):
         """Test has_tool method."""
-        catalog = CapabilityToolCatalog("assistant")
+        catalog = ToolCatalog("assistant")
 
         catalog.register(
             tool_id="tool1",
@@ -209,7 +209,7 @@ class TestCapabilityToolCatalog:
 
     def test_list_tools(self):
         """Test listing all tool IDs."""
-        catalog = CapabilityToolCatalog("assistant")
+        catalog = ToolCatalog("assistant")
 
         for i in range(3):
             catalog.register(
@@ -230,7 +230,7 @@ class TestCapabilityToolCatalog:
 
     def test_get_entries(self):
         """Test getting all tool entries."""
-        catalog = CapabilityToolCatalog("assistant")
+        catalog = ToolCatalog("assistant")
 
         catalog.register(
             tool_id="tool_a",
@@ -249,7 +249,7 @@ class TestCapabilityToolCatalog:
 
     def test_generate_prompt_section(self):
         """Test generating prompt section for LLM."""
-        catalog = CapabilityToolCatalog("assistant")
+        catalog = ToolCatalog("assistant")
 
         catalog.register(
             tool_id="add",
@@ -279,7 +279,7 @@ class TestCapabilityToolCatalog:
 
     def test_len(self):
         """Test __len__ method."""
-        catalog = CapabilityToolCatalog("assistant")
+        catalog = ToolCatalog("assistant")
         assert len(catalog) == 0
 
         catalog.register(
@@ -295,7 +295,7 @@ class TestCapabilityToolCatalog:
 
     def test_contains(self):
         """Test __contains__ method."""
-        catalog = CapabilityToolCatalog("assistant")
+        catalog = ToolCatalog("assistant")
 
         catalog.register(
             tool_id="exists",
@@ -312,16 +312,16 @@ class TestCapabilityToolCatalog:
 
 
 # =============================================================================
-# Tests for CapabilityToolsConfig
+# Tests for ToolsConfig
 # =============================================================================
 
-class TestCapabilityToolsConfig:
-    """Tests for CapabilityToolsConfig."""
+class TestToolsConfig:
+    """Tests for ToolsConfig."""
 
     def test_get_catalog_direct(self):
         """Test get_catalog with direct catalog instance."""
-        catalog = CapabilityToolCatalog("test")
-        config = CapabilityToolsConfig(
+        catalog = ToolCatalog("test")
+        config = ToolsConfig(
             tool_ids=["tool1"],
             catalog=catalog,
         )
@@ -332,7 +332,7 @@ class TestCapabilityToolsConfig:
     def test_get_catalog_lazy_init(self):
         """Test get_catalog with lazy initialization."""
         def initializer(prefix: str = "default"):
-            catalog = CapabilityToolCatalog("lazy")
+            catalog = ToolCatalog("lazy")
             catalog.register(
                 tool_id=f"{prefix}_tool",
                 func=lambda: None,
@@ -344,7 +344,7 @@ class TestCapabilityToolsConfig:
             )
             return catalog
 
-        config = CapabilityToolsConfig(
+        config = ToolsConfig(
             tool_ids=["lazy_tool"],
             initializer=initializer,
         )
@@ -360,7 +360,7 @@ class TestCapabilityToolsConfig:
 
     def test_get_catalog_no_catalog_or_initializer(self):
         """Test get_catalog returns None when neither is set."""
-        config = CapabilityToolsConfig(tool_ids=[])
+        config = ToolsConfig(tool_ids=[])
         assert config.get_catalog() is None
 
 
@@ -393,7 +393,7 @@ class TestCapabilityResourceRegistry:
     def test_register_mode(self):
         """Test mode registration."""
         registry = CapabilityResourceRegistry()
-        mode = DomainModeConfig(
+        mode = ModeConfig(
             mode_id="analysis",
             response_fields=["result", "confidence"],
             requires_repo_path=True,
@@ -408,7 +408,7 @@ class TestCapabilityResourceRegistry:
     def test_is_mode_registered(self):
         """Test is_mode_registered."""
         registry = CapabilityResourceRegistry()
-        mode = DomainModeConfig(mode_id="test_mode")
+        mode = ModeConfig(mode_id="test_mode")
         registry.register_mode("cap", mode)
 
         assert registry.is_mode_registered("test_mode") is True
@@ -417,8 +417,8 @@ class TestCapabilityResourceRegistry:
     def test_list_modes(self):
         """Test listing all modes."""
         registry = CapabilityResourceRegistry()
-        registry.register_mode("cap1", DomainModeConfig(mode_id="mode1"))
-        registry.register_mode("cap2", DomainModeConfig(mode_id="mode2"))
+        registry.register_mode("cap1", ModeConfig(mode_id="mode1"))
+        registry.register_mode("cap2", ModeConfig(mode_id="mode2"))
 
         modes = registry.list_modes()
         assert len(modes) == 2
@@ -430,8 +430,6 @@ class TestCapabilityResourceRegistry:
         registry = CapabilityResourceRegistry()
         service = DomainServiceConfig(
             service_id="assistant",
-            service_type="flow",
-            max_concurrent=5,
             is_default=True,
         )
         registry.register_service("assistant_cap", service)
@@ -469,7 +467,7 @@ class TestCapabilityResourceRegistry:
         """Test listing all capability IDs."""
         registry = CapabilityResourceRegistry()
         registry.register_schema("cap1", "schema.sql")
-        registry.register_mode("cap2", DomainModeConfig(mode_id="mode"))
+        registry.register_mode("cap2", ModeConfig(mode_id="mode"))
         registry.register_service("cap3", DomainServiceConfig(service_id="svc"))
 
         caps = registry.list_capabilities()
@@ -495,8 +493,8 @@ class TestCapabilityResourceRegistry:
     def test_register_tools(self):
         """Test tools registration."""
         registry = CapabilityResourceRegistry()
-        catalog = CapabilityToolCatalog("test")
-        config = CapabilityToolsConfig(tool_ids=["tool1"], catalog=catalog)
+        catalog = ToolCatalog("test")
+        config = ToolsConfig(tool_ids=["tool1"], catalog=catalog)
 
         registry.register_tools("cap", config)
 
@@ -556,7 +554,7 @@ class TestCapabilityResourceRegistry:
         """Test clearing all registrations."""
         registry = CapabilityResourceRegistry()
         registry.register_schema("cap", "schema.sql")
-        registry.register_mode("cap", DomainModeConfig(mode_id="mode"))
+        registry.register_mode("cap", ModeConfig(mode_id="mode"))
         registry.register_service("cap", DomainServiceConfig(service_id="svc"))
 
         registry.clear()

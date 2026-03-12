@@ -79,7 +79,6 @@ jeeves-core/
 | `jeeves_core.bootstrap` | AppContext creation, composition root |
 | `jeeves_core.orchestrator` | Event orchestration and governance |
 | `jeeves_core.protocols` | Type definitions and interfaces |
-| `jeeves_core.api` | Single-import surface for capability definition and registration |
 | `jeeves_core.capability_wiring` | Capability registration and discovery |
 
 ## Architecture

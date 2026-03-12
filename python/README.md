@@ -11,8 +11,7 @@ pip install jeeves-core
 ## Usage
 
 ```python
-from jeeves_core.bootstrap import create_app_context
-from jeeves_core.api import PipelineConfig, AgentConfig, stage, eq
+from jeeves_core import PipelineConfig, stage, eq, create_app_context
 
 # Bootstrap provisions: kernel_client, llm_provider_factory, config_registry
 app_context = create_app_context()
@@ -27,7 +26,7 @@ app_context = create_app_context()
 
 | Module | Description |
 |--------|-------------|
-| `jeeves_core.api` | **Single-import surface** for capability definition and registration |
+| `jeeves_core` | **Top-level import surface** — pipeline types, routing DSL, registration, runtime |
 | `jeeves_core.kernel_client` | IPC bridge to Rust kernel (TCP+msgpack) |
 | `jeeves_core.gateway` | FastAPI HTTP/WS/SSE server |
 | `jeeves_core.llm` | LLM provider abstraction (OpenAI, LiteLLM, mock) |
@@ -38,9 +37,9 @@ app_context = create_app_context()
 ## Creating a Capability
 
 ```python
-from jeeves_core.api import (
+from jeeves_core import (
     PipelineConfig, stage, eq, always,
-    DomainServiceConfig, register_capability,
+    register_capability,
     DeterministicAgent, AgentContext,
 )
 
@@ -60,17 +59,11 @@ config = PipelineConfig(
     max_iterations=3, max_llm_calls=2, max_agent_hops=3,
 )
 
-# 3. Register
-register_capability(
-    capability_id="my_capability",
-    service_config=DomainServiceConfig(
-        service_id="my_service", service_type="flow",
-        capabilities=["my_pipeline"], max_concurrent=5,
-    ),
-)
+# 3. Register — PipelineConfig IS the deployment spec
+register_capability("my_capability", config, is_default=True)
 ```
 
-`jeeves_core.api` re-exports everything needed: pipeline types, routing builders (`eq`, `not_`, `always`, `agent`, `meta`, `state`), wiring types, `DeterministicAgent`, and test helpers.
+`jeeves_core` exports everything needed: pipeline types, routing builders (`eq`, `not_`, `always`, `agent`, `meta`, `state`), wiring types, `DeterministicAgent`, and runtime.
 
 ## License
 
