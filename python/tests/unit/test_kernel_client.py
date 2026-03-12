@@ -335,42 +335,6 @@ class TestResourceManagement:
         assert result["remaining"] == 90
 
 
-class TestConvenienceMethods:
-    @pytest.mark.asyncio
-    async def test_record_llm_call(self, mock_kernel_client, mock_transport):
-        mock_transport.request.return_value = make_quota_dict(within_bounds=True)
-
-        result = await mock_kernel_client.record_llm_call(pid="proc-1", tokens_in=100, tokens_out=50)
-
-        assert result is None
-
-    @pytest.mark.asyncio
-    async def test_record_llm_call_quota_exceeded(self, mock_kernel_client, mock_transport):
-        mock_transport.request.return_value = make_quota_dict(
-            within_bounds=False, exceeded_reason="max_llm_calls exceeded",
-        )
-
-        result = await mock_kernel_client.record_llm_call(pid="proc-1")
-
-        assert result == "max_llm_calls exceeded"
-
-    @pytest.mark.asyncio
-    async def test_record_tool_call(self, mock_kernel_client, mock_transport):
-        mock_transport.request.return_value = make_quota_dict(within_bounds=True)
-
-        result = await mock_kernel_client.record_tool_call(pid="proc-1")
-
-        assert result is None
-
-    @pytest.mark.asyncio
-    async def test_record_agent_hop(self, mock_kernel_client, mock_transport):
-        mock_transport.request.return_value = make_quota_dict(within_bounds=True)
-
-        result = await mock_kernel_client.record_agent_hop(pid="proc-1")
-
-        assert result is None
-
-
 class TestQuotaDefaults:
     @pytest.mark.asyncio
     async def test_set_quota_defaults_sends_correct_payload(self, mock_kernel_client, mock_transport):

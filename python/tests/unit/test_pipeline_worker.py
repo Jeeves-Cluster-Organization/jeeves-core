@@ -18,7 +18,6 @@ from jeeves_core.kernel_client import (
     OrchestrationSessionState,
     AgentExecutionMetrics,
 )
-from jeeves_core.testing.helpers import build_initial_envelope
 
 
 # Create a test logger that accepts structlog-style keyword arguments
@@ -56,16 +55,21 @@ test_logger = StructlogCompatibleLogger()
 def mock_kernel_client():
     """Create a mock KernelClient."""
     client = AsyncMock()
+    client.publish_event = AsyncMock(return_value=0)
+    client.register_tool = AsyncMock()
+    client.grant_tool_access = AsyncMock()
+    client.get_process = AsyncMock(return_value=None)
     return client
 
 
 @pytest.fixture
-def initial_envelope():
-    """Create an initial envelope dict for kernel initialization."""
-    return build_initial_envelope(
-        envelope_id="test-envelope-1",
-        request_id="req-test-1",
-    )
+def minimal_params():
+    """Minimal params for kernel initialization (replaces envelope dict)."""
+    return {
+        "user_id": "test-user",
+        "session_id": "test-session",
+        "raw_input": "test message",
+    }
 
 
 @pytest.fixture
@@ -145,7 +149,7 @@ def pipeline_config():
 # =============================================================================
 
 @pytest.mark.asyncio
-async def test_pipeline_worker_initialization(mock_kernel_client, mock_agents, initial_envelope, pipeline_config):
+async def test_pipeline_worker_initialization(mock_kernel_client, mock_agents, minimal_params, pipeline_config):
     """Test PipelineWorker correctly initializes a session with the kernel."""
     # Setup mock responses
     mock_kernel_client.initialize_orchestration_session.return_value = OrchestrationSessionState(
@@ -169,7 +173,7 @@ async def test_pipeline_worker_initialization(mock_kernel_client, mock_agents, i
     result = await worker.execute(
         process_id="test-envelope-1",
         pipeline_config=pipeline_config,
-        initial_envelope=initial_envelope,
+        **minimal_params,
     )
 
     # Verify session was initialized
@@ -187,7 +191,7 @@ async def test_pipeline_worker_initialization(mock_kernel_client, mock_agents, i
 # =============================================================================
 
 @pytest.mark.asyncio
-async def test_pipeline_worker_executes_agents(mock_kernel_client, mock_agents, initial_envelope, pipeline_config):
+async def test_pipeline_worker_executes_agents(mock_kernel_client, mock_agents, minimal_params, pipeline_config):
     """Test PipelineWorker executes agents as instructed by kernel."""
     # Setup mock - kernel instructs to run 3 agents then terminate
     mock_kernel_client.initialize_orchestration_session.return_value = OrchestrationSessionState(
@@ -234,7 +238,7 @@ async def test_pipeline_worker_executes_agents(mock_kernel_client, mock_agents, 
     result = await worker.execute(
         process_id="test-envelope-1",
         pipeline_config=pipeline_config,
-        initial_envelope=initial_envelope,
+        **minimal_params,
     )
 
     # Verify all agents were called
@@ -253,7 +257,7 @@ async def test_pipeline_worker_executes_agents(mock_kernel_client, mock_agents, 
 @pytest.mark.asyncio
 async def test_pipeline_worker_reports_agent_metrics(
     mock_kernel_client,
-    initial_envelope,
+    minimal_params,
     pipeline_config,
 ):
     mock_kernel_client.initialize_orchestration_session.return_value = OrchestrationSessionState(
@@ -300,7 +304,7 @@ async def test_pipeline_worker_reports_agent_metrics(
     await worker.execute(
         process_id="test-envelope-1",
         pipeline_config=pipeline_config,
-        initial_envelope=initial_envelope,
+        **minimal_params,
     )
 
     report_call = mock_kernel_client.report_agent_result.call_args
@@ -315,7 +319,7 @@ async def test_pipeline_worker_reports_agent_metrics(
 # =============================================================================
 
 @pytest.mark.asyncio
-async def test_pipeline_worker_handles_immediate_termination(mock_kernel_client, mock_agents, initial_envelope, pipeline_config):
+async def test_pipeline_worker_handles_immediate_termination(mock_kernel_client, mock_agents, minimal_params, pipeline_config):
     """Test PipelineWorker handles immediate termination from kernel."""
     mock_kernel_client.initialize_orchestration_session.return_value = OrchestrationSessionState(
         process_id="test-envelope-1",
@@ -338,7 +342,7 @@ async def test_pipeline_worker_handles_immediate_termination(mock_kernel_client,
     result = await worker.execute(
         process_id="test-envelope-1",
         pipeline_config=pipeline_config,
-        initial_envelope=initial_envelope,
+        **minimal_params,
     )
 
     # No agents should be executed
@@ -355,7 +359,7 @@ async def test_pipeline_worker_handles_immediate_termination(mock_kernel_client,
 # =============================================================================
 
 @pytest.mark.asyncio
-async def test_pipeline_worker_handles_interrupt(mock_kernel_client, mock_agents, initial_envelope, pipeline_config):
+async def test_pipeline_worker_handles_interrupt(mock_kernel_client, mock_agents, minimal_params, pipeline_config):
     """Test PipelineWorker handles interrupt instructions from kernel."""
     mock_kernel_client.initialize_orchestration_session.return_value = OrchestrationSessionState(
         process_id="test-envelope-1",
@@ -381,7 +385,7 @@ async def test_pipeline_worker_handles_interrupt(mock_kernel_client, mock_agents
     result = await worker.execute(
         process_id="test-envelope-1",
         pipeline_config=pipeline_config,
-        initial_envelope=initial_envelope,
+        **minimal_params,
     )
 
     # Verify interrupt handling
@@ -395,7 +399,7 @@ async def test_pipeline_worker_handles_interrupt(mock_kernel_client, mock_agents
 # =============================================================================
 
 @pytest.mark.asyncio
-async def test_pipeline_worker_handles_agent_not_found(mock_kernel_client, initial_envelope, pipeline_config):
+async def test_pipeline_worker_handles_agent_not_found(mock_kernel_client, minimal_params, pipeline_config):
     """Test PipelineWorker reports error when agent not found."""
     mock_kernel_client.initialize_orchestration_session.return_value = OrchestrationSessionState(
         process_id="test-envelope-1",
@@ -424,7 +428,7 @@ async def test_pipeline_worker_handles_agent_not_found(mock_kernel_client, initi
     result = await worker.execute(
         process_id="test-envelope-1",
         pipeline_config=pipeline_config,
-        initial_envelope=initial_envelope,
+        **minimal_params,
     )
 
     # Verify error was reported to kernel
@@ -435,7 +439,7 @@ async def test_pipeline_worker_handles_agent_not_found(mock_kernel_client, initi
 
 
 @pytest.mark.asyncio
-async def test_pipeline_worker_handles_agent_exception(mock_kernel_client, initial_envelope, pipeline_config):
+async def test_pipeline_worker_handles_agent_exception(mock_kernel_client, minimal_params, pipeline_config):
     """Test PipelineWorker reports error when agent raises exception."""
     mock_kernel_client.initialize_orchestration_session.return_value = OrchestrationSessionState(
         process_id="test-envelope-1",
@@ -469,7 +473,7 @@ async def test_pipeline_worker_handles_agent_exception(mock_kernel_client, initi
     result = await worker.execute(
         process_id="test-envelope-1",
         pipeline_config=pipeline_config,
-        initial_envelope=initial_envelope,
+        **minimal_params,
     )
 
     # Verify error was reported to kernel
@@ -480,7 +484,7 @@ async def test_pipeline_worker_handles_agent_exception(mock_kernel_client, initi
 
 
 @pytest.mark.asyncio
-async def test_pipeline_worker_handles_session_init_failure(mock_kernel_client, mock_agents, initial_envelope, pipeline_config):
+async def test_pipeline_worker_handles_session_init_failure(mock_kernel_client, mock_agents, minimal_params, pipeline_config):
     """Test PipelineWorker handles session initialization failure."""
     from jeeves_core.kernel_client import KernelClientError
 
@@ -495,7 +499,7 @@ async def test_pipeline_worker_handles_session_init_failure(mock_kernel_client, 
     result = await worker.execute(
         process_id="test-envelope-1",
         pipeline_config=pipeline_config,
-        initial_envelope=initial_envelope,
+        **minimal_params,
     )
 
     # Verify termination due to error
@@ -508,7 +512,7 @@ async def test_pipeline_worker_handles_session_init_failure(mock_kernel_client, 
 # =============================================================================
 
 @pytest.mark.asyncio
-async def test_terminal_instruction_has_outputs(mock_kernel_client, mock_agents, initial_envelope, pipeline_config):
+async def test_terminal_instruction_has_outputs(mock_kernel_client, mock_agents, minimal_params, pipeline_config):
     """Test that WorkerResult.outputs comes from the terminal instruction, not local accumulation."""
     mock_kernel_client.initialize_orchestration_session.return_value = OrchestrationSessionState(
         process_id="test-envelope-1",
@@ -539,7 +543,7 @@ async def test_terminal_instruction_has_outputs(mock_kernel_client, mock_agents,
     result = await worker.execute(
         process_id="test-envelope-1",
         pipeline_config=pipeline_config,
-        initial_envelope=initial_envelope,
+        **minimal_params,
     )
 
     # Outputs should come from terminal instruction
@@ -552,7 +556,7 @@ async def test_terminal_instruction_has_outputs(mock_kernel_client, mock_agents,
 # =============================================================================
 
 @pytest.mark.asyncio
-async def test_pipeline_worker_streaming(mock_kernel_client, mock_agents, initial_envelope, pipeline_config):
+async def test_pipeline_worker_streaming(mock_kernel_client, mock_agents, minimal_params, pipeline_config):
     """Test PipelineWorker streaming execution (uses run_kernel_loop internally)."""
     mock_kernel_client.initialize_orchestration_session.return_value = OrchestrationSessionState(
         process_id="test-envelope-1",
@@ -588,7 +592,7 @@ async def test_pipeline_worker_streaming(mock_kernel_client, mock_agents, initia
     async for event in worker.execute_streaming(
         process_id="test-envelope-1",
         pipeline_config=pipeline_config,
-        initial_envelope=initial_envelope,
+        **minimal_params,
     ):
         events.append(event)
 
@@ -604,7 +608,7 @@ async def test_pipeline_worker_streaming(mock_kernel_client, mock_agents, initia
 # =============================================================================
 
 @pytest.mark.asyncio
-async def test_kernel_instruction_timing(mock_kernel_client, mock_agents, initial_envelope, pipeline_config):
+async def test_kernel_instruction_timing(mock_kernel_client, mock_agents, minimal_params, pipeline_config):
     """Test that kernel IPC calls have timing recorded."""
     mock_kernel_client.initialize_orchestration_session.return_value = OrchestrationSessionState(
         process_id="test-envelope-1",
@@ -632,7 +636,7 @@ async def test_kernel_instruction_timing(mock_kernel_client, mock_agents, initia
         result = await worker.execute(
             process_id="test-envelope-1",
             pipeline_config=pipeline_config,
-            initial_envelope=initial_envelope,
+            **minimal_params,
         )
 
         # record_kernel_instruction should be called with duration_seconds kwarg

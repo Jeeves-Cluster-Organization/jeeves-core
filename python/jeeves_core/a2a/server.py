@@ -119,71 +119,32 @@ async def task_send(request: Request) -> JSONResponse:
     if not pipeline_config:
         raise HTTPException(status_code=400, detail="No pipeline configured")
 
-    # Build initial envelope dict for kernel initialization
-    from datetime import datetime, timezone
-
+    user_id = body.get("userId", "")
     session_id = body.get("sessionId", str(uuid.uuid4()))
-    now_iso = datetime.now(timezone.utc).isoformat()
-
-    pc = pipeline_config if isinstance(pipeline_config, dict) else pipeline_config
-    max_iter = getattr(pc, "max_iterations", 3)
-    max_llm = getattr(pc, "max_llm_calls", 10)
-    max_hops = getattr(pc, "max_agent_hops", 21)
-    num_agents = len(getattr(pc, "agents", []))
-
-    initial_envelope = {
-        "identity": {
-            "envelope_id": str(uuid.uuid4()),
-            "request_id": task_id,
-            "user_id": "",
-            "session_id": session_id,
-        },
-        "raw_input": input_text,
-        "received_at": now_iso,
-        "outputs": {},
-        "pipeline": {
-            "current_stage": "",
-            "stage_order": [],
-            "iteration": 0,
-            "max_iterations": max_iter,
-        },
-        "bounds": {
-            "llm_call_count": 0,
-            "max_llm_calls": max_llm,
-            "tool_call_count": 0,
-            "agent_hop_count": 0,
-            "max_agent_hops": max_hops,
-            "tokens_in": 0,
-            "tokens_out": 0,
-            "terminated": False,
-        },
-        "interrupts": {"interrupt_pending": False},
-        "execution": {
-            "completed_stages": [],
-            "current_stage_number": 0,
-            "max_stages": num_agents,
-            "all_goals": [],
-            "remaining_goals": [],
-            "goal_completion_status": {},
-            "prior_plans": [],
-            "loop_feedback": [],
-        },
-        "audit": {
-            "processing_history": [],
-            "errors": [],
-            "created_at": now_iso,
-            "metadata": {"a2a_task_id": task_id, "pipeline": pipeline_name or "default"},
-        },
-    }
-
     pipeline_config_dict = pipeline_config if isinstance(pipeline_config, dict) else pipeline_config.to_kernel_dict()
+    a2a_metadata = {"a2a_task_id": task_id, "pipeline": pipeline_name or "default"}
+
+    # Rate limit check
+    if user_id and hasattr(ctx, "kernel_client") and ctx.kernel_client:
+        try:
+            rate_check = await ctx.kernel_client.check_rate_limit(user_id)
+            if not rate_check.get("allowed", True):
+                return JSONResponse(
+                    {"id": task_id, "status": {"state": "failed", "message": "Rate limited"}},
+                    status_code=429,
+                )
+        except Exception:
+            pass  # rate limiting is best-effort
 
     # Execute pipeline
     try:
         worker_result = await pipeline_worker.execute(
             process_id=task_id,
             pipeline_config=pipeline_config_dict,
-            initial_envelope=initial_envelope,
+            user_id=user_id,
+            session_id=session_id,
+            raw_input=input_text,
+            metadata=a2a_metadata,
         )
 
         # Map result to A2A task response
@@ -197,15 +158,25 @@ async def task_send(request: Request) -> JSONResponse:
                         "name": output_key,
                     })
 
-        status = "completed" if worker_result.terminated else "working"
-        if worker_result.terminal_reason and "EXCEEDED" in (worker_result.terminal_reason or ""):
+        if worker_result.interrupted:
+            status = "input_required"
+        elif worker_result.outcome == "completed":
+            status = "completed"
+        else:
             status = "failed"
 
-        return JSONResponse({
+        response_body: Dict[str, Any] = {
             "id": task_id,
             "status": {"state": status},
             "artifacts": artifacts,
-        })
+        }
+        # Include interrupt metadata when waiting for input
+        if worker_result.interrupted:
+            response_body["status"]["metadata"] = {
+                "interrupt_kind": worker_result.interrupt_kind,
+            }
+
+        return JSONResponse(response_body)
 
     except Exception as e:
         logger.error("a2a_task_execution_error", extra={"task_id": task_id, "error": str(e)})
@@ -237,12 +208,24 @@ async def task_get(request: Request, task_id: str) -> JSONResponse:
         if state.terminated:
             if state.terminal_reason == "COMPLETED":
                 a2a_status = "completed"
-            elif "EXCEEDED" in (state.terminal_reason or ""):
+            elif state.terminal_reason and state.terminal_reason != "COMPLETED":
                 a2a_status = "failed"
             else:
                 a2a_status = "canceled"
         else:
-            a2a_status = "working"
+            # Check for pending interrupts → input_required
+            try:
+                session_id = state.envelope.get("identity", {}).get("session_id", "") if state.envelope else ""
+                if session_id:
+                    pending = await ctx.kernel_client.get_pending_interrupts_for_session(session_id)
+                    if pending:
+                        a2a_status = "input_required"
+                    else:
+                        a2a_status = "working"
+                else:
+                    a2a_status = "working"
+            except Exception:
+                a2a_status = "working"
 
         # Build artifacts from envelope outputs
         artifacts = []
@@ -296,3 +279,143 @@ async def task_cancel(request: Request, task_id: str) -> JSONResponse:
     except Exception as e:
         logger.error("a2a_task_cancel_error", extra={"task_id": task_id, "error": str(e)})
         raise HTTPException(status_code=500, detail=f"Failed to cancel: {e}")
+
+
+# =============================================================================
+# Interrupt Resolve
+# =============================================================================
+
+@a2a_router.post("/tasks/{task_id}/resolve")
+async def task_resolve(request: Request, task_id: str) -> JSONResponse:
+    """Resolve a pending interrupt for a task.
+
+    Body: {"interrupt_id": "...", "response": {...}, "user_id": "..."}
+    After resolving, resumes the process so the kernel can continue.
+    """
+    ctx = getattr(request.app.state, "context", None)
+    if not ctx or not ctx.kernel_client:
+        raise HTTPException(status_code=503, detail="Kernel not available")
+
+    try:
+        body = await request.json()
+    except Exception:
+        raise HTTPException(status_code=400, detail="Invalid JSON body")
+
+    interrupt_id = body.get("interrupt_id", "")
+    response_data = body.get("response", {})
+    user_id = body.get("user_id")
+
+    if not interrupt_id:
+        raise HTTPException(status_code=400, detail="interrupt_id is required")
+
+    try:
+        success = await ctx.kernel_client.resolve_interrupt(
+            interrupt_id, response_data, user_id=user_id,
+        )
+        if not success:
+            raise HTTPException(status_code=400, detail="Failed to resolve interrupt")
+
+        # Resume the process so the kernel loop continues
+        await ctx.kernel_client.resume_process(task_id)
+
+        return JSONResponse({
+            "id": task_id,
+            "status": {"state": "working"},
+        })
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error("a2a_task_resolve_error", extra={"task_id": task_id, "error": str(e)})
+        raise HTTPException(status_code=500, detail=f"Failed to resolve: {e}")
+
+
+# =============================================================================
+# Tool Health (Phase 9D)
+# =============================================================================
+
+@a2a_router.get("/tools/health")
+async def tool_health(request: Request) -> JSONResponse:
+    """Get system-wide tool health report."""
+    ctx = getattr(request.app.state, "context", None)
+    if not ctx or not ctx.kernel_client:
+        raise HTTPException(status_code=503, detail="Kernel not available")
+    try:
+        return JSONResponse(await ctx.kernel_client.get_system_tool_health())
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+# =============================================================================
+# Process Visibility (Phase 10C)
+# =============================================================================
+
+@a2a_router.get("/processes")
+async def list_processes(request: Request) -> JSONResponse:
+    """List active processes with state."""
+    ctx = getattr(request.app.state, "context", None)
+    if not ctx or not ctx.kernel_client:
+        raise HTTPException(status_code=503, detail="Kernel not available")
+
+    state_filter = request.query_params.get("state")
+    user_filter = request.query_params.get("user_id")
+    try:
+        processes = await ctx.kernel_client.list_processes(
+            state=state_filter, user_id=user_filter,
+        )
+        return JSONResponse({
+            "processes": [
+                {
+                    "pid": p.pid, "state": p.state, "priority": p.priority,
+                    "user_id": p.user_id, "session_id": p.session_id,
+                    "current_stage": p.current_stage,
+                }
+                for p in processes
+            ],
+        })
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@a2a_router.get("/processes/counts")
+async def process_counts(request: Request) -> JSONResponse:
+    """Get process counts by state."""
+    ctx = getattr(request.app.state, "context", None)
+    if not ctx or not ctx.kernel_client:
+        raise HTTPException(status_code=503, detail="Kernel not available")
+    try:
+        return JSONResponse(await ctx.kernel_client.get_process_counts())
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+# =============================================================================
+# System Status (Phase 11C)
+# =============================================================================
+
+@a2a_router.get("/system/status")
+async def system_status(request: Request) -> JSONResponse:
+    """Get full system status snapshot from the kernel."""
+    ctx = getattr(request.app.state, "context", None)
+    if not ctx or not ctx.kernel_client:
+        raise HTTPException(status_code=503, detail="Kernel not available")
+    try:
+        return JSONResponse(await ctx.kernel_client.get_system_status())
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+# =============================================================================
+# Service Registry (Phase 12C)
+# =============================================================================
+
+@a2a_router.get("/services")
+async def list_services(request: Request) -> JSONResponse:
+    """List registered services with health and load."""
+    ctx = getattr(request.app.state, "context", None)
+    if not ctx or not ctx.kernel_client:
+        raise HTTPException(status_code=503, detail="Kernel not available")
+    try:
+        return JSONResponse({"services": await ctx.kernel_client.list_services()})
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
