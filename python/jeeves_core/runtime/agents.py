@@ -11,6 +11,7 @@ import asyncio
 from dataclasses import dataclass, field
 from typing import Any, Callable, Dict, List, Optional, Protocol, AsyncIterator, Tuple, TYPE_CHECKING
 from jeeves_core.protocols.interfaces import LLMProviderProtocol
+from jeeves_core.protocols.types import TokenStreamMode
 
 if TYPE_CHECKING:
     from jeeves_core.protocols import AgentConfig, AgentContext, PipelineConfig
@@ -171,9 +172,10 @@ class Agent:
     prompt_registry: Optional[AgentPromptRegistry] = None
     event_context: Optional[AgentEventContext] = None
     use_mock: bool = False
+    _kernel: Optional[Any] = field(default=None, init=False, repr=False)  # KernelClient
 
-    pre_process: Optional[PreProcessHook] = None
-    post_process: Optional[PostProcessHook] = None
+    pre_process: List[PreProcessHook] = field(default_factory=list)
+    post_process: List[PostProcessHook] = field(default_factory=list)
     mock_handler: Optional[MockHandler] = None
     _last_llm_usage: Optional[Dict[str, int]] = field(default=None, init=False, repr=False)
     _llm_calls_this_run: int = field(default=0, init=False, repr=False)
@@ -211,9 +213,15 @@ class Agent:
             if self.event_context:
                 await self.event_context.emit_agent_started(self.name)
 
-            # Pre-process hook (mutates context.metadata dict in place)
-            if self.pre_process:
-                result = self.pre_process(context, self)
+            # Context loaders
+            for loader in self.config.context_loaders:
+                result = loader(context)
+                if asyncio.iscoroutine(result):
+                    await result
+
+            # Pre-process hooks
+            for hook in self.pre_process:
+                result = hook(context, self)
                 context = await result if asyncio.iscoroutine(result) else result
 
             # Get output
@@ -241,9 +249,9 @@ class Agent:
                 has_final_response_key="final_response" in output_keys,
             )
 
-            # Post-process hook
-            if self.post_process:
-                result = self.post_process(context, output, self)
+            # Post-process hooks
+            for hook in self.post_process:
+                result = hook(context, output, self)
                 context = await result if asyncio.iscoroutine(result) else result
 
             self.logger.info(f"{self.name}_completed", envelope_id=context.envelope_id)
@@ -310,6 +318,7 @@ class Agent:
 
     async def _execute_tools(self, context, output: Dict[str, Any]) -> Dict[str, Any]:
         """Execute tool calls from LLM output."""
+        import time as _time
         from contextlib import nullcontext
         from jeeves_core.observability.otel_adapter import get_global_otel_adapter
         otel = get_global_otel_adapter()
@@ -326,23 +335,48 @@ class Agent:
                 tool_name = call.get("name")
                 params = call.get("params", {})
 
-                if self.config.allowed_tools is not None and tool_name not in self.config.allowed_tools:
-                    results.append({"tool": tool_name, "error": f"Agent '{self.name}' not allowed to call '{tool_name}'"})
-                    continue
-
                 _inject_services(params, context.metadata)
 
+                # Circuit break check (kernel-backed)
+                if self._kernel:
+                    try:
+                        if await self._kernel.should_circuit_break(tool_name):
+                            results.append({"tool": tool_name, "error": "circuit_open"})
+                            continue
+                    except Exception:
+                        pass  # circuit breaking is best-effort
+
+                t0 = _time.time()
                 try:
                     result = await self.tools.execute(tool_name, params)
                     results.append({"tool": tool_name, "result": result})
+                    # Record success for health tracking
+                    if self._kernel:
+                        try:
+                            await self._kernel.record_tool_execution(
+                                tool_name, True, int((_time.time() - t0) * 1000),
+                            )
+                        except Exception:
+                            pass
                 except Exception as e:
                     results.append({"tool": tool_name, "error": str(e)})
+                    # Record failure for health tracking
+                    if self._kernel:
+                        try:
+                            await self._kernel.record_tool_execution(
+                                tool_name, False, int((_time.time() - t0) * 1000),
+                                type(e).__name__,
+                            )
+                        except Exception:
+                            pass
 
             output["tool_results"] = results
         return output
 
     async def _dispatch_tool(self, context: "AgentContext") -> Dict[str, Any]:
         """Deterministic tool dispatch — framework-handled."""
+        import time as _time
+
         source_key = self.config.tool_source_agent or ""
         source = context.outputs.get(source_key, {})
         if not source:
@@ -356,16 +390,36 @@ class Agent:
         if not self.tools:
             return {"status": "error", "error": f"No tool executor for {self.name}"}
 
-        if self.config.allowed_tools is not None and tool_name not in self.config.allowed_tools:
-            return {"status": "error", "tool": tool_name,
-                    "error": f"Agent '{self.name}' not allowed to call '{tool_name}'"}
-
         _inject_services(params, context.metadata)
 
+        # Circuit break check
+        if self._kernel:
+            try:
+                if await self._kernel.should_circuit_break(tool_name):
+                    return {"status": "error", "tool": tool_name, "error": "circuit_open"}
+            except Exception:
+                pass
+
+        t0 = _time.time()
         try:
             result = await self.tools.execute(tool_name, params)
+            if self._kernel:
+                try:
+                    await self._kernel.record_tool_execution(
+                        tool_name, True, int((_time.time() - t0) * 1000),
+                    )
+                except Exception:
+                    pass
             return {"status": "success", "tool": tool_name, "result": result}
         except Exception as e:
+            if self._kernel:
+                try:
+                    await self._kernel.record_tool_execution(
+                        tool_name, False, int((_time.time() - t0) * 1000),
+                        type(e).__name__,
+                    )
+                except Exception:
+                    pass
             return {"status": "error", "tool": tool_name, "error": str(e)}
 
     def get_run_metrics(self) -> Dict[str, Any]:
@@ -434,23 +488,25 @@ class StreamingAgent(Agent):
             Tuple[str, Any]: (event_type, event_data) pairs.
         """
         from jeeves_core.protocols import PipelineEvent
-        from jeeves_core.protocols import TokenStreamMode
 
         self.logger.info(f"{self.name}_stream_started", envelope_id=context.envelope_id)
         self._last_llm_usage = None
         self._llm_calls_this_run = 0
         self._stream_output = {}
 
-        # Pre-process hook
-        if self.pre_process:
-            result = self.pre_process(context, self)
-            context = await result if asyncio.iscoroutine(result) else result
-
-        # Determine if tokens should be authoritative
         is_authoritative = self.config.token_stream == TokenStreamMode.AUTHORITATIVE
 
-        # Stream tokens if enabled
         if self.config.token_stream != TokenStreamMode.OFF and self.config.has_llm and self.llm:
+            # STREAMING PATH: hooks run here
+            for loader in self.config.context_loaders:
+                result = loader(context)
+                if asyncio.iscoroutine(result):
+                    await result
+
+            for hook in self.pre_process:
+                result = hook(context, self)
+                context = await result if asyncio.iscoroutine(result) else result
+
             accumulated = ""
             async for token in self._call_llm_stream(context):
                 accumulated += token
@@ -470,12 +526,11 @@ class StreamingAgent(Agent):
             else:
                 self._stream_output = await self._call_llm(context)
 
-            # Post-process hook
-            if self.post_process:
-                result = self.post_process(context, self._stream_output, self)
+            for hook in self.post_process:
+                result = hook(context, self._stream_output, self)
                 context = await result if asyncio.iscoroutine(result) else result
         else:
-            # No streaming - use regular process
+            # FALLBACK: process() handles everything (including hooks)
             self._stream_output, _ = await self.process(context)
 
         self.logger.info(f"{self.name}_stream_completed", envelope_id=context.envelope_id)
@@ -580,16 +635,17 @@ class PipelineRunner:
 
             tools = self.tool_executor if (agent_config.has_tools or agent_config.tool_dispatch) else None
 
-            agent = Agent(
+            cls = StreamingAgent if agent_config.token_stream != TokenStreamMode.OFF else Agent
+            agent = cls(
                 config=agent_config,
                 logger=self.logger.bind(agent=agent_config.name) if self.logger else _NullLogger(),
                 llm=llm,
                 tools=tools,
                 prompt_registry=self.prompt_registry,
                 use_mock=self.use_mock,
-                pre_process=getattr(agent_config, 'pre_process', None),
-                post_process=getattr(agent_config, 'post_process', None),
-                mock_handler=getattr(agent_config, 'mock_handler', None),
+                pre_process=agent_config.pre_process,
+                post_process=agent_config.post_process,
+                mock_handler=agent_config.mock_handler,
             )
 
             self.agents[agent_config.name] = agent
