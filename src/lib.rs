@@ -1,28 +1,24 @@
 //! # Jeeves Core - Multi-Agent Orchestration Kernel
 //!
-//! Rust implementation of the Jeeves kernel providing:
+//! Single-process Rust runtime providing:
 //! - Process lifecycle management with Unix-like state transitions
 //! - Resource quota enforcement (LLM calls, tokens, hops, iterations)
 //! - Rate limiting with configurable windows
 //! - Flow interrupts for human-in-the-loop patterns
-//! - TCP+msgpack IPC service layer for external clients
+//! - Embedded agent execution with LLM HTTP calls
+//! - HTTP gateway (axum) for external clients
 //! - Message bus for pub/sub and request/response patterns
 //!
 //! ## Architecture
 //!
-//! The kernel follows a single-actor model where the `Kernel` owns all mutable state:
+//! Single-actor kernel behind a typed mpsc channel. Agent tasks run as
+//! concurrent tokio tasks, communicating with the kernel via `KernelHandle`.
 //! ```text
-//!                    ┌─────────────────────────────────┐
-//!   IPC requests  →  │         Kernel Actor            │
-//!                    │  ┌─────────┐ ┌─────────┐        │
-//!                    │  │Resources│ │Lifecycle│        │
-//!                    │  │ Tracker │ │ Manager │        │
-//!                    │  └─────────┘ └─────────┘        │
-//!                    │  ┌─────────┐ ┌─────────┐        │
-//!                    │  │Interrupt│ │RateLimit│        │
-//!                    │  │ Service │ │   er    │        │
-//!                    │  └─────────┘ └─────────┘        │
-//!                    └─────────────────────────────────┘
+//!   HTTP (axum) → KernelHandle → mpsc → Kernel actor (single &mut)
+//!                                           ↕
+//!                                   Agent tasks (concurrent)
+//!                                           ↓
+//!                                   LLM calls (reqwest)
 //! ```
 
 // Enforce strict safety at compile time
@@ -34,12 +30,12 @@
 pub mod commbus;
 pub mod envelope;
 pub mod events;
-pub mod ipc;
 pub mod kernel;
 pub mod tools;
 pub mod types;
+pub mod worker;
 
 // Internal utilities
 pub mod observability;
 
-pub use types::{Config, Error, IpcConfig, Result};
+pub use types::{Config, Error, Result};

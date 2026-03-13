@@ -1,4 +1,4 @@
-//! Service registry - IPC coordinator and service discovery.
+//! Service registry - coordinator and service discovery.
 //!
 //! Features:
 //!   - Service registration and discovery

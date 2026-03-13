@@ -1,26 +1,23 @@
 # Jeeves Core
 
-Rust micro-kernel + Python infrastructure library for AI agent orchestration.
+Rust micro-kernel for AI agent orchestration. Single-process runtime with embedded HTTP gateway.
 
-The kernel provides process lifecycle, IPC, interrupt handling, and resource quotas via TCP+msgpack. The Python layer (`jeeves_core`) provides LLM providers, gateway, pipeline execution, and bootstrap — consumed by capabilities as a library.
+The kernel provides process lifecycle, pipeline orchestration (routing, bounds, termination), interrupt handling, resource quotas, and an HTTP API. Agent execution runs as concurrent tokio tasks within the same process.
 
 ## Quick Start
 
 ```bash
-# 1. Build and test the Rust kernel
+# Build and test
 cargo build
-cargo test                          # 240+ tests
+cargo test                          # 252 tests
 cargo clippy -- -D warnings         # lint-clean
 
-# 2. Run the kernel (IPC on :50051)
+# Run the kernel with HTTP gateway
 cp .env.example .env                # edit for your env
-cargo run
+cargo run -- run                    # HTTP on 0.0.0.0:8080
 
-# 3. Install Python infrastructure
-cd python && pip install -e ".[dev,all]"
-
-# 4. Verify Python can import
-python -c "from jeeves_core import PipelineConfig, create_app_context; print('OK')"
+# Or specify options directly
+cargo run -- run --http-addr 0.0.0.0:9000 --llm-model gpt-4o
 ```
 
 If you have [just](https://github.com/casey/just) installed:
@@ -35,27 +32,36 @@ just fmt       # cargo fmt
 
 ```
 jeeves-core/
-├── src/              # Rust kernel
-├── python/           # Python infrastructure (jeeves_core)
-│   ├── jeeves_core/ # The package
-│   ├── tests/        # Python tests
-│   └── pyproject.toml
-├── tests/            # Rust integration tests
-├── benches/          # Rust benchmarks
-├── docs/             # IPC protocol, deployment, API reference
-└── Dockerfile        # Multi-stage: kernel binary + Python wheel
+├── src/
+│   ├── kernel/           # Orchestration engine (routing, bounds, process lifecycle)
+│   ├── worker/           # Agent execution, LLM providers, HTTP gateway
+│   │   ├── actor.rs      # Kernel actor (mpsc channel, typed dispatch)
+│   │   ├── handle.rs     # KernelHandle (typed channel wrapper)
+│   │   ├── agent.rs      # Agent trait, LlmAgent, DeterministicAgent
+│   │   ├── llm/          # LLM provider trait + OpenAI-compatible client
+│   │   ├── gateway.rs    # HTTP gateway (axum)
+│   │   ├── tools.rs      # Tool executor trait + registry
+│   │   └── prompts.rs    # Prompt template loading + rendering
+│   ├── envelope/         # Envelope types, enums (TerminalReason), bounds
+│   ├── commbus/          # Message bus (events, commands, queries)
+│   └── main.rs           # CLI entry point (clap)
+├── tests/                # Rust integration tests
+├── benches/              # Rust benchmarks
+└── docs/                 # Deployment, API reference
 ```
 
-## IPC Methods
+## HTTP API
 
-| Service | RPCs | Purpose |
-|---------|------|---------|
-| KernelService | 14 | Process lifecycle, quotas, rate limiting |
-| EngineService | 5 | Envelope and pipeline management |
-| OrchestrationService | 4 | Session and instruction flow |
-| CommBusService | 4 | Message bus (pub/sub/query) |
+| Method | Path | Purpose |
+|--------|------|---------|
+| `POST` | `/api/v1/chat/messages` | Run a pipeline with input, return response |
+| `POST` | `/api/v1/pipelines/run` | Alias for chat/messages |
+| `GET` | `/api/v1/sessions/{id}` | Get orchestration session state |
+| `GET` | `/api/v1/status` | System status (process counts, health) |
+| `GET` | `/health` | Liveness probe (always 200) |
+| `GET` | `/ready` | Readiness probe |
 
-## Kernel Modules (Rust)
+## Kernel Modules
 
 | Module | Description |
 |--------|-------------|
@@ -63,40 +69,69 @@ jeeves-core/
 | `kernel::resources` | Quota enforcement and usage tracking |
 | `kernel::interrupts` | Human-in-the-loop interrupt handling |
 | `kernel::rate_limiter` | Per-user rate limiting (sliding window) |
-| `kernel::orchestrator` | Pipeline orchestration (session management) |
+| `kernel::orchestrator` | Pipeline orchestration (session management, routing) |
 | `kernel::cleanup` | Background garbage collection |
 | `kernel::recovery` | Panic recovery for fault isolation |
 | `commbus` | Message bus (events, commands, queries) |
 | `envelope` | State container for pipeline execution |
 
-## Infrastructure Modules (Python)
+## Worker Modules
 
 | Module | Description |
 |--------|-------------|
-| `jeeves_core.kernel_client` | IPC bridge to Rust kernel (TCP+msgpack) |
-| `jeeves_core.gateway` | FastAPI HTTP/WS/SSE server |
-| `jeeves_core.llm` | LLM provider abstraction (OpenAI, LiteLLM, mock) |
-| `jeeves_core.bootstrap` | AppContext creation, composition root |
-| `jeeves_core.orchestrator` | Event orchestration and governance |
-| `jeeves_core.protocols` | Type definitions and interfaces |
-| `jeeves_core.capability_wiring` | Capability registration and discovery |
+| `worker::actor` | Kernel actor — single `&mut Kernel` behind mpsc channel |
+| `worker::handle` | `KernelHandle` — typed channel wrapper (Clone, Send+Sync) |
+| `worker::agent` | `Agent` trait, `LlmAgent`, `DeterministicAgent`, `AgentRegistry` |
+| `worker::llm` | `LlmProvider` trait, OpenAI-compatible HTTP client, mock provider |
+| `worker::gateway` | Axum HTTP gateway with CORS |
+| `worker::tools` | `ToolExecutor` trait + `ToolRegistry` |
+| `worker::prompts` | Template loading and `{var}` substitution |
 
 ## Architecture
 
 ```
-Capability Layer (agents, prompts, tools)
-       | imports jeeves_core
+HTTP clients (frontends, capabilities)
+       | HTTP (axum)
        v
-Python Infrastructure (python/jeeves_core)
-       | TCP+msgpack IPC
-       v
-Rust Kernel (src/)
+┌─────────────────────────────────────────┐
+│  Single process                         │
+│                                         │
+│  Kernel actor ← mpsc ← KernelHandle    │
+│  (tokio task)   (typed)  (Clone)        │
+│       │                    ↑            │
+│       ▼                    │            │
+│  Agent tasks (concurrent tokio tasks)   │
+│       │                                 │
+│       ▼                                 │
+│  LLM calls (reqwest, concurrent)        │
+└─────────────────────────────────────────┘
+```
+
+## Consumer Contract
+
+Capabilities interact via HTTP API:
+
+```bash
+# Run a pipeline
+curl -X POST http://localhost:8080/api/v1/chat/messages \
+  -H 'Content-Type: application/json' \
+  -d '{"message": "hello", "user_id": "u1", "pipeline_config": {...}}'
+
+# Check health
+curl http://localhost:8080/health
+```
+
+For capabilities compiled into the binary, use the Rust crate API:
+
+```rust
+use jeeves_core::worker::agent::{Agent, AgentContext, AgentOutput};
+use jeeves_core::worker::handle::KernelHandle;
+use jeeves_core::kernel::orchestrator_types::PipelineConfig;
 ```
 
 ## Prerequisites
 
 - Rust 1.75+
-- Python 3.11+
 
 ## License
 

@@ -319,7 +319,7 @@ impl Envelope {
         }
     }
 
-    /// Create a minimal envelope from Python's 4 required params.
+    /// Create a minimal envelope from 4 required params.
     ///
     /// Generates identity fields internally. Bounds are set to safe placeholders
     /// (the kernel's `initialize_orchestration` overwrites them from PipelineConfig).
@@ -483,7 +483,7 @@ impl Envelope {
 
     /// Validate envelope invariants.
     ///
-    /// Called after deserialization from external input (Python IPC) to catch
+    /// Called after deserialization from external input to catch
     /// malformed state before it enters the kernel.
     pub fn validate(&self) -> crate::types::Result<()> {
         // Identity: must be non-empty

@@ -20,10 +20,6 @@ pub struct Config {
     #[serde(default)]
     pub defaults: DefaultLimits,
 
-    /// IPC transport configuration.
-    #[serde(default)]
-    pub ipc: IpcConfig,
-
     /// Rate limiting configuration.
     #[serde(default)]
     pub rate_limit: RateLimitConfig,
@@ -81,7 +77,7 @@ impl Default for CleanupConfig {
 /// Server configuration.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ServerConfig {
-    /// IPC server bind address (TCP).
+    /// HTTP server bind address.
     pub listen_addr: String,
 
     /// Metrics endpoint bind address.
@@ -91,7 +87,7 @@ pub struct ServerConfig {
 impl Default for ServerConfig {
     fn default() -> Self {
         Self {
-            listen_addr: "127.0.0.1:50051".to_string(),
+            listen_addr: "0.0.0.0:8080".to_string(),
             metrics_addr: "127.0.0.1:9090".to_string(),
         }
     }
@@ -159,7 +155,7 @@ impl Config {
     pub fn from_env() -> Self {
         let mut config = Self::default();
 
-        if let Ok(addr) = std::env::var("AIRFRAME_KERNEL_ADDRESS") {
+        if let Ok(addr) = std::env::var("JEEVES_HTTP_ADDR") {
             config.server.listen_addr = addr;
         }
         if let Ok(addr) = std::env::var("JEEVES_METRICS_ADDR") {
@@ -203,49 +199,3 @@ impl Config {
     }
 }
 
-/// IPC transport configuration.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct IpcConfig {
-    /// Maximum frame payload size in bytes.
-    pub max_frame_bytes: u32,
-
-    /// Maximum CommBus query timeout in milliseconds (caps client-requested timeouts).
-    pub max_query_timeout_ms: u64,
-
-    /// Default CommBus query timeout in milliseconds (when client omits timeout_ms).
-    pub default_query_timeout_ms: u64,
-
-    /// Bounded channel capacity for streaming responses (Subscribe).
-    pub stream_channel_capacity: usize,
-
-    /// Maximum concurrent TCP connections. New connections beyond this limit
-    /// are held until a slot opens (backpressure via semaphore).
-    pub max_connections: usize,
-
-    /// Bounded queue capacity for requests entering the kernel actor.
-    /// Requests beyond this limit are rejected immediately.
-    pub kernel_queue_capacity: usize,
-
-    /// Read timeout in seconds per frame. Connections idle beyond this
-    /// duration are dropped (prevents slowloris-style resource exhaustion).
-    pub read_timeout_secs: u64,
-
-    /// Write timeout in seconds per frame. Slow consumers that cannot
-    /// accept a response within this window are dropped.
-    pub write_timeout_secs: u64,
-}
-
-impl Default for IpcConfig {
-    fn default() -> Self {
-        Self {
-            max_frame_bytes: 5 * 1024 * 1024,
-            max_query_timeout_ms: 30_000,
-            default_query_timeout_ms: 5_000,
-            stream_channel_capacity: 64,
-            max_connections: 1000,
-            kernel_queue_capacity: 2048,
-            read_timeout_secs: 30,
-            write_timeout_secs: 10,
-        }
-    }
-}

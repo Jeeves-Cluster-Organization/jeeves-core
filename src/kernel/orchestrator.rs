@@ -1,13 +1,13 @@
 //! Pipeline orchestration - kernel-driven pipeline execution control.
 //!
 //! The Orchestrator:
-//!   - Owns the orchestration loop (moved from Python)
+//!   - Owns the orchestration loop
 //!   - Evaluates routing rules
 //!   - Tracks edge traversals
 //!   - Enforces bounds (iterations, LLM calls, agent hops)
-//!   - Returns Instructions to Python workers
+//!   - Returns Instructions to the worker
 //!
-//! Python workers:
+//! Workers:
 //!   - Execute agents (LLM calls, tool execution)
 //!   - Report results back
 //!   - Have NO control over what runs next
@@ -320,7 +320,7 @@ impl Orchestrator {
     /// Process agent execution result.
     ///
     /// Takes the updated envelope (Kernel extracted it from `process_envelopes`,
-    /// IPC handler may have merged agent outputs into it). Updates metrics,
+    /// the actor dispatch may have merged agent outputs into it). Updates metrics,
     /// advances the pipeline via routing evaluation, and mutates the envelope.
     ///
     /// Routing evaluation order (Temporal/K8s pattern):
@@ -727,6 +727,11 @@ mod tests {
             allowed_tools: None,
             node_kind: NodeKind::default(),
             output_key: None,
+            prompt_key: None,
+            has_llm: true,
+            temperature: None,
+            max_tokens: None,
+            model_role: None,
         }
     }
 
@@ -1642,6 +1647,11 @@ mod tests {
             allowed_tools: None,
             node_kind: NodeKind::Fork,
             output_key: None,
+            prompt_key: None,
+            has_llm: true,
+            temperature: None,
+            max_tokens: None,
+            model_role: None,
         }
     }
 
@@ -2280,6 +2290,11 @@ mod tests {
             allowed_tools: None,
             node_kind: NodeKind::Gate,
             output_key: None,
+            prompt_key: None,
+            has_llm: true,
+            temperature: None,
+            max_tokens: None,
+            model_role: None,
         }
     }
 

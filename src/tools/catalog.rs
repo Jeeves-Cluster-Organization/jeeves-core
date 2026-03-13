@@ -1,7 +1,6 @@
 //! Tool catalog — typed metadata, parameter validation, prompt generation.
 //!
-//! Owns tool *metadata* (not implementations — Python keeps the async callables).
-//! Eliminates 54 untyped dict accesses and 12 stringly-typed dispatches from Python.
+//! Owns tool *metadata* (not implementations — those live in the worker layer).
 
 use crate::envelope::enums::{RiskSemantic, RiskSeverity, ToolCategory};
 use crate::types::Error;

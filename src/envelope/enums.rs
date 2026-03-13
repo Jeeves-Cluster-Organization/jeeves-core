@@ -1,6 +1,6 @@
 //! Core enumerations for envelope and kernel.
 //!
-//! Canonical definitions for the Jeeves IPC protocol.
+//! Canonical enum definitions for the Jeeves kernel.
 
 use serde::{Deserialize, Serialize};
 
@@ -23,7 +23,7 @@ pub enum TerminalReason {
 impl TerminalReason {
     /// Classify the terminal reason into a high-level outcome.
     ///
-    /// Python reads this field instead of string-matching on reason variants.
+    /// Callers read this field instead of string-matching on reason variants.
     /// Adding new TerminalReason variants only requires updating this match arm.
     pub fn outcome(&self) -> &'static str {
         match self {

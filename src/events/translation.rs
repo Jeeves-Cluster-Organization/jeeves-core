@@ -1,7 +1,6 @@
 //! Event translation — kernel lifecycle events → frontend WebSocket events.
 //!
-//! Pure deterministic mapping. Replaces Python's `_translate_event()` (14 untyped
-//! dict accesses, 5 stringly-typed dispatches) with compile-time-safe field access.
+//! Pure deterministic mapping with compile-time-safe field access.
 //!
 //! Translation rules:
 //!   process.created       → orchestrator.started

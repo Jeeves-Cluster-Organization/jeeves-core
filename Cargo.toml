@@ -17,12 +17,24 @@ path = "src/lib.rs"
 
 [dependencies]
 # Async runtime
-tokio = { version = "1.41", features = ["rt-multi-thread", "macros", "net", "io-util", "sync", "time"] }
+tokio = { version = "1.41", features = ["rt-multi-thread", "macros", "net", "io-util", "sync", "time", "signal"] }
 tokio-util = "0.7"
 
-# IPC (TCP + msgpack)
-rmp-serde = "1"
-rmpv = "1"
+# HTTP client (LLM API calls)
+reqwest = { version = "0.12", features = ["json", "stream"] }
+
+# Async traits
+async-trait = "0.1"
+
+# CLI
+clap = { version = "4", features = ["derive", "env"] }
+
+# HTTP server
+axum = "0.8"
+tower-http = { version = "0.6", features = ["cors"] }
+
+# SSE streaming
+futures = "0.3"
 
 # Serialization
 serde = { version = "1.0", features = ["derive"] }
@@ -58,10 +70,6 @@ tempfile = "3.14"
 # Golden test utilities
 pretty_assertions = "1.4"
 insta = { version = "1.41", features = ["json"] }
-
-[[bench]]
-name = "ipc_throughput"
-harness = false
 
 [profile.release]
 opt-level = 3
