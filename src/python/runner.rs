@@ -231,7 +231,14 @@ impl PyPipelineRunner {
     /// Run a pipeline to completion (buffered). Blocks until done.
     ///
     /// Returns a dict with keys: outputs, terminated, terminal_reason, process_id.
-    #[pyo3(signature = (input, user_id="user", session_id=None, pipeline_name=None))]
+    ///
+    /// Args:
+    ///     input: Raw input string.
+    ///     user_id: User identifier.
+    ///     session_id: Optional session identifier.
+    ///     pipeline_name: Optional pipeline name (defaults to the first registered).
+    ///     metadata: Optional dict of metadata to pass through to agents/tools.
+    #[pyo3(signature = (input, user_id="user", session_id=None, pipeline_name=None, metadata=None))]
     fn run(
         &self,
         py: Python<'_>,
@@ -239,12 +246,14 @@ impl PyPipelineRunner {
         user_id: &str,
         session_id: Option<&str>,
         pipeline_name: Option<&str>,
+        metadata: Option<PyObject>,
     ) -> PyResult<PyObject> {
         let config = self.get_pipeline_config(pipeline_name)?;
         let process_id = ProcessId::new();
         let sid = session_id
             .map(String::from)
             .unwrap_or_else(|| uuid::Uuid::new_v4().to_string());
+        let meta_json = py_obj_to_json_value(py, metadata)?;
 
         let handle = self.handle.clone();
         let agents = self.agents.clone();
@@ -261,6 +270,7 @@ impl PyPipelineRunner {
                 &user_id_owned,
                 &sid,
                 agents,
+                meta_json,
             )
         });
 
@@ -275,7 +285,14 @@ impl PyPipelineRunner {
     /// Run a pipeline with streaming events. Returns an EventIterator.
     ///
     /// Each iteration yields a dict with a "type" key (delta, stage_started, etc.).
-    #[pyo3(signature = (input, user_id="user", session_id=None, pipeline_name=None))]
+    ///
+    /// Args:
+    ///     input: Raw input string.
+    ///     user_id: User identifier.
+    ///     session_id: Optional session identifier.
+    ///     pipeline_name: Optional pipeline name (defaults to the first registered).
+    ///     metadata: Optional dict of metadata to pass through to agents/tools.
+    #[pyo3(signature = (input, user_id="user", session_id=None, pipeline_name=None, metadata=None))]
     fn stream(
         &self,
         py: Python<'_>,
@@ -283,16 +300,18 @@ impl PyPipelineRunner {
         user_id: &str,
         session_id: Option<&str>,
         pipeline_name: Option<&str>,
+        metadata: Option<PyObject>,
     ) -> PyResult<PyEventIterator> {
         let config = self.get_pipeline_config(pipeline_name)?;
         let process_id = ProcessId::new();
         let sid = session_id
             .map(String::from)
             .unwrap_or_else(|| uuid::Uuid::new_v4().to_string());
+        let meta_json = py_obj_to_json_value(py, metadata)?;
 
         let handle = self.handle.clone();
         let agents = self.agents.clone();
-        let envelope = Envelope::new_minimal(user_id, &sid, input, None);
+        let envelope = Envelope::new_minimal(user_id, &sid, input, meta_json);
 
         let (jh, rx) = py.allow_threads(|| {
             self.rt.block_on(async {
@@ -370,30 +389,28 @@ impl PyPipelineRunner {
         user_id: &str,
         session_id: &str,
         agents: Arc<AgentRegistry>,
+        metadata: Option<serde_json::Value>,
     ) -> crate::types::Result<crate::worker::WorkerResult> {
+        let envelope = Envelope::new_minimal(user_id, session_id, input, metadata);
         if tokio::runtime::Handle::try_current().is_ok() {
             // Already inside tokio (called from a Python tool within a pipeline).
             // Use block_in_place to avoid nested block_on panic.
             tokio::task::block_in_place(|| {
-                self.rt.handle().block_on(crate::worker::run_pipeline(
+                self.rt.handle().block_on(crate::worker::run_pipeline_with_envelope(
                     &handle,
                     process_id,
                     pipeline_config,
-                    input,
-                    user_id,
-                    session_id,
+                    envelope,
                     &agents,
                 ))
             })
         } else {
             // Normal call from Python main thread
-            self.rt.block_on(crate::worker::run_pipeline(
+            self.rt.block_on(crate::worker::run_pipeline_with_envelope(
                 &handle,
                 process_id,
                 pipeline_config,
-                input,
-                user_id,
-                session_id,
+                envelope,
                 &agents,
             ))
         }
@@ -506,6 +523,30 @@ fn merge_agents_from_config(
         };
 
         registry.register(agent_name.clone(), agent);
+    }
+}
+
+/// Convert an optional Python object to a serde_json::Value.
+/// Returns None if the input is None or Python None.
+fn py_obj_to_json_value(
+    py: Python<'_>,
+    obj: Option<PyObject>,
+) -> PyResult<Option<serde_json::Value>> {
+    match obj {
+        None => Ok(None),
+        Some(o) if o.is_none(py) => Ok(None),
+        Some(o) => {
+            let json_mod = py.import_bound("json")?;
+            let json_str: String = json_mod
+                .call_method1("dumps", (o,))?
+                .extract()?;
+            let value: serde_json::Value = serde_json::from_str(&json_str).map_err(|e| {
+                pyo3::exceptions::PyValueError::new_err(format!(
+                    "Failed to parse metadata as JSON: {e}"
+                ))
+            })?;
+            Ok(Some(value))
+        }
     }
 }
 

@@ -49,6 +49,20 @@ pub async fn run_pipeline(
     run_pipeline_loop(handle, &process_id, agents, None).await
 }
 
+/// Run a pipeline to completion with a pre-built Envelope (supports metadata).
+pub async fn run_pipeline_with_envelope(
+    handle: &KernelHandle,
+    process_id: ProcessId,
+    pipeline_config: PipelineConfig,
+    envelope: Envelope,
+    agents: &AgentRegistry,
+) -> Result<WorkerResult> {
+    let _session = handle
+        .initialize_session(process_id.clone(), pipeline_config, envelope, false)
+        .await?;
+    run_pipeline_loop(handle, &process_id, agents, None).await
+}
+
 /// Run a pipeline with streaming events. Returns a join handle and event receiver.
 /// The receiver yields PipelineEvent items (StageStarted, Delta, ToolCallStart, etc.).
 /// Session is initialized before spawning so rate-limit errors surface to the caller.
