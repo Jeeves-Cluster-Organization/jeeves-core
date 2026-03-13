@@ -928,3 +928,137 @@ async fn test_valid_complex_pipeline() {
     assert!(result.is_ok(), "complex pipeline should pass validation");
     cancel.cancel();
 }
+
+// =============================================================================
+// Group G: MCP Tool Executor
+// =============================================================================
+
+#[tokio::test]
+async fn test_mcp_http_tool_executor() {
+    use axum::{routing::post, Json, Router};
+    use jeeves_core::worker::mcp::{McpToolExecutor, McpTransport};
+    use serde_json::json;
+
+    // Stand up a mock MCP server that handles tools/list and tools/call
+    let app = Router::new().route(
+        "/",
+        post(|Json(req): Json<serde_json::Value>| async move {
+            let method = req.get("method").and_then(|m| m.as_str()).unwrap_or("");
+            let id = req.get("id").and_then(|i| i.as_u64()).unwrap_or(0);
+
+            match method {
+                "tools/list" => Json(json!({
+                    "jsonrpc": "2.0",
+                    "id": id,
+                    "result": {
+                        "tools": [
+                            {
+                                "name": "echo",
+                                "description": "Echoes input back",
+                                "inputSchema": {
+                                    "type": "object",
+                                    "properties": {
+                                        "message": {"type": "string"}
+                                    }
+                                }
+                            },
+                            {
+                                "name": "add",
+                                "description": "Adds two numbers",
+                                "inputSchema": {
+                                    "type": "object",
+                                    "properties": {
+                                        "a": {"type": "number"},
+                                        "b": {"type": "number"}
+                                    }
+                                }
+                            }
+                        ]
+                    }
+                })),
+                "tools/call" => {
+                    let params = req.get("params").cloned().unwrap_or(json!({}));
+                    let tool_name = params.get("name").and_then(|n| n.as_str()).unwrap_or("");
+                    let args = params.get("arguments").cloned().unwrap_or(json!({}));
+
+                    let result_text = match tool_name {
+                        "echo" => {
+                            let msg = args.get("message").and_then(|m| m.as_str()).unwrap_or("(empty)");
+                            msg.to_string()
+                        }
+                        "add" => {
+                            let a = args.get("a").and_then(|v| v.as_f64()).unwrap_or(0.0);
+                            let b = args.get("b").and_then(|v| v.as_f64()).unwrap_or(0.0);
+                            format!("{}", a + b)
+                        }
+                        _ => format!("unknown tool: {tool_name}"),
+                    };
+
+                    Json(json!({
+                        "jsonrpc": "2.0",
+                        "id": id,
+                        "result": {
+                            "content": [{"type": "text", "text": result_text}],
+                            "isError": false
+                        }
+                    }))
+                }
+                _ => Json(json!({
+                    "jsonrpc": "2.0",
+                    "id": id,
+                    "error": {"code": -32601, "message": "Method not found"}
+                })),
+            }
+        }),
+    );
+
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let addr = listener.local_addr().unwrap();
+    tokio::spawn(async move {
+        axum::serve(listener, app).await.unwrap();
+    });
+
+    let url = format!("http://{addr}/");
+
+    // Connect and discover tools
+    let executor = McpToolExecutor::connect(McpTransport::Http { url })
+        .await
+        .expect("MCP connect should succeed");
+
+    let tools = executor.list_tools();
+    assert_eq!(tools.len(), 2);
+    assert_eq!(tools[0].name, "echo");
+    assert_eq!(tools[1].name, "add");
+
+    // Execute echo tool
+    let result = executor
+        .execute("echo", json!({"message": "hello world"}))
+        .await
+        .expect("echo should succeed");
+    assert_eq!(result, json!({"result": "hello world"}));
+
+    // Execute add tool
+    let result = executor
+        .execute("add", json!({"a": 3, "b": 4}))
+        .await
+        .expect("add should succeed");
+    // "7" is a valid JSON number, so it should parse as such
+    assert_eq!(result, json!(7));
+
+    // Register into ToolRegistry and verify
+    let mut registry = ToolRegistry::new();
+    let executor = Arc::new(executor);
+    for tool in executor.list_tools() {
+        registry.register(tool.name.clone(), executor.clone());
+    }
+    let all_tools = registry.list_all_tools();
+    assert!(all_tools.iter().any(|t| t.name == "echo"));
+    assert!(all_tools.iter().any(|t| t.name == "add"));
+
+    // Execute through registry
+    let result = registry
+        .execute("echo", json!({"message": "via registry"}))
+        .await
+        .expect("registry execute should work");
+    assert_eq!(result, json!({"result": "via registry"}));
+}

@@ -7,6 +7,7 @@ pub mod agent;
 pub mod gateway;
 pub mod handle;
 pub mod llm;
+pub mod mcp;
 pub mod prompts;
 pub mod tools;
 
@@ -49,24 +50,25 @@ pub async fn run_pipeline(
 
 /// Run a pipeline with streaming events. Returns a join handle and event receiver.
 /// The receiver yields PipelineEvent items (StageStarted, Delta, ToolCallStart, etc.).
-pub fn run_pipeline_streaming(
+/// Session is initialized before spawning so rate-limit errors surface to the caller.
+pub async fn run_pipeline_streaming(
     handle: KernelHandle,
     process_id: ProcessId,
     pipeline_config: PipelineConfig,
     envelope: Envelope,
     agents: Arc<AgentRegistry>,
-) -> (
+) -> Result<(
     tokio::task::JoinHandle<Result<WorkerResult>>,
     mpsc::Receiver<PipelineEvent>,
-) {
+)> {
+    handle
+        .initialize_session(process_id.clone(), pipeline_config, envelope, false)
+        .await?;
     let (tx, rx) = mpsc::channel(64);
     let jh = tokio::spawn(async move {
-        handle
-            .initialize_session(process_id.clone(), pipeline_config, envelope, false)
-            .await?;
         run_pipeline_loop(&handle, &process_id, &agents, Some(tx)).await
     });
-    (jh, rx)
+    Ok((jh, rx))
 }
 
 /// Run the pipeline loop for an already-initialized session.

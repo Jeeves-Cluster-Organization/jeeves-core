@@ -9,6 +9,8 @@ use std::sync::Arc;
 use std::time::Instant;
 use tokio::sync::mpsc;
 
+use tracing::instrument;
+
 use crate::kernel::orchestrator_types::AgentExecutionMetrics;
 use crate::worker::llm::{
     collect_stream, ChatMessage, ChatRequest, LlmProvider, PipelineEvent, ToolCall,
@@ -72,6 +74,7 @@ impl Default for LlmAgent {
 
 #[async_trait]
 impl Agent for LlmAgent {
+    #[instrument(skip(self, ctx), fields(prompt_key = %self.prompt_key))]
     async fn process(&self, ctx: &AgentContext) -> crate::types::Result<AgentOutput> {
         let start = Instant::now();
 
@@ -141,12 +144,15 @@ impl Agent for LlmAgent {
                 break;
             }
 
+            tracing::debug!(round = _round, tool_count = resp.tool_calls.len(), "tool_loop_round");
+
             // Tool calls: push assistant message, execute tools, push results
             let content = resp.content.clone().unwrap_or_default();
             messages.push(ChatMessage::assistant(content, Some(resp.tool_calls.clone())));
 
             for tc in &resp.tool_calls {
                 total_tool_calls += 1;
+                tracing::debug!(tool_name = %tc.name, "tool_execute");
 
                 if let Some(ref tx) = ctx.event_tx {
                     let _ = tx
