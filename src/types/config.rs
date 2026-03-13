@@ -148,6 +148,31 @@ impl Default for DefaultLimits {
     }
 }
 
+/// Agent configuration for config-driven agent registration via JEEVES_AGENTS env var.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AgentConfig {
+    /// Agent name (used as key in AgentRegistry).
+    pub name: String,
+    /// Agent type: "llm", "mcp_delegate", "deterministic", "gate".
+    #[serde(rename = "type")]
+    pub agent_type: String,
+    /// Prompt template key (for LLM agents).
+    #[serde(default)]
+    pub prompt_key: Option<String>,
+    /// LLM temperature override.
+    #[serde(default)]
+    pub temperature: Option<f64>,
+    /// LLM max_tokens override.
+    #[serde(default)]
+    pub max_tokens: Option<i32>,
+    /// LLM model override.
+    #[serde(default)]
+    pub model: Option<String>,
+    /// MCP tool name (for mcp_delegate agents).
+    #[serde(default)]
+    pub tool_name: Option<String>,
+}
+
 /// MCP server configuration for auto-connect.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct McpServerConfig {
