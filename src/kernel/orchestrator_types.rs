@@ -312,7 +312,7 @@ impl PipelineConfig {
                     )));
                 }
             }
-            // Validate routing targets reference existing stages
+            // Validate routing targets reference existing stages + expression depth
             for rule in &stage.routing {
                 if !stage_names.contains(rule.target.as_str()) {
                     return Err(Error::validation(format!(
@@ -320,6 +320,9 @@ impl PipelineConfig {
                         stage.name, rule.target, stage_names
                     )));
                 }
+                rule.expr.validate_depth().map_err(|e| Error::validation(format!(
+                    "Stage '{}' routing rule targeting '{}': {}", stage.name, rule.target, e
+                )))?;
             }
 
             // Validate default_next references existing stage

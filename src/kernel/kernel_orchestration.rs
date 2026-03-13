@@ -54,51 +54,61 @@ impl Kernel {
         // &mut envelope borrow ends here (we don't use it below)
 
         // Phase 2: Enrich instruction with context for the worker
-        if instruction.kind == orchestrator::InstructionKind::RunAgent
-            || instruction.kind == orchestrator::InstructionKind::RunAgents
-        {
-            if let Some(envelope) = self.process_envelopes.get(process_id) {
-                // Build agent context from envelope
-                let mut prompt_context = serde_json::Map::new();
-                for (agent_name, output) in &envelope.outputs {
-                    for (key, value) in output {
-                        prompt_context.insert(format!("{}_{}", agent_name, key), value.clone());
+        match instruction.kind {
+            orchestrator::InstructionKind::RunAgent
+            | orchestrator::InstructionKind::RunAgents => {
+                if let Some(envelope) = self.process_envelopes.get(process_id) {
+                    // Build agent context from envelope
+                    let mut prompt_context = serde_json::Map::new();
+                    for (agent_name, output) in &envelope.outputs {
+                        for (key, value) in output {
+                            prompt_context.insert(format!("{}_{}", agent_name, key), value.clone());
+                        }
+                    }
+                    for (key, value) in &envelope.audit.metadata {
+                        prompt_context.insert(key.clone(), value.clone());
+                    }
+
+                    instruction.agent_context = Some(serde_json::json!({
+                        "envelope_id": envelope.identity.envelope_id.as_str(),
+                        "request_id": envelope.identity.request_id.as_str(),
+                        "user_id": envelope.identity.user_id.as_str(),
+                        "session_id": envelope.identity.session_id.as_str(),
+                        "raw_input": &envelope.raw_input,
+                        "outputs": &envelope.outputs,
+                        "state": &envelope.state,
+                        "metadata": &envelope.audit.metadata,
+                        "prompt_context": serde_json::Value::Object(prompt_context),
+                        "llm_call_count": envelope.bounds.llm_call_count,
+                        "agent_hop_count": envelope.bounds.agent_hop_count,
+                        "tokens_in": envelope.bounds.tokens_in,
+                        "tokens_out": envelope.bounds.tokens_out,
+                        "circuit_broken_tools": self.tool_health.get_circuit_broken_tools(),
+                    }));
+                }
+
+                // Look up stage-level config
+                if let Some(agent_name) = instruction.agents.first() {
+                    let stage_name = self.process_envelopes.get(process_id)
+                        .map(|e| e.pipeline.current_stage.clone())
+                        .unwrap_or_default();
+                    instruction.output_schema = self.orchestrator.get_stage_output_schema(process_id, &stage_name);
+
+                    let allowed = self.tool_access.tools_for_agent(agent_name);
+                    if !allowed.is_empty() {
+                        instruction.allowed_tools = Some(allowed);
                     }
                 }
-                for (key, value) in &envelope.audit.metadata {
-                    prompt_context.insert(key.clone(), value.clone());
-                }
-
-                instruction.agent_context = Some(serde_json::json!({
-                    "envelope_id": envelope.identity.envelope_id.as_str(),
-                    "request_id": envelope.identity.request_id.as_str(),
-                    "user_id": envelope.identity.user_id.as_str(),
-                    "session_id": envelope.identity.session_id.as_str(),
-                    "raw_input": &envelope.raw_input,
-                    "outputs": &envelope.outputs,
-                    "state": &envelope.state,
-                    "metadata": &envelope.audit.metadata,
-                    "prompt_context": serde_json::Value::Object(prompt_context),
-                    "llm_call_count": envelope.bounds.llm_call_count,
-                    "agent_hop_count": envelope.bounds.agent_hop_count,
-                    "tokens_in": envelope.bounds.tokens_in,
-                    "tokens_out": envelope.bounds.tokens_out,
-                    "circuit_broken_tools": self.tool_health.get_circuit_broken_tools(),
-                }));
             }
-
-            // Look up stage-level config
-            if let Some(agent_name) = instruction.agents.first() {
-                let stage_name = self.process_envelopes.get(process_id)
-                    .map(|e| e.pipeline.current_stage.clone())
-                    .unwrap_or_default();
-                instruction.output_schema = self.orchestrator.get_stage_output_schema(process_id, &stage_name);
-
-                let allowed = self.tool_access.tools_for_agent(agent_name);
-                if !allowed.is_empty() {
-                    instruction.allowed_tools = Some(allowed);
+            orchestrator::InstructionKind::Terminate => {
+                // Attach final outputs so the worker can return them
+                if let Some(envelope) = self.process_envelopes.get(process_id) {
+                    instruction.agent_context = Some(serde_json::json!({
+                        "outputs": &envelope.outputs,
+                    }));
                 }
             }
+            _ => {}
         }
 
         Ok(instruction)

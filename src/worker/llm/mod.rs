@@ -94,7 +94,7 @@ pub struct StreamChunk {
 /// `None` for events that are topology-independent (Done, InterruptPending) or
 /// emitted outside a stage boundary.
 #[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(tag = "type")]
+#[serde(tag = "type", rename_all = "snake_case")]
 pub enum PipelineEvent {
     StageStarted { stage: String },
     Delta {

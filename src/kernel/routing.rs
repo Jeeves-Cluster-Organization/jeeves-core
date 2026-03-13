@@ -17,6 +17,9 @@ pub struct RoutingRule {
     pub target: String,
 }
 
+/// Maximum nesting depth for And/Or/Not expressions (prevents stack overflow from user-supplied JSON).
+pub const MAX_ROUTING_EXPR_DEPTH: usize = 16;
+
 /// Routing expression tree evaluated recursively by the kernel.
 ///
 /// Serde: internally tagged with "op" field.
@@ -69,6 +72,30 @@ pub enum FieldRef {
     Interrupt { key: String },
     /// envelope.state[key] — merged accumulator state
     State { key: String },
+}
+
+impl RoutingExpr {
+    /// Compute the nesting depth of this expression tree.
+    pub fn depth(&self) -> usize {
+        match self {
+            Self::And { exprs } => 1 + exprs.iter().map(|e| e.depth()).max().unwrap_or(0),
+            Self::Or { exprs } => 1 + exprs.iter().map(|e| e.depth()).max().unwrap_or(0),
+            Self::Not { expr } => 1 + expr.depth(),
+            _ => 0,
+        }
+    }
+
+    /// Validate that nesting depth does not exceed the limit.
+    pub fn validate_depth(&self) -> crate::types::Result<()> {
+        let d = self.depth();
+        if d > MAX_ROUTING_EXPR_DEPTH {
+            return Err(crate::types::Error::validation(format!(
+                "Routing expression nesting depth {} exceeds maximum {}",
+                d, MAX_ROUTING_EXPR_DEPTH
+            )));
+        }
+        Ok(())
+    }
 }
 
 // =============================================================================
@@ -624,6 +651,48 @@ mod tests {
         // agent_failed=false → falls through to default_next
         let result = evaluate_routing(&stage, &outputs, "a1", false, &metadata, None, &HashMap::new());
         assert_eq!(result, Some("s2".to_string()));
+    }
+
+    #[test]
+    fn test_expr_depth_calculation() {
+        assert_eq!(RoutingExpr::Always.depth(), 0);
+
+        let one_deep = RoutingExpr::Not { expr: Box::new(RoutingExpr::Always) };
+        assert_eq!(one_deep.depth(), 1);
+
+        let two_deep = RoutingExpr::And {
+            exprs: vec![RoutingExpr::Not { expr: Box::new(RoutingExpr::Always) }],
+        };
+        assert_eq!(two_deep.depth(), 2);
+
+        // Depth 0 for leaf exprs
+        let leaf = RoutingExpr::Eq {
+            field: FieldRef::Current { key: "k".to_string() },
+            value: serde_json::json!("v"),
+        };
+        assert_eq!(leaf.depth(), 0);
+    }
+
+    #[test]
+    fn test_validate_depth_within_limit() {
+        let expr = RoutingExpr::And {
+            exprs: vec![RoutingExpr::Or {
+                exprs: vec![RoutingExpr::Not { expr: Box::new(RoutingExpr::Always) }],
+            }],
+        };
+        assert_eq!(expr.depth(), 3);
+        assert!(expr.validate_depth().is_ok());
+    }
+
+    #[test]
+    fn test_validate_depth_exceeds_limit() {
+        // Build nesting depth > MAX_ROUTING_EXPR_DEPTH
+        let mut expr = RoutingExpr::Always;
+        for _ in 0..(MAX_ROUTING_EXPR_DEPTH + 1) {
+            expr = RoutingExpr::Not { expr: Box::new(expr) };
+        }
+        assert!(expr.depth() > MAX_ROUTING_EXPR_DEPTH);
+        assert!(expr.validate_depth().is_err());
     }
 
     #[test]

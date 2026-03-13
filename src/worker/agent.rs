@@ -157,6 +157,27 @@ impl Agent for LlmAgent {
                 total_tool_calls += 1;
                 tracing::debug!(tool_name = %tc.name, "tool_execute");
 
+                // Pre-execution ACL check: reject tool calls not in allowed_tools
+                if !ctx.allowed_tools.is_empty() && !ctx.allowed_tools.contains(&tc.name) {
+                    tracing::warn!(
+                        tool = %tc.name,
+                        allowed = ?ctx.allowed_tools,
+                        "tool_acl_blocked_pre_execution"
+                    );
+                    let error_msg = format!("Tool '{}' not in allowed_tools", tc.name);
+                    tool_results.push(ToolCallResult {
+                        name: tc.name.clone(),
+                        success: false,
+                        latency_ms: 0,
+                        error_type: Some(error_msg.clone()),
+                    });
+                    messages.push(ChatMessage::tool_result(
+                        &tc.id,
+                        serde_json::json!({"error": error_msg}).to_string(),
+                    ));
+                    continue;
+                }
+
                 if let Some(ref tx) = ctx.event_tx {
                     let _ = tx
                         .send(PipelineEvent::ToolCallStart {
