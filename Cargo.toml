@@ -10,6 +10,7 @@ license = "Apache-2.0"
 [[bin]]
 name = "jeeves-kernel"
 path = "src/main.rs"
+required-features = ["http-server"]
 
 [lib]
 name = "jeeves_core"
@@ -26,15 +27,22 @@ reqwest = { version = "0.12", features = ["json", "stream"] }
 # Async traits
 async-trait = "0.1"
 
-# CLI
-clap = { version = "4", features = ["derive", "env"] }
+# CLI (optional — only for HTTP server binary)
+clap = { version = "4", features = ["derive", "env"], optional = true }
 
-# HTTP server
-axum = "0.8"
-tower-http = { version = "0.6", features = ["cors", "trace", "limit"] }
+# HTTP server (optional — behind http-server feature)
+axum = { version = "0.8", optional = true }
+tower-http = { version = "0.6", features = ["cors", "trace", "limit"], optional = true }
+
+# Python bindings (optional — behind py-bindings feature)
+pyo3 = { version = "0.22", features = ["multiple-pymethods"], optional = true }
+inventory = { version = "0.3", optional = true }
 
 # SSE streaming
 futures = "0.3"
+
+# Byte buffers (used by reqwest streams, replaces axum::body::Bytes)
+bytes = "1"
 
 # Serialization
 serde = { version = "1.0", features = ["derive"] }
@@ -60,6 +68,7 @@ jsonschema = "0.28"
 
 [dev-dependencies]
 # Testing
+axum = "0.8"
 proptest = "1.6"
 mockall = "0.13"
 tokio-test = "0.4"
@@ -72,6 +81,9 @@ pretty_assertions = "1.4"
 insta = { version = "1.41", features = ["json"] }
 
 [features]
+default = []
+http-server = ["dep:axum", "dep:tower-http", "dep:clap"]
+py-bindings = ["dep:pyo3", "dep:inventory", "pyo3/extension-module"]
 test-harness = []
 
 [profile.release]

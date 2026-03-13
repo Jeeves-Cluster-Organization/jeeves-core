@@ -1,0 +1,13 @@
+[build-system]
+requires = ["maturin>=1.0,<2.0"]
+build-backend = "maturin"
+
+[project]
+name = "jeeves-core"
+version = "0.0.1"
+description = "Rust multi-agent orchestration kernel with Python bindings"
+requires-python = ">=3.11"
+
+[tool.maturin]
+features = ["py-bindings"]
+module-name = "jeeves_core"

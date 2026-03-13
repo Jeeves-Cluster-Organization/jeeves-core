@@ -4,8 +4,11 @@
 
 pub mod actor;
 pub mod agent;
+#[cfg(feature = "http-server")]
 pub mod gateway;
+#[cfg(feature = "http-server")]
 pub mod gateway_errors;
+#[cfg(feature = "http-server")]
 pub mod gateway_types;
 pub mod handle;
 pub mod llm;

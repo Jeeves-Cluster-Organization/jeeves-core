@@ -28,9 +28,13 @@
 
 // Re-export public API
 pub mod commbus;
+#[cfg(feature = "http-server")]
 pub mod client;
 pub mod envelope;
 pub mod kernel;
+#[cfg(feature = "py-bindings")]
+#[allow(unsafe_code, clippy::useless_conversion)]
+pub mod python;
 #[cfg(any(test, feature = "test-harness"))]
 pub mod testing;
 pub mod tools;
