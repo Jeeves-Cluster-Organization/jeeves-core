@@ -651,9 +651,17 @@ DX score rises from 3.5 → 4.0 (PipelineBuilder, test harness, JeevesClient, st
 
 **W6: MCP Server (2.0/5)** — MCP client is back but MCP server (exposing Jeeves capabilities as MCP resources) is not yet reimplemented.
 
-**W7: Authentication (2.0/5)** — No auth middleware on gateway. Discovery endpoints expose agent/tool inventory without auth. Required for production multi-tenant deployment.
+**W7: Authentication & Authorization (1.5/5)** (DOWN from 2.0 — more surface exposed) — No auth middleware on gateway. Discovery endpoints expose internal topology (agent names, tool names, system status) without auth. Task/session endpoints return full envelope state (outputs, metadata) to any caller. Client-supplied `process_id` in `ChatRequest` enables potential session hijacking — no ownership validation. `CorsLayer::permissive()` allows any origin. All unauthenticated requests share the "anonymous" rate-limit bucket. **Critical for production.**
 
 **W8: Multi-language Client SDKs (1.5/5)** — JeevesClient provides Rust client, but no Python/TypeScript/Go SDKs. Non-Rust teams must use raw HTTP.
+
+**W9: SSE Client Robustness (3.0/5)** (NEW) — JeevesClient's manual SSE parser has edge cases: no multi-line `data:` concatenation (SSE spec requires it), no `\r\n` line ending support, no buffer size limit (unbounded memory growth on malformed streams), `from_utf8_lossy` silently replaces split multi-byte characters. Functional for well-behaved servers but not spec-complete.
+
+**W10: Post-hoc Tool Access Enforcement (3.5/5)** (NEW) — Tool ACL checks in `process_agent_result()` run *after* tool execution, not before. An agent can execute unauthorized tools; the system only flags it afterward. Pre-execution enforcement would be stronger.
+
+**W11: Routing Expression Recursion (3.5/5)** (NEW) — No recursion depth limit on `And`/`Or`/`Not` nesting in `RoutingExpr`. Since routing expressions come from user-supplied `PipelineConfig` JSON, deeply nested expressions could cause stack overflow (DoS vector).
+
+**W12: MCP Stdio Lifecycle (3.0/5)** (NEW) — `McpToolExecutor` stdio transport lacks `kill_on_drop` on child process. No reconnection logic for either transport — if the server dies, the executor is permanently broken. Stderr piped to `/dev/null` silently loses MCP server errors.
 
 ---
 
@@ -674,27 +682,37 @@ DX score rises from 3.5 → 4.0 (PipelineBuilder, test harness, JeevesClient, st
 
 ## 7. Recommendations
 
-### Immediate (High Impact)
+### Immediate (High Impact, Security-Critical)
 
-1. **Update API docs** — Document 4 new discovery endpoints, PipelineBuilder API, JeevesClient usage, `McpServerConfig` env var, structured `ErrorResponse` format. Significant API surface added in iteration 15.
+1. **Authentication middleware** — JWT or API key auth on gateway. Discovery endpoints expose internal topology without auth. Task/session endpoints leak full envelope state. Client-supplied `process_id` enables session hijacking. **Blocking for production deployment.**
 
-2. **Authentication middleware** — JWT or API key auth on gateway. Discovery endpoints now expose agent/tool inventory without auth — security concern for production.
+2. **Pre-execution tool ACL enforcement** — Move tool access checks from `process_agent_result()` (post-hoc) to the agent tool loop (pre-execution). Currently unauthorized tools execute and are only flagged afterward.
 
-3. **MCP server in Rust** — Expose Jeeves capabilities as MCP resources for cross-framework tool consumption.
+3. **Routing expression recursion limit** — Add depth limit on `And`/`Or`/`Not` nesting to prevent stack overflow from user-supplied `PipelineConfig` JSON.
+
+4. **Update API docs** — Document 4 new discovery endpoints, PipelineBuilder API, JeevesClient usage, `McpServerConfig` env var, structured `ErrorResponse` format.
+
+### Immediate (High Impact, Non-Security)
+
+5. **MCP server in Rust** — Expose Jeeves capabilities as MCP resources for cross-framework tool consumption.
 
 ### Medium-term
 
-4. **Full A2A protocol** — Extend discovery endpoints into full A2A task submission and streaming updates. Foundation laid in iteration 15.
+6. **Full A2A protocol** — Extend discovery endpoints into full A2A task submission and streaming updates. Foundation laid in iteration 15.
 
-5. **Persistent state** — Redis/SQL-backed state persistence across pipeline requests.
+7. **Persistent state** — Redis/SQL-backed state persistence across pipeline requests.
 
-6. **Multi-language client SDKs** — Generate Python/TypeScript/Go SDKs from HTTP API spec. JeevesClient provides the reference implementation.
+8. **Multi-language client SDKs** — Generate Python/TypeScript/Go SDKs from HTTP API spec. JeevesClient provides the reference implementation.
+
+9. **SSE client hardening** — Multi-line `data:` concatenation, `\r\n` support, buffer size limit, proper UTF-8 chunk boundary handling in JeevesClient.
+
+10. **MCP lifecycle hardening** — `kill_on_drop` on stdio child, reconnection logic for both transports, stderr capture with logging.
 
 ### Long-term
 
-7. **Checkpoint/replay** — Pipeline state persistence for crash recovery.
-8. **Evaluation framework** — Leverage kernel metrics + tool health + PipelineTestHarness for pipeline quality assessment.
-9. **Visual pipeline builder** — Web UI leveraging PipelineBuilder API for drag-and-drop pipeline construction.
+11. **Checkpoint/replay** — Pipeline state persistence for crash recovery.
+12. **Evaluation framework** — Leverage kernel metrics + tool health + PipelineTestHarness for pipeline quality assessment.
+13. **Visual pipeline builder** — Web UI leveraging PipelineBuilder API for drag-and-drop pipeline construction.
 
 ---
 
