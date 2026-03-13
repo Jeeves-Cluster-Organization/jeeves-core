@@ -59,6 +59,7 @@ impl PipelineTestHarness {
             "test_{}",
             &uuid::Uuid::new_v4().simple().to_string()[..12]
         ));
+        let pipeline_name = self.config.name.clone();
         let envelope = Envelope::new_minimal("test_user", "test_session", input, None);
 
         handle
@@ -66,7 +67,7 @@ impl PipelineTestHarness {
             .await?;
 
         let agents = Arc::new(self.agents);
-        let result = crate::worker::run_pipeline_loop(&handle, &pid, &agents, None).await;
+        let result = crate::worker::run_pipeline_loop(&handle, &pid, &agents, None, &pipeline_name).await;
 
         cancel.cancel();
         result

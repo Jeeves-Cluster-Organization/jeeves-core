@@ -23,7 +23,7 @@ use tokio::time::{timeout, Duration};
 // =============================================================================
 
 /// Event message for pub/sub pattern.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct Event {
     pub event_type: String,
     pub payload: Vec<u8>, // JSON-encoded
@@ -80,7 +80,7 @@ pub struct Subscription {
 // =============================================================================
 
 /// Sender type for query handler channels (query + response oneshot).
-type QueryHandlerSender = mpsc::UnboundedSender<(Query, oneshot::Sender<QueryResponse>)>;
+pub type QueryHandlerSender = mpsc::UnboundedSender<(Query, oneshot::Sender<QueryResponse>)>;
 
 /// In-memory communication bus for kernel-mediated IPC.
 ///
@@ -326,6 +326,76 @@ impl CommBus {
         tracing::debug!("Registered query handler: {}", query_type);
 
         Ok(rx)
+    }
+
+    // =========================================================================
+    // Command Handler Registration
+    // =========================================================================
+
+    /// Register a command handler.
+    ///
+    /// Returns receiver channel for receiving commands.
+    ///
+    /// # Errors
+    ///
+    /// Returns error if handler already registered for this command type.
+    pub fn register_command_handler(
+        &mut self,
+        command_type: String,
+    ) -> Result<mpsc::UnboundedReceiver<Command>> {
+        let (tx, rx) = mpsc::unbounded_channel();
+
+        if self.command_handlers.contains_key(&command_type) {
+            return Err(Error::validation(format!(
+                "Command handler already registered: {}",
+                command_type
+            )));
+        }
+
+        self.command_handlers.insert(command_type.clone(), tx);
+
+        // Update stats
+        self.stats.registered_command_handlers = self.command_handlers.len();
+
+        tracing::debug!("Registered command handler: {}", command_type);
+
+        Ok(rx)
+    }
+
+    // =========================================================================
+    // Subscription Management
+    // =========================================================================
+
+    /// Unsubscribe a subscriber by ID.
+    ///
+    /// Removes the subscriber from all event type lists.
+    pub fn unsubscribe(&mut self, subscription: &Subscription) {
+        for event_type in &subscription.event_types {
+            if let Some(subs) = self.subscribers.get_mut(event_type) {
+                subs.retain(|s| s.id != subscription.id);
+            }
+        }
+        // Update stats
+        self.stats.active_subscribers = self.subscribers.values().map(|v| v.len()).sum();
+
+        tracing::debug!("Unsubscribed: {}", subscription.id);
+    }
+
+    /// Get a query handler sender for fire-and-spawn patterns.
+    ///
+    /// Returns a clone of the sender (read-only access to the handler channel)
+    /// so the caller can spawn a task to send the query without holding &mut self.
+    pub fn get_query_handler(&self, query_type: &str) -> Option<QueryHandlerSender> {
+        self.query_handlers.get(query_type).cloned()
+    }
+
+    /// Prune disconnected subscribers from all event type lists.
+    pub fn cleanup_disconnected(&mut self) {
+        for subs in self.subscribers.values_mut() {
+            subs.retain(|s| !s.tx.is_closed());
+        }
+        // Update stats
+        self.stats.active_subscribers = self.subscribers.values().map(|v| v.len()).sum();
     }
 
     // =========================================================================
@@ -627,6 +697,134 @@ mod tests {
 
         let stats = bus.get_stats();
         assert_eq!(stats.active_subscribers, 1);
+    }
+
+    // =========================================================================
+    // Unsubscribe Tests
+    // =========================================================================
+
+    #[test]
+    fn test_unsubscribe_removes_subscriber() {
+        let mut bus = CommBus::new();
+
+        let (sub, _rx) = bus
+            .subscribe("sub1".to_string(), vec!["test.event".to_string()])
+            .unwrap();
+
+        assert_eq!(bus.get_stats().active_subscribers, 1);
+
+        bus.unsubscribe(&sub);
+
+        // After unsubscribe, publishing should deliver to zero subscribers
+        let event = Event {
+            event_type: "test.event".to_string(),
+            payload: b"{}".to_vec(),
+            timestamp_ms: Utc::now().timestamp_millis(),
+            source: "test".to_string(),
+        };
+        let delivered = bus.publish(event).unwrap();
+        assert_eq!(delivered, 0);
+    }
+
+    #[test]
+    fn test_unsubscribe_only_affects_target() {
+        let mut bus = CommBus::new();
+
+        let (sub1, _rx1) = bus
+            .subscribe("sub1".to_string(), vec!["test.event".to_string()])
+            .unwrap();
+        let (_sub2, mut rx2) = bus
+            .subscribe("sub2".to_string(), vec!["test.event".to_string()])
+            .unwrap();
+
+        // Unsubscribe only sub1
+        bus.unsubscribe(&sub1);
+
+        let event = Event {
+            event_type: "test.event".to_string(),
+            payload: b"{}".to_vec(),
+            timestamp_ms: Utc::now().timestamp_millis(),
+            source: "test".to_string(),
+        };
+        let delivered = bus.publish(event).unwrap();
+        assert_eq!(delivered, 1); // Only sub2
+
+        assert!(rx2.try_recv().is_ok());
+    }
+
+    // =========================================================================
+    // get_query_handler Tests
+    // =========================================================================
+
+    #[test]
+    fn test_get_query_handler_returns_none_when_missing() {
+        let bus = CommBus::new();
+        assert!(bus.get_query_handler("nonexistent").is_none());
+    }
+
+    #[test]
+    fn test_get_query_handler_returns_sender() {
+        let mut bus = CommBus::new();
+        let _rx = bus.register_query_handler("test.query".to_string()).unwrap();
+
+        let handler = bus.get_query_handler("test.query");
+        assert!(handler.is_some());
+    }
+
+    // =========================================================================
+    // register_command_handler Tests
+    // =========================================================================
+
+    #[test]
+    fn test_register_command_handler_and_send() {
+        let mut bus = CommBus::new();
+
+        let mut rx = bus.register_command_handler("test.cmd".to_string()).unwrap();
+
+        let command = Command {
+            command_type: "test.cmd".to_string(),
+            payload: b"{\"action\":\"do_thing\"}".to_vec(),
+            source: "test".to_string(),
+        };
+
+        bus.send_command(command).unwrap();
+        let received = rx.try_recv().unwrap();
+        assert_eq!(received.command_type, "test.cmd");
+    }
+
+    // =========================================================================
+    // cleanup_disconnected Tests
+    // =========================================================================
+
+    #[test]
+    fn test_cleanup_disconnected_prunes_dead_subscribers() {
+        let mut bus = CommBus::new();
+
+        let (_sub1, rx1) = bus
+            .subscribe("sub1".to_string(), vec!["test.event".to_string()])
+            .unwrap();
+        let (_sub2, _rx2) = bus
+            .subscribe("sub2".to_string(), vec!["test.event".to_string()])
+            .unwrap();
+
+        assert_eq!(bus.get_stats().active_subscribers, 2);
+
+        // Drop sub1's receiver — makes it disconnected
+        drop(rx1);
+
+        // Cleanup should prune the disconnected subscriber
+        bus.cleanup_disconnected();
+        assert_eq!(bus.get_stats().active_subscribers, 1);
+
+        // Publishing should only deliver to sub2
+        let event = Event {
+            event_type: "test.event".to_string(),
+            payload: b"{}".to_vec(),
+            timestamp_ms: Utc::now().timestamp_millis(),
+            source: "test".to_string(),
+        };
+        let delivered = bus.publish(event).unwrap();
+        assert_eq!(delivered, 1);
     }
 
 }

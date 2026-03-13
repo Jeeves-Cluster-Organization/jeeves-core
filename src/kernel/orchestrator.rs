@@ -769,6 +769,7 @@ mod tests {
             temperature: None,
             max_tokens: None,
             model_role: None,
+            child_pipeline: None,
         }
     }
 
@@ -814,6 +815,8 @@ mod tests {
             edge_limits: vec![],
             step_limit: None,
             state_schema: vec![],
+            subscriptions: vec![],
+            publishes: vec![],
         }
     }
 
@@ -1121,6 +1124,8 @@ mod tests {
             edge_limits: vec![],
             step_limit: None,
             state_schema: vec![],
+            subscriptions: vec![],
+            publishes: vec![],
         };
         assert!(pipeline.validate().is_err());
     }
@@ -1138,6 +1143,8 @@ mod tests {
             edge_limits: vec![],
             step_limit: None,
             state_schema: vec![],
+            subscriptions: vec![],
+            publishes: vec![],
         };
         assert!(pipeline.validate().is_err());
     }
@@ -1155,6 +1162,8 @@ mod tests {
             edge_limits: vec![],
             step_limit: None,
             state_schema: vec![],
+            subscriptions: vec![],
+            publishes: vec![],
         };
         assert!(pipeline.validate().is_err());
     }
@@ -1172,6 +1181,8 @@ mod tests {
             edge_limits: vec![],
             step_limit: None,
             state_schema: vec![],
+            subscriptions: vec![],
+            publishes: vec![],
         };
         assert!(pipeline.validate().is_err());
     }
@@ -1187,6 +1198,8 @@ mod tests {
             edge_limits: vec![],
             step_limit: None,
             state_schema: vec![],
+            subscriptions: vec![],
+            publishes: vec![],
         };
         assert!(pipeline.validate().is_err());
     }
@@ -1204,6 +1217,8 @@ mod tests {
                 edge_limits: vec![],
                 step_limit: None,
                 state_schema: vec![],
+                subscriptions: vec![],
+                publishes: vec![],
             };
             assert!(pipeline.validate().is_err(), "Expected error for ({}, {}, {})", iterations, llm, hops);
         }
@@ -1220,6 +1235,8 @@ mod tests {
             edge_limits: vec![],
             step_limit: None,
             state_schema: vec![],
+            subscriptions: vec![],
+            publishes: vec![],
         };
         assert!(pipeline.validate().is_err());
     }
@@ -1235,6 +1252,8 @@ mod tests {
             edge_limits: vec![],
             step_limit: None,
             state_schema: vec![],
+            subscriptions: vec![],
+            publishes: vec![],
         };
         assert!(pipeline.validate().is_err());
     }
@@ -1257,6 +1276,8 @@ mod tests {
             }],
             step_limit: None,
             state_schema: vec![],
+            subscriptions: vec![],
+            publishes: vec![],
         };
         assert!(pipeline.validate().is_err());
     }
@@ -1284,6 +1305,8 @@ mod tests {
             edge_limits: vec![],
             step_limit: None,
             state_schema: vec![],
+            subscriptions: vec![],
+            publishes: vec![],
         };
         let mut envelope = create_test_envelope();
         orch.initialize_session(ProcessId::must("p1"), pipeline, &mut envelope, false).unwrap();
@@ -1314,6 +1337,8 @@ mod tests {
             edge_limits: vec![],
             step_limit: None,
             state_schema: vec![],
+            subscriptions: vec![],
+            publishes: vec![],
         };
         let mut envelope = create_test_envelope();
         orch.initialize_session(ProcessId::must("p1"), pipeline, &mut envelope, false).unwrap();
@@ -1343,6 +1368,8 @@ mod tests {
             edge_limits: vec![],
             step_limit: None,
             state_schema: vec![],
+            subscriptions: vec![],
+            publishes: vec![],
         };
         let mut envelope = create_test_envelope();
         orch.initialize_session(ProcessId::must("p1"), pipeline, &mut envelope, false).unwrap();
@@ -1372,6 +1399,8 @@ mod tests {
             edge_limits: vec![],
             step_limit: None,
             state_schema: vec![],
+            subscriptions: vec![],
+            publishes: vec![],
         };
         let mut envelope = create_test_envelope();
         orch.initialize_session(ProcessId::must("p1"), pipeline, &mut envelope, false).unwrap();
@@ -1396,6 +1425,8 @@ mod tests {
             edge_limits: vec![],
             step_limit: None,
             state_schema: vec![],
+            subscriptions: vec![],
+            publishes: vec![],
         };
         let mut envelope = create_test_envelope();
         orch.initialize_session(ProcessId::must("p1"), pipeline, &mut envelope, false).unwrap();
@@ -1424,6 +1455,8 @@ mod tests {
             edge_limits: vec![],
             step_limit: None,
             state_schema: vec![],
+            subscriptions: vec![],
+            publishes: vec![],
         };
         let mut envelope = create_test_envelope();
         orch.initialize_session(ProcessId::must("p1"), pipeline, &mut envelope, false).unwrap();
@@ -1448,6 +1481,8 @@ mod tests {
             edge_limits: vec![],
             step_limit: None,
             state_schema: vec![],
+            subscriptions: vec![],
+            publishes: vec![],
         };
         let mut envelope = create_test_envelope();
         orch.initialize_session(ProcessId::must("p1"), pipeline, &mut envelope, false).unwrap();
@@ -1485,6 +1520,8 @@ mod tests {
             edge_limits: vec![],
             step_limit: None,
             state_schema: vec![],
+            subscriptions: vec![],
+            publishes: vec![],
         };
         let mut envelope = create_test_envelope();
         orch.initialize_session(ProcessId::must("p1"), pipeline, &mut envelope, false).unwrap();
@@ -1531,6 +1568,8 @@ mod tests {
             edge_limits: vec![],
             step_limit: None,
             state_schema: vec![],
+            subscriptions: vec![],
+            publishes: vec![],
         };
         let mut envelope = create_test_envelope();
         orch.initialize_session(ProcessId::must("p1"), pipeline, &mut envelope, false).unwrap();
@@ -1561,6 +1600,8 @@ mod tests {
             edge_limits: vec![],
             step_limit: None,
             state_schema: vec![],
+            subscriptions: vec![],
+            publishes: vec![],
         };
         let mut envelope = create_test_envelope();
         orch.initialize_session(ProcessId::must("p1"), pipeline, &mut envelope, false).unwrap();
@@ -1597,6 +1638,8 @@ mod tests {
             }],
             step_limit: None,
             state_schema: vec![],
+            subscriptions: vec![],
+            publishes: vec![],
         };
         let mut envelope = create_test_envelope();
         orch.initialize_session(ProcessId::must("p1"), pipeline, &mut envelope, false).unwrap();
@@ -1647,6 +1690,8 @@ mod tests {
             edge_limits: vec![],
             step_limit: None,
             state_schema: vec![],
+            subscriptions: vec![],
+            publishes: vec![],
         };
         let mut envelope = create_test_envelope();
         orch.initialize_session(ProcessId::must("p1"), pipeline, &mut envelope, false).unwrap();
@@ -1691,6 +1736,7 @@ mod tests {
             temperature: None,
             max_tokens: None,
             model_role: None,
+            child_pipeline: None,
         }
     }
 
@@ -1718,6 +1764,8 @@ mod tests {
             edge_limits: vec![],
             step_limit: None,
             state_schema: vec![],
+            subscriptions: vec![],
+            publishes: vec![],
         };
         let mut envelope = create_test_envelope();
         orch.initialize_session(ProcessId::must("p1"), pipeline, &mut envelope, false).unwrap();
@@ -1784,6 +1832,8 @@ mod tests {
             edge_limits: vec![],
             step_limit: None,
             state_schema: vec![],
+            subscriptions: vec![],
+            publishes: vec![],
         };
         let mut envelope = create_test_envelope();
         orch.initialize_session(ProcessId::must("p1"), pipeline, &mut envelope, false).unwrap();
@@ -1824,6 +1874,8 @@ mod tests {
             }],
             step_limit: Some(100),
             state_schema: vec![],
+            subscriptions: vec![],
+            publishes: vec![],
         };
         let json = serde_json::to_string(&config).unwrap();
         let deserialized: PipelineConfig = serde_json::from_str(&json).unwrap();
@@ -1893,6 +1945,8 @@ mod tests {
             edge_limits: vec![],
             step_limit: Some(3),
             state_schema: vec![],
+            subscriptions: vec![],
+            publishes: vec![],
         };
         let mut envelope = create_test_envelope();
         orch.initialize_session(ProcessId::must("p1"), pipeline, &mut envelope, false).unwrap();
@@ -1915,6 +1969,8 @@ mod tests {
             edge_limits: vec![],
             step_limit: None,
             state_schema: vec![],
+            subscriptions: vec![],
+            publishes: vec![],
         };
         let mut envelope = create_test_envelope();
         orch.initialize_session(ProcessId::must("p1"), pipeline, &mut envelope, false).unwrap();
@@ -1943,6 +1999,8 @@ mod tests {
             edge_limits: vec![],
             step_limit: Some(5),
             state_schema: vec![],
+            subscriptions: vec![],
+            publishes: vec![],
         };
         let mut envelope = create_test_envelope();
         orch.initialize_session(ProcessId::must("p1"), pipeline, &mut envelope, false).unwrap();
@@ -1984,6 +2042,8 @@ mod tests {
             edge_limits: vec![],
             step_limit: None,
             state_schema: vec![],
+            subscriptions: vec![],
+            publishes: vec![],
         };
         let mut envelope = create_test_envelope();
         orch.initialize_session(ProcessId::must("p1"), pipeline, &mut envelope, false).unwrap();
@@ -2016,6 +2076,8 @@ mod tests {
             edge_limits: vec![],
             step_limit: None,
             state_schema: vec![],
+            subscriptions: vec![],
+            publishes: vec![],
         };
         let mut envelope = create_test_envelope();
         orch.initialize_session(ProcessId::must("p1"), pipeline, &mut envelope, false).unwrap();
@@ -2045,6 +2107,8 @@ mod tests {
             edge_limits: vec![],
             step_limit: None,
             state_schema: vec![],
+            subscriptions: vec![],
+            publishes: vec![],
         };
         let mut envelope = create_test_envelope();
         orch.initialize_session(ProcessId::must("p1"), pipeline, &mut envelope, false).unwrap();
@@ -2075,6 +2139,8 @@ mod tests {
             edge_limits: vec![],
             step_limit: None,
             state_schema: vec![],
+            subscriptions: vec![],
+            publishes: vec![],
         };
         let mut envelope = create_test_envelope();
         orch.initialize_session(ProcessId::must("p1"), pipeline, &mut envelope, false).unwrap();
@@ -2108,6 +2174,8 @@ mod tests {
             edge_limits: vec![],
             step_limit: None,
             state_schema: vec![],
+            subscriptions: vec![],
+            publishes: vec![],
         };
         let mut envelope = create_test_envelope();
         orch.initialize_session(ProcessId::must("p1"), pipeline, &mut envelope, false).unwrap();
@@ -2135,6 +2203,8 @@ mod tests {
             edge_limits: vec![],
             step_limit: None,
             state_schema: vec![],
+            subscriptions: vec![],
+            publishes: vec![],
         };
         let mut envelope = create_test_envelope();
         orch.initialize_session(ProcessId::must("p1"), pipeline, &mut envelope, false).unwrap();
@@ -2171,6 +2241,8 @@ mod tests {
             }],
             step_limit: None,
             state_schema: vec![],
+            subscriptions: vec![],
+            publishes: vec![],
         };
         let mut envelope = create_test_envelope();
         orch.initialize_session(ProcessId::must("p1"), pipeline, &mut envelope, false).unwrap();
@@ -2202,6 +2274,8 @@ mod tests {
             edge_limits: vec![],
             step_limit: None,
             state_schema: vec![],
+            subscriptions: vec![],
+            publishes: vec![],
         };
         let mut envelope = create_test_envelope();
         orch.initialize_session(ProcessId::must("p1"), pipeline, &mut envelope, false).unwrap();
@@ -2303,6 +2377,8 @@ mod tests {
             edge_limits: vec![],
             step_limit: None,
             state_schema: vec![],
+            subscriptions: vec![],
+            publishes: vec![],
         };
         let mut envelope = create_test_envelope();
         orch.initialize_session(ProcessId::must("p1"), pipeline, &mut envelope, false).unwrap();
@@ -2334,6 +2410,7 @@ mod tests {
             temperature: None,
             max_tokens: None,
             model_role: None,
+            child_pipeline: None,
         }
     }
 
@@ -2358,6 +2435,8 @@ mod tests {
             edge_limits: vec![],
             step_limit: None,
             state_schema: vec![],
+            subscriptions: vec![],
+            publishes: vec![],
         };
         let mut envelope = create_test_envelope();
         orch.initialize_session(ProcessId::must("p1"), pipeline, &mut envelope, false).unwrap();
@@ -2396,6 +2475,8 @@ mod tests {
             edge_limits: vec![],
             step_limit: None,
             state_schema: vec![],
+            subscriptions: vec![],
+            publishes: vec![],
         };
         let mut envelope = create_test_envelope();
         orch.initialize_session(ProcessId::must("p1"), pipeline, &mut envelope, false).unwrap();
@@ -2425,6 +2506,8 @@ mod tests {
             edge_limits: vec![],
             step_limit: None,
             state_schema: vec![],
+            subscriptions: vec![],
+            publishes: vec![],
         };
         let mut envelope = create_test_envelope();
         orch.initialize_session(ProcessId::must("p1"), pipeline, &mut envelope, false).unwrap();
@@ -2452,6 +2535,8 @@ mod tests {
             edge_limits: vec![],
             step_limit: None,
             state_schema: vec![],
+            subscriptions: vec![],
+            publishes: vec![],
         };
         let mut envelope = create_test_envelope();
         orch.initialize_session(ProcessId::must("p1"), pipeline, &mut envelope, false).unwrap();
@@ -2476,6 +2561,8 @@ mod tests {
             edge_limits: vec![],
             step_limit: None,
             state_schema: vec![],
+            subscriptions: vec![],
+            publishes: vec![],
         };
         let mut envelope = create_test_envelope();
         orch.initialize_session(ProcessId::must("p1"), pipeline, &mut envelope, false).unwrap();
@@ -2504,6 +2591,8 @@ mod tests {
             edge_limits: vec![],
             step_limit: None,
             state_schema: vec![],
+            subscriptions: vec![],
+            publishes: vec![],
         };
         let mut envelope = create_test_envelope();
         orch.initialize_session(ProcessId::must("p1"), pipeline, &mut envelope, false).unwrap();
@@ -2535,6 +2624,8 @@ mod tests {
             edge_limits: vec![],
             step_limit: None,
             state_schema: vec![],
+            subscriptions: vec![],
+            publishes: vec![],
         };
         let mut envelope = create_test_envelope();
         orch.initialize_session(ProcessId::must("p1"), pipeline, &mut envelope, false).unwrap();
@@ -2566,6 +2657,8 @@ mod tests {
             edge_limits: vec![],
             step_limit: None,
             state_schema: vec![],
+            subscriptions: vec![],
+            publishes: vec![],
         };
         let mut envelope = create_test_envelope();
         orch.initialize_session(ProcessId::must("p1"), pipeline, &mut envelope, false).unwrap();
@@ -2600,6 +2693,8 @@ mod tests {
             edge_limits: vec![],
             step_limit: None,
             state_schema: vec![],
+            subscriptions: vec![],
+            publishes: vec![],
         };
         let mut envelope = create_test_envelope();
         orch.initialize_session(ProcessId::must("p1"), pipeline, &mut envelope, false).unwrap();
@@ -2630,6 +2725,8 @@ mod tests {
             edge_limits: vec![],
             step_limit: None,
             state_schema: vec![],
+            subscriptions: vec![],
+            publishes: vec![],
         };
         let mut envelope = create_test_envelope();
         orch.initialize_session(ProcessId::must("p1"), pipeline, &mut envelope, false).unwrap();

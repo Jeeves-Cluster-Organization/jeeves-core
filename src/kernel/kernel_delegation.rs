@@ -166,6 +166,12 @@ impl Kernel {
         if let Some(env) = self.process_envelopes.get_mut(pid) {
             env.terminate("Process terminated");
         }
+        // Unsubscribe CommBus subscriptions and drop receivers
+        if let Some(subs) = self.process_subscriptions.remove(pid) {
+            for (subscription, _receiver) in subs {
+                self.commbus.unsubscribe(&subscription);
+            }
+        }
         Ok(())
     }
 
@@ -175,6 +181,12 @@ impl Kernel {
         self.lifecycle.remove(pid)?;
         self.process_envelopes.remove(pid);
         self.orchestrator.cleanup_session(pid);
+        // Cleanup any remaining subscriptions (belt-and-suspenders)
+        if let Some(subs) = self.process_subscriptions.remove(pid) {
+            for (subscription, _receiver) in subs {
+                self.commbus.unsubscribe(&subscription);
+            }
+        }
         Ok(())
     }
 

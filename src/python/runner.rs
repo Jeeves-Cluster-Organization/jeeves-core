@@ -14,7 +14,7 @@ use crate::kernel::orchestrator_types::{NodeKind, PipelineConfig};
 use crate::kernel::Kernel;
 use crate::types::ProcessId;
 use crate::worker::actor::spawn_kernel;
-use crate::worker::agent::{AgentRegistry, DeterministicAgent, LlmAgent, McpDelegatingAgent};
+use crate::worker::agent::{AgentRegistry, DeterministicAgent, LlmAgent, McpDelegatingAgent, PipelineAgent};
 use crate::worker::handle::KernelHandle;
 use crate::worker::llm::openai::OpenAiProvider;
 use crate::worker::llm::LlmProvider;
@@ -133,16 +133,20 @@ impl PyPipelineRunner {
         // Initialize empty registries
         let tools = Arc::new(ToolRegistry::new());
 
+        let mut pipeline_configs = HashMap::new();
+        pipeline_configs.insert(pipeline_name.clone(), pipeline_config);
+
         // Build agents from pipeline config (no tools registered yet)
+        // Safe indexing: pipeline_name was just inserted above.
         let agents = Arc::new(build_agents_from_config(
-            &pipeline_config,
+            &pipeline_configs[&pipeline_name],
             &tools,
             &llm,
             &prompts,
+            &pipeline_configs,
+            &handle,
         ));
-
-        let mut pipeline_configs = HashMap::new();
-        pipeline_configs.insert(pipeline_name.clone(), pipeline_config);
+        backfill_pipeline_agents(&agents);
 
         Ok(Self {
             rt,
@@ -429,6 +433,10 @@ impl PyPipelineRunner {
     }
 
     /// Rebuild tool and agent registries from current tool_executors + pipeline configs.
+    ///
+    /// Two-pass rebuild for PipelineAgent OnceLock backfill:
+    /// Pass 1: Build all agents (PipelineAgent instances get empty OnceLock)
+    /// Pass 2: Wrap registry in Arc, backfill each PipelineAgent.agents.set(arc.clone())
     fn rebuild_registries(&mut self) {
         let mut tool_registry = ToolRegistry::new();
         for (name, executor) in &self.tool_executors {
@@ -436,7 +444,7 @@ impl PyPipelineRunner {
         }
         let tools = Arc::new(tool_registry);
 
-        // Build agents from ALL registered pipeline configs
+        // Pass 1: Build agents from ALL registered pipeline configs
         let mut agent_registry = AgentRegistry::new();
         for config in self.pipeline_configs.values() {
             merge_agents_from_config(
@@ -445,11 +453,17 @@ impl PyPipelineRunner {
                 &tools,
                 &self.llm,
                 &self.prompts,
+                &self.pipeline_configs,
+                &self.handle,
             );
         }
 
+        // Pass 2: Wrap in Arc, then backfill PipelineAgent OnceLocks
+        let agents = Arc::new(agent_registry);
+        backfill_pipeline_agents(&agents);
+
         self.tools = tools;
-        self.agents = Arc::new(agent_registry);
+        self.agents = agents;
     }
 }
 
@@ -459,9 +473,11 @@ fn build_agents_from_config(
     tools: &Arc<ToolRegistry>,
     llm: &Arc<dyn LlmProvider>,
     prompts: &Arc<PromptRegistry>,
+    pipeline_configs: &HashMap<String, PipelineConfig>,
+    handle: &KernelHandle,
 ) -> AgentRegistry {
     let mut registry = AgentRegistry::new();
-    merge_agents_from_config(&mut registry, config, tools, llm, prompts);
+    merge_agents_from_config(&mut registry, config, tools, llm, prompts, pipeline_configs, handle);
     registry
 }
 
@@ -469,6 +485,7 @@ fn build_agents_from_config(
 ///
 /// Auto-creates agents based on pipeline stage configuration:
 /// - Gate nodes → DeterministicAgent
+/// - child_pipeline = Some(name) → PipelineAgent (composition)
 /// - has_llm=true → LlmAgent (prompt_key defaults to agent name)
 /// - has_llm=false + matching tool → McpDelegatingAgent
 /// - has_llm=false + no tool → DeterministicAgent
@@ -478,6 +495,8 @@ fn merge_agents_from_config(
     tools: &Arc<ToolRegistry>,
     llm: &Arc<dyn LlmProvider>,
     prompts: &Arc<PromptRegistry>,
+    pipeline_configs: &HashMap<String, PipelineConfig>,
+    handle: &KernelHandle,
 ) {
     use crate::worker::agent::Agent;
 
@@ -493,6 +512,27 @@ fn merge_agents_from_config(
 
         let agent: Arc<dyn Agent> = match stage.node_kind {
             NodeKind::Gate => Arc::new(DeterministicAgent),
+            _ if stage.child_pipeline.is_some() => {
+                match (stage.child_pipeline.as_ref(), stage.child_pipeline.as_deref().and_then(|n| pipeline_configs.get(n))) {
+                    (Some(child_name), Some(child_config)) => {
+                        Arc::new(PipelineAgent {
+                            pipeline_name: child_name.clone(),
+                            pipeline_config: child_config.clone(),
+                            handle: handle.clone(),
+                            agents: std::sync::OnceLock::new(),
+                        })
+                    }
+                    (Some(child_name), None) => {
+                        tracing::warn!(
+                            agent = %agent_name,
+                            child_pipeline = %child_name,
+                            "child_pipeline not found, falling back to DeterministicAgent"
+                        );
+                        Arc::new(DeterministicAgent)
+                    }
+                    _ => Arc::new(DeterministicAgent),
+                }
+            }
             _ if stage.has_llm => {
                 let prompt_key = stage
                     .prompt_key
@@ -523,6 +563,23 @@ fn merge_agents_from_config(
         };
 
         registry.register(agent_name.clone(), agent);
+    }
+}
+
+/// Backfill PipelineAgent OnceLocks with the shared AgentRegistry.
+///
+/// After wrapping the AgentRegistry in Arc, iterate all agents and set the
+/// OnceLock on any PipelineAgent instances. This completes the two-pass build.
+fn backfill_pipeline_agents(agents: &Arc<AgentRegistry>) {
+    use crate::worker::agent::Agent;
+    for name in agents.list_names() {
+        if let Some(agent) = agents.get(&name) {
+            // Downcast to PipelineAgent to set the OnceLock
+            let agent_ref: &dyn Agent = agent.as_ref();
+            if let Some(pa) = (agent_ref as &dyn std::any::Any).downcast_ref::<PipelineAgent>() {
+                let _ = pa.agents.set(agents.clone());
+            }
+        }
     }
 }
 

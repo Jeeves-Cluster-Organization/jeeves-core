@@ -641,6 +641,7 @@ mod tests {
             temperature: None,
             max_tokens: None,
             model_role: None,
+            child_pipeline: None,
         };
         let (outputs, metadata) = empty_ctx();
 
