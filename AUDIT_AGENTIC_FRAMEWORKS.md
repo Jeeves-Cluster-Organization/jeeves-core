@@ -1,6 +1,6 @@
 # Jeeves-Core: Comprehensive Architectural Audit & Comparative Analysis
 
-**Date**: 2026-03-13 (Iteration 16 — Config-driven agents: McpDelegatingAgent, AgentConfig, prompt hardening)
+**Date**: 2026-03-13 (Iteration 20 — PyO3 bindings, MCP stdio server, stage-aware events, metadata)
 **Scope**: Full codebase audit of jeeves-core (single-process Rust kernel + worker) with comparative analysis against 17 OSS agentic frameworks.
 
 ---
@@ -21,45 +21,55 @@
 
 ## 1. Executive Summary
 
-Jeeves-Core is a **single-process Rust runtime** for AI agent orchestration. It is a monolithic Rust binary (~16,650 lines, `#[deny(unsafe_code)]`) with an embedded HTTP gateway (axum, hardened with TraceLayer + RequestBodyLimitLayer), MCP client (HTTP + stdio transports with 30s timeout), LLM provider with SSE streaming (reqwest + OpenAI-compatible), ReAct-style tool execution loops with circuit breaking, 8-event SSE streaming to clients, definition-time pipeline validation, interrupt resolution (streaming poll + buffered early-return), execution tracking, concurrent agent execution via tokio tasks, fluent PipelineBuilder API, consumer client module (JeevesClient), pipeline test harness, discovery & A2A endpoints, structured error responses, config-driven agent registration, and MCP-delegating agents.
+Jeeves-Core is a **single-process Rust runtime** for AI agent orchestration, consumed as either a **PyO3-importable Python library** or an **MCP stdio server binary**. It is a Rust library/binary (~17,200 lines, `#[deny(unsafe_code)]` except PyO3 FFI) with MCP client (HTTP + stdio transports with 30s timeout), MCP stdio server (JSON-RPC 2.0), PyO3 bindings (`from jeeves_core import PipelineRunner, tool`), LLM provider with SSE streaming (reqwest + OpenAI-compatible), ReAct-style tool execution loops with circuit breaking, 8-event stage-aware streaming, definition-time pipeline validation, interrupt resolution (streaming poll + buffered early-return), execution tracking, concurrent agent execution via tokio tasks, fluent PipelineBuilder API, pipeline test harness, Python `@tool` decorator with `PyToolExecutor` bridge, auto-agent creation from pipeline config, and metadata passthrough.
 
-**Architectural thesis**: A single-process Rust kernel with typed channel dispatch (`KernelHandle` → mpsc → Kernel actor) provides enforcement guarantees, memory safety, and operational simplicity that multi-process IPC architectures and in-process Python frameworks cannot match.
+**Architectural thesis**: A single-process Rust kernel with typed channel dispatch (`KernelHandle` → mpsc → Kernel actor`) provides enforcement guarantees, memory safety, and operational simplicity. **Consumption pivot (iterations 17-20)**: HTTP gateway replaced by two embeddable interfaces — PyO3 bindings for Python-first teams and MCP stdio server for tool-server integration.
 
-**Overall maturity: 4.9/5** (up from 4.8) — Iteration 16 completes the config-driven deployment story. `McpDelegatingAgent` bridges MCP tools as first-class agents. `AgentConfig` + `JEEVES_AGENTS` env var enables declarative agent registration without code changes. `main.rs` is now fully config-driven: LLM provider (`OPENAI_API_KEY`/`OPENAI_MODEL`/`OPENAI_BASE_URL`), prompt registry (`JEEVES_PROMPTS_DIR`), agent registry (`JEEVES_AGENTS`), MCP servers (`JEEVES_MCP_SERVERS`). MCP tool registration fixed to per-tool-name (was per-server-name). Prompt template engine hardened to preserve JSON literals in templates. Last Python artifact (`pyproject.toml`) deleted. 2 new tests. All 287 tests passing.
+**Overall maturity: 4.8/5** (was 4.9 — score adjusted due to gateway/A2A/client deletion offset by PyO3/MCP server gains) — Iterations 17-20 are an **architectural pivot** from "HTTP server with REST API" to "embeddable library with protocol interfaces". HTTP gateway (351L), JeevesClient (357L), gateway types/errors (160L), and discovery endpoints (4 routes) are deleted. In their place: PyO3 bindings (776L) providing `PipelineRunner.run()`/`.stream()` with GIL-released execution, MCP stdio server (360L) implementing `initialize`/`tools/list`/`tools/call`, Python `@tool` decorator + `PyToolExecutor` bridge (140L), auto-agent creation from pipeline config, metadata passthrough, stage-aware events, and observable McpDelegatingAgent. All 283 tests passing.
 
-**What changed in iteration 16** (1 commit, +164/-13 lines):
+**What changed in iterations 17-20** (4 commits, +1,085/-1,082 net lines):
 
-**Commit: Remove Python stub, add McpDelegatingAgent + AgentConfig + prompt dir** (`e864adc`):
+**Commit 17: PyO3 binding layer** (`c02c850`, +886/-7 lines):
+- New `src/python/` module (776L) with 4 files:
+  - `mod.rs` (74L): PyO3 module entry point (`#[pymodule] fn jeeves_core`), `@tool` decorator factory, `_ToolDecorator` pyclass
+  - `runner.rs` (577L): `PyPipelineRunner` — owns tokio runtime + kernel actor, provides `from_json()`, `register_tool()`, `register_pipeline()`, `run()`, `stream()`, `get_pipeline_state()`, `shutdown()`, context manager (`__enter__`/`__exit__`)
+  - `event_iter.rs` (59L): `PyEventIterator` — wraps `mpsc::Receiver<PipelineEvent>` as Python `__iter__`/`__next__`, GIL-released blocking
+  - `tool_bridge.rs` (66L): `PyToolExecutor` — wraps `Py<PyAny>` callable as Rust `ToolExecutor`, JSON serialization across FFI boundary
+- `pyproject.toml` (13L): maturin build config with `py-bindings` feature
+- `Cargo.toml`: `py-bindings` feature (pyo3 0.22 + inventory), `mcp-stdio` feature (clap)
+- `lib.rs`: `#[cfg(feature = "py-bindings")] #[allow(unsafe_code)]` for PyO3 module
+- Auto-agent creation: `merge_agents_from_config()` inspects pipeline stage config → Gate→DeterministicAgent, has_llm→LlmAgent, !has_llm+tool→McpDelegatingAgent
+- GIL-released execution: `py.allow_threads()` on both `run()` and `stream()`
+- Nested call safety: `block_in_place()` when already inside tokio (Python tool called from pipeline)
 
-**McpDelegatingAgent** (`worker/agent.rs`, +37L):
-- New `Agent` impl that forwards to an MCP tool via `ToolRegistry.execute()`
-- Passes full agent context (`raw_input`, `outputs`, `state`, `metadata`) as tool params
-- Returns MCP tool output as agent output with zero LLM calls
-- Bridges pattern: kernel dispatches to `McpDelegatingAgent`, which delegates to MCP tool server
-- Enables external (non-Rust) agent logic via MCP protocol — Python, TypeScript, etc. can implement agents as MCP tool servers
+**Commit 18: Replace HTTP gateway with MCP stdio server** (`f98b9c9`, +434/-1,049 lines):
+- **DELETED**: `gateway.rs` (351L), `gateway_types.rs` (94L), `gateway_errors.rs` (66L), `client.rs` (357L)
+- **DELETED**: axum, tower-http, tower dependencies from `[dependencies]` (moved to `[dev-dependencies]`)
+- **DELETED**: 12 HTTP routes, JeevesClient, ErrorResponse, ErrorCode, AgentCard, TaskStatus, ToolCardEntry
+- **NEW**: `mcp_server.rs` (360L) — MCP stdio server (JSON-RPC 2.0 over stdin/stdout)
+  - 4 methods: `initialize` (handshake), `notifications/initialized` (ack), `tools/list`, `tools/call`
+  - Newline-delimited JSON protocol, notification handling (no response for id-less requests)
+  - Upstream MCP proxy: `JEEVES_MCP_SERVERS` env var connects upstream MCP servers, re-serves their tools
+  - 6 unit tests: success/error serialization, request parsing, notification, string IDs
+- `main.rs` simplified (212→73L): init tracing → build ToolRegistry → run McpStdioServer
+- Binary: `jeeves-kernel` with `required-features = ["mcp-stdio"]`
+- Feature-gated: `#[cfg(feature = "mcp-stdio")] pub mod mcp_server`
 
-**AgentConfig + JEEVES_AGENTS** (`types/config.rs`, +25L; `main.rs`, +52L):
-- `AgentConfig` struct: `name`, `type` ("llm", "mcp_delegate", "deterministic", "gate"), `prompt_key`, `temperature`, `max_tokens`, `model`, `tool_name`
-- `JEEVES_AGENTS` env var: JSON array of `AgentConfig` for declarative agent registration
-- `main.rs` factory: dispatches on `agent_type` to construct `LlmAgent`, `McpDelegatingAgent`, or `DeterministicAgent`
-- Config-driven LLM provider: `OPENAI_API_KEY`, `OPENAI_MODEL` (default: gpt-4o-mini), `OPENAI_BASE_URL`
-- Config-driven prompt registry: `JEEVES_PROMPTS_DIR` (default: ./prompts)
+**Commit 19: Add metadata parameter to PyO3 PipelineRunner** (`47a8d97`, +66/-11 lines):
+- `run()` and `stream()` gain `metadata: Optional[dict]` parameter
+- `run_pipeline_with_envelope()`: new function accepting pre-built Envelope with metadata
+- `py_obj_to_json_value()`: Python dict → `serde_json::Value` via `json.dumps`
+- `Envelope::new_minimal()` usage for metadata passthrough to agents/tools
 
-**MCP tool registration fix** (`main.rs`):
-- Tools now registered per-tool-name (not per-server-name) into `ToolRegistry`
-- Fixes: `ToolRegistry.execute("tool_name", params)` now correctly finds MCP tools
-- Each discovered MCP tool gets its own `ToolRegistry` entry with shared `Arc<McpToolExecutor>`
-
-**Prompt template hardening** (`worker/prompts.rs`, +39L):
-- `strip_unresolved_vars()` now distinguishes identifier vars from JSON literals
-- `is_identifier()` check: only strips `{var_name}` patterns (alphanumeric + underscore)
-- JSON-like braces (e.g., `{"key": "value"}`) preserved verbatim
-- Enables prompts containing JSON examples without corruption
-- 2 new tests: JSON preservation, identifier-only stripping
-
-**Python elimination complete**:
-- `pyproject.toml` deleted — last Python workspace artifact removed
-- Project is now 100% Rust with zero Python files
+**Commit 20: Stage context on PipelineEvents + observable tool execution** (`04517ed`, +133/-26 lines):
+- `AgentContext` gains `stage_name: Option<String>` — tracks which pipeline stage the agent runs in
+- `PipelineEvent` variants gain `stage: Option<String>`: Delta, ToolCallStart, ToolResult, Error
+- `collect_stream()` gains `stage` parameter — tags every emitted Delta with originating stage
+- `McpDelegatingAgent` now emits ToolCallStart/ToolResult/Error events (was silent in iter 16)
+- `McpDelegatingAgent` now tracks `duration_ms` and `ToolCallResult` in metrics (was hardcoded 0)
+- `build_agent_context()` takes `stage_name` parameter — pipeline loop passes stage name
+- `execute_agent()` emits `PipelineEvent::Error` on agent failure when streaming
+- `Done` event now includes `outputs: Option<Value>` — terminal outputs visible in stream
 
 **What changed in iteration 15** (1 commit, +2,425/-1,237 lines):
 
@@ -122,51 +132,52 @@ Jeeves-Core is a **single-process Rust runtime** for AI agent orchestration. It 
 ### 2.1 Layer Architecture
 
 ```
-HTTP clients (frontends, capabilities, JeevesClient)
-       | HTTP (axum, JSON) or SSE
-       | TraceLayer + 2MB body limit
-       v
+Python (PyO3)                    MCP client (stdin/stdout)
+  from jeeves_core import          jeeves-kernel binary
+  PipelineRunner, tool             JSON-RPC 2.0 stdio
+       │                                │
+       ├─ run() / stream()              ├─ initialize
+       ├─ register_tool()               ├─ tools/list
+       ├─ @tool decorator               ├─ tools/call
+       v                                v
 ┌──────────────────────────────────────────────┐
-│  Single Rust process (jeeves-kernel)         │
+│  Single Rust process (jeeves-core library)   │
 │                                              │
-│  Gateway (axum, hardened) ──→ KernelHandle   │
-│     POST /chat/messages (req/resp)           │
-│     POST /chat/stream (SSE)    │ (mpsc)     │
-│     POST /interrupts/resolve   v             │
-│     GET  /agents, /tools       Kernel actor  │
-│     GET  /tasks/:id, /agents/:name/card NEW  │
-│                    (single &mut Kernel)       │
-│    ┌──────────────────────────────────┐      │
-│    │ Process lifecycle               │      │
-│    │ Pipeline orchestrator           │      │
-│    │ Pipeline validation             │      │
-│    │ PipelineBuilder (fluent API)    │ NEW  │
-│    │ Resource quotas                 │      │
-│    │ Rate limiter                    │      │
-│    │ Interrupts (7 kinds, wired)     │      │
-│    │ Tool health + circuit breaking  │      │
-│    │ Execution tracking              │      │
-│    │ CommBus                         │      │
-│    │ JSON Schema validation          │      │
-│    │ Tool ACLs                       │      │
-│    │ Graph (Gate/Fork/State)         │      │
-│    │ Service registry (MCP)          │      │
-│    └──────────────────────────────────┘      │
-│              ↑ instructions  ↓ results       │
-│         Agent tasks (concurrent tokio)       │
-│              │                               │
-│              ├─→ ReAct tool loop             │
-│              │   (LLM → tools → LLM)        │
-│              │   (circuit-broken skipped)     │
-│              │                               │
-│              ├─→ PipelineEvent stream (8)    │
-│              │   (Delta/Tool/Stage/Interrupt) │
-│              v                               │
-│    LLM calls (reqwest, SSE streaming)        │
-│    MCP tools (HTTP + stdio, 30s timeout)     │
-│                                              │
-│  PipelineTestHarness (cfg(test))        NEW  │
-│  JeevesClient (consumer HTTP client)   NEW  │
+│  PyPipelineRunner / McpStdioServer           │
+│     ├─ KernelHandle ──→ mpsc ──→ Kernel actor│
+│     │                   (single &mut Kernel) │
+│     │  ┌──────────────────────────────────┐  │
+│     │  │ Process lifecycle               │  │
+│     │  │ Pipeline orchestrator           │  │
+│     │  │ Pipeline validation             │  │
+│     │  │ PipelineBuilder (fluent API)    │  │
+│     │  │ Resource quotas                 │  │
+│     │  │ Rate limiter                    │  │
+│     │  │ Interrupts (7 kinds, wired)     │  │
+│     │  │ Tool health + circuit breaking  │  │
+│     │  │ Execution tracking              │  │
+│     │  │ CommBus                         │  │
+│     │  │ JSON Schema validation          │  │
+│     │  │ Tool ACLs                       │  │
+│     │  │ Graph (Gate/Fork/State)         │  │
+│     │  │ Service registry (MCP)          │  │
+│     │  └──────────────────────────────────┘  │
+│     │        ↑ instructions  ↓ results       │
+│     │   Agent tasks (concurrent tokio)       │
+│     │        │                               │
+│     │        ├─→ ReAct tool loop             │
+│     │        │   (LLM → tools → LLM)        │
+│     │        │   (circuit-broken skipped)     │
+│     │        │                               │
+│     │        ├─→ PipelineEvent stream (8)    │
+│     │        │   (stage-aware: Delta/Tool/   │
+│     │        │    Stage/Interrupt/Error)      │
+│     │        v                               │
+│     │  LLM calls (reqwest, SSE streaming)    │
+│     │  MCP tools (HTTP + stdio, 30s timeout) │
+│     │  Python tools (PyToolExecutor bridge)   │
+│     │                                        │
+│     └─ PipelineTestHarness (cfg(test))       │
 └──────────────────────────────────────────────┘
 ```
 
@@ -252,7 +263,7 @@ Fluent builder API for `PipelineConfig`:
 - `kernel_orchestration.rs` (256L): initialize, get_next_instruction, process_agent_result
 - `kernel_events.rs` (41L): CommBus envelope snapshots
 
-### 2.3 Worker Module (~3,260 LOC, with discovery, structured errors & config-driven agents)
+### 2.3 Worker Module (~2,600 LOC, with MCP server & stage-aware events)
 
 #### KernelHandle (`handle.rs`, 265L)
 Typed channel wrapper. **8 command variants** (was 7):
@@ -268,7 +279,7 @@ Typed channel wrapper. **8 command variants** (was 7):
 #### Kernel Actor (`actor.rs`, 170L)
 Single `&mut Kernel` behind mpsc channel. `dispatch()` pattern-matches on `KernelCommand`. New `ResolveInterrupt` dispatch: calls `kernel.resolve_interrupt()` → `kernel.resume_process()`.
 
-#### Agent Execution (`agent.rs`, 401L — was 358L)
+#### Agent Execution (`agent.rs`, 449L — was 401L)
 ```rust
 #[async_trait]
 pub trait Agent: Send + Sync + Debug {
@@ -276,9 +287,9 @@ pub trait Agent: Send + Sync + Debug {
 }
 ```
 
-**3 agent implementations** (was 2):
+**3 agent implementations**:
 1. **LlmAgent** — ReAct tool loop with streaming, instrumented with tracing
-2. **McpDelegatingAgent** (NEW) — Forwards to MCP tool, returns output as agent output
+2. **McpDelegatingAgent** — Forwards to MCP/Python tool, returns output as agent output (NOW OBSERVABLE)
 3. **DeterministicAgent** — No-LLM passthrough
 
 **LlmAgent with instrumented ReAct tool loop**:
@@ -287,20 +298,22 @@ pub trait Agent: Send + Sync + Debug {
 - Circuit-broken tools skipped in loop
 - `ToolCallResult` captured per tool: name, success, latency_ms, error_type
 - Tool results reported to kernel for health tracking
+- `collect_stream()` now tags Delta events with `stage` name
 
-**McpDelegatingAgent** (NEW):
+**McpDelegatingAgent** (NOW OBSERVABLE):
 ```rust
 pub struct McpDelegatingAgent {
     pub tool_name: String,
     pub tools: Arc<ToolRegistry>,
 }
 ```
-- Bridges external agent logic: kernel dispatches to `McpDelegatingAgent`, which calls MCP tool with full `AgentContext` as params
-- Enables non-Rust agent implementations: Python, TypeScript, etc. implement agent logic as MCP tool servers
+- Bridges external agent logic: kernel dispatches to `McpDelegatingAgent`, which calls MCP/Python tool
+- **Now emits ToolCallStart/ToolResult/Error events** (was silent in iter 16)
+- **Now tracks duration_ms and ToolCallResult in metrics** (was hardcoded 0)
+- Error path: emits `PipelineEvent::Error` with `stage` context on tool failure
 - Zero LLM calls — pure delegation pattern
-- Reports 1 tool call in metrics
 
-**AgentContext** (expanded):
+**AgentContext** (stage-aware):
 ```rust
 pub struct AgentContext {
     pub raw_input: String,
@@ -309,7 +322,7 @@ pub struct AgentContext {
     pub metadata: HashMap<String, Value>,
     pub allowed_tools: Vec<String>,
     pub event_tx: Option<mpsc::Sender<PipelineEvent>>,
-    pub circuit_broken_tools: Vec<String>,
+    pub stage_name: Option<String>,  // NEW: pipeline stage context
 }
 ```
 
@@ -337,79 +350,120 @@ pub struct McpToolExecutor {
 **7 unit tests**: JSON-RPC serialization, response parsing, tool definition parsing (full + minimal), tool result parsing.
 **1 integration test**: Mock HTTP server with 2 tools, full round-trip through ToolRegistry.
 
-#### Pipeline Loop (`mod.rs`, 305L)
+#### Pipeline Loop (`mod.rs`, 344L — was 305L)
 `run_pipeline_loop()` — instruction dispatch loop:
 - `RunAgent` → execute single agent, report result
 - `RunAgents` → `execute_parallel()` (tokio::spawn per agent, collect results)
 - `Terminate` → extract outputs, return `WorkerResult`
 - `WaitParallel` → continue
-- `WaitInterrupt` (NOW WIRED):
+- `WaitInterrupt`:
   - **Streaming**: emit `InterruptPending` event, poll every 500ms until resolved
   - **Buffered**: return early with `terminated: false`, caller resolves externally
 
-**Streaming pipeline**: `run_pipeline_streaming()` — session initialization before spawn (rate-limit errors surface as 429 HTTP before SSE stream starts).
+**Stage-aware pipeline** (NEW in iter 20):
+- `build_agent_context()` takes `stage_name` parameter, passes to `AgentContext`
+- `execute_agent()` emits `PipelineEvent::Error` with stage context on agent failure
+- `Done` event now includes `outputs: Option<Value>` for terminal output visibility
 
-#### HTTP Gateway (`gateway.rs` 351L + `gateway_types.rs` 94L + `gateway_errors.rs` 66L — split from single file)
-Axum router with **12 routes** (was 8):
-- `POST /api/v1/chat/messages` — run pipeline (request/response)
-- `POST /api/v1/chat/stream` — run pipeline with SSE streaming
-- `POST /api/v1/pipelines/run` — alias
-- `GET /api/v1/sessions/{id}` — session state
-- `GET /api/v1/agents` — list registered agents (NEW)
-- `GET /api/v1/agents/{name}/card` — agent card (NEW)
-- `GET /api/v1/tasks/{process_id}` — task status with progress (NEW)
-- `GET /api/v1/tools` — list registered tools (NEW)
-- `POST /api/v1/interrupts/{process_id}/{interrupt_id}/resolve` — resolve HITL interrupt
-- `GET /api/v1/status` — system status
-- `GET /health` — liveness
-- `GET /ready` — readiness
+**Pipeline entry points**:
+- `run_pipeline()` — simple buffered (input string)
+- `run_pipeline_with_envelope()` — buffered with pre-built Envelope (supports metadata)
+- `run_pipeline_streaming()` — returns `(JoinHandle, mpsc::Receiver<PipelineEvent>)`
 
-**Middleware stack**:
-- `TraceLayer::new_for_http()` — automatic request/response tracing
-- `RequestBodyLimitLayer::new(2MB)` — DoS protection
-- `CorsLayer::permissive()` — CORS
-- `QuotaExceeded` → 429 (not 500) on both buffered and SSE paths
+#### MCP Stdio Server (`mcp_server.rs`, 360L, NEW — replaces HTTP gateway)
+```rust
+pub struct McpStdioServer {
+    tools: Arc<ToolRegistry>,
+    server_name: String,
+    server_version: String,
+}
+```
 
-**Structured error responses** (NEW):
-- `ErrorResponse { error, code, error_id, details }` — all error responses include UUID error_id for log correlation
-- `gateway_errors.rs`: Full `Error` variant → HTTP status mapping (Validation→400, NotFound→404, QuotaExceeded→429, StateTransition→409, Timeout→504)
-- `gateway_types.rs`: Request/response types extracted (ChatRequest, ChatResponse, AgentCard, TaskStatus, ToolCardEntry, etc.)
+**Protocol**: JSON-RPC 2.0 over stdin/stdout (newline-delimited).
 
-**Discovery types** (A2A-compatible, NEW):
-- `AgentCard { name, tools }` — agent metadata
-- `ToolCardEntry { name, description }` — tool metadata
-- `TaskStatus { task_id, status, current_stage, progress, terminal_reason, outputs }` — task tracking with progress fraction
+**Methods**:
+- `initialize` — MCP handshake, returns `protocolVersion: "2024-11-05"` + `capabilities: { tools: {} }`
+- `notifications/initialized` — client acknowledgment (notification, no response)
+- `tools/list` — list available tools from ToolRegistry with `inputSchema`
+- `tools/call` — execute tool by name, returns MCP content items (`type: "text"`)
+
+**Error handling**: Tool execution errors returned as successful JSON-RPC with `isError: true`. Protocol errors use standard JSON-RPC error codes (-32700 parse, -32601 method not found, -32603 internal).
+
+**Upstream MCP proxy**: `JEEVES_MCP_SERVERS` env var connects upstream MCP servers → re-serves their tools through this server. Enables tool composition across MCP servers.
+
+**Feature-gated**: `#[cfg(feature = "mcp-stdio")] pub mod mcp_server`
+
+**6 unit tests**: success/error response serialization, initialize/notification/tools_call request parsing, string ID acceptance.
+
+**HTTP Gateway**: DELETED (iterations 17-20). Was: `gateway.rs` (351L) + `gateway_types.rs` (94L) + `gateway_errors.rs` (66L) — 12 routes, axum, TraceLayer, RequestBodyLimitLayer, structured errors, discovery endpoints. Replaced by MCP stdio server + PyO3 bindings.
+
+**JeevesClient**: DELETED. Was: `client.rs` (357L) — typed Rust HTTP client with SSE parsing. Replaced by PyO3 `PipelineRunner`.
 
 #### LLM Providers (`llm/`, ~540L)
 `LlmProvider` trait with `chat()` and `chat_stream()`.
 
-**PipelineEvent enum** (8 variants, was 7):
+**PipelineEvent enum** (8 variants, NOW STAGE-AWARE):
 - `StageStarted { stage }`
-- `Delta { content }`
-- `ToolCallStart { id, name }`
-- `ToolResult { id, content }`
+- `Delta { content, stage: Option<String> }` (STAGE-AWARE)
+- `ToolCallStart { id, name, stage: Option<String> }` (STAGE-AWARE)
+- `ToolResult { id, content, stage: Option<String> }` (STAGE-AWARE)
 - `StageCompleted { stage }`
-- `Done { process_id, terminated, terminal_reason }`
-- `Error { message }`
-- `InterruptPending { process_id, interrupt_id, kind, question, message }` (NEW)
+- `Done { process_id, terminated, terminal_reason, outputs: Option<Value> }` (OUTPUTS ADDED)
+- `Error { message, stage: Option<String> }` (STAGE-AWARE)
+- `InterruptPending { process_id, interrupt_id, kind, question, message }`
 
-#### Consumer Client (`client.rs`, 357L, NEW)
-```rust
-pub struct JeevesClient {
-    base_url: String,
-    http: reqwest::Client,
-}
+`collect_stream()` now takes `stage: Option<&str>` parameter — tags every Delta with originating pipeline stage.
+
+### 2.3a PyO3 Binding Layer (`python/`, 776L, NEW)
+
+#### Module (`python/mod.rs`, 74L)
+```python
+from jeeves_core import PipelineRunner, tool
 ```
+- `#[pymodule] fn jeeves_core` — registers `PipelineRunner`, `EventIterator`, `tool()`
+- `@tool(name, description, parameters)` decorator factory → `_ToolDecorator` pyclass
+- Sets `_tool_name`, `_tool_description`, `_tool_parameters` attributes on wrapped function
 
-**Methods**: `run_pipeline()`, `stream_pipeline()` (SSE), `list_agents()`, `list_tools()`, `get_task_status()`, `resolve_interrupt()`, `health()`.
+#### PipelineRunner (`python/runner.rs`, 577L)
+```python
+runner = PipelineRunner.from_json("pipeline.json", "prompts/")
+runner.register_tool(my_tool)
+result = runner.run("Hello", user_id="user1", metadata={"key": "value"})
+for event in runner.stream("Hello"):
+    print(event)
+```
+- `from_json(pipeline_path, prompts_dir, openai_api_key, openai_model, openai_base_url)` — static constructor
+- `register_tool(py_fn)` — registers `@tool`-decorated callable, rebuilds registries
+- `register_pipeline(name, config_json)` — adds pipeline config, rebuilds agents
+- `run(input, user_id, session_id, pipeline_name, metadata)` → `dict` with outputs, process_id, terminated
+- `stream(input, user_id, session_id, pipeline_name, metadata)` → `EventIterator`
+- `get_pipeline_state(process_id)` → `dict` (kernel state)
+- `shutdown()` — cancels kernel actor
+- Context manager: `with PipelineRunner.from_json(...) as runner:`
 
-**SSE parsing**: Manual `bytes_stream()` → newline-delimited block parsing → `PipelineEvent` deserialization. No new dependencies. Spawns background tokio task, returns `mpsc::Receiver<Result<PipelineEvent>>`.
+**Auto-agent creation**: `merge_agents_from_config()` inspects pipeline stage config:
+- `NodeKind::Gate` → `DeterministicAgent`
+- `has_llm: true` → `LlmAgent` (prompt_key defaults to agent name)
+- `has_llm: false` + matching tool → `McpDelegatingAgent`
+- `has_llm: false` + no tool → `DeterministicAgent`
 
-**Error handling**: `ErrorCode` enum (`RateLimited`, `InvalidArgument`, `NotFound`, `FailedPrecondition`, `Timeout`, `Cancelled`, `Internal`, `Unknown`). `map_http_error()` parses structured `ErrorResponse` JSON first, falls back to HTTP status code.
+**GIL management**: `py.allow_threads()` releases GIL during pipeline execution. `block_in_place()` handles nested calls (Python tool called from within pipeline → re-enters tokio runtime safely).
 
-**4 unit tests**: error code parsing, structured error mapping, unstructured fallback, client creation.
+**Registry rebuild**: `register_tool()` triggers full rebuild of ToolRegistry + AgentRegistry from all registered pipeline configs.
 
-#### Pipeline Test Harness (`testing.rs`, 170L, NEW)
+#### EventIterator (`python/event_iter.rs`, 59L)
+- Wraps `mpsc::Receiver<PipelineEvent>` as Python `__iter__`/`__next__`
+- GIL-released blocking: `py.allow_threads(|| handle.block_on(rx.recv()))`
+- Channel close → `StopIteration` (standard Python iterator protocol)
+- Events serialized via `serde_json::to_string` → `json.loads` (simple, correct)
+
+#### PyToolExecutor (`python/tool_bridge.rs`, 66L)
+- Wraps `Py<PyAny>` callable as Rust `ToolExecutor`
+- JSON boundary: `serde_json::Value` → `json.dumps` → Python dict → call → `json.dumps` → `serde_json::Value`
+- `Python::with_gil()` per-call — safe from any thread (including tokio workers)
+- `Py<PyAny>` is `Send+Sync` in PyO3 0.22
+
+#### Pipeline Test Harness (`testing.rs`, 170L)
 ```rust
 PipelineTestHarness::new(config)
     .mock_agent("understand", my_agent)
@@ -445,13 +499,17 @@ PipelineTestHarness::new(config)
 - `CORE_RATE_LIMIT_RPM`, `CORE_RATE_LIMIT_RPH`, `CORE_RATE_LIMIT_BURST` — rate limiting
 - `JEEVES_MCP_SERVERS` — JSON array of `McpServerConfig` for auto-connect
 
-**Config-driven main.rs** (NEW in iter 16):
-- `OPENAI_API_KEY`, `OPENAI_MODEL` (default: gpt-4o-mini), `OPENAI_BASE_URL` — LLM provider
-- `JEEVES_PROMPTS_DIR` (default: ./prompts) — prompt template directory
-- `JEEVES_AGENTS` — JSON array of `AgentConfig` for declarative agent registration
-- `JEEVES_MCP_SERVERS` — JSON array of `McpServerConfig` for MCP auto-connect
+**MCP stdio binary** (`main.rs`, 73L — was 212L):
+- `JEEVES_MCP_SERVERS` — JSON array of `McpServerConfig` for upstream MCP proxy
+- Tracing to stderr (safe for MCP stdout protocol)
 
-`AgentConfig` (NEW):
+**PyO3 bindings** (`PipelineRunner.from_json()`):
+- `pipeline_path` — JSON pipeline config file
+- `prompts_dir` — prompt template directory (default: `prompts/`)
+- `openai_api_key` / `openai_model` / `openai_base_url` — LLM provider (falls back to env vars)
+- Auto-agent creation from pipeline stage config (no `JEEVES_AGENTS` needed)
+
+`AgentConfig` (retained in types):
 ```rust
 pub struct AgentConfig {
     pub name: String,
@@ -490,32 +548,32 @@ pub struct McpServerConfig {
 | Gateway middleware | Rate limiting, body limit | **TraceLayer + 2MB body limit + 429 rate-limit** |
 | Observability bridge | Python OTEL adapter | **`#[instrument]` on agents + TraceLayer on gateway** |
 
-### 2.6 What Was Rebuilt (iterations 13-16)
+### 2.6 What Was Rebuilt (iterations 13-20)
 
-| Feature | Status (iter 12) | Status (iter 16) |
+| Feature | Status (iter 12) | Status (iter 20) |
 |---------|-------------------|-------------------|
 | Tool execution loop | Single LLM call | **ReAct multi-turn + circuit breaking** |
-| Streaming | Type defined, not wired | **End-to-end SSE (8 event types)** |
+| Streaming | Type defined, not wired | **Stage-aware events (8 types with stage context)** |
 | Definition-time validation | Serde only | **`PipelineConfig::validate()` + PipelineBuilder** |
-| SSE endpoint | None | **`POST /api/v1/chat/stream`** |
-| MCP client | Deleted with Python | **430L Rust, HTTP+stdio, 30s timeout, env auto-connect, per-tool registration** |
-| Gateway hardening | CORS only | **TraceLayer + 2MB limit + 429 + structured errors** |
-| Observability | Kernel OTEL only | **+ `#[instrument]` on agents + TraceLayer + routing debug** |
+| MCP client | Deleted with Python | **430L Rust, HTTP+stdio, 30s timeout, per-tool registration** |
+| MCP server | Deleted with Python | **360L Rust, stdio, JSON-RPC 2.0, upstream proxy** |
+| Observability | Kernel OTEL only | **+ `#[instrument]` + stage-aware events + routing debug** |
 | Tool health | Kernel module, unwired | **Wired: agent reports → kernel tracks → circuit breaking** |
-| Interrupts | Kernel module, unwired | **Wired: gateway → kernel → pipeline poll/early-return** |
+| Interrupts | Kernel module, unwired | **Wired: kernel → pipeline poll/early-return** |
 | Execution tracking | None | **max_stages, current_stage, completed_stages** |
-| Interrupt endpoint | None | **`POST /interrupts/{pid}/{iid}/resolve`** |
 | Integration tests | 5 tests | **21 tests (1,064L)** |
 | Fork/parallel | Deadlocked | **Fixed** |
 | Pipeline builder | None | **PipelineBuilder (503L) + routing constructors** |
 | Test harness | None | **PipelineTestHarness (170L) — buffered + streaming** |
-| Consumer client | None | **JeevesClient (357L) — typed HTTP + SSE** |
-| Discovery endpoints | None | **4 endpoints: agents, tools, tasks, agent cards** |
+| Python bindings | Deleted | **PyO3 (776L): PipelineRunner, @tool, EventIterator, PyToolExecutor** |
+| Consumer surface | `from jeeves_core import ...` | **`from jeeves_core import PipelineRunner, tool` (PyO3)** |
 | God-file splits | 1,250L mod.rs | **4 focused files (330L + 256L + 481L + 41L)** |
-| Structured errors | Plain strings | **ErrorResponse with error_id + details + typed codes** |
-| Config-driven agents | Hardcoded | **AgentConfig + JEEVES_AGENTS + McpDelegatingAgent** |
+| Config-driven agents | Hardcoded | **Auto-agent creation from pipeline config + McpDelegatingAgent** |
 | Prompt JSON safety | Corrupted JSON | **is_identifier() guard preserves JSON in templates** |
-| Python artifacts | pyproject.toml stub | **Deleted — 100% Rust** |
+| Gateway | HTTP (axum) | **DELETED → MCP stdio server + PyO3 bindings** |
+| Client SDK | None → JeevesClient | **DELETED → PyO3 PipelineRunner replaces** |
+| Metadata passthrough | None | **Envelope.new_minimal() with metadata parameter** |
+| Observable MCP agents | Silent delegation | **ToolCallStart/ToolResult/Error events emitted** |
 
 ---
 
@@ -541,11 +599,11 @@ pub struct McpServerConfig {
 
 9. **Fluent pipeline builder + test harness** (NEW) — `PipelineBuilder` with `StageHandle` chain reduces pipeline authoring from 30+ lines to ~5. `PipelineTestHarness` enables integration testing without HTTP. No other framework provides kernel-validated builder + in-process test harness combination.
 
-10. **Typed consumer client with SSE** (NEW) — `JeevesClient` with typed methods for all endpoints, manual SSE parsing, and `ErrorCode`-based error handling. Zero additional dependencies. Enables programmatic integration without raw HTTP.
+10. **PyO3 bindings with zero-copy kernel** (NEW, replaces JeevesClient) — `from jeeves_core import PipelineRunner, tool`. Python-first consumption of Rust kernel. GIL-released execution. Auto-agent creation from pipeline config. `@tool` decorator bridges Python callables to Rust ToolExecutor. No other Rust framework provides PyO3-native kernel consumption.
 
-11. **Discovery & A2A surface** (NEW) — Agent listing, agent cards, tool listing, task status with progress. Begins Google A2A-compatible protocol surface directly on the gateway.
+11. **MCP stdio server** (NEW, replaces HTTP gateway) — JSON-RPC 2.0 server exposing ToolRegistry via `tools/list` + `tools/call`. Upstream MCP proxy pattern. Enables integration with any MCP client (Claude, VS Code, etc.). Both MCP client AND server in one framework.
 
-12. **Config-driven agent registration with MCP delegation** (NEW) — `JEEVES_AGENTS` env var with `AgentConfig` enables fully declarative agent setup. `McpDelegatingAgent` bridges external (non-Rust) agent logic via MCP protocol — no code changes needed for deployment. No other framework combines config-driven registration with MCP-based agent delegation.
+12. **Stage-aware streaming events** (NEW) — All PipelineEvent variants carry `stage: Option<String>` context. Consumers can correlate events to pipeline stages. `Done` event includes terminal outputs. No other framework provides stage-level event attribution in streaming.
 
 ### 3.2 Comparison Matrix
 
@@ -563,13 +621,13 @@ pub struct McpServerConfig {
 | **Tool loop** | **ReAct + circuit break** | Yes | Yes | Yes | Yes | Yes | ReAct | N/A | N/A | Yes | Yes | Yes | Yes | Yes | Yes | None | Yes |
 | **Tool health** | **Circuit breaking** | None | None | None | None | None | None | None | None | None | None | None | None | None | None | None | None |
 | **Interrupt/HITL** | **7 kinds, wired** | Breakpoints | None | Human proxy | None | None | None | Pause | Signals | None | None | None | None | None | None | None | None |
-| **MCP support** | **Client (HTTP+stdio)** | Client | None | None | None | None | None | None | None | Client | Client | Client | Client | Client | Client | None | None |
-| **Streaming** | **SSE (8 events)** | Yes | None | Yes | Yes | None | None | None | None | Yes | Yes | Yes | Yes | Yes | Yes | None | Yes |
-| **Gateway hardening** | **Trace+2MB+429** | N/A | N/A | N/A | N/A | N/A | N/A | N/A | N/A | N/A | N/A | N/A | N/A | N/A | N/A | N/A | N/A |
-| **Testing infra** | **287 tests + harness** | None | None | None | None | None | Eval | None | None | None | pytest | None | Eval | None | None | None | None |
-| **Builder/DX** | **PipelineBuilder** | Python API | YAML | Python | C# API | Pipeline API | Decorators | Decorators | Go API | Graph API | Decorators | Decorators | YAML/Code | Decorators | Decorators | Macros | C# API |
-| **Client SDK** | **JeevesClient (Rust)** | Python | Python | Python | Multi-lang | Python | Python | Python | Multi-lang | TS | Python | Python | Python | Python | Python | Rust | Multi-lang |
-| **Discovery/A2A** | **4 endpoints** | None | None | None | None | None | None | None | None | None | None | None | A2A | None | None | None | None |
+| **MCP support** | **Client+Server** | Client | None | None | None | None | None | None | None | Client | Client | Client | Client | Client | Client | None | None |
+| **Streaming** | **8 events (stage-aware)** | Yes | None | Yes | Yes | None | None | None | None | Yes | Yes | Yes | Yes | Yes | Yes | None | Yes |
+| **Gateway** | **MCP stdio** | HTTP | HTTP | HTTP | HTTP | N/A | N/A | N/A | gRPC | HTTP | N/A | N/A | HTTP | N/A | N/A | N/A | HTTP |
+| **Testing infra** | **283 tests + harness** | None | None | None | None | None | Eval | None | None | None | pytest | None | Eval | None | None | None | None |
+| **Builder/DX** | **PipelineBuilder+PyO3** | Python API | YAML | Python | C# API | Pipeline API | Decorators | Decorators | Go API | Graph API | Decorators | Decorators | YAML/Code | Decorators | Decorators | Macros | C# API |
+| **Client SDK** | **PyO3 (Python)** | Python | Python | Python | Multi-lang | Python | Python | Python | Multi-lang | TS | Python | Python | Python | Python | Python | Rust | Multi-lang |
+| **Discovery/A2A** | **MCP tools/list** | None | None | None | None | None | None | None | None | None | None | None | A2A | None | None | None | None |
 | **Persistent memory** | None | Checkpoint | None | None | None | None | None | Artifacts | Durable | None | None | Memory | None | None | None | None | None |
 
 ### 3.3 Framework-by-Framework Comparison
@@ -674,9 +732,9 @@ pub struct McpServerConfig {
 | Agno | 3.0 | 3.0 | 2.5 | 3.5 | 4.0 | 3.0 |
 | Strands Agents | 3.0 | 3.0 | 2.5 | 3.0 | 3.5 | 3.5 |
 | Rig | 2.5 | 3.0 | 2.0 | 1.5 | 2.5 | 2.0 |
-| **Jeeves-Core** | **4.9** | **5.0** | **4.5** | 1.5 | 4.2 | 4.0 |
+| **Jeeves-Core** | **4.8** | **5.0** | **4.5** | 1.5 | 4.5 | 4.2 |
 
-DX score rises from 4.0 → 4.2 (config-driven agents, JSON-safe prompts, McpDelegatingAgent). Overall rises to 4.9 — config-driven deployment and language-agnostic agents via MCP close two critical adoption gaps.
+DX score rises to 4.5 (PyO3 `PipelineRunner`, `@tool` decorator, auto-agent creation, stage-aware events). Protocol rises to 4.2 (bidirectional MCP: client + server). Overall adjusts to 4.8 — PyO3 bindings and MCP stdio server are strong additions, offset by HTTP gateway deletion and documentation staleness.
 
 ---
 
@@ -700,7 +758,7 @@ DX score rises from 4.0 → 4.2 (config-driven agents, JSON-safe prompts, McpDel
 
 **S9: Definition-Time Validation (4.0/5)** — `PipelineConfig::validate()` with semantic checks. 15 unit tests.
 
-**S10: Testing (4.5/5)** (UP from 4.2) — 287 tests (266 unit + 21 integration), all passing. PipelineTestHarness enables integration testing without HTTP. MCP integration test with mock HTTP server. Builder tests cover routing, gate/fork, validation. Tool loop, streaming, fork/join, routing, errors, validation, client, error code, prompt JSON safety coverage.
+**S10: Testing (4.3/5)** (DOWN from 4.5 — gateway/client tests deleted) — 283 tests (262 unit + 21 integration), all passing. PipelineTestHarness enables integration testing. MCP integration test with mock HTTP server. Builder tests cover routing, gate/fork, validation. MCP server tests (6). No PyO3 integration tests yet.
 
 **S11: Observability (4.0/5)** — `TraceLayer` on gateway. `#[instrument]` on agent execution. `tracing::debug!` in tool loop and routing rule evaluation. Kernel OTEL preserved.
 
@@ -708,15 +766,15 @@ DX score rises from 4.0 → 4.2 (config-driven agents, JSON-safe prompts, McpDel
 
 **S13: Interrupt System (4.5/5)** — 7 typed interrupt kinds, fully wired: gateway endpoint → kernel command → orchestrator check → pipeline poll (streaming) or early return (buffered). `InterruptPending` SSE event. Complete HITL flow.
 
-**S14: MCP Integration (4.5/5)** (UP from 4.2) — HTTP + stdio transports with 30s timeout. Tool discovery + execution via JSON-RPC 2.0. Env-driven auto-connect (`JEEVES_MCP_SERVERS`). Per-tool-name registration (fixed). `McpDelegatingAgent` bridges MCP tools as first-class agents. `McpServerConfig` for declarative setup. Tools tracked by kernel health system.
+**S14: MCP Integration (4.8/5)** (UP from 4.5) — **Both client AND server**. Client: HTTP + stdio transports with 30s timeout, per-tool-name registration, env auto-connect. Server: MCP stdio (360L), JSON-RPC 2.0, `initialize`/`tools/list`/`tools/call`, upstream proxy pattern. `McpDelegatingAgent` bridges tools as agents. Full bidirectional MCP support is unique among frameworks.
 
-**S15: Gateway Hardening (4.5/5)** (UP from 4.0) — TraceLayer, 2MB RequestBodyLimitLayer, QuotaExceeded → 429. Structured `ErrorResponse` with `error_id` (UUID) and `details`. Full Error variant → HTTP status mapping. Gateway cleanly split: handlers, types, errors.
+**S15: PyO3 Bindings (4.5/5)** (NEW, replaces Gateway Hardening) — `from jeeves_core import PipelineRunner, tool`. GIL-released pipeline execution. `@tool` decorator bridges Python callables. Auto-agent creation from pipeline config. Metadata passthrough. Context manager. Nested call safety (`block_in_place`). EventIterator with GIL-released blocking.
 
-**S16: Developer Experience (4.2/5)** (UP from 4.0) — PipelineBuilder reduces pipeline authoring from 30+ lines to ~5. Routing expression convenience constructors. PipelineTestHarness for testing without HTTP. JeevesClient for typed programmatic access. Structured error codes with ErrorCode enum. JSON-safe prompt templates.
+**S16: Developer Experience (4.5/5)** (UP from 4.2) — PipelineBuilder reduces pipeline authoring to ~5 lines. `@tool` decorator for zero-boilerplate Python tools. Auto-agent creation eliminates manual agent registration. PyO3 `PipelineRunner` provides Pythonic consumption. Stage-aware events for debugging. JSON-safe prompt templates.
 
-**S17: Discovery & A2A Surface (3.5/5)** — 4 discovery endpoints: agent listing, agent cards, tool listing, task status with progress. A2A-compatible types (AgentCard, ToolCardEntry, TaskStatus). Begins interoperability surface.
+**S17: Stage-Aware Observability (4.0/5)** (REPLACES Discovery & A2A) — All streaming events carry `stage: Option<String>` context. Delta, ToolCallStart, ToolResult, Error events are attributable to pipeline stages. `McpDelegatingAgent` now emits full event lifecycle (was silent). `Done` includes terminal outputs. Enables per-stage monitoring dashboards.
 
-**S18: Config-Driven Deployment (4.5/5)** (NEW) — Fully declarative agent registration via `JEEVES_AGENTS` env var with `AgentConfig`. 4 agent types: `llm`, `mcp_delegate`, `deterministic`, `gate`. LLM provider from `OPENAI_API_KEY`/`OPENAI_MODEL`/`OPENAI_BASE_URL`. Prompts from `JEEVES_PROMPTS_DIR`. MCP from `JEEVES_MCP_SERVERS`. Zero code changes needed for deployment — configure entirely via env vars + prompt files. `McpDelegatingAgent` enables non-Rust agent logic via MCP protocol.
+**S18: Architecture Flexibility (4.5/5)** (REPLACES Config-Driven Deployment) — Two consumption modes from same Rust core: PyO3 module (Python-first) and MCP stdio binary (tool-server). Feature-gated compilation (`py-bindings`, `mcp-stdio`). Upstream MCP proxy pattern. Auto-agent creation from pipeline config eliminates boilerplate.
 
 ---
 
@@ -724,78 +782,72 @@ DX score rises from 4.0 → 4.2 (config-driven agents, JSON-safe prompts, McpDel
 
 **W1: Community & Ecosystem (1.0/5)** — Zero adoption. No community. No tutorials.
 
-**W2: Multi-language Support (2.0/5)** (UP from 1.5) — Rust binary, but `McpDelegatingAgent` enables non-Rust agent logic via MCP protocol. Python/TypeScript/etc. can implement agent behavior as MCP tool servers. No Python/TypeScript/C# client SDK yet.
+**W2: Multi-language Support (3.5/5)** (UP from 2.0) — PyO3 bindings provide first-class Python consumption. MCP stdio server enables any MCP client. TypeScript/Go/C# teams can use MCP protocol. No TypeScript/Go client SDK yet.
 
 **W3: Managed Experience (2.0/5)** — Self-hosted only.
 
 **W4: Memory & Persistence (2.0/5)** — No persistent memory. No checkpoint/replay.
 
-**W5: A2A Support (2.5/5)** (UP from 1.5) — A2A deleted with Python layer. Discovery endpoints added (agents, tools, tasks, agent cards). Full A2A protocol (task submission, streaming updates) not yet implemented.
+**W5: A2A Support (1.5/5)** (DOWN from 2.5) — Discovery endpoints deleted with HTTP gateway. No A2A surface. MCP `tools/list` provides minimal discovery but not A2A-compatible.
 
-**W6: MCP Server (2.0/5)** — MCP client is back but MCP server (exposing Jeeves capabilities as MCP resources) is not yet reimplemented.
+**W6: HTTP Gateway (0/5)** (NEW) — HTTP gateway deleted. No REST API. No webhook-driven integration. Teams requiring HTTP must build their own gateway around the PyO3 library or MCP stdio. This is a deliberate architectural choice (embeddable library > HTTP server) but limits deployment patterns.
 
-**W7: Authentication & Authorization (1.5/5)** (DOWN from 2.0 — more surface exposed) — No auth middleware on gateway. Discovery endpoints expose internal topology (agent names, tool names, system status) without auth. Task/session endpoints return full envelope state (outputs, metadata) to any caller. Client-supplied `process_id` in `ChatRequest` enables potential session hijacking — no ownership validation. `CorsLayer::permissive()` allows any origin. All unauthenticated requests share the "anonymous" rate-limit bucket. **Critical for production.**
+**W7: Authentication & Authorization (2.5/5)** (UP from 1.5 — less attack surface) — No auth on MCP stdio (relies on process-level isolation). PyO3 bindings run in-process (no network auth needed). Less concerning than unauthenticated HTTP gateway, but MCP stdio has no request-level auth.
 
-**W8: Multi-language Client SDKs (1.5/5)** — JeevesClient provides Rust client, but no Python/TypeScript/Go SDKs. Non-Rust teams must use raw HTTP.
+**W8: PyO3 Test Coverage (2.0/5)** (NEW) — No integration tests for PyO3 bindings. `PipelineRunner`, `EventIterator`, `@tool` decorator, `PyToolExecutor` — all untested from Python side. Only tested via Rust unit tests.
 
-**W9: SSE Client Robustness (3.0/5)** (NEW) — JeevesClient's manual SSE parser has edge cases: no multi-line `data:` concatenation (SSE spec requires it), no `\r\n` line ending support, no buffer size limit (unbounded memory growth on malformed streams), `from_utf8_lossy` silently replaces split multi-byte characters. Functional for well-behaved servers but not spec-complete.
+**W9: Post-hoc Tool Access Enforcement (3.5/5)** — Tool ACL checks in `process_agent_result()` run *after* tool execution, not before. An agent can execute unauthorized tools; the system only flags it afterward. Pre-execution enforcement would be stronger.
 
-**W10: Post-hoc Tool Access Enforcement (3.5/5)** (NEW) — Tool ACL checks in `process_agent_result()` run *after* tool execution, not before. An agent can execute unauthorized tools; the system only flags it afterward. Pre-execution enforcement would be stronger.
+**W10: Routing Expression Recursion (3.5/5)** — No recursion depth limit on `And`/`Or`/`Not` nesting in `RoutingExpr`. Since routing expressions come from user-supplied `PipelineConfig` JSON, deeply nested expressions could cause stack overflow (DoS vector).
 
-**W11: Routing Expression Recursion (3.5/5)** (NEW) — No recursion depth limit on `And`/`Or`/`Not` nesting in `RoutingExpr`. Since routing expressions come from user-supplied `PipelineConfig` JSON, deeply nested expressions could cause stack overflow (DoS vector).
+**W11: MCP Stdio Lifecycle (3.0/5)** — `McpToolExecutor` stdio transport lacks `kill_on_drop` on child process. No reconnection logic for either transport — if the server dies, the executor is permanently broken.
 
-**W12: MCP Stdio Lifecycle (3.0/5)** (NEW) — `McpToolExecutor` stdio transport lacks `kill_on_drop` on child process. No reconnection logic for either transport — if the server dies, the executor is permanently broken. Stderr piped to `/dev/null` silently loses MCP server errors.
+**W12: PyO3 GIL Contention (3.5/5)** (NEW) — `PyToolExecutor` acquires GIL per tool call via `Python::with_gil()`. Under high concurrency with many Python tools, GIL contention may limit throughput. Mitigation: keep Python tool logic minimal, delegate heavy work to async I/O.
 
 ---
 
 ## 6. Documentation Assessment
 
-6 documents, ~700 lines. Score: 3.5/5.
+6 documents, ~700 lines. Score: 3.0/5 (DOWN — HTTP gateway docs now stale, PyO3 docs needed).
 
 | Document | Lines | Status |
 |----------|-------|--------|
-| README.md | ~139 | Updated for Rust-only architecture |
+| README.md | ~139 | **Needs update**: architecture pivot to PyO3 + MCP stdio |
 | CONSTITUTION.md | ~202 | Updated |
-| CHANGELOG.md | ~88 | Needs update for iterations 13-15 |
-| docs/API_REFERENCE.md | ~100 | Needs update for 4 new discovery endpoints, structured errors, PipelineBuilder, JeevesClient |
-| docs/DEPLOYMENT.md | ~100 | Updated for single-binary deploy |
+| CHANGELOG.md | ~88 | **Needs update** for iterations 13-20 |
+| docs/API_REFERENCE.md | ~100 | **Stale**: HTTP endpoints deleted. Needs PyO3 API docs + MCP protocol docs |
+| docs/DEPLOYMENT.md | ~100 | **Needs update**: binary is now MCP stdio, PyO3 is library consumption |
 | AUDIT_AGENTIC_FRAMEWORKS.md | this file | Current |
 
 ---
 
 ## 7. Recommendations
 
-### Immediate (High Impact, Security-Critical)
+### Immediate (High Impact)
 
-1. **Authentication middleware** — JWT or API key auth on gateway. Discovery endpoints expose internal topology without auth. Task/session endpoints leak full envelope state. Client-supplied `process_id` enables session hijacking. **Blocking for production deployment.**
+1. **PyO3 integration tests** — No Python-side tests exist. Add pytest suite covering `PipelineRunner.from_json()`, `register_tool()`, `run()`, `stream()`, `@tool` decorator, error handling, metadata passthrough.
 
 2. **Pre-execution tool ACL enforcement** — Move tool access checks from `process_agent_result()` (post-hoc) to the agent tool loop (pre-execution). Currently unauthorized tools execute and are only flagged afterward.
 
 3. **Routing expression recursion limit** — Add depth limit on `And`/`Or`/`Not` nesting to prevent stack overflow from user-supplied `PipelineConfig` JSON.
 
-4. **Update API docs** — Document 4 new discovery endpoints, PipelineBuilder API, JeevesClient usage, `McpServerConfig` env var, `AgentConfig` + `JEEVES_AGENTS`, `JEEVES_PROMPTS_DIR`, structured `ErrorResponse` format.
-
-### Immediate (High Impact, Non-Security)
-
-5. **MCP server in Rust** — Expose Jeeves capabilities as MCP resources for cross-framework tool consumption.
+4. **Update all documentation** — README (architecture pivot), API_REFERENCE (delete HTTP, add PyO3 + MCP), DEPLOYMENT (maturin build, MCP binary), CHANGELOG (iterations 13-20).
 
 ### Medium-term
 
-6. **Full A2A protocol** — Extend discovery endpoints into full A2A task submission and streaming updates. Foundation laid in iteration 15.
+5. **HTTP gateway (optional feature)** — Re-add HTTP gateway as `#[cfg(feature = "http-gateway")]` for teams needing REST API. Can be thin layer around `run_pipeline()` / `run_pipeline_streaming()`.
 
-7. **Persistent state** — Redis/SQL-backed state persistence across pipeline requests.
+6. **Persistent state** — Redis/SQL-backed state persistence across pipeline requests.
 
-8. **Multi-language client SDKs** — Generate Python/TypeScript/Go SDKs from HTTP API spec. JeevesClient provides the reference implementation.
+7. **Async Python tools** — `PyToolExecutor` currently calls sync Python. Support `async def` tools via `asyncio.run()` or `pyo3-asyncio`.
 
-9. **SSE client hardening** — Multi-line `data:` concatenation, `\r\n` support, buffer size limit, proper UTF-8 chunk boundary handling in JeevesClient.
-
-10. **MCP lifecycle hardening** — `kill_on_drop` on stdio child, reconnection logic for both transports, stderr capture with logging.
+8. **MCP lifecycle hardening** — `kill_on_drop` on stdio child, reconnection logic for both transports, stderr capture with logging.
 
 ### Long-term
 
-11. **Checkpoint/replay** — Pipeline state persistence for crash recovery.
-12. **Evaluation framework** — Leverage kernel metrics + tool health + PipelineTestHarness for pipeline quality assessment.
-13. **Visual pipeline builder** — Web UI leveraging PipelineBuilder API for drag-and-drop pipeline construction.
+9. **Checkpoint/replay** — Pipeline state persistence for crash recovery.
+10. **Evaluation framework** — Leverage kernel metrics + tool health + PipelineTestHarness for pipeline quality assessment.
+11. **MCP server pipeline exposure** — Expose full pipeline execution (not just tools) via MCP protocol. Enable MCP clients to run pipelines, not just call tools.
 
 ---
 
@@ -803,116 +855,130 @@ DX score rises from 4.0 → 4.2 (config-driven agents, JSON-safe prompts, McpDel
 
 | Dimension | Score | Rationale |
 |-----------|-------|-----------|
-| Architecture | 5.0/5 | Single-process, typed channels, zero serialization, clean file splits |
+| Architecture | 5.0/5 | Single-process, typed channels, zero serialization, dual consumption (PyO3 + MCP stdio) |
 | Contract enforcement | 5.0/5 | JSON Schema + tool ACLs + quotas + max_visits + step_limit + circuit breaking |
-| Operational simplicity | 4.8/5 | Single binary, single Dockerfile, fully config-driven via env vars (UP from 4.5) |
+| Operational simplicity | 4.5/5 | Two modes: PyO3 lib (`pip install`) or MCP binary. No HTTP server to deploy (DOWN from 4.8 — more complex build) |
 | Graph expressiveness | 4.5/5 | Gate/Fork/Agent, state merge, Break, step_limit |
-| Type safety | 5.0/5 | 100% Rust, `#[deny(unsafe_code)]`, typed channels |
-| Memory safety | 5.0/5 | Zero unsafe, Rust ownership end-to-end |
-| Agentic capabilities | 4.8/5 | ReAct tool loop + circuit breaking + health tracking + MCP delegation |
-| Streaming | 4.5/5 | End-to-end SSE: 8 event types including InterruptPending |
+| Type safety | 4.8/5 | Mostly `#[deny(unsafe_code)]`, `#[allow(unsafe_code)]` for PyO3 FFI (DOWN from 5.0) |
+| Memory safety | 4.8/5 | Rust ownership end-to-end, PyO3 FFI boundary is safe-by-construction but `#[allow(unsafe_code)]` required (DOWN from 5.0) |
+| Agentic capabilities | 4.8/5 | ReAct tool loop + circuit breaking + health tracking + MCP delegation + Python tool bridge |
+| Streaming | 4.8/5 | Stage-aware events (8 types with stage context). EventIterator for Python. Observable MCP delegation (UP from 4.5) |
 | Definition-time validation | 4.5/5 | PipelineConfig::validate() + PipelineBuilder (catches errors at construction) |
-| MCP integration | 4.5/5 | HTTP + stdio client, per-tool registration, McpDelegatingAgent, env auto-connect (UP from 4.2) |
-| Interrupt system | 4.5/5 | 7 kinds, fully wired: gateway → kernel → pipeline |
-| Gateway hardening | 4.5/5 | TraceLayer + 2MB limit + 429 + structured errors with error_id |
-| Observability | 4.0/5 | TraceLayer + #[instrument] + routing debug + kernel OTEL |
-| Code hygiene | 5.0/5 | ~40k dead lines deleted. God-files split. Last Python artifact removed |
-| Testing & eval | 4.5/5 | 287 tests (266 unit + 21 integration) + PipelineTestHarness |
-| Developer experience | 4.2/5 | PipelineBuilder + JeevesClient + PipelineTestHarness + structured errors + JSON-safe prompts (UP from 4.0) |
-| Config-driven deployment | 4.5/5 | JEEVES_AGENTS + AgentConfig + OPENAI_* + JEEVES_PROMPTS_DIR + JEEVES_MCP_SERVERS (NEW) |
-| Documentation | 3.5/5 | Needs update for new discovery endpoints, builder, client, AgentConfig |
-| Interoperability | 3.8/5 | MCP client + McpDelegatingAgent + 4 discovery endpoints. No MCP server (UP from 3.5) |
+| MCP integration | 4.8/5 | **Client AND server**. Client: HTTP+stdio. Server: stdio JSON-RPC 2.0 with upstream proxy. Both unique (UP from 4.5) |
+| Interrupt system | 4.5/5 | 7 kinds, fully wired: kernel → pipeline poll/early-return |
+| PyO3 bindings | 4.5/5 | PipelineRunner + @tool + EventIterator + PyToolExecutor. GIL-released. Auto-agent creation (NEW) |
+| Observability | 4.2/5 | Stage-aware events + #[instrument] + routing debug + kernel OTEL (UP from 4.0) |
+| Code hygiene | 5.0/5 | ~40k dead lines deleted. God-files split. HTTP gateway cleanly removed |
+| Testing & eval | 4.3/5 | 283 tests (262 unit + 21 integration) + PipelineTestHarness. No PyO3 tests (DOWN from 4.5) |
+| Developer experience | 4.5/5 | PyO3 PipelineRunner + @tool decorator + auto-agent creation + PipelineBuilder + JSON-safe prompts (UP from 4.2) |
+| Documentation | 3.0/5 | All docs stale after architecture pivot (DOWN from 3.5) |
+| Interoperability | 4.2/5 | MCP client + MCP server + PyO3 bindings. Bidirectional MCP unique (UP from 3.8) |
 | RAG depth | 1.0/5 | No retrieval |
-| Multi-language | 2.0/5 | Rust binary, but McpDelegatingAgent enables non-Rust agent logic via MCP (UP from 1.5) |
+| Multi-language | 3.5/5 | PyO3 (Python), MCP stdio (any MCP client). Massive improvement (UP from 2.0) |
 | Managed experience | 2.0/5 | Self-hosted only |
 | Memory/persistence | 2.0/5 | No persistent memory |
 | Community/ecosystem | 1.0/5 | Zero adoption |
-| **Overall** | **4.9/5** | |
+| **Overall** | **4.8/5** | |
 
-The overall score rises from 4.8 to 4.9. Iteration 16 completes the config-driven deployment story: agents, LLM provider, prompts, and MCP servers are all declaratively configured via environment variables. `McpDelegatingAgent` bridges the multi-language gap by enabling non-Rust agent logic via MCP protocol. The system transitions from "production-hardened with DX" to "production-hardened, config-driven, and language-agnostic".
+The overall score adjusts from 4.9 to 4.8. Iterations 17-20 are an **architectural pivot**, not a regression. The system trades HTTP gateway surface (12 routes, structured errors, discovery endpoints, JeevesClient) for embeddable interfaces (PyO3 bindings, MCP stdio server). This is a net improvement for the target use case (Python-first teams consuming Rust kernel) but temporarily reduces testing coverage and documentation currency. The system transitions from "production-hardened HTTP server" to "embeddable kernel with dual protocol interfaces".
 
 ---
 
 ## 9. Trajectory Analysis
 
-### Gap Closure (16 Iterations)
+### Gap Closure (20 Iterations)
 
 | Gap | Status |
 |-----|--------|
 | String-prompt LLM interface | **CLOSED** — message-based `LlmProvider::chat()` |
 | No output schema validation | **CLOSED** — kernel JSON Schema |
 | No tool ACLs | **CLOSED** — kernel-enforced |
-| MCP support | **RECOVERED** — MCP client (430L), HTTP + stdio transports, McpDelegatingAgent |
-| A2A support | **PARTIAL** — 4 discovery endpoints (agents, tools, tasks, cards). Full task protocol not yet |
+| MCP support | **CLOSED** — MCP client (HTTP + stdio) + MCP stdio server (360L). Bidirectional |
+| A2A support | **REMOVED** — discovery endpoints deleted with HTTP gateway (iter 18). Deliberate pivot |
 | Envelope complexity | **CLOSED** — typed `AgentContext` |
-| No testing framework | **CLOSED** — 287 tests, 21 integration with mock MCP server |
-| Dead protocols | **CLOSED** — ~40k lines deleted, pyproject.toml removed |
-| No StreamingAgent | **CLOSED** — end-to-end SSE (8 event types) |
-| No OTEL spans | **MOSTLY CLOSED** — `TraceLayer` + `#[instrument]` on agents + kernel OTEL |
-| No documentation | **CLOSED** — 6 docs (needs endpoint updates) |
+| No testing framework | **CLOSED** — 283 tests (262 unit + 21 integration) |
+| Dead protocols | **CLOSED** — ~40k lines deleted, pyproject.toml removed then recreated for maturin |
+| No StreamingAgent | **CLOSED** — end-to-end stage-aware streaming (8 event types) |
+| No OTEL spans | **MOSTLY CLOSED** — `#[instrument]` on agents + kernel OTEL |
+| No documentation | **CLOSED** — 6 docs (needs architecture pivot updates) |
 | No graph primitives | **CLOSED** — Gate/Fork/State/Break/step_limit |
 | No state management | **CLOSED** — state_schema + MergeStrategy |
 | IPC complexity | **CLOSED** — typed mpsc channels |
-| Python operational overhead | **CLOSED** — Python fully deleted (including pyproject.toml) |
+| Python operational overhead | **SUPERSEDED** — Python re-introduced as consumer (PyO3 bindings), not runtime. Rust is the kernel |
 | No definition-time validation | **CLOSED** — `PipelineConfig::validate()` + `PipelineBuilder` |
-| No curated API surface | **CLOSED** — JeevesClient (typed HTTP), PipelineBuilder (fluent config), PipelineTestHarness |
+| No curated API surface | **CLOSED** — PyO3 `PipelineRunner` + `@tool` + `PipelineBuilder` + `PipelineTestHarness` |
 | No non-LLM agent | **CLOSED** — `DeterministicAgent` + `McpDelegatingAgent` |
 | Persistent memory | **OPEN** |
 | Tool execution loop | **CLOSED** — ReAct multi-turn + circuit breaking |
-| Streaming end-to-end | **CLOSED** — 8 event types including InterruptPending |
+| Streaming end-to-end | **CLOSED** — 8 stage-aware event types including InterruptPending |
 | Fork deadlock | **CLOSED** — explicit agent_name |
-| Gateway hardening | **CLOSED** — TraceLayer + 2MB limit + 429 |
+| Gateway hardening | **REMOVED** — HTTP gateway deliberately deleted (iter 18). No longer applicable |
 | Tool health unwired | **CLOSED** — wired: agent reports → kernel tracks → circuit breaking |
-| Interrupts unwired | **CLOSED** — wired: gateway → kernel → pipeline poll/early-return |
-| Observability unwired | **MOSTLY CLOSED** — TraceLayer + #[instrument] + routing debug |
+| Interrupts unwired | **CLOSED** — wired: kernel → pipeline poll/early-return (gateway path removed) |
+| Observability unwired | **CLOSED** — stage-aware events + #[instrument] + routing debug (UP from MOSTLY) |
 | No pipeline builder | **CLOSED** — PipelineBuilder (503L) + routing convenience constructors |
 | No test harness | **CLOSED** — PipelineTestHarness (170L) — buffered + streaming |
-| No consumer client | **CLOSED** — JeevesClient (357L) — typed HTTP + SSE |
-| No discovery endpoints | **CLOSED** — 4 endpoints: agents, tools, tasks, agent cards |
-| God-file sprawl | **CLOSED** — kernel mod.rs split 4 ways, gateway split 3 ways |
-| Unstructured errors | **CLOSED** — ErrorResponse with error_id, details, typed codes |
-| No config-driven agents | **CLOSED** — AgentConfig + JEEVES_AGENTS + McpDelegatingAgent |
+| No consumer client | **REMOVED** — JeevesClient deleted with HTTP gateway (iter 18). PyO3 PipelineRunner replaces |
+| No discovery endpoints | **REMOVED** — deleted with HTTP gateway. MCP `tools/list` provides minimal discovery |
+| God-file sprawl | **CLOSED** — kernel mod.rs split 4 ways, gateway files cleanly deleted |
+| Unstructured errors | **SUPERSEDED** — ErrorResponse deleted with gateway. PyO3 uses Python exceptions, MCP uses JSON-RPC errors |
+| No config-driven agents | **CLOSED** — AgentConfig + auto-agent creation from pipeline config |
 | Hardcoded LLM/prompts | **CLOSED** — OPENAI_API_KEY/MODEL/BASE_URL + JEEVES_PROMPTS_DIR |
 | Prompt JSON corruption | **CLOSED** — is_identifier() guard preserves JSON in templates |
+| No Python consumption | **CLOSED** (NEW) — PyO3 bindings: `PipelineRunner`, `@tool`, `EventIterator`, `PyToolExecutor` |
+| No MCP server | **CLOSED** (NEW) — MCP stdio server (360L), JSON-RPC 2.0, upstream proxy pattern |
+| No stage-aware events | **CLOSED** (NEW) — all PipelineEvent variants carry `stage: Option<String>` |
+| No metadata passthrough | **CLOSED** (NEW) — `run(config, metadata)` / `stream(config, metadata)` |
 
-**31/35 gaps closed. 1 recovered (MCP client). 1 partial (A2A). 1 mostly closed (observability). 1 open (persistent memory).**
+**31/39 gaps closed. 4 deliberately removed (A2A, gateway hardening, consumer client, discovery). 2 superseded (Python overhead, structured errors). 1 mostly closed (OTEL). 1 open (persistent memory).**
 
-### Code Trajectory (Iterations 12-16)
+### Code Trajectory (Iterations 12-20)
 
-| Metric | Iter 12 → Iter 13 → Iter 14 → Iter 15 → Iter 16 | Detail |
-|--------|---------------------------------------------------|--------|
-| Total Rust LOC | ~14,340 → ~14,400 → ~15,300 → ~16,500 → **~16,650** | +150 (McpDelegatingAgent, AgentConfig, prompt fix) |
-| Worker module | 1,678 → ~2,200 → ~2,910 → ~3,110 → **~3,260** | +150 (McpDelegatingAgent, prompt hardening, main.rs config) |
-| Rust tests | 247 → 261 → 269 → 285 → **287** | +2 (prompt JSON preservation, identifier stripping) |
-| Integration tests | 5 → 20 → 21 → 21 → **21** | Stable |
-| HTTP endpoints | 6 → 7 → 8 → 12 → **12** | Stable |
-| KernelCommand variants | 7 → 7 → 8 → 8 → **8** | Stable |
-| PipelineEvent variants | 0 → 7 → 8 → 8 → **8** | Stable |
-| Agent types | 2 → 2 → 2 → 2 → **3** | +McpDelegatingAgent |
-| MCP support | Deleted → Deleted → Client → Client + auto-connect → **+ McpDelegatingAgent + per-tool registration fix** | Language-agnostic agents |
-| Config-driven | None → None → None → MCP env → **Fully config-driven (agents + LLM + prompts + MCP)** | Zero-code deployment |
-| Python artifacts | pyproject.toml → → → → **Deleted** | 100% Rust |
-| Builder/DX | None → None → None → PipelineBuilder + JeevesClient + Harness → **+ JSON-safe prompts** | Matured |
+| Metric | Iter 12 → 13 → 14 → 15 → 16 → **17-20** | Detail |
+|--------|---------------------------------------------|--------|
+| Total Rust LOC | ~14,340 → ~14,400 → ~15,300 → ~16,500 → ~16,650 → **~17,200** | +550 (PyO3 776L, MCP server 360L, −868L deleted gateway/client) |
+| Worker module | 1,678 → ~2,200 → ~2,910 → ~3,110 → ~3,260 → **~3,700** | +440 (MCP server 360L, stage-aware events, observable McpDelegatingAgent) |
+| Python module | — → — → — → — → — → **776L** (NEW) | mod.rs 74L + runner.rs 577L + event_iter.rs 59L + tool_bridge.rs 66L |
+| Rust tests | 247 → 261 → 269 → 285 → 287 → **283** | −4 (gateway/client tests deleted, +6 MCP server tests, −10 gateway/client) |
+| Integration tests | 5 → 20 → 21 → 21 → 21 → **21** | Stable |
+| HTTP endpoints | 6 → 7 → 8 → 12 → 12 → **0** | HTTP gateway deleted |
+| KernelCommand variants | 7 → 7 → 8 → 8 → 8 → **8** | Stable |
+| PipelineEvent variants | 0 → 7 → 8 → 8 → 8 → **8** (stage-aware) | All variants gain `stage: Option<String>` |
+| Agent types | 2 → 2 → 2 → 2 → 3 → **3** | Stable (LlmAgent, DeterministicAgent, McpDelegatingAgent) |
+| MCP support | Deleted → Deleted → Client → Client + auto → +McpDelegating → **+ MCP stdio server** | Bidirectional MCP |
+| Consumption modes | Binary → Binary → Binary → Binary → Binary → **PyO3 lib + MCP stdio binary** | Dual consumption |
+| Python artifacts | pyproject.toml → → → → Deleted → **Recreated** (maturin build) | PyO3 build config |
+| Files deleted | — → — → — → — → — → **client.rs (357L), gateway.rs (351L), gateway_types.rs (94L), gateway_errors.rs (66L)** | −868L HTTP surface |
+| Builder/DX | None → None → None → PipelineBuilder + JeevesClient + Harness → + JSON-safe → **PyO3 PipelineRunner + @tool + EventIterator** | Python-first DX |
 
 ### Architectural Verdict
 
-Iteration 16 transitions Jeeves-Core from **production-hardened with DX** to **production-hardened, config-driven, and language-agnostic**. Three shifts matter:
+Iterations 17-20 represent an **architectural pivot**: Jeeves-Core transitions from "HTTP server with REST API" to "embeddable Rust kernel with dual protocol interfaces". This is the most significant architectural change since iteration 1.
 
-1. **Config-driven deployment**: The binary is now fully configurable via environment variables. `JEEVES_AGENTS` (agent registry), `OPENAI_API_KEY`/`OPENAI_MODEL`/`OPENAI_BASE_URL` (LLM provider), `JEEVES_PROMPTS_DIR` (prompt templates), `JEEVES_MCP_SERVERS` (MCP tools). A deployment can configure an entire multi-agent pipeline without writing or compiling Rust code. This eliminates the "compile-to-deploy" barrier that is the primary adoption friction for Rust frameworks.
+**What was gained:**
 
-2. **Language-agnostic agents via MCP**: `McpDelegatingAgent` bridges the multi-language gap. External teams can implement agent logic in Python, TypeScript, or any language as MCP tool servers. The kernel dispatches to `McpDelegatingAgent`, which forwards the full agent context to the MCP tool and returns its output. This is architecturally elegant — it reuses the existing MCP client infrastructure (HTTP + stdio transports, health tracking, circuit breaking) without adding new protocol surface.
+1. **PyO3 bindings (776L)**: `from jeeves_core import PipelineRunner, tool`. The Rust kernel is now a Python-importable library. `PipelineRunner` wraps the tokio runtime + kernel actor, provides `from_json()`, `register_tool()`, `run()`, `stream()`, `shutdown()`. The `@tool` decorator bridges Python callables to Rust `ToolExecutor` via JSON serialization. Auto-agent creation from pipeline config eliminates boilerplate. GIL-released execution with `py.allow_threads()` and nested call safety with `block_in_place()`. This is the highest-value addition since the kernel itself — it makes the Rust kernel accessible to Python-first teams without any Rust knowledge.
 
-3. **Correctness fixes**: MCP tool registration fixed from per-server-name to per-tool-name (the previous behavior silently broke tool lookup). Prompt template engine hardened to preserve JSON literals — critical for production prompts containing output format examples.
+2. **MCP stdio server (360L)**: JSON-RPC 2.0 over stdin/stdout. `initialize`, `notifications/initialized`, `tools/list`, `tools/call`. Upstream proxy pattern — MCP clients call tools, the server runs pipelines internally. The binary (`jeeves-kernel`) is a standard MCP tool server, usable from any MCP-compatible client (Claude Desktop, VS Code, etc.).
 
-The **DX layer** continues to mature:
-- `PipelineBuilder` reduces pipeline authoring from 30+ lines to ~5
-- `PipelineTestHarness` enables integration testing without HTTP
-- `JeevesClient` provides typed programmatic access with SSE streaming
-- JSON-safe prompt templates enable production prompt authoring
-- Structured `ErrorResponse` with `error_id` enables debugging
+3. **Stage-aware observability**: All 8 `PipelineEvent` variants gain `stage: Option<String>`. Delta, ToolCallStart, ToolResult, Error events are attributable to specific pipeline stages. `McpDelegatingAgent` now emits full event lifecycle (ToolCallStart → ToolResult/Error). `Done` includes terminal outputs. Enables per-stage monitoring dashboards.
 
-**Remaining work**: authentication (critical — all endpoints unauthenticated) → full A2A protocol → MCP server → persistent memory → multi-language client SDKs → documentation updates.
+4. **Metadata passthrough**: `run(config, metadata)` / `stream(config, metadata)` propagate user-supplied metadata through the pipeline.
+
+**What was traded:**
+
+- HTTP gateway (351L + 94L + 66L = 511L) — no REST API, no webhook integration
+- JeevesClient (357L) — no typed HTTP client
+- Discovery endpoints — no A2A surface
+- Structured ErrorResponse — replaced by Python exceptions and JSON-RPC errors
+- 4 tests net reduction (287 → 283)
+
+**Why this is correct:**
+
+The target user is a Python-first team consuming a Rust kernel for performance and safety. They don't want to deploy and manage an HTTP server — they want `pip install jeeves-core` and `from jeeves_core import PipelineRunner`. The MCP stdio server provides a second consumption mode for tool-server deployments. Both modes are feature-gated and compiled from the same Rust core. An HTTP gateway can be re-added as `#[cfg(feature = "http-gateway")]` if needed — the kernel API (`run_pipeline()`, `run_pipeline_streaming()`) is unchanged.
+
+**Remaining work**: PyO3 integration tests (critical) → pre-execution tool ACL enforcement → HTTP gateway as optional feature → persistent memory → documentation updates.
 
 ---
 
-*Audit conducted across 16 iterations on branch `claude/audit-agentic-frameworks-B6fqd`, 2026-03-11 to 2026-03-13.*
+*Audit conducted across 20 iterations on branch `claude/audit-agentic-frameworks-B6fqd`, 2026-03-11 to 2026-03-13.*
