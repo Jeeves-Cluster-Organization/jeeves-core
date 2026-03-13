@@ -89,13 +89,26 @@ fn strip_unresolved_vars(s: &str) -> String {
                 // Not a valid var reference — emit as-is
                 result.push('{');
                 result.push_str(&var);
+            } else if is_identifier(&var) {
+                // Valid identifier-like var reference — strip (emit empty)
+            } else {
+                // Not an identifier (e.g. JSON like {"key": "value"}) — preserve
+                result.push('{');
+                result.push_str(&var);
+                result.push('}');
             }
-            // Valid var reference but unresolved — emit empty string
         } else {
             result.push(c);
         }
     }
     result
+}
+
+/// Check if a string looks like a template variable name (alphanumeric + underscore).
+fn is_identifier(s: &str) -> bool {
+    !s.is_empty()
+        && s.chars().all(|c| c.is_alphanumeric() || c == '_')
+        && s.chars().next().is_some_and(|c| c.is_alphabetic() || c == '_')
 }
 
 impl Default for PromptRegistry {
@@ -138,5 +151,29 @@ mod tests {
     fn test_prompt_registry_missing_key() {
         let reg = PromptRegistry::empty();
         assert!(reg.load("nonexistent").is_none());
+    }
+
+    #[test]
+    fn test_render_preserves_json_examples() {
+        let mut vars = HashMap::new();
+        vars.insert("user_message".to_string(), "Hello".to_string());
+        let template = r#"User: {user_message}
+Example output:
+{"intent": "general", "topic": "greeting"}"#;
+        let result = render_template(template, &vars);
+        assert_eq!(result, r#"User: Hello
+Example output:
+{"intent": "general", "topic": "greeting"}"#);
+    }
+
+    #[test]
+    fn test_strip_only_identifiers() {
+        let vars = HashMap::new();
+        // Identifier vars get stripped
+        let result = render_template("Hello {name}!", &vars);
+        assert_eq!(result, "Hello !");
+        // JSON-like braces preserved
+        let result = render_template(r#"{"key": "value"}"#, &vars);
+        assert_eq!(result, r#"{"key": "value"}"#);
     }
 }

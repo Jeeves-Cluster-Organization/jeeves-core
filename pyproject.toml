@@ -1,6 +1,0 @@
-# jeeves-core is a pure Rust project. This file exists only for workspace
-# membership in the parent uv workspace. There is no Python package to install.
-
-[project]
-name = "jeeves-core"
-requires-python = ">=3.11"

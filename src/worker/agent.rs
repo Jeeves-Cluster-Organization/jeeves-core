@@ -222,6 +222,43 @@ impl Agent for LlmAgent {
     }
 }
 
+/// MCP-delegating agent — forwards to an MCP tool, returns its output.
+///
+/// Bridges deterministic Python agents: kernel dispatches to this Agent impl,
+/// which calls an MCP tool with the full agent context as params, returns
+/// the tool output as agent output.
+#[derive(Debug)]
+pub struct McpDelegatingAgent {
+    pub tool_name: String,
+    pub tools: Arc<ToolRegistry>,
+}
+
+#[async_trait]
+impl Agent for McpDelegatingAgent {
+    async fn process(&self, ctx: &AgentContext) -> crate::types::Result<AgentOutput> {
+        let params = serde_json::json!({
+            "raw_input": ctx.raw_input,
+            "outputs": ctx.outputs,
+            "state": ctx.state,
+            "metadata": ctx.metadata,
+        });
+        let result = self.tools.execute(&self.tool_name, params).await?;
+        Ok(AgentOutput {
+            output: result,
+            metrics: AgentExecutionMetrics {
+                llm_calls: 0,
+                tool_calls: 1,
+                tokens_in: None,
+                tokens_out: None,
+                duration_ms: 0,
+                tool_results: vec![],
+            },
+            success: true,
+            error_message: String::new(),
+        })
+    }
+}
+
 /// Deterministic (no-LLM) agent — passthrough with empty output.
 #[derive(Debug)]
 pub struct DeterministicAgent;
