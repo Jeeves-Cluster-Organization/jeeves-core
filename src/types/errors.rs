@@ -57,8 +57,8 @@ pub enum Error {
 }
 
 impl Error {
-    /// Convert to IPC error code string for wire protocol.
-    pub fn to_ipc_error_code(&self) -> &str {
+    /// Convert to error code string for API responses.
+    pub fn to_error_code(&self) -> &str {
         match self {
             Error::Validation { .. } => "INVALID_ARGUMENT",
             Error::NotFound(_) => "NOT_FOUND",

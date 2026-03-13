@@ -1,6 +1,6 @@
 //! Kernel - the main orchestration actor.
 //!
-//! The Kernel owns all mutable state and processes IPC commands via a single
+//! The Kernel owns all mutable state and processes commands via a single
 //! message channel. Subsystems (lifecycle, resources, interrupts, rate limiter)
 //! are plain structs owned by the Kernel, not separate actors.
 
@@ -96,18 +96,18 @@ pub struct Kernel {
     /// Interrupt handling (human-in-the-loop)
     interrupts: interrupts::InterruptService,
 
-    /// Service registry (IPC and dispatch)
+    /// Service registry (dispatch)
     services: services::ServiceRegistry,
 
     /// Pipeline orchestration (kernel-driven execution)
     orchestrator: orchestrator::Orchestrator,
 
-    /// Communication bus (kernel-mediated IPC)
+    /// Communication bus (kernel-mediated inter-process communication)
     commbus: crate::commbus::CommBus,
 
     /// Process envelope storage (process_id -> envelope).
     /// Single source of truth for all envelopes. Keyed by ProcessId so that
-    /// lifecycle methods, orchestrator, and IPC handlers all use the same key.
+    /// lifecycle methods, orchestrator, and actor dispatch all use the same key.
     process_envelopes: HashMap<ProcessId, Envelope>,
 
     /// Tool catalog — metadata, validation, prompt generation.
@@ -571,7 +571,7 @@ impl Kernel {
         let mut instruction = self.orchestrator.get_next_instruction(process_id, envelope)?;
         // &mut envelope borrow ends here (we don't use it below)
 
-        // Phase 2: Enrich instruction with context for Python
+        // Phase 2: Enrich instruction with context for the worker
         if instruction.kind == orchestrator::InstructionKind::RunAgent
             || instruction.kind == orchestrator::InstructionKind::RunAgents
         {
@@ -623,7 +623,7 @@ impl Kernel {
 
     /// Report agent execution result.
     ///
-    /// The IPC handler merges agent outputs into the envelope in-place via
+    /// The actor dispatch merges agent outputs into the envelope in-place via
     /// `get_process_envelope_mut()`, then calls this method.  Envelope never
     /// leaves `process_envelopes` — field-level borrow split keeps it safe.
     ///
@@ -646,7 +646,7 @@ impl Kernel {
     /// Process a complete agent result: merge output, report to orchestrator,
     /// sync PCB counters, emit snapshot, and return the next instruction.
     ///
-    /// Replaces the fragile multi-step coordination in the IPC handler.
+    /// Consolidates the multi-step coordination into a single kernel method.
     /// `metrics` is the delta — applied directly to both envelope (via orchestrator)
     /// and PCB (via record_usage), eliminating backwards reconciliation arithmetic.
     ///
@@ -718,7 +718,7 @@ impl Kernel {
                 }
             }
 
-            // Merge metadata updates from Python hooks
+            // Merge metadata updates from agent hooks
             if let Some(meta_updates) = metadata_updates {
                 for (key, value) in meta_updates {
                     envelope.audit.metadata.insert(key, value);
@@ -1003,7 +1003,7 @@ impl Kernel {
     // =============================================================================
 
     /// Get a full system status snapshot (sync parts).
-    /// CommBus stats are gathered separately in the IPC handler (async).
+    /// CommBus stats can be gathered separately (async).
     pub fn get_system_status(&self) -> SystemStatus {
         let total = self.lifecycle.count();
         let mut by_state = HashMap::new();

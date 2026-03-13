@@ -1,6 +1,6 @@
 //! Pipeline orchestration types — config, instructions, metrics, session state.
 //!
-//! These types are shared between the Orchestrator, IPC handlers, and Python workers.
+//! These types are shared between the Orchestrator and Worker modules.
 
 use crate::envelope::{FlowInterrupt, TerminalReason};
 use crate::types::{Error, ProcessId, Result};
@@ -48,7 +48,7 @@ pub struct StateField {
 // Instruction Types
 // =============================================================================
 
-/// InstructionKind indicates what the Python worker should do next.
+/// InstructionKind indicates what the worker should do next.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "SCREAMING_SNAKE_CASE")]
 pub enum InstructionKind {
@@ -64,7 +64,7 @@ pub enum InstructionKind {
     WaitInterrupt,
 }
 
-/// Instruction tells Python worker what to do next.
+/// Instruction tells the worker what to do next.
 ///
 /// `agents` carries the agent name(s) to execute:
 ///   - RunAgent  → exactly 1 element
@@ -359,6 +359,28 @@ pub struct PipelineStage {
     pub node_kind: NodeKind,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub output_key: Option<String>,
+
+    // --- Agent execution fields (consumed by worker, transparent to kernel) ---
+
+    /// Prompt template key for this agent. None = deterministic (no LLM call).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub prompt_key: Option<String>,
+    /// Whether this agent makes LLM calls. Derived from prompt_key if absent.
+    #[serde(default = "default_has_llm")]
+    pub has_llm: bool,
+    /// LLM temperature override for this stage.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub temperature: Option<f64>,
+    /// LLM max_tokens override for this stage.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub max_tokens: Option<i32>,
+    /// Model role (e.g. "fast", "reasoning") — resolved by LLM provider.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub model_role: Option<String>,
+}
+
+fn default_has_llm() -> bool {
+    true
 }
 
 /// Join strategy for parallel execution groups.

@@ -1,7 +1,6 @@
 //! Event infrastructure — kernel lifecycle event translation.
 //!
-//! Translates kernel-internal events to frontend-friendly formats at the Rust
-//! layer so Python bridges can forward pre-translated events directly.
+//! Translates kernel-internal events to frontend-friendly formats.
 
 pub mod translation;
 

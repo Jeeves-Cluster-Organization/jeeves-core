@@ -1,15 +1,13 @@
-# Stage 1: Build Rust kernel + Python wheel via maturin
+# Stage 1: Build Rust binary
 FROM rust:1.75-slim-bookworm AS builder
-RUN pip install maturin
 WORKDIR /build
-COPY Cargo.toml Cargo.lock build.rs pyproject.toml ./
+COPY Cargo.toml Cargo.lock ./
 COPY src/ src/
-COPY python/ python/
-RUN maturin build --release --out /wheels
+RUN cargo build --release
 
-# Stage 2: Runtime
-FROM python:3.12-slim-bookworm
-COPY --from=builder /wheels/*.whl /tmp/
-RUN pip install /tmp/*.whl && rm /tmp/*.whl
-EXPOSE 50051
-CMD ["jeeves-kernel"]
+# Stage 2: Minimal runtime
+FROM debian:bookworm-slim
+RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates && rm -rf /var/lib/apt/lists/*
+COPY --from=builder /build/target/release/jeeves-kernel /usr/local/bin/jeeves-kernel
+EXPOSE 8080
+CMD ["jeeves-kernel", "run"]

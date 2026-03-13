@@ -1,7 +1,6 @@
 //! Tool access control — agent-scoped tool permissions.
 //!
-//! Controls which agents can use which tools. Replaces Python's
-//! stringly-typed access checks with compile-time-safe lookups.
+//! Controls which agents can use which tools via compile-time-safe lookups.
 
 use std::collections::{HashMap, HashSet};
 

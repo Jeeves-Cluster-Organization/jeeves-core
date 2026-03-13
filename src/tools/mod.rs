@@ -1,8 +1,7 @@
 //! Tool infrastructure — catalog, validation, access control, health tracking.
 //!
-//! Rust owns tool metadata, parameter validation, access policies, prompt
-//! generation, and health metrics. Python keeps async callables and SQLite
-//! persistence; all typed logic lives here.
+//! Owns tool metadata, parameter validation, access policies, prompt
+//! generation, and health metrics. Tool implementations live in the worker layer.
 
 pub mod access;
 pub mod catalog;

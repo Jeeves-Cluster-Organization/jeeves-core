@@ -116,7 +116,7 @@ impl CleanupService {
 
     /// Run a single cleanup cycle (async version for background task).
     ///
-    /// Releases the kernel mutex between phases so IPC handlers aren't
+    /// Releases the kernel between phases so command processing isn't
     /// blocked for the entire cleanup duration.
     async fn run_cleanup_cycle_async(
         kernel: &Arc<Mutex<crate::kernel::Kernel>>,

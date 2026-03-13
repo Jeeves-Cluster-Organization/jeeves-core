@@ -1,8 +1,7 @@
 //! Tool health tracking and circuit breaking.
 //!
-//! In-memory sliding-window health metrics per tool. Replaces Python's
-//! 534-line ToolHealthService with compile-time-safe, configurable health tracking.
-//! Python keeps SQLite persistence (ToolMetricsRepository); Rust owns computation.
+//! In-memory sliding-window health metrics per tool. Compile-time-safe,
+//! configurable health tracking with circuit breaking.
 
 use crate::envelope::enums::HealthStatus;
 use serde::{Deserialize, Serialize};
