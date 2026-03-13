@@ -89,7 +89,7 @@ pub struct StreamChunk {
 }
 
 /// Events emitted during pipeline execution for SSE streaming.
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "type")]
 pub enum PipelineEvent {
     StageStarted { stage: String },

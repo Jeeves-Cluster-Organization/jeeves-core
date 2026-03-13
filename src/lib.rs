@@ -28,8 +28,11 @@
 
 // Re-export public API
 pub mod commbus;
+pub mod client;
 pub mod envelope;
 pub mod kernel;
+#[cfg(any(test, feature = "test-harness"))]
+pub mod testing;
 pub mod tools;
 pub mod types;
 pub mod worker;

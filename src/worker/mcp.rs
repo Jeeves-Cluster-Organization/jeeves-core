@@ -156,14 +156,17 @@ impl McpClient {
                         .map_err(|e| Error::internal(format!("MCP stdin flush error: {e}")))?;
                 }
 
-                // Read response (one line)
+                // Read response (one line) with timeout
                 let mut line = String::new();
                 {
                     let mut stdout = io.stdout.lock().await;
-                    stdout
-                        .read_line(&mut line)
-                        .await
-                        .map_err(|e| Error::internal(format!("MCP stdout read error: {e}")))?;
+                    tokio::time::timeout(
+                        std::time::Duration::from_secs(30),
+                        stdout.read_line(&mut line),
+                    )
+                    .await
+                    .map_err(|_| Error::timeout("MCP stdio read timed out after 30s"))?
+                    .map_err(|e| Error::internal(format!("MCP stdout read error: {e}")))?;
                 }
 
                 if line.is_empty() {

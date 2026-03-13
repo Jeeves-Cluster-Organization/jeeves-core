@@ -263,6 +263,11 @@ impl AgentRegistry {
     pub fn get(&self, name: &str) -> Option<&Arc<dyn Agent>> {
         self.agents.get(name)
     }
+
+    /// List all registered agent names.
+    pub fn list_names(&self) -> Vec<String> {
+        self.agents.keys().cloned().collect()
+    }
 }
 
 // =============================================================================

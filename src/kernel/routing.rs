@@ -94,23 +94,34 @@ pub fn evaluate_routing(
     // 1. Error path
     if agent_failed {
         if let Some(ref error_next) = stage.error_next {
+            tracing::debug!(stage = %stage.name, target = %error_next, "error_route_taken");
             return Some(error_next.clone());
         }
     }
 
     // 2. Routing rules (first match wins)
-    for rule in &stage.routing {
-        if evaluate_expr(&rule.expr, agent_outputs, agent_name, metadata, interrupt_response, state) {
+    for (i, rule) in stage.routing.iter().enumerate() {
+        let matched = evaluate_expr(&rule.expr, agent_outputs, agent_name, metadata, interrupt_response, state);
+        tracing::debug!(
+            stage = %stage.name,
+            rule_idx = i,
+            target = %rule.target,
+            matched,
+            "routing_rule_evaluated"
+        );
+        if matched {
             return Some(rule.target.clone());
         }
     }
 
     // 3. Default fallback
     if let Some(ref default_next) = stage.default_next {
+        tracing::debug!(stage = %stage.name, target = %default_next, "default_route_taken");
         return Some(default_next.clone());
     }
 
     // 4. No match — Temporal pattern: kernel terminates
+    tracing::debug!(stage = %stage.name, rules_count = stage.routing.len(), "no_routing_match");
     None
 }
 
