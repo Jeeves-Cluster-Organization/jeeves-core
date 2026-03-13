@@ -29,7 +29,7 @@ pub enum KernelCommand {
         process_id: ProcessId,
         resp_tx: oneshot::Sender<Result<Instruction>>,
     },
-    /// Report a complete agent result and get next instruction.
+    /// Report a complete agent result (mutation only, no instruction returned).
     ProcessAgentResult {
         process_id: ProcessId,
         agent_name: String,
@@ -39,7 +39,7 @@ pub enum KernelCommand {
         success: bool,
         error_message: String,
         break_loop: bool,
-        resp_tx: oneshot::Sender<Result<Instruction>>,
+        resp_tx: oneshot::Sender<Result<()>>,
     },
     /// Get orchestration session state.
     GetSessionState {
@@ -117,7 +117,7 @@ impl KernelHandle {
             .map_err(|_| crate::types::Error::internal("Kernel actor dropped response"))?
     }
 
-    /// Report agent result and get next instruction.
+    /// Report agent result (mutation only — caller fetches next instruction separately).
     #[allow(clippy::too_many_arguments)]
     pub async fn process_agent_result(
         &self,
@@ -129,7 +129,7 @@ impl KernelHandle {
         success: bool,
         error_message: &str,
         break_loop: bool,
-    ) -> Result<Instruction> {
+    ) -> Result<()> {
         let (resp_tx, resp_rx) = oneshot::channel();
         self.tx
             .send(KernelCommand::ProcessAgentResult {

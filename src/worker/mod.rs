@@ -10,12 +10,16 @@ pub mod llm;
 pub mod prompts;
 pub mod tools;
 
+use std::sync::Arc;
+
 use crate::envelope::Envelope;
 use crate::kernel::orchestrator_types::{InstructionKind, PipelineConfig};
 use crate::types::{ProcessId, Result};
 
 use agent::{Agent, AgentContext, AgentOutput, AgentRegistry, DeterministicAgent};
 use handle::KernelHandle;
+use llm::PipelineEvent;
+use tokio::sync::mpsc;
 
 /// Result of running a pipeline to completion.
 #[derive(Debug)]
@@ -26,7 +30,7 @@ pub struct WorkerResult {
     pub outputs: std::collections::HashMap<String, std::collections::HashMap<String, serde_json::Value>>,
 }
 
-/// Run a pipeline to completion: init session + loop.
+/// Run a pipeline to completion: init session + loop (buffered, no streaming).
 pub async fn run_pipeline(
     handle: &KernelHandle,
     process_id: ProcessId,
@@ -40,14 +44,38 @@ pub async fn run_pipeline(
     let _session = handle
         .initialize_session(process_id.clone(), pipeline_config, envelope, false)
         .await?;
-    run_pipeline_loop(handle, &process_id, agents).await
+    run_pipeline_loop(handle, &process_id, agents, None).await
+}
+
+/// Run a pipeline with streaming events. Returns a join handle and event receiver.
+/// The receiver yields PipelineEvent items (StageStarted, Delta, ToolCallStart, etc.).
+pub fn run_pipeline_streaming(
+    handle: KernelHandle,
+    process_id: ProcessId,
+    pipeline_config: PipelineConfig,
+    envelope: Envelope,
+    agents: Arc<AgentRegistry>,
+) -> (
+    tokio::task::JoinHandle<Result<WorkerResult>>,
+    mpsc::Receiver<PipelineEvent>,
+) {
+    let (tx, rx) = mpsc::channel(64);
+    let jh = tokio::spawn(async move {
+        handle
+            .initialize_session(process_id.clone(), pipeline_config, envelope, false)
+            .await?;
+        run_pipeline_loop(&handle, &process_id, &agents, Some(tx)).await
+    });
+    (jh, rx)
 }
 
 /// Run the pipeline loop for an already-initialized session.
+/// Pass `event_tx = Some(tx)` for streaming events, `None` for buffered mode.
 pub async fn run_pipeline_loop(
     handle: &KernelHandle,
     process_id: &ProcessId,
     agents: &AgentRegistry,
+    event_tx: Option<mpsc::Sender<PipelineEvent>>,
 ) -> Result<WorkerResult> {
     loop {
         let instruction = handle.get_next_instruction(process_id).await?;
@@ -60,6 +88,19 @@ pub async fn run_pipeline_loop(
                     .and_then(|c| c.get("outputs"))
                     .and_then(|v| serde_json::from_value(v.clone()).ok())
                     .unwrap_or_default();
+
+                if let Some(ref tx) = event_tx {
+                    let _ = tx
+                        .send(PipelineEvent::Done {
+                            process_id: process_id.as_str().to_string(),
+                            terminated: true,
+                            terminal_reason: instruction
+                                .terminal_reason
+                                .as_ref()
+                                .map(|r| format!("{:?}", r)),
+                        })
+                        .await;
+                }
 
                 return Ok(WorkerResult {
                     process_id: process_id.clone(),
@@ -75,8 +116,24 @@ pub async fn run_pipeline_loop(
                     .first()
                     .ok_or_else(|| crate::types::Error::internal("RunAgent with no agent name"))?;
 
-                let ctx = build_agent_context(&instruction);
+                if let Some(ref tx) = event_tx {
+                    let _ = tx
+                        .send(PipelineEvent::StageStarted {
+                            stage: agent_name.clone(),
+                        })
+                        .await;
+                }
+
+                let ctx = build_agent_context(&instruction, event_tx.clone());
                 let output = execute_agent(agents, agent_name, &ctx).await;
+
+                if let Some(ref tx) = event_tx {
+                    let _ = tx
+                        .send(PipelineEvent::StageCompleted {
+                            stage: agent_name.clone(),
+                        })
+                        .await;
+                }
 
                 handle
                     .process_agent_result(
@@ -93,7 +150,8 @@ pub async fn run_pipeline_loop(
             }
 
             InstructionKind::RunAgents => {
-                execute_parallel(handle, process_id, &instruction, agents).await?;
+                execute_parallel(handle, process_id, &instruction, agents, event_tx.clone())
+                    .await?;
             }
 
             InstructionKind::WaitParallel => continue,
@@ -114,11 +172,12 @@ async fn execute_parallel(
     process_id: &ProcessId,
     instruction: &crate::kernel::orchestrator_types::Instruction,
     agents: &AgentRegistry,
+    event_tx: Option<mpsc::Sender<PipelineEvent>>,
 ) -> Result<()> {
     let mut join_handles = Vec::new();
 
     for agent_name in &instruction.agents {
-        let ctx = build_agent_context(instruction);
+        let ctx = build_agent_context(instruction, event_tx.clone());
         let name = agent_name.clone();
         let agent_impl = agents.get(&name).cloned();
 
@@ -165,6 +224,7 @@ async fn execute_parallel(
 /// Build an AgentContext from an instruction's agent_context field.
 fn build_agent_context(
     instruction: &crate::kernel::orchestrator_types::Instruction,
+    event_tx: Option<mpsc::Sender<PipelineEvent>>,
 ) -> AgentContext {
     let ctx_val = instruction.agent_context.as_ref();
 
@@ -186,6 +246,8 @@ fn build_agent_context(
             .and_then(|c| c.get("metadata"))
             .and_then(|v| serde_json::from_value(v.clone()).ok())
             .unwrap_or_default(),
+        allowed_tools: instruction.allowed_tools.clone().unwrap_or_default(),
+        event_tx,
     }
 }
 

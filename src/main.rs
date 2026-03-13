@@ -16,22 +16,6 @@ enum Cli {
         /// HTTP bind address.
         #[arg(long, default_value = "0.0.0.0:8080")]
         http_addr: String,
-
-        /// Directory containing prompt templates.
-        #[arg(long)]
-        prompts_dir: Option<std::path::PathBuf>,
-
-        /// LLM API key (or set LLM_API_KEY env var).
-        #[arg(long, env = "LLM_API_KEY")]
-        llm_api_key: Option<String>,
-
-        /// Default LLM model name.
-        #[arg(long, env = "LLM_MODEL", default_value = "gpt-4o-mini")]
-        llm_model: String,
-
-        /// LLM API base URL (OpenAI-compatible).
-        #[arg(long, env = "LLM_BASE_URL")]
-        llm_base_url: Option<String>,
     },
 }
 
@@ -40,13 +24,7 @@ async fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
     let cli = Cli::parse();
 
     match cli {
-        Cli::Run {
-            http_addr,
-            llm_api_key: _,
-            llm_model: _,
-            llm_base_url: _,
-            prompts_dir: _,
-        } => {
+        Cli::Run { http_addr } => {
             // Load config from env
             let config = jeeves_core::Config::from_env();
             jeeves_core::observability::init_tracing_from_config(&config.observability);

@@ -210,22 +210,6 @@ impl CommBus {
         ))
     }
 
-    /// Unsubscribe from events.
-    pub fn unsubscribe(&mut self, subscription: &Subscription) -> Result<()> {
-        for event_type in &subscription.event_types {
-            if let Some(subs) = self.subscribers.get_mut(event_type) {
-                subs.retain(|s| s.id != subscription.id);
-            }
-        }
-
-        // Update stats
-        self.stats.active_subscribers = self.subscribers.values().map(|v| v.len()).sum();
-
-        tracing::debug!("Unsubscribed: {}", subscription.id);
-
-        Ok(())
-    }
-
     // =========================================================================
     // Command Routing
     // =========================================================================
@@ -257,48 +241,6 @@ impl CommBus {
         self.stats.commands_sent += 1;
 
         tracing::debug!("Sent command type={}", command.command_type);
-
-        Ok(())
-    }
-
-    /// Register a command handler.
-    ///
-    /// Returns receiver channel for receiving commands.
-    ///
-    /// # Errors
-    ///
-    /// Returns error if handler already registered for this command type.
-    pub fn register_command_handler(
-        &mut self,
-        command_type: String,
-    ) -> Result<mpsc::UnboundedReceiver<Command>> {
-        let (tx, rx) = mpsc::unbounded_channel();
-
-        if self.command_handlers.contains_key(&command_type) {
-            return Err(Error::validation(format!(
-                "Command handler already registered: {}",
-                command_type
-            )));
-        }
-
-        self.command_handlers.insert(command_type.clone(), tx);
-
-        // Update stats
-        self.stats.registered_command_handlers = self.command_handlers.len();
-
-        tracing::debug!("Registered command handler: {}", command_type);
-
-        Ok(rx)
-    }
-
-    /// Unregister a command handler.
-    pub fn unregister_command_handler(&mut self, command_type: &str) -> Result<()> {
-        self.command_handlers.remove(command_type);
-
-        // Update stats
-        self.stats.registered_command_handlers = self.command_handlers.len();
-
-        tracing::debug!("Unregistered command handler: {}", command_type);
 
         Ok(())
     }
@@ -386,18 +328,6 @@ impl CommBus {
         Ok(rx)
     }
 
-    /// Unregister a query handler.
-    pub fn unregister_query_handler(&mut self, query_type: &str) -> Result<()> {
-        self.query_handlers.remove(query_type);
-
-        // Update stats
-        self.stats.registered_query_handlers = self.query_handlers.len();
-
-        tracing::debug!("Unregistered query handler: {}", query_type);
-
-        Ok(())
-    }
-
     // =========================================================================
     // Statistics
     // =========================================================================
@@ -407,12 +337,6 @@ impl CommBus {
         self.stats.clone()
     }
 
-    /// Reset statistics counters.
-    pub fn reset_stats(&mut self) {
-        self.stats.events_published = 0;
-        self.stats.commands_sent = 0;
-        self.stats.queries_executed = 0;
-    }
 }
 
 impl Default for CommBus {
@@ -458,7 +382,7 @@ mod tests {
         let mut bus = CommBus::new();
 
         // Subscribe to event
-        let (subscription, mut rx) = bus
+        let (_subscription, mut rx) = bus
             .subscribe(
                 "subscriber1".to_string(),
                 vec!["test.event".to_string()],
@@ -481,8 +405,6 @@ mod tests {
         assert_eq!(received.event_type, "test.event");
         assert_eq!(received.source, "publisher");
 
-        // Cleanup
-        bus.unsubscribe(&subscription).unwrap();
     }
 
     #[test]
@@ -512,37 +434,6 @@ mod tests {
         // Both subscribers can receive
         assert!(rx1.try_recv().is_ok());
         assert!(rx2.try_recv().is_ok());
-    }
-
-    #[test]
-    fn test_unsubscribe() {
-        let mut bus = CommBus::new();
-
-        let (subscription, _rx) = bus
-            .subscribe("sub1".to_string(), vec!["test.event".to_string()])
-            .unwrap();
-
-        // Check stats
-        let stats = bus.get_stats();
-        assert_eq!(stats.active_subscribers, 1);
-
-        // Unsubscribe
-        bus.unsubscribe(&subscription).unwrap();
-
-        // Check stats updated
-        let stats = bus.get_stats();
-        assert_eq!(stats.active_subscribers, 0);
-
-        // Publishing now delivers to no one
-        let event = Event {
-            event_type: "test.event".to_string(),
-            payload: b"{}".to_vec(),
-            timestamp_ms: Utc::now().timestamp_millis(),
-            source: "publisher".to_string(),
-        };
-
-        let delivered = bus.publish(event).unwrap();
-        assert_eq!(delivered, 0);
     }
 
     #[test]
@@ -599,74 +490,6 @@ mod tests {
         let result = bus.send_command(command);
         assert!(result.is_err());
         assert!(result.unwrap_err().to_string().contains("No handler registered"));
-    }
-
-    #[test]
-    fn test_register_and_send_command() {
-        let mut bus = CommBus::new();
-
-        // Register handler
-        let mut rx = bus
-            .register_command_handler("test.command".to_string())
-            .unwrap();
-
-        // Send command
-        let command = Command {
-            command_type: "test.command".to_string(),
-            payload: b"{\"action\":\"do_something\"}".to_vec(),
-            source: "sender".to_string(),
-        };
-
-        bus.send_command(command.clone()).unwrap();
-
-        // Handler receives command
-        let received = rx.try_recv().unwrap();
-        assert_eq!(received.command_type, "test.command");
-        assert_eq!(received.source, "sender");
-
-        // Check stats
-        let stats = bus.get_stats();
-        assert_eq!(stats.commands_sent, 1);
-        assert_eq!(stats.registered_command_handlers, 1);
-    }
-
-    #[test]
-    fn test_register_duplicate_command_handler() {
-        let mut bus = CommBus::new();
-
-        // Register first handler
-        let _rx1 = bus
-            .register_command_handler("test.command".to_string())
-            .unwrap();
-
-        // Try to register duplicate
-        let result = bus
-            .register_command_handler("test.command".to_string());
-
-        assert!(result.is_err());
-        assert!(result.unwrap_err().to_string().contains("already registered"));
-    }
-
-    #[test]
-    fn test_unregister_command_handler() {
-        let mut bus = CommBus::new();
-
-        let _rx = bus
-            .register_command_handler("test.command".to_string())
-            .unwrap();
-
-        // Unregister
-        bus.unregister_command_handler("test.command").unwrap();
-
-        // Sending command now fails
-        let command = Command {
-            command_type: "test.command".to_string(),
-            payload: b"{}".to_vec(),
-            source: "test".to_string(),
-        };
-
-        let result = bus.send_command(command);
-        assert!(result.is_err());
     }
 
     // =========================================================================
@@ -784,22 +607,6 @@ mod tests {
         assert_eq!(response.error, "Something went wrong");
     }
 
-    #[test]
-    fn test_unregister_query_handler() {
-        let mut bus = CommBus::new();
-
-        let _rx = bus
-            .register_query_handler("test.query".to_string())
-            .unwrap();
-
-        // Unregister
-        bus.unregister_query_handler("test.query").unwrap();
-
-        // Stats reflect removal
-        let stats = bus.get_stats();
-        assert_eq!(stats.registered_query_handlers, 0);
-    }
-
     // =========================================================================
     // Statistics Tests
     // =========================================================================
@@ -822,28 +629,4 @@ mod tests {
         assert_eq!(stats.active_subscribers, 1);
     }
 
-    #[test]
-    fn test_reset_stats() {
-        let mut bus = CommBus::new();
-
-        // Publish some events
-        for _ in 0..5 {
-            let event = Event {
-                event_type: "test.event".to_string(),
-                payload: b"{}".to_vec(),
-                timestamp_ms: Utc::now().timestamp_millis(),
-                source: "test".to_string(),
-            };
-            bus.publish(event).unwrap();
-        }
-
-        let stats = bus.get_stats();
-        assert_eq!(stats.events_published, 5);
-
-        // Reset
-        bus.reset_stats();
-
-        let stats = bus.get_stats();
-        assert_eq!(stats.events_published, 0);
-    }
 }

@@ -621,32 +621,12 @@ impl Kernel {
         Ok(instruction)
     }
 
-    /// Report agent execution result.
-    ///
-    /// The actor dispatch merges agent outputs into the envelope in-place via
-    /// `get_process_envelope_mut()`, then calls this method.  Envelope never
-    /// leaves `process_envelopes` — field-level borrow split keeps it safe.
-    ///
-    /// # Errors
-    ///
-    /// Returns error if no orchestration session or envelope exists for this process.
-    #[instrument(skip(self, metrics), fields(process_id = %process_id, agent_failed))]
-    pub fn report_agent_result(
-        &mut self,
-        process_id: &ProcessId,
-        metrics: orchestrator::AgentExecutionMetrics,
-        agent_failed: bool,
-        break_loop: bool,
-    ) -> Result<()> {
-        let envelope = self.process_envelopes.get_mut(process_id)
-            .ok_or_else(|| Error::not_found(format!("Envelope not found for process: {}", process_id)))?;
-        self.orchestrator.report_agent_result(process_id, metrics, envelope, agent_failed, break_loop)
-    }
-
     /// Process a complete agent result: merge output, report to orchestrator,
-    /// sync PCB counters, emit snapshot, and return the next instruction.
+    /// sync PCB counters, and emit snapshot.
     ///
-    /// Consolidates the multi-step coordination into a single kernel method.
+    /// Mutation only — caller fetches the next instruction separately via
+    /// `get_next_instruction()`. This decoupling prevents fork/parallel deadlocks.
+    ///
     /// `metrics` is the delta — applied directly to both envelope (via orchestrator)
     /// and PCB (via record_usage), eliminating backwards reconciliation arithmetic.
     ///
@@ -665,7 +645,7 @@ impl Kernel {
         success: bool,
         error_message: &str,
         break_loop: bool,
-    ) -> Result<orchestrator::Instruction> {
+    ) -> Result<()> {
         // Extract scalars before passing metrics by value (avoids clone)
         let llm_calls = metrics.llm_calls;
         let tool_calls = metrics.tool_calls;
@@ -764,7 +744,7 @@ impl Kernel {
             let effective_failed = !success || agent_failed_override;
 
             // Report to orchestrator (consumes metrics, adds to envelope, evaluates routing)
-            self.orchestrator.report_agent_result(process_id, metrics, envelope, effective_failed, break_loop)?;
+            self.orchestrator.report_agent_result(process_id, agent_name, metrics, envelope, effective_failed, break_loop)?;
 
             effective_failed
         }; // envelope borrow dropped
@@ -779,9 +759,9 @@ impl Kernel {
             }
         }
 
-        // Phase 3: Snapshot + next instruction
+        // Phase 3: Snapshot (mutation complete — caller fetches next instruction separately)
         self.emit_envelope_snapshot(process_id, "agent_completed");
-        self.get_next_instruction(process_id)
+        Ok(())
     }
 
     /// Get orchestration session state.
@@ -844,49 +824,6 @@ impl Kernel {
     /// Publish an event to subscribers.
     pub fn publish_event(&mut self, event: crate::commbus::Event) -> Result<usize> {
         self.commbus.publish(event)
-    }
-
-    /// Send a command to a registered command handler.
-    pub fn send_command(&mut self, command: crate::commbus::Command) -> Result<()> {
-        self.commbus.send_command(command)
-    }
-
-    /// Execute a request/response query through CommBus.
-    pub async fn execute_query(
-        &mut self,
-        query: crate::commbus::Query,
-    ) -> Result<crate::commbus::QueryResponse> {
-        self.commbus.query(query).await
-    }
-
-    /// Subscribe to event types.
-    pub fn subscribe_events(
-        &mut self,
-        subscriber_id: String,
-        event_types: Vec<String>,
-    ) -> Result<(
-        crate::commbus::Subscription,
-        tokio::sync::mpsc::UnboundedReceiver<crate::commbus::Event>,
-    )> {
-        self.commbus.subscribe(subscriber_id, event_types)
-    }
-
-    /// Register a query handler (used by integration tests and service bootstrap).
-    pub fn register_query_handler(
-        &mut self,
-        query_type: String,
-    ) -> Result<
-        tokio::sync::mpsc::UnboundedReceiver<(
-            crate::commbus::Query,
-            tokio::sync::oneshot::Sender<crate::commbus::QueryResponse>,
-        )>,
-    > {
-        self.commbus.register_query_handler(query_type)
-    }
-
-    /// Snapshot CommBus statistics.
-    pub fn get_commbus_stats(&self) -> crate::commbus::BusStats {
-        self.commbus.get_stats()
     }
 
     // =============================================================================

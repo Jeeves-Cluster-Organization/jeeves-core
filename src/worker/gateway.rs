@@ -1,8 +1,9 @@
 //! HTTP gateway — axum server.
 //!
 //! Routes:
-//! - POST /api/v1/chat/messages     — run a pipeline with input
-//! - POST /api/v1/pipelines/run     — run a pipeline (alternative)
+//! - POST /api/v1/chat/messages     — run a pipeline with input (buffered)
+//! - POST /api/v1/chat/stream       — run a pipeline with SSE streaming
+//! - POST /api/v1/pipelines/run     — run a pipeline (alternative, buffered)
 //! - GET  /api/v1/sessions/:id      — get session state
 //! - GET  /health                    — health check
 //! - GET  /ready                     — readiness check
@@ -11,11 +12,16 @@
 use axum::{
     extract::{Path, State},
     http::StatusCode,
-    response::IntoResponse,
+    response::{
+        sse::{Event, KeepAlive, Sse},
+        IntoResponse,
+    },
     routing::{get, post},
     Json, Router,
 };
+use futures::stream::Stream;
 use serde::{Deserialize, Serialize};
+use std::convert::Infallible;
 use std::sync::Arc;
 use tower_http::cors::CorsLayer;
 
@@ -37,6 +43,7 @@ pub fn build_router(state: AppState) -> Router {
     Router::new()
         // Chat/pipeline endpoints
         .route("/api/v1/chat/messages", post(chat_messages))
+        .route("/api/v1/chat/stream", post(chat_stream))
         .route("/api/v1/pipelines/run", post(run_pipeline))
         // Session query
         .route("/api/v1/sessions/{id}", get(get_session))
@@ -54,20 +61,14 @@ pub fn build_router(state: AppState) -> Router {
 
 #[derive(Debug, Deserialize)]
 struct ChatRequest {
-    /// Pipeline configuration (JSON).
     pipeline_config: PipelineConfig,
-    /// Raw user input.
     input: String,
-    /// User identifier.
     #[serde(default = "default_user_id")]
     user_id: String,
-    /// Session identifier (optional — generated if absent).
     #[serde(default)]
     session_id: Option<String>,
-    /// Process identifier (optional — generated if absent).
     #[serde(default)]
     process_id: Option<String>,
-    /// Optional metadata.
     #[serde(default)]
     metadata: Option<serde_json::Value>,
 }
@@ -141,10 +142,8 @@ async fn run_pipeline_inner(
         )
     })?;
 
-    // Build envelope with optional metadata
     let envelope = Envelope::new_minimal(&req.user_id, &session_id, &req.input, req.metadata);
 
-    // Initialize session
     let _session = state
         .handle
         .initialize_session(pid.clone(), req.pipeline_config, envelope, false)
@@ -159,8 +158,7 @@ async fn run_pipeline_inner(
             )
         })?;
 
-    // Run pipeline loop
-    match crate::worker::run_pipeline_loop(&state.handle, &pid, &state.agents).await {
+    match crate::worker::run_pipeline_loop(&state.handle, &pid, &state.agents, None).await {
         Ok(result) => Ok(Json(ChatResponse {
             process_id: result.process_id.as_str().to_string(),
             terminated: result.terminated,
@@ -175,6 +173,53 @@ async fn run_pipeline_inner(
             }),
         )),
     }
+}
+
+/// SSE streaming endpoint — runs a pipeline and streams PipelineEvents.
+async fn chat_stream(
+    State(state): State<AppState>,
+    Json(req): Json<ChatRequest>,
+) -> std::result::Result<
+    Sse<impl Stream<Item = std::result::Result<Event, Infallible>>>,
+    (StatusCode, Json<ErrorResponse>),
+> {
+    let process_id = req
+        .process_id
+        .unwrap_or_else(|| format!("proc_{}", &uuid::Uuid::new_v4().simple().to_string()[..16]));
+    let session_id = req
+        .session_id
+        .unwrap_or_else(|| format!("sess_{}", &uuid::Uuid::new_v4().simple().to_string()[..16]));
+
+    let pid = ProcessId::from_string(process_id).map_err(|e| {
+        (
+            StatusCode::BAD_REQUEST,
+            Json(ErrorResponse {
+                error: e.to_string(),
+                code: "INVALID_PROCESS_ID".to_string(),
+            }),
+        )
+    })?;
+
+    let envelope = Envelope::new_minimal(&req.user_id, &session_id, &req.input, req.metadata);
+
+    let (_jh, rx) = crate::worker::run_pipeline_streaming(
+        state.handle.clone(),
+        pid,
+        req.pipeline_config,
+        envelope,
+        state.agents.clone(),
+    );
+
+    let stream = futures::stream::unfold(rx, |mut rx| async {
+        rx.recv().await.map(|event| {
+            let sse_event = Event::default()
+                .event(event.event_type())
+                .data(serde_json::to_string(&event).unwrap_or_default());
+            (Ok(sse_event), rx)
+        })
+    });
+
+    Ok(Sse::new(stream).keep_alive(KeepAlive::default()))
 }
 
 async fn get_session(
@@ -211,7 +256,6 @@ async fn health() -> Json<HealthResponse> {
 }
 
 async fn ready(State(state): State<AppState>) -> impl IntoResponse {
-    // Verify kernel actor is responsive
     let status = state.handle.get_system_status().await;
     Json(serde_json::json!({
         "status": "ready",
