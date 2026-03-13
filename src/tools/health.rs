@@ -325,6 +325,14 @@ impl ToolHealthTracker {
             .unwrap_or(false)
     }
 
+    /// Get names of all tools whose circuit breaker is currently open.
+    pub fn get_circuit_broken_tools(&self) -> Vec<String> {
+        self.metrics.keys()
+            .filter(|name| self.should_circuit_break(name))
+            .cloned()
+            .collect()
+    }
+
     /// Check health of all tools (registered + executed).
     pub fn check_system_health(&self) -> SystemHealthReport {
         // Merge registered tools and tools with metrics

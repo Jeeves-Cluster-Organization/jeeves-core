@@ -151,5 +151,20 @@ fn dispatch(kernel: &mut Kernel, cmd: KernelCommand) {
             let status = kernel.get_system_status();
             let _ = resp_tx.send(status);
         }
+
+        KernelCommand::ResolveInterrupt {
+            process_id,
+            interrupt_id,
+            response,
+            resp_tx,
+        } => {
+            let resolved = kernel.resolve_interrupt(&interrupt_id, response, None);
+            let result = if resolved {
+                kernel.resume_process(&process_id)
+            } else {
+                Err(crate::types::Error::not_found(format!("Interrupt {} not found", interrupt_id)))
+            };
+            let _ = resp_tx.send(result);
+        }
     }
 }

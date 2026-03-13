@@ -64,6 +64,13 @@ pub enum KernelCommand {
     GetSystemStatus {
         resp_tx: oneshot::Sender<SystemStatus>,
     },
+    /// Resolve a pending interrupt.
+    ResolveInterrupt {
+        process_id: ProcessId,
+        interrupt_id: String,
+        response: crate::envelope::InterruptResponse,
+        resp_tx: oneshot::Sender<Result<()>>,
+    },
 }
 
 /// Typed handle to the kernel actor. Clone-able, Send + Sync.
@@ -197,6 +204,28 @@ impl KernelHandle {
         self.tx
             .send(KernelCommand::TerminateProcess {
                 process_id: process_id.clone(),
+                resp_tx,
+            })
+            .await
+            .map_err(|_| crate::types::Error::internal("Kernel actor unavailable"))?;
+        resp_rx
+            .await
+            .map_err(|_| crate::types::Error::internal("Kernel actor dropped response"))?
+    }
+
+    /// Resolve a pending interrupt for a process.
+    pub async fn resolve_interrupt(
+        &self,
+        process_id: &ProcessId,
+        interrupt_id: &str,
+        response: crate::envelope::InterruptResponse,
+    ) -> Result<()> {
+        let (resp_tx, resp_rx) = oneshot::channel();
+        self.tx
+            .send(KernelCommand::ResolveInterrupt {
+                process_id: process_id.clone(),
+                interrupt_id: interrupt_id.to_string(),
+                response,
                 resp_tx,
             })
             .await

@@ -159,10 +159,35 @@ pub async fn run_pipeline_loop(
             InstructionKind::WaitParallel => continue,
 
             InstructionKind::WaitInterrupt => {
-                tracing::warn!("WaitInterrupt not yet implemented in embedded worker");
-                return Err(crate::types::Error::internal(
-                    "WaitInterrupt not supported in embedded worker",
-                ));
+                let interrupt = &instruction.interrupt;
+                let interrupt_id = interrupt.as_ref().map(|i| i.id.clone()).unwrap_or_default();
+
+                if let Some(ref tx) = event_tx {
+                    // Streaming: emit event, poll until resolved
+                    let _ = tx.send(PipelineEvent::InterruptPending {
+                        process_id: process_id.as_str().to_string(),
+                        interrupt_id: interrupt_id.clone(),
+                        kind: interrupt.as_ref().map(|i| format!("{:?}", i.kind)).unwrap_or_default(),
+                        question: interrupt.as_ref().and_then(|i| i.question.clone()),
+                        message: interrupt.as_ref().and_then(|i| i.message.clone()),
+                    }).await;
+                    // Poll: kernel returns WaitInterrupt until resolved, then RunAgent/Terminate
+                    loop {
+                        tokio::time::sleep(tokio::time::Duration::from_millis(500)).await;
+                        match handle.get_next_instruction(process_id).await?.kind {
+                            InstructionKind::WaitInterrupt => continue,
+                            _ => break, // resolved — outer loop re-fetches
+                        }
+                    }
+                } else {
+                    // Buffered: return incomplete result, caller resolves + re-enters
+                    return Ok(WorkerResult {
+                        process_id: process_id.clone(),
+                        terminated: false,
+                        terminal_reason: None,
+                        outputs: Default::default(),
+                    });
+                }
             }
         }
     }

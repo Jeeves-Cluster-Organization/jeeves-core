@@ -50,6 +50,8 @@ pub fn build_router(state: AppState) -> Router {
         .route("/api/v1/pipelines/run", post(run_pipeline))
         // Session query
         .route("/api/v1/sessions/{id}", get(get_session))
+        // Interrupt resolution
+        .route("/api/v1/interrupts/{process_id}/{interrupt_id}/resolve", post(resolve_interrupt))
         // System
         .route("/health", get(health))
         .route("/ready", get(ready))
@@ -282,4 +284,37 @@ async fn system_status(State(state): State<AppState>) -> Json<StatusResponse> {
         active_sessions: status.active_orchestration_sessions,
         services_healthy: status.services_healthy,
     })
+}
+
+// =============================================================================
+// Interrupt Resolution
+// =============================================================================
+
+#[derive(Debug, Deserialize)]
+struct ResolveInterruptRequest {
+    #[serde(default)]
+    text: Option<String>,
+    #[serde(default)]
+    approved: Option<bool>,
+    #[serde(default)]
+    decision: Option<String>,
+    #[serde(default)]
+    data: Option<std::collections::HashMap<String, serde_json::Value>>,
+}
+
+async fn resolve_interrupt(
+    State(state): State<AppState>,
+    Path((pid_str, interrupt_id)): Path<(String, String)>,
+    Json(req): Json<ResolveInterruptRequest>,
+) -> std::result::Result<Json<serde_json::Value>, GatewayError> {
+    let pid = ProcessId::from_string(pid_str).map_err(|e| bad_request(e, "INVALID_PROCESS_ID"))?;
+    let response = crate::envelope::InterruptResponse {
+        text: req.text,
+        approved: req.approved,
+        decision: req.decision,
+        data: req.data,
+        received_at: chrono::Utc::now(),
+    };
+    state.handle.resolve_interrupt(&pid, &interrupt_id, response).await.map_err(map_pipeline_error)?;
+    Ok(Json(serde_json::json!({"status": "resolved"})))
 }

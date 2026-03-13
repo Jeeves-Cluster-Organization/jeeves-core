@@ -27,7 +27,7 @@ pub use lifecycle::LifecycleManager;
 pub use rate_limiter::{RateLimitConfig, RateLimiter};
 pub use resources::ResourceTracker;
 pub use services::{
-    RegistryStats, ServiceInfo, ServiceRegistry, ServiceStats, ServiceStatus,
+    RegistryStats, ServiceInfo, ServiceRegistry, ServiceStats, ServiceStatus, SERVICE_TYPE_MCP,
 };
 pub use types::{
     ProcessControlBlock, ProcessState, QuotaViolation, ResourceQuota, ResourceUsage,
@@ -184,6 +184,14 @@ impl Kernel {
             tool_access: crate::tools::ToolAccessPolicy::new(),
             tool_health: crate::tools::ToolHealthTracker::default(),
         }
+    }
+
+    /// Subscribe to envelope snapshot events (call before spawning actor).
+    /// Returns receiver that yields every envelope mutation event.
+    pub fn subscribe_snapshots(&mut self) -> Result<tokio::sync::mpsc::UnboundedReceiver<crate::commbus::Event>> {
+        let sub_id = format!("snap_{}", &uuid::Uuid::new_v4().simple().to_string()[..8]);
+        let (_sub, rx) = self.commbus.subscribe(sub_id, vec!["envelope.snapshot".to_string()])?;
+        Ok(rx)
     }
 
     /// Create a new process.
@@ -601,6 +609,7 @@ impl Kernel {
                     "agent_hop_count": envelope.bounds.agent_hop_count,
                     "tokens_in": envelope.bounds.tokens_in,
                     "tokens_out": envelope.bounds.tokens_out,
+                    "circuit_broken_tools": self.tool_health.get_circuit_broken_tools(),
                 }));
             }
 
@@ -651,6 +660,11 @@ impl Kernel {
         let tool_calls = metrics.tool_calls;
         let tokens_in = metrics.tokens_in.unwrap_or(0);
         let tokens_out = metrics.tokens_out.unwrap_or(0);
+
+        // Record per-tool health from agent metrics
+        for tr in &metrics.tool_results {
+            self.tool_health.record_execution(&tr.name, tr.success, tr.latency_ms, tr.error_type.clone());
+        }
 
         // Clone state_schema + output_key from orchestrator before mutable envelope borrow (C9)
         let state_schema = self.orchestrator.get_state_schema(process_id).cloned().unwrap_or_default();

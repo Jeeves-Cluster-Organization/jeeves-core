@@ -98,6 +98,13 @@ pub enum PipelineEvent {
     ToolResult { id: String, content: String },
     StageCompleted { stage: String },
     Done { process_id: String, terminated: bool, terminal_reason: Option<String> },
+    InterruptPending {
+        process_id: String,
+        interrupt_id: String,
+        kind: String,
+        question: Option<String>,
+        message: Option<String>,
+    },
     Error { message: String },
 }
 
@@ -110,6 +117,7 @@ impl PipelineEvent {
             Self::ToolResult { .. } => "tool_result",
             Self::StageCompleted { .. } => "stage_completed",
             Self::Done { .. } => "done",
+            Self::InterruptPending { .. } => "interrupt_pending",
             Self::Error { .. } => "error",
         }
     }
