@@ -4,15 +4,11 @@
 
 pub mod actor;
 pub mod agent;
-#[cfg(feature = "http-server")]
-pub mod gateway;
-#[cfg(feature = "http-server")]
-pub mod gateway_errors;
-#[cfg(feature = "http-server")]
-pub mod gateway_types;
 pub mod handle;
 pub mod llm;
 pub mod mcp;
+#[cfg(feature = "mcp-stdio")]
+pub mod mcp_server;
 pub mod prompts;
 pub mod tools;
 

@@ -10,7 +10,7 @@ license = "Apache-2.0"
 [[bin]]
 name = "jeeves-kernel"
 path = "src/main.rs"
-required-features = ["http-server"]
+required-features = ["mcp-stdio"]
 
 [lib]
 name = "jeeves_core"
@@ -18,7 +18,7 @@ path = "src/lib.rs"
 
 [dependencies]
 # Async runtime
-tokio = { version = "1.41", features = ["rt-multi-thread", "macros", "net", "io-util", "sync", "time", "signal", "process"] }
+tokio = { version = "1.41", features = ["rt-multi-thread", "macros", "net", "io-util", "io-std", "sync", "time", "signal", "process"] }
 tokio-util = "0.7"
 
 # HTTP client (LLM API calls)
@@ -27,12 +27,8 @@ reqwest = { version = "0.12", features = ["json", "stream"] }
 # Async traits
 async-trait = "0.1"
 
-# CLI (optional — only for HTTP server binary)
+# CLI (optional — only for MCP stdio binary)
 clap = { version = "4", features = ["derive", "env"], optional = true }
-
-# HTTP server (optional — behind http-server feature)
-axum = { version = "0.8", optional = true }
-tower-http = { version = "0.6", features = ["cors", "trace", "limit"], optional = true }
 
 # Python bindings (optional — behind py-bindings feature)
 pyo3 = { version = "0.22", features = ["multiple-pymethods"], optional = true }
@@ -82,7 +78,7 @@ insta = { version = "1.41", features = ["json"] }
 
 [features]
 default = []
-http-server = ["dep:axum", "dep:tower-http", "dep:clap"]
+mcp-stdio = ["dep:clap"]
 py-bindings = ["dep:pyo3", "dep:inventory", "pyo3/extension-module"]
 test-harness = []
 
