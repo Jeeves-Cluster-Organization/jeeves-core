@@ -1,6 +1,6 @@
 # Jeeves-Core: Comprehensive Architectural Audit & Comparative Analysis
 
-**Date**: 2026-03-13 (Iteration 14 — MCP client, gateway hardening, tool health, interrupt wiring, execution tracking)
+**Date**: 2026-03-13 (Iteration 15 — DX & protocol surface: builder, discovery, client, god-file splits)
 **Scope**: Full codebase audit of jeeves-core (single-process Rust kernel + worker) with comparative analysis against 17 OSS agentic frameworks.
 
 ---
@@ -21,68 +21,65 @@
 
 ## 1. Executive Summary
 
-Jeeves-Core is a **single-process Rust runtime** for AI agent orchestration. It is a monolithic Rust binary (~15,300 lines, `#[deny(unsafe_code)]`) with an embedded HTTP gateway (axum, hardened with TraceLayer + RequestBodyLimitLayer), MCP client (HTTP + stdio transports), LLM provider with SSE streaming (reqwest + OpenAI-compatible), ReAct-style tool execution loops with circuit breaking, 8-event SSE streaming to clients, definition-time pipeline validation, interrupt resolution (streaming poll + buffered early-return), execution tracking, and concurrent agent execution via tokio tasks.
+Jeeves-Core is a **single-process Rust runtime** for AI agent orchestration. It is a monolithic Rust binary (~16,500 lines, `#[deny(unsafe_code)]`) with an embedded HTTP gateway (axum, hardened with TraceLayer + RequestBodyLimitLayer), MCP client (HTTP + stdio transports with 30s timeout), LLM provider with SSE streaming (reqwest + OpenAI-compatible), ReAct-style tool execution loops with circuit breaking, 8-event SSE streaming to clients, definition-time pipeline validation, interrupt resolution (streaming poll + buffered early-return), execution tracking, concurrent agent execution via tokio tasks, fluent PipelineBuilder API, consumer client module (JeevesClient), pipeline test harness, discovery & A2A endpoints, and structured error responses.
 
 **Architectural thesis**: A single-process Rust kernel with typed channel dispatch (`KernelHandle` → mpsc → Kernel actor) provides enforcement guarantees, memory safety, and operational simplicity that multi-process IPC architectures and in-process Python frameworks cannot match.
 
-**Overall maturity: 4.7/5** (up from 4.5) — Iteration 14 addresses five of the eight weaknesses identified in iteration 13. MCP client support is back (430L Rust, HTTP+stdio). Gateway is hardened (TraceLayer, 2MB body limit, 429 for rate limits). Tool health with circuit breaking is wired into the agent execution loop. Interrupts are fully wired: gateway endpoint → kernel command → pipeline polling/early-return. Execution tracking records stage progression. Agent execution has `#[instrument]` tracing. The system is now production-hardened.
+**Overall maturity: 4.8/5** (up from 4.7) — Iteration 15 is a DX & protocol surface expansion. The kernel god-file (`mod.rs`, was 1,250L) is cleanly split into 4 focused files. Gateway is split into gateway.rs + gateway_types.rs + gateway_errors.rs. Envelope types extracted. PipelineBuilder reduces pipeline authoring from 30+ lines to ~5. PipelineTestHarness enables integration testing without HTTP. JeevesClient provides typed HTTP client with manual SSE parsing. Discovery endpoints (agents, tools, tasks, agent cards) begin A2A surface. Structured ErrorResponse with error_id and details. MCP client gains 30s stdio timeout and env-driven auto-connect. 16 new tests. All 285 tests passing.
 
-**What changed in iteration 14** (2 commits, +879/-87 lines):
+**What changed in iteration 15** (1 commit, +2,425/-1,237 lines):
 
-**Commit 1: Gateway hardening, observability, MCP client** (`83b8de7`):
+**Commit: DX & protocol surface — builder, discovery, client, god-file splits** (`a4085d2`):
 
-- **MCP client in Rust** (`src/worker/mcp.rs`, 430L): `McpToolExecutor` implementing `ToolExecutor` trait. Two transports:
-  - `Http` — JSON-RPC 2.0 over HTTP POST (`reqwest`)
-  - `Stdio` — JSON-RPC 2.0 over stdin/stdout (`tokio::process`)
-  - `connect(transport)` discovers tools via `tools/list`, caches them
-  - `execute(name, params)` calls `tools/call`, parses MCP content format
-  - Integrates with existing `ToolRegistry` without registry changes — register `Arc<McpToolExecutor>` per tool name
-  - 7 unit tests (JSON-RPC serialization, tool parsing) + 1 integration test (mock HTTP server)
+**Phase 0: God-file splits (pure refactor, zero behavioral change)**:
+- `kernel/mod.rs` (1,250L → 330L) → `kernel_orchestration.rs` (256L), `kernel_delegation.rs` (481L), `kernel_events.rs` (41L)
+- `envelope/mod.rs` → `envelope/types.rs` (204L) — type definitions extracted
+- `gateway.rs` → `gateway_types.rs` (94L), `gateway_errors.rs` (66L) — request/response types and error mapping extracted
+- All splits are clean: no behavioral changes, no API changes, just `mod` + `use` rewiring
 
-- **Gateway hardening** (`src/worker/gateway.rs`, 320L):
-  - `TraceLayer::new_for_http()` — automatic request/response tracing
-  - `RequestBodyLimitLayer::new(2 * 1024 * 1024)` — 2MB body limit (DoS protection)
-  - `QuotaExceeded` → 429 Too Many Requests (was 500) on both buffered and SSE paths
-  - Helper functions eliminate 3× handler duplication: `parse_request()`, `map_init_error()`, `map_pipeline_error()`
-  - SSE initialization validates session before spawning background task (rate-limit errors surface as 429 before SSE response starts)
-  - `#[instrument(skip_all)]` on all handlers
+**Phase 1: PipelineBuilder + PipelineTestHarness** (`kernel/builder.rs` 503L, `testing.rs` 170L):
+- **PipelineBuilder**: Fluent builder API with `StageHandle` for nested stage configuration
+  - `PipelineBuilder::new("chat").stage("s1", "agent").default_next("s2").done().build()?`
+  - `Default` impl for `PipelineStage` matching serde defaults
+  - Routing expression convenience constructors: `always()`, `eq()`, `neq()`, `gt()`, `lt()`, `exists()`, `not_exists()`, `contains()`
+  - `FieldRef` constructors: `current()`, `state()`, `agent_ref()`, `meta()`, `interrupt()`
+  - Validation runs on `build()` — catches errors at construction time
+  - 11 unit tests covering simple pipelines, routing, gate/fork, validation errors, all stage options
+- **PipelineTestHarness**: Run pipelines without HTTP gateway
+  - `.mock_agent("name", agent)` registration
+  - `.run(input)` for buffered execution
+  - `.run_streaming(input)` for streaming with event collection
+  - Feature-gated: `#[cfg(any(test, feature = "test-harness"))]`
+  - 2 tests: simple pipeline + streaming
 
-- **Agent observability** (`src/worker/agent.rs`):
-  - `#[instrument(skip(self, ctx), fields(prompt_key))]` on `LlmAgent::process()`
-  - `tracing::debug!` in tool loop (round number, tool count, tool name)
-  - `ToolCallResult` struct: name, success, latency_ms, error_type — captured per tool call
+**Phase 2: Discovery & A2A endpoints** (4 new routes in `gateway.rs`):
+- `GET /api/v1/agents` — list registered agents (returns `Vec<AgentCard>`)
+- `GET /api/v1/agents/{name}/card` — agent card (404 if not registered)
+- `GET /api/v1/tasks/{process_id}` — task status with progress fraction (stage position / total stages)
+- `GET /api/v1/tools` — list registered tools (returns `Vec<ToolCardEntry>`)
+- `AgentRegistry::list_names()` — new method for agent enumeration
+- `Arc<ToolRegistry>` in `AppState` — enables tool listing through gateway
+- A2A-compatible types: `AgentCard`, `ToolCardEntry`, `TaskStatus`
 
-**Commit 2: Wire unwired infrastructure** (`70c50b9`):
+**Phase 3: MCP client completeness** (`mcp.rs` refinements):
+- 30s timeout on stdio transport reads (prevents hung child processes)
+- `McpServerConfig` struct in `types/config.rs` — env-var-driven auto-connect (`JEEVES_MCP_SERVERS`)
+- MCP tools registered into `ToolRegistry` before `Arc` wrapping (correct ownership order in `main.rs`)
 
-- **Tool health + circuit breaking** wired into hot path:
-  - Agent reports `ToolCallResult` per tool call (name, success, latency_ms, error_type)
-  - Kernel records tool health metrics via `ToolHealthTracker`
-  - Circuit breaker: 5 errors in 5-minute window → tool disabled
-  - `circuit_broken_tools: Vec<String>` passed to agent via `AgentContext`
-  - Agent skips circuit-broken tools in tool loop
-  - Health assessment: success rate (≥95% healthy, ≥80% degraded, <80% unhealthy) × latency (≤2s healthy, ≤5s degraded) → worst-of-two
+**Phase 4: Structured errors + routing observability**:
+- `ErrorResponse` enriched with `error_id` (UUID, for log correlation) and `details` (arbitrary JSON)
+- Full `Error` variant → HTTP status mapping in `gateway_errors.rs`:
+  - `Validation` → 400, `NotFound` → 404, `QuotaExceeded` → 429, `StateTransition` → 409, `Timeout` → 504, `Cancelled` → 400
+- `tracing::debug!` events per routing rule evaluation
 
-- **Interrupt resolution** wired end-to-end:
-  - `POST /api/v1/interrupts/{process_id}/{interrupt_id}/resolve` — new gateway endpoint
-  - `KernelCommand::ResolveInterrupt` — new kernel command variant (8th command)
-  - `KernelHandle::resolve_interrupt()` — typed async method
-  - Kernel: `resolve_interrupt()` → `resume_process()` (state machine transition)
-  - Orchestrator: `get_next_instruction()` checks `envelope.interrupts.interrupt_pending` → returns `WaitInterrupt` with `FlowInterrupt` details
-  - Pipeline loop: streaming path emits `InterruptPending` event + polls every 500ms; buffered path returns early for caller to resolve externally
+**Phase 5: Consumer client module** (`client.rs`, 357L):
+- `JeevesClient` with typed methods: `run_pipeline()`, `stream_pipeline()` (SSE), `list_agents()`, `list_tools()`, `get_task_status()`, `resolve_interrupt()`, `health()`
+- Manual SSE parsing (no new deps): `bytes_stream()` → newline-delimited block parsing → `PipelineEvent` deserialization
+- `ErrorCode` enum for typed error handling: `RateLimited`, `InvalidArgument`, `NotFound`, `FailedPrecondition`, `Timeout`, `Cancelled`, `Internal`, `Unknown`
+- `map_http_error()` — parses structured `ErrorResponse` JSON, falls back to status code mapping
+- 4 unit tests: error code parsing, structured/unstructured error mapping, client creation
 
-- **Execution tracking**:
-  - `max_stages`, `current_stage_number`, `completed_stages` tracked on `Envelope.execution`
-  - Initialized at session start, updated on stage transitions
-  - Enables progress reporting and audit trails
-
-- **`PipelineEvent::InterruptPending`** (8th event variant):
-  - `process_id`, `interrupt_id`, `kind`, `question`, `message`
-  - Emitted on SSE stream when pipeline hits HITL interrupt
-
-- **Service registry**: `SERVICE_TYPE_MCP` constant for MCP service registration
-- **Pre-spawn wiring**: `mut kernel` before `spawn_kernel()` enables service registration and CommBus subscription before actor task starts
-
-- **Total test count**: 269 (248 unit + 21 integration), all passing, clippy clean.
+**Total test count**: 285 (264 unit + 21 integration), all passing, clippy clean.
 
 ---
 
@@ -91,7 +88,7 @@ Jeeves-Core is a **single-process Rust runtime** for AI agent orchestration. It 
 ### 2.1 Layer Architecture
 
 ```
-HTTP clients (frontends, capabilities)
+HTTP clients (frontends, capabilities, JeevesClient)
        | HTTP (axum, JSON) or SSE
        | TraceLayer + 2MB body limit
        v
@@ -100,24 +97,26 @@ HTTP clients (frontends, capabilities)
 │                                              │
 │  Gateway (axum, hardened) ──→ KernelHandle   │
 │     POST /chat/messages (req/resp)           │
-│     GET  /chat/stream (SSE)    │ (mpsc)     │
+│     POST /chat/stream (SSE)    │ (mpsc)     │
 │     POST /interrupts/resolve   v             │
-│                        Kernel actor          │
+│     GET  /agents, /tools       Kernel actor  │
+│     GET  /tasks/:id, /agents/:name/card NEW  │
 │                    (single &mut Kernel)       │
 │    ┌──────────────────────────────────┐      │
 │    │ Process lifecycle               │      │
 │    │ Pipeline orchestrator           │      │
 │    │ Pipeline validation             │      │
+│    │ PipelineBuilder (fluent API)    │ NEW  │
 │    │ Resource quotas                 │      │
 │    │ Rate limiter                    │      │
-│    │ Interrupts (7 kinds, wired)     │ NEW  │
-│    │ Tool health + circuit breaking  │ NEW  │
-│    │ Execution tracking              │ NEW  │
+│    │ Interrupts (7 kinds, wired)     │      │
+│    │ Tool health + circuit breaking  │      │
+│    │ Execution tracking              │      │
 │    │ CommBus                         │      │
 │    │ JSON Schema validation          │      │
 │    │ Tool ACLs                       │      │
 │    │ Graph (Gate/Fork/State)         │      │
-│    │ Service registry (MCP)          │ NEW  │
+│    │ Service registry (MCP)          │      │
 │    └──────────────────────────────────┘      │
 │              ↑ instructions  ↓ results       │
 │         Agent tasks (concurrent tokio)       │
@@ -130,11 +129,14 @@ HTTP clients (frontends, capabilities)
 │              │   (Delta/Tool/Stage/Interrupt) │
 │              v                               │
 │    LLM calls (reqwest, SSE streaming)        │
-│    MCP tools (HTTP + stdio transports)  NEW  │
+│    MCP tools (HTTP + stdio, 30s timeout)     │
+│                                              │
+│  PipelineTestHarness (cfg(test))        NEW  │
+│  JeevesClient (consumer HTTP client)   NEW  │
 └──────────────────────────────────────────────┘
 ```
 
-### 2.2 Rust Kernel (~8,500 LOC, with wired infrastructure)
+### 2.2 Rust Kernel (~9,300 LOC, split into focused files)
 
 #### Process Lifecycle
 Unix-inspired state machine: `New -> Ready -> Running -> Waiting/Blocked -> Terminated -> Zombie`
@@ -200,7 +202,23 @@ Pub/sub events, point-to-point commands, request/response queries with timeout.
 #### Service Registry (EXPANDED)
 `SERVICE_TYPE_MCP` constant for MCP service classification. Pre-spawn wiring point for registration before actor starts.
 
-### 2.3 Worker Module (~2,910 LOC, significantly expanded)
+#### PipelineBuilder (`kernel/builder.rs`, 503L, NEW)
+Fluent builder API for `PipelineConfig`:
+- `PipelineBuilder::new(name)` → `.stage(name, agent)` → `StageHandle` (nested config) → `.done()` → `.build()?`
+- `StageHandle` supports: `default_next`, `error_next`, `routing`, `gate`, `fork`, `has_llm`, `max_visits`, `allowed_tools`, `temperature`, `max_tokens`, `model_role`, `prompt_key`, `output_key`, `join_strategy`, `output_schema`
+- `Default` impl for `PipelineStage` matching serde defaults (`has_llm: true`, `node_kind: Agent`, `join_strategy: WaitAll`)
+- Routing expression convenience constructors: `always()`, `eq()`, `neq()`, `gt()`, `lt()`, `exists()`, `not_exists()`, `contains()`
+- `FieldRef` constructors: `current()`, `state()`, `agent_ref()`, `meta()`, `interrupt()`
+- Validation runs on `build()` — invalid pipelines caught at construction time
+- 11 tests: simple pipeline, routing, gate/fork, validation errors, all stage options, routing constructors, field ref constructors
+
+#### Kernel God-File Split (NEW)
+`kernel/mod.rs` (was ~1,250L → 330L) split into:
+- `kernel_delegation.rs` (481L): process lifecycle, envelope store, quota, interrupts, services, rate limiting, cleanup, system status
+- `kernel_orchestration.rs` (256L): initialize, get_next_instruction, process_agent_result
+- `kernel_events.rs` (41L): CommBus envelope snapshots
+
+### 2.3 Worker Module (~3,110 LOC, with discovery & structured errors)
 
 #### KernelHandle (`handle.rs`, 265L)
 Typed channel wrapper. **8 command variants** (was 7):
@@ -280,22 +298,36 @@ pub struct McpToolExecutor {
 
 **Streaming pipeline**: `run_pipeline_streaming()` — session initialization before spawn (rate-limit errors surface as 429 HTTP before SSE stream starts).
 
-#### HTTP Gateway (`gateway.rs`, 320L, hardened)
-Axum router with **8 routes** (was 7):
+#### HTTP Gateway (`gateway.rs` 351L + `gateway_types.rs` 94L + `gateway_errors.rs` 66L — split from single file)
+Axum router with **12 routes** (was 8):
 - `POST /api/v1/chat/messages` — run pipeline (request/response)
-- `GET /api/v1/chat/stream` — run pipeline with SSE streaming
+- `POST /api/v1/chat/stream` — run pipeline with SSE streaming
 - `POST /api/v1/pipelines/run` — alias
 - `GET /api/v1/sessions/{id}` — session state
+- `GET /api/v1/agents` — list registered agents (NEW)
+- `GET /api/v1/agents/{name}/card` — agent card (NEW)
+- `GET /api/v1/tasks/{process_id}` — task status with progress (NEW)
+- `GET /api/v1/tools` — list registered tools (NEW)
+- `POST /api/v1/interrupts/{process_id}/{interrupt_id}/resolve` — resolve HITL interrupt
 - `GET /api/v1/status` — system status
 - `GET /health` — liveness
 - `GET /ready` — readiness
-- `POST /api/v1/interrupts/{process_id}/{interrupt_id}/resolve` (NEW) — resolve HITL interrupt
 
 **Middleware stack**:
 - `TraceLayer::new_for_http()` — automatic request/response tracing
 - `RequestBodyLimitLayer::new(2MB)` — DoS protection
 - `CorsLayer::permissive()` — CORS
 - `QuotaExceeded` → 429 (not 500) on both buffered and SSE paths
+
+**Structured error responses** (NEW):
+- `ErrorResponse { error, code, error_id, details }` — all error responses include UUID error_id for log correlation
+- `gateway_errors.rs`: Full `Error` variant → HTTP status mapping (Validation→400, NotFound→404, QuotaExceeded→429, StateTransition→409, Timeout→504)
+- `gateway_types.rs`: Request/response types extracted (ChatRequest, ChatResponse, AgentCard, TaskStatus, ToolCardEntry, etc.)
+
+**Discovery types** (A2A-compatible, NEW):
+- `AgentCard { name, tools }` — agent metadata
+- `ToolCardEntry { name, description }` — tool metadata
+- `TaskStatus { task_id, status, current_stage, progress, terminal_reason, outputs }` — task tracking with progress fraction
 
 #### LLM Providers (`llm/`, ~540L)
 `LlmProvider` trait with `chat()` and `chat_stream()`.
@@ -310,13 +342,42 @@ Axum router with **8 routes** (was 7):
 - `Error { message }`
 - `InterruptPending { process_id, interrupt_id, kind, question, message }` (NEW)
 
+#### Consumer Client (`client.rs`, 357L, NEW)
+```rust
+pub struct JeevesClient {
+    base_url: String,
+    http: reqwest::Client,
+}
+```
+
+**Methods**: `run_pipeline()`, `stream_pipeline()` (SSE), `list_agents()`, `list_tools()`, `get_task_status()`, `resolve_interrupt()`, `health()`.
+
+**SSE parsing**: Manual `bytes_stream()` → newline-delimited block parsing → `PipelineEvent` deserialization. No new dependencies. Spawns background tokio task, returns `mpsc::Receiver<Result<PipelineEvent>>`.
+
+**Error handling**: `ErrorCode` enum (`RateLimited`, `InvalidArgument`, `NotFound`, `FailedPrecondition`, `Timeout`, `Cancelled`, `Internal`, `Unknown`). `map_http_error()` parses structured `ErrorResponse` JSON first, falls back to HTTP status code.
+
+**4 unit tests**: error code parsing, structured error mapping, unstructured fallback, client creation.
+
+#### Pipeline Test Harness (`testing.rs`, 170L, NEW)
+```rust
+PipelineTestHarness::new(config)
+    .mock_agent("understand", my_agent)
+    .run("Hello")
+    .await?
+```
+
+- Feature-gated: `#[cfg(any(test, feature = "test-harness"))]`
+- Spawns real kernel actor, runs real pipeline loop, no HTTP gateway
+- Supports both buffered (`.run()`) and streaming (`.run_streaming()`) modes
+- 2 tests: simple buffered pipeline + streaming with event collection
+
 #### Tools (`tools.rs`, ~85L)
 `ToolExecutor` trait + `ToolRegistry`. Used by both `LlmAgent` tool loop and `McpToolExecutor`.
 
 #### Prompts (`prompts.rs`, ~142L)
 `PromptRegistry` — `.txt` file loading + in-memory overrides + `{var}` substitution.
 
-### 2.4 Configuration (`types/config.rs`, ~200L)
+### 2.4 Configuration (`types/config.rs`, ~213L)
 
 `Config::from_env()`:
 - `JEEVES_HTTP_ADDR` — server bind
@@ -325,6 +386,18 @@ Axum router with **8 routes** (was 7):
 - `LLM_API_KEY`, `LLM_MODEL`, `LLM_BASE_URL` — LLM provider
 - `CORE_MAX_LLM_CALLS`, `CORE_MAX_ITERATIONS`, `CORE_MAX_AGENT_HOPS` — resource limits
 - `CORE_RATE_LIMIT_RPM`, `CORE_RATE_LIMIT_RPH`, `CORE_RATE_LIMIT_BURST` — rate limiting
+- `JEEVES_MCP_SERVERS` — JSON array of `McpServerConfig` for auto-connect (NEW)
+
+`McpServerConfig` (NEW):
+```rust
+pub struct McpServerConfig {
+    pub name: String,
+    pub transport: String,  // "http" or "stdio"
+    pub url: Option<String>,
+    pub command: Option<String>,
+    pub args: Option<Vec<String>>,
+}
+```
 
 ### 2.5 What Was Lost (from Python elimination, iteration 12)
 
@@ -332,32 +405,38 @@ Axum router with **8 routes** (was 7):
 |---------|-------------|---------------------------|
 | MCP client+server | 528 LOC | **MCP client** (430L) — HTTP+stdio. Server not yet |
 | A2A client+server | 590 LOC | None |
-| Routing expression builders | 227 LOC | None (config is JSON) |
-| MockKernelClient | 502 LOC | `SequentialMockLlmProvider` + `EchoToolExecutor` + mock HTTP MCP server |
+| Routing expression builders | 227 LOC | **PipelineBuilder + routing convenience constructors** (503L) |
+| MockKernelClient | 502 LOC | **PipelineTestHarness** (170L) + `SequentialMockLlmProvider` + `EchoToolExecutor` + mock HTTP MCP server |
 | 155 Python tests | routing, protocols, validation | 21 integration tests (rebuilt) |
-| Pipeline testing framework | `TestPipeline`, `EvaluationRunner` | None |
+| Pipeline testing framework | `TestPipeline`, `EvaluationRunner` | **PipelineTestHarness** (buffered + streaming) |
 | Capability registration | `register_capability()` | None (Rust Agent impls) |
-| Consumer import surface | `from jeeves_core import ...` | `use jeeves_core::worker::...` |
+| Consumer import surface | `from jeeves_core import ...` | **JeevesClient** (357L) + `use jeeves_core::worker::...` |
 | Gateway middleware | Rate limiting, body limit | **TraceLayer + 2MB body limit + 429 rate-limit** |
 | Observability bridge | Python OTEL adapter | **`#[instrument]` on agents + TraceLayer on gateway** |
 
-### 2.6 What Was Rebuilt (iterations 13-14)
+### 2.6 What Was Rebuilt (iterations 13-15)
 
-| Feature | Status (iter 12) | Status (iter 14) |
+| Feature | Status (iter 12) | Status (iter 15) |
 |---------|-------------------|-------------------|
 | Tool execution loop | Single LLM call | **ReAct multi-turn + circuit breaking** |
 | Streaming | Type defined, not wired | **End-to-end SSE (8 event types)** |
-| Definition-time validation | Serde only | **`PipelineConfig::validate()`** |
-| SSE endpoint | None | **`GET /api/v1/chat/stream`** |
-| MCP client | Deleted with Python | **430L Rust, HTTP+stdio** |
-| Gateway hardening | CORS only | **TraceLayer + 2MB limit + 429** |
-| Observability | Kernel OTEL only | **+ `#[instrument]` on agents + TraceLayer** |
+| Definition-time validation | Serde only | **`PipelineConfig::validate()` + PipelineBuilder** |
+| SSE endpoint | None | **`POST /api/v1/chat/stream`** |
+| MCP client | Deleted with Python | **430L Rust, HTTP+stdio, 30s timeout, env auto-connect** |
+| Gateway hardening | CORS only | **TraceLayer + 2MB limit + 429 + structured errors** |
+| Observability | Kernel OTEL only | **+ `#[instrument]` on agents + TraceLayer + routing debug** |
 | Tool health | Kernel module, unwired | **Wired: agent reports → kernel tracks → circuit breaking** |
 | Interrupts | Kernel module, unwired | **Wired: gateway → kernel → pipeline poll/early-return** |
 | Execution tracking | None | **max_stages, current_stage, completed_stages** |
 | Interrupt endpoint | None | **`POST /interrupts/{pid}/{iid}/resolve`** |
 | Integration tests | 5 tests | **21 tests (1,064L)** |
 | Fork/parallel | Deadlocked | **Fixed** |
+| Pipeline builder | None | **PipelineBuilder (503L) + routing constructors** |
+| Test harness | None | **PipelineTestHarness (170L) — buffered + streaming** |
+| Consumer client | None | **JeevesClient (357L) — typed HTTP + SSE** |
+| Discovery endpoints | None | **4 endpoints: agents, tools, tasks, agent cards** |
+| God-file splits | 1,250L mod.rs | **4 focused files (330L + 256L + 481L + 41L)** |
+| Structured errors | Plain strings | **ErrorResponse with error_id + details + typed codes** |
 
 ---
 
@@ -381,6 +460,12 @@ Axum router with **8 routes** (was 7):
 
 8. **MCP client with kernel integration** (RECOVERED) — HTTP + stdio transports. Discovered tools registered into kernel-mediated `ToolRegistry`. Tool health tracked by kernel.
 
+9. **Fluent pipeline builder + test harness** (NEW) — `PipelineBuilder` with `StageHandle` chain reduces pipeline authoring from 30+ lines to ~5. `PipelineTestHarness` enables integration testing without HTTP. No other framework provides kernel-validated builder + in-process test harness combination.
+
+10. **Typed consumer client with SSE** (NEW) — `JeevesClient` with typed methods for all endpoints, manual SSE parsing, and `ErrorCode`-based error handling. Zero additional dependencies. Enables programmatic integration without raw HTTP.
+
+11. **Discovery & A2A surface** (NEW) — Agent listing, agent cards, tool listing, task status with progress. Begins Google A2A-compatible protocol surface directly on the gateway.
+
 ### 3.2 Comparison Matrix
 
 | Dimension | Jeeves | LangGraph | CrewAI | AutoGen | Semantic Kernel | Haystack | DSPy | Prefect | Temporal | Mastra | PydanticAI | Agno | Google ADK | OpenAI Agents | Strands | Rig | MS Agent Fw |
@@ -400,7 +485,10 @@ Axum router with **8 routes** (was 7):
 | **MCP support** | **Client (HTTP+stdio)** | Client | None | None | None | None | None | None | None | Client | Client | Client | Client | Client | Client | None | None |
 | **Streaming** | **SSE (8 events)** | Yes | None | Yes | Yes | None | None | None | None | Yes | Yes | Yes | Yes | Yes | Yes | None | Yes |
 | **Gateway hardening** | **Trace+2MB+429** | N/A | N/A | N/A | N/A | N/A | N/A | N/A | N/A | N/A | N/A | N/A | N/A | N/A | N/A | N/A | N/A |
-| **Testing infra** | 269 Rust tests | None | None | None | None | None | Eval | None | None | None | pytest | None | Eval | None | None | None | None |
+| **Testing infra** | **285 tests + harness** | None | None | None | None | None | Eval | None | None | None | pytest | None | Eval | None | None | None | None |
+| **Builder/DX** | **PipelineBuilder** | Python API | YAML | Python | C# API | Pipeline API | Decorators | Decorators | Go API | Graph API | Decorators | Decorators | YAML/Code | Decorators | Decorators | Macros | C# API |
+| **Client SDK** | **JeevesClient (Rust)** | Python | Python | Python | Multi-lang | Python | Python | Python | Multi-lang | TS | Python | Python | Python | Python | Python | Rust | Multi-lang |
+| **Discovery/A2A** | **4 endpoints** | None | None | None | None | None | None | None | None | None | None | None | A2A | None | None | None | None |
 | **Persistent memory** | None | Checkpoint | None | None | None | None | None | Artifacts | Durable | None | None | Memory | None | None | None | None | None |
 
 ### 3.3 Framework-by-Framework Comparison
@@ -505,9 +593,9 @@ Axum router with **8 routes** (was 7):
 | Agno | 3.0 | 3.0 | 2.5 | 3.5 | 4.0 | 3.0 |
 | Strands Agents | 3.0 | 3.0 | 2.5 | 3.0 | 3.5 | 3.5 |
 | Rig | 2.5 | 3.0 | 2.0 | 1.5 | 2.5 | 2.0 |
-| **Jeeves-Core** | **4.7** | **5.0** | **4.5** | 1.5 | 3.5 | 3.5 |
+| **Jeeves-Core** | **4.8** | **5.0** | **4.5** | 1.5 | 4.0 | 4.0 |
 
-Protocol score rises from 3.0 → 3.5 (MCP client recovered). Overall rises to 4.7 — infrastructure is now wired and hardened.
+DX score rises from 3.5 → 4.0 (PipelineBuilder, test harness, JeevesClient, structured errors). Protocol score rises to 4.0 (4 discovery endpoints, A2A-compatible types). Overall rises to 4.8 — DX and protocol surface now match the kernel's maturity.
 
 ---
 
@@ -531,17 +619,21 @@ Protocol score rises from 3.0 → 3.5 (MCP client recovered). Overall rises to 4
 
 **S9: Definition-Time Validation (4.0/5)** — `PipelineConfig::validate()` with semantic checks. 15 unit tests.
 
-**S10: Testing (4.2/5)** (UP from 4.0) — 269 tests (248 unit + 21 integration), all passing. MCP integration test with mock HTTP server. Tool loop, streaming, fork/join, routing, errors, validation coverage.
+**S10: Testing (4.5/5)** (UP from 4.2) — 285 tests (264 unit + 21 integration), all passing. PipelineTestHarness enables integration testing without HTTP. MCP integration test with mock HTTP server. Builder tests cover routing, gate/fork, validation. Tool loop, streaming, fork/join, routing, errors, validation, client, error code coverage.
 
-**S11: Observability (4.0/5)** (UP from 3.5) — `TraceLayer` on gateway (automatic request/response tracing). `#[instrument]` on agent execution. `tracing::debug!` in tool loop. Kernel OTEL preserved. Significant improvement.
+**S11: Observability (4.0/5)** — `TraceLayer` on gateway. `#[instrument]` on agent execution. `tracing::debug!` in tool loop and routing rule evaluation. Kernel OTEL preserved.
 
-**S12: Code Hygiene (5.0/5)** — Tight, focused codebase. ~40k dead lines deleted over iterations 12-14.
+**S12: Code Hygiene (5.0/5)** — Tight, focused codebase. ~40k dead lines deleted. God-files split: kernel mod.rs 1,250→330L, gateway split into 3 files.
 
-**S13: Interrupt System (4.5/5)** (NEW, was W-class) — 7 typed interrupt kinds, fully wired: gateway endpoint → kernel command → orchestrator check → pipeline poll (streaming) or early return (buffered). `InterruptPending` SSE event. Complete HITL flow.
+**S13: Interrupt System (4.5/5)** — 7 typed interrupt kinds, fully wired: gateway endpoint → kernel command → orchestrator check → pipeline poll (streaming) or early return (buffered). `InterruptPending` SSE event. Complete HITL flow.
 
-**S14: MCP Integration (4.0/5)** (NEW, was W-class) — HTTP + stdio transports. Tool discovery + execution via JSON-RPC 2.0. Integrates with ToolRegistry without changes. Tools tracked by kernel health system. 8 tests.
+**S14: MCP Integration (4.2/5)** (UP from 4.0) — HTTP + stdio transports with 30s timeout. Tool discovery + execution via JSON-RPC 2.0. Env-driven auto-connect (`JEEVES_MCP_SERVERS`). `McpServerConfig` for declarative setup. Integrates with ToolRegistry without changes. Tools tracked by kernel health system.
 
-**S15: Gateway Hardening (4.0/5)** (NEW, was W-class) — TraceLayer, 2MB RequestBodyLimitLayer, QuotaExceeded → 429. SSE init validates before spawning. Helper function deduplication.
+**S15: Gateway Hardening (4.5/5)** (UP from 4.0) — TraceLayer, 2MB RequestBodyLimitLayer, QuotaExceeded → 429. Structured `ErrorResponse` with `error_id` (UUID) and `details`. Full Error variant → HTTP status mapping. Gateway cleanly split: handlers, types, errors.
+
+**S16: Developer Experience (4.0/5)** (NEW, was W-class) — PipelineBuilder reduces pipeline authoring from 30+ lines to ~5. Routing expression convenience constructors. PipelineTestHarness for testing without HTTP. JeevesClient for typed programmatic access. Structured error codes with ErrorCode enum.
+
+**S17: Discovery & A2A Surface (3.5/5)** (NEW) — 4 discovery endpoints: agent listing, agent cards, tool listing, task status with progress. A2A-compatible types (AgentCard, ToolCardEntry, TaskStatus). Begins interoperability surface.
 
 ---
 
@@ -555,13 +647,13 @@ Protocol score rises from 3.0 → 3.5 (MCP client recovered). Overall rises to 4
 
 **W4: Memory & Persistence (2.0/5)** — No persistent memory. No checkpoint/replay.
 
-**W5: A2A Support (1.5/5)** — A2A deleted with Python layer. Not yet reimplemented.
+**W5: A2A Support (2.5/5)** (UP from 1.5) — A2A deleted with Python layer. Discovery endpoints added (agents, tools, tasks, agent cards). Full A2A protocol (task submission, streaming updates) not yet implemented.
 
-**W6: Developer Experience (3.5/5)** — Raw JSON pipeline configs. Rust traits. No routing builders. High barrier for non-Rust teams.
+**W6: MCP Server (2.0/5)** — MCP client is back but MCP server (exposing Jeeves capabilities as MCP resources) is not yet reimplemented.
 
-**W7: MCP Server (2.0/5)** — MCP client is back but MCP server (exposing Jeeves capabilities as MCP resources) is not yet reimplemented.
+**W7: Authentication (2.0/5)** — No auth middleware on gateway. Discovery endpoints expose agent/tool inventory without auth. Required for production multi-tenant deployment.
 
-**W8: Authentication (2.0/5)** — No auth middleware on gateway. Required for production multi-tenant deployment.
+**W8: Multi-language Client SDKs (1.5/5)** — JeevesClient provides Rust client, but no Python/TypeScript/Go SDKs. Non-Rust teams must use raw HTTP.
 
 ---
 
@@ -573,8 +665,8 @@ Protocol score rises from 3.0 → 3.5 (MCP client recovered). Overall rises to 4
 |----------|-------|--------|
 | README.md | ~139 | Updated for Rust-only architecture |
 | CONSTITUTION.md | ~202 | Updated |
-| CHANGELOG.md | ~88 | Needs update for iterations 13-14 |
-| docs/API_REFERENCE.md | ~100 | Needs update for `/chat/stream`, `/interrupts/resolve` |
+| CHANGELOG.md | ~88 | Needs update for iterations 13-15 |
+| docs/API_REFERENCE.md | ~100 | Needs update for 4 new discovery endpoints, structured errors, PipelineBuilder, JeevesClient |
 | docs/DEPLOYMENT.md | ~100 | Updated for single-binary deploy |
 | AUDIT_AGENTIC_FRAMEWORKS.md | this file | Current |
 
@@ -584,25 +676,25 @@ Protocol score rises from 3.0 → 3.5 (MCP client recovered). Overall rises to 4
 
 ### Immediate (High Impact)
 
-1. **Update API docs** — Document `/chat/stream` SSE endpoint, `PipelineEvent` types, `/interrupts/{pid}/{iid}/resolve` endpoint, MCP client configuration.
+1. **Update API docs** — Document 4 new discovery endpoints, PipelineBuilder API, JeevesClient usage, `McpServerConfig` env var, structured `ErrorResponse` format. Significant API surface added in iteration 15.
 
-2. **MCP server in Rust** — Expose Jeeves capabilities as MCP resources for cross-framework tool consumption.
+2. **Authentication middleware** — JWT or API key auth on gateway. Discovery endpoints now expose agent/tool inventory without auth — security concern for production.
 
-3. **Authentication middleware** — JWT or API key auth on gateway for multi-tenant production.
+3. **MCP server in Rust** — Expose Jeeves capabilities as MCP resources for cross-framework tool consumption.
 
 ### Medium-term
 
-4. **A2A support in Rust** — Agent-to-agent interoperability.
+4. **Full A2A protocol** — Extend discovery endpoints into full A2A task submission and streaming updates. Foundation laid in iteration 15.
 
 5. **Persistent state** — Redis/SQL-backed state persistence across pipeline requests.
 
-6. **Routing expression builder API** — Programmatic alternative to raw JSON.
+6. **Multi-language client SDKs** — Generate Python/TypeScript/Go SDKs from HTTP API spec. JeevesClient provides the reference implementation.
 
 ### Long-term
 
-7. **SDK generation** — Python/TypeScript/Go client SDKs from HTTP API spec.
-8. **Checkpoint/replay** — Pipeline state persistence for crash recovery.
-9. **Evaluation framework** — Leverage kernel metrics + tool health for pipeline quality assessment.
+7. **Checkpoint/replay** — Pipeline state persistence for crash recovery.
+8. **Evaluation framework** — Leverage kernel metrics + tool health + PipelineTestHarness for pipeline quality assessment.
+9. **Visual pipeline builder** — Web UI leveraging PipelineBuilder API for drag-and-drop pipeline construction.
 
 ---
 
@@ -610,38 +702,38 @@ Protocol score rises from 3.0 → 3.5 (MCP client recovered). Overall rises to 4
 
 | Dimension | Score | Rationale |
 |-----------|-------|-----------|
-| Architecture | 5.0/5 | Single-process, typed channels, zero serialization |
+| Architecture | 5.0/5 | Single-process, typed channels, zero serialization, clean file splits |
 | Contract enforcement | 5.0/5 | JSON Schema + tool ACLs + quotas + max_visits + step_limit + circuit breaking |
-| Operational simplicity | 4.5/5 | Single binary, single Dockerfile, env-var config |
+| Operational simplicity | 4.5/5 | Single binary, single Dockerfile, env-var config + MCP auto-connect |
 | Graph expressiveness | 4.5/5 | Gate/Fork/Agent, state merge, Break, step_limit |
 | Type safety | 5.0/5 | 100% Rust, `#[deny(unsafe_code)]`, typed channels |
 | Memory safety | 5.0/5 | Zero unsafe, Rust ownership end-to-end |
 | Agentic capabilities | 4.8/5 | ReAct tool loop + circuit breaking + health tracking |
 | Streaming | 4.5/5 | End-to-end SSE: 8 event types including InterruptPending |
-| Definition-time validation | 4.0/5 | PipelineConfig::validate() with semantic checks |
-| MCP integration | 4.0/5 | HTTP + stdio client. Kernel-tracked tool health |
+| Definition-time validation | 4.5/5 | PipelineConfig::validate() + PipelineBuilder (catches errors at construction) |
+| MCP integration | 4.2/5 | HTTP + stdio client with 30s timeout. Env auto-connect. Kernel-tracked tool health |
 | Interrupt system | 4.5/5 | 7 kinds, fully wired: gateway → kernel → pipeline |
-| Gateway hardening | 4.0/5 | TraceLayer + 2MB limit + 429 rate-limit |
-| Observability | 4.0/5 | TraceLayer + #[instrument] + kernel OTEL |
-| Code hygiene | 5.0/5 | ~40k dead lines deleted. Tight codebase |
-| Testing & eval | 4.2/5 | 269 tests (248 unit + 21 integration) |
-| Developer experience | 3.5/5 | HTTP API + Rust traits. No routing builders |
-| Documentation | 3.5/5 | Needs update for new endpoints |
-| Interoperability | 3.0/5 | MCP client recovered. A2A still missing. No MCP server |
+| Gateway hardening | 4.5/5 | TraceLayer + 2MB limit + 429 + structured errors with error_id |
+| Observability | 4.0/5 | TraceLayer + #[instrument] + routing debug + kernel OTEL |
+| Code hygiene | 5.0/5 | ~40k dead lines deleted. God-files split into focused modules |
+| Testing & eval | 4.5/5 | 285 tests (264 unit + 21 integration) + PipelineTestHarness |
+| Developer experience | 4.0/5 | PipelineBuilder + JeevesClient + PipelineTestHarness + structured errors |
+| Documentation | 3.5/5 | Needs update for new discovery endpoints, builder, client |
+| Interoperability | 3.5/5 | MCP client + 4 discovery endpoints (A2A foundation). No MCP server |
 | RAG depth | 1.0/5 | No retrieval |
-| Multi-language | 1.5/5 | Rust only. No SDKs |
+| Multi-language | 1.5/5 | Rust only. JeevesClient is Rust-only |
 | Managed experience | 2.0/5 | Self-hosted only |
 | Memory/persistence | 2.0/5 | No persistent memory |
 | Community/ecosystem | 1.0/5 | Zero adoption |
-| **Overall** | **4.7/5** | |
+| **Overall** | **4.8/5** | |
 
-The overall score rises from 4.5 to 4.7. Five previously-identified weaknesses addressed: MCP client recovered, gateway hardened, tool health wired with circuit breaking, interrupts fully wired end-to-end, observability wired with `#[instrument]` + `TraceLayer`. The system transitions from "feature-complete for core workflows" to "production-hardened with operational infrastructure wired".
+The overall score rises from 4.7 to 4.8. Iteration 15 addresses developer experience (PipelineBuilder, test harness, consumer client, structured errors) and begins protocol surface (discovery endpoints). The system transitions from "production-hardened" to "production-hardened with DX and protocol surface".
 
 ---
 
 ## 9. Trajectory Analysis
 
-### Gap Closure (14 Iterations)
+### Gap Closure (15 Iterations)
 
 | Gap | Status |
 |-----|--------|
@@ -649,7 +741,7 @@ The overall score rises from 4.5 to 4.7. Five previously-identified weaknesses a
 | No output schema validation | **CLOSED** — kernel JSON Schema |
 | No tool ACLs | **CLOSED** — kernel-enforced |
 | MCP support | **RECOVERED** — MCP client (430L), HTTP + stdio transports |
-| A2A support | **REGRESSED** — deleted with Python, not reimplemented |
+| A2A support | **PARTIAL** — 4 discovery endpoints (agents, tools, tasks, cards). Full task protocol not yet |
 | Envelope complexity | **CLOSED** — typed `AgentContext` |
 | No testing framework | **CLOSED** — 269 tests, 21 integration with mock MCP server |
 | Dead protocols | **CLOSED** — ~40k lines deleted |
@@ -660,8 +752,8 @@ The overall score rises from 4.5 to 4.7. Five previously-identified weaknesses a
 | No state management | **CLOSED** — state_schema + MergeStrategy |
 | IPC complexity | **CLOSED** — typed mpsc channels |
 | Python operational overhead | **CLOSED** — Python deleted |
-| No definition-time validation | **CLOSED** — `PipelineConfig::validate()` |
-| No curated API surface | **REGRESSED** — Rust crate API only |
+| No definition-time validation | **CLOSED** — `PipelineConfig::validate()` + `PipelineBuilder` |
+| No curated API surface | **CLOSED** — JeevesClient (typed HTTP), PipelineBuilder (fluent config), PipelineTestHarness |
 | No non-LLM agent | **CLOSED** — `DeterministicAgent` |
 | Persistent memory | **OPEN** |
 | Tool execution loop | **CLOSED** — ReAct multi-turn + circuit breaking |
@@ -670,33 +762,49 @@ The overall score rises from 4.5 to 4.7. Five previously-identified weaknesses a
 | Gateway hardening | **CLOSED** — TraceLayer + 2MB limit + 429 |
 | Tool health unwired | **CLOSED** — wired: agent reports → kernel tracks → circuit breaking |
 | Interrupts unwired | **CLOSED** — wired: gateway → kernel → pipeline poll/early-return |
-| Observability unwired | **MOSTLY CLOSED** — TraceLayer + #[instrument] |
+| Observability unwired | **MOSTLY CLOSED** — TraceLayer + #[instrument] + routing debug |
+| No pipeline builder | **CLOSED** — PipelineBuilder (503L) + routing convenience constructors |
+| No test harness | **CLOSED** — PipelineTestHarness (170L) — buffered + streaming |
+| No consumer client | **CLOSED** — JeevesClient (357L) — typed HTTP + SSE |
+| No discovery endpoints | **CLOSED** — 4 endpoints: agents, tools, tasks, agent cards |
+| God-file sprawl | **CLOSED** — kernel mod.rs split 4 ways, gateway split 3 ways |
+| Unstructured errors | **CLOSED** — ErrorResponse with error_id, details, typed codes |
 
-**22/26 gaps closed. 1 recovered (MCP client). 2 regressed (A2A, curated API surface). 1 open (persistent memory).**
+**28/32 gaps closed. 1 recovered (MCP client). 1 partial (A2A). 1 mostly closed (observability). 1 open (persistent memory).**
 
-### Code Trajectory (Iterations 12-14)
+### Code Trajectory (Iterations 12-15)
 
-| Metric | Iter 12 → Iter 13 → Iter 14 | Detail |
-|--------|------------------------------|--------|
-| Total Rust LOC | ~14,340 → ~14,400 → ~15,300 | +900 (MCP client, gateway, wiring) |
-| Worker module | 1,678 → ~2,200 → ~2,910 | +710 (MCP, hardening, interrupts) |
-| Rust tests | 247 → 261 → 269 | +8 (MCP unit + integration) |
-| Integration tests | 5 → 20 → 21 | +1 (MCP HTTP round-trip) |
-| Test LOC | 192 → 1,022 → 1,064 | +42 |
-| HTTP endpoints | 6 → 7 → 8 | +1 (interrupt resolve) |
-| KernelCommand variants | 7 → 7 → 8 | +1 (ResolveInterrupt) |
-| PipelineEvent variants | 0 → 7 → 8 | +1 (InterruptPending) |
-| MCP support | Deleted → Deleted → **Client (430L)** | Recovered |
-| Gateway middleware | CORS → CORS + SSE → **Trace + 2MB + CORS + SSE** | Hardened |
+| Metric | Iter 12 → Iter 13 → Iter 14 → Iter 15 | Detail |
+|--------|----------------------------------------|--------|
+| Total Rust LOC | ~14,340 → ~14,400 → ~15,300 → **~16,500** | +1,200 (builder, client, harness, discovery, splits) |
+| Worker module | 1,678 → ~2,200 → ~2,910 → **~3,110** | +200 (gateway split, discovery handlers, types) |
+| Rust tests | 247 → 261 → 269 → **285** | +16 (builder, client, harness, field refs) |
+| Integration tests | 5 → 20 → 21 → **21** | Stable |
+| HTTP endpoints | 6 → 7 → 8 → **12** | +4 (agents, tools, tasks, agent cards) |
+| KernelCommand variants | 7 → 7 → 8 → **8** | Stable |
+| PipelineEvent variants | 0 → 7 → 8 → **8** | Stable |
+| MCP support | Deleted → Deleted → Client → **Client + 30s timeout + auto-connect** | Matured |
+| Gateway middleware | CORS → CORS + SSE → Trace + 2MB → **+ structured errors** | Hardened |
+| Builder/DX | None → None → None → **PipelineBuilder (503L) + JeevesClient (357L) + Harness (170L)** | New |
+| God-file splits | — → — → — → **kernel mod.rs 4-way + gateway 3-way + envelope** | Clean |
 
 ### Architectural Verdict
 
-Iteration 14 transitions Jeeves-Core from **feature-complete** to **production-hardened**. The distinction is critical: iteration 13 built the capabilities (tool loop, streaming, validation); iteration 14 wires the operational infrastructure that makes them production-ready (circuit breaking, interrupt resolution, gateway hardening, observability tracing, MCP integration).
+Iteration 15 transitions Jeeves-Core from **production-hardened** to **production-hardened with DX and protocol surface**. The distinction matters: iteration 14 wired the operational infrastructure (circuit breaking, interrupts, gateway hardening); iteration 15 makes it usable by developers and external systems.
 
-The system now has **no unwired kernel infrastructure**. Every major kernel subsystem — lifecycle, orchestrator, interrupts, tool health, resource quotas, rate limiting — is accessible through the `KernelHandle` typed channel and exercised by the worker pipeline loop. The gateway exposes all operations via HTTP with proper error mapping and observability.
+The **DX layer** is now substantive:
+- `PipelineBuilder` reduces pipeline authoring from 30+ lines of raw JSON to ~5 lines of fluent Rust
+- `PipelineTestHarness` enables pipeline integration testing without HTTP gateway overhead
+- `JeevesClient` provides typed programmatic access with SSE streaming and error code handling
+- Structured `ErrorResponse` with `error_id` enables log correlation and debugging
+- Routing expression convenience constructors (`always()`, `eq()`, `contains()`, etc.) replace raw enum construction
 
-**Remaining work is ecosystem and DX**: MCP server → A2A → persistent memory → routing builders → SDK generation → authentication → documentation updates.
+The **protocol surface** begins with 4 discovery endpoints (agents, tools, tasks, agent cards) using A2A-compatible types. This is the foundation for full A2A interoperability.
+
+The **god-file splits** are architecturally significant: `kernel/mod.rs` (1,250L) is now 4 focused files, `gateway.rs` is 3 files, `envelope/mod.rs` has extracted types. Each file has a single responsibility. This is the kind of refactoring that indicates codebase maturity — the team is optimizing for maintainability, not just features.
+
+**Remaining work**: authentication (critical — discovery endpoints are unauthenticated) → full A2A protocol → MCP server → persistent memory → multi-language SDKs → documentation updates.
 
 ---
 
-*Audit conducted across 14 iterations on branch `claude/audit-agentic-frameworks-B6fqd`, 2026-03-11 to 2026-03-13.*
+*Audit conducted across 15 iterations on branch `claude/audit-agentic-frameworks-B6fqd`, 2026-03-11 to 2026-03-13.*
