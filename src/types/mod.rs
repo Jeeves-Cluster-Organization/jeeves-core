@@ -5,10 +5,10 @@
 //! - **Errors**: Application error types with thiserror derives
 //! - **Config**: Configuration structures for kernel, pipeline, and resources
 
-mod config;
+pub mod config;
 mod errors;
 mod ids;
 
-pub use config::{CleanupConfig, Config, ObservabilityConfig, RateLimitConfig};
+pub use config::{CleanupConfig, Config, McpServerConfig, ObservabilityConfig, RateLimitConfig};
 pub use errors::{Error, Result};
 pub use ids::{EnvelopeId, ProcessId, RequestId, SessionId, UserId};

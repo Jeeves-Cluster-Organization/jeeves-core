@@ -148,6 +148,19 @@ impl Default for DefaultLimits {
     }
 }
 
+/// MCP server configuration for auto-connect.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct McpServerConfig {
+    pub name: String,
+    pub transport: String,
+    #[serde(default)]
+    pub url: Option<String>,
+    #[serde(default)]
+    pub command: Option<String>,
+    #[serde(default)]
+    pub args: Option<Vec<String>>,
+}
+
 impl Config {
     /// Load configuration from environment variables.
     ///

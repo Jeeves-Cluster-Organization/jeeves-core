@@ -5,6 +5,8 @@
 pub mod actor;
 pub mod agent;
 pub mod gateway;
+pub mod gateway_errors;
+pub mod gateway_types;
 pub mod handle;
 pub mod llm;
 pub mod mcp;

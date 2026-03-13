@@ -5,6 +5,7 @@ use jeeves_core::kernel::Kernel;
 use jeeves_core::worker::actor::spawn_kernel;
 use jeeves_core::worker::agent::AgentRegistry;
 use jeeves_core::worker::gateway::{build_router, AppState};
+use jeeves_core::worker::tools::{ToolExecutor, ToolRegistry};
 use std::sync::Arc;
 use tokio_util::sync::CancellationToken;
 
@@ -35,8 +36,49 @@ async fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
             let mut kernel = Kernel::from_config(&config);
             let cancel = CancellationToken::new();
 
+            // Build tool registry mutably, register MCP tools, then wrap in Arc
+            let mut tool_registry = ToolRegistry::new();
+
+            // MCP auto-connect from JEEVES_MCP_SERVERS env var
+            if let Ok(mcp_json) = std::env::var("JEEVES_MCP_SERVERS") {
+                if let Ok(servers) = serde_json::from_str::<Vec<jeeves_core::types::config::McpServerConfig>>(&mcp_json) {
+                    for mcp_cfg in servers {
+                        let transport = match mcp_cfg.transport.as_str() {
+                            "http" => jeeves_core::worker::mcp::McpTransport::Http {
+                                url: mcp_cfg.url.clone().unwrap_or_default(),
+                            },
+                            "stdio" => jeeves_core::worker::mcp::McpTransport::Stdio {
+                                command: mcp_cfg.command.clone().unwrap_or_default(),
+                                args: mcp_cfg.args.clone().unwrap_or_default(),
+                            },
+                            other => {
+                                tracing::warn!(transport = other, name = %mcp_cfg.name, "Unknown MCP transport, skipping");
+                                continue;
+                            }
+                        };
+                        match jeeves_core::worker::mcp::McpToolExecutor::connect(transport).await {
+                            Ok(executor) => {
+                                let executor = Arc::new(executor);
+                                let tool_count = executor.list_tools().len();
+                                tool_registry.register(&mcp_cfg.name, executor);
+                                tracing::info!(name = %mcp_cfg.name, tools = tool_count, "MCP server connected");
+                            }
+                            Err(e) => tracing::error!(name = %mcp_cfg.name, error = %e, "MCP server connect failed"),
+                        }
+                        // Register service in kernel for health tracking
+                        kernel.register_service(
+                            jeeves_core::kernel::ServiceInfo::new(
+                                mcp_cfg.name.clone(),
+                                jeeves_core::kernel::SERVICE_TYPE_MCP.into(),
+                            ),
+                        );
+                    }
+                }
+            }
+
+            let tools = Arc::new(tool_registry);
+
             // Pre-spawn wiring point: register MCP services, CommBus subscriptions, etc.
-            // e.g. kernel.register_service(ServiceInfo::new("my_mcp".into(), "mcp".into()));
 
             let handle = spawn_kernel(kernel, cancel.clone());
 
@@ -47,6 +89,7 @@ async fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
             let app_state = AppState {
                 handle,
                 agents,
+                tools,
             };
             let router = build_router(app_state);
 

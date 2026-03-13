@@ -18,203 +18,10 @@ use std::collections::{HashMap, HashSet};
 use crate::types::{EnvelopeId, RequestId, SessionId, UserId};
 
 pub mod enums;
+pub mod types;
 
 pub use enums::*;
-
-/// Response to a flow interrupt.
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-pub struct InterruptResponse {
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub text: Option<String>,
-
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub approved: Option<bool>,
-
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub decision: Option<String>,
-
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub data: Option<HashMap<String, serde_json::Value>>,
-
-    pub received_at: DateTime<Utc>,
-}
-
-/// Flow interrupt (clarification, confirmation, etc.).
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-pub struct FlowInterrupt {
-    pub kind: InterruptKind,
-    pub id: String,
-
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub question: Option<String>,
-
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub message: Option<String>,
-
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub data: Option<HashMap<String, serde_json::Value>>,
-
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub response: Option<InterruptResponse>,
-
-    pub created_at: DateTime<Utc>,
-
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub expires_at: Option<DateTime<Utc>>,
-}
-
-impl FlowInterrupt {
-    pub fn new(kind: InterruptKind) -> Self {
-        Self {
-            kind,
-            id: format!("int_{}", &uuid::Uuid::new_v4().simple().to_string()[..16]),
-            question: None,
-            message: None,
-            data: None,
-            response: None,
-            created_at: Utc::now(),
-            expires_at: None,
-        }
-    }
-
-    pub fn with_question(mut self, q: String) -> Self {
-        self.question = Some(q);
-        self
-    }
-
-    pub fn with_message(mut self, m: String) -> Self {
-        self.message = Some(m);
-        self
-    }
-
-    pub fn with_data(mut self, d: HashMap<String, serde_json::Value>) -> Self {
-        self.data = Some(d);
-        self
-    }
-
-    pub fn with_expiry(mut self, duration: std::time::Duration) -> Self {
-        self.expires_at = Some(Utc::now() + chrono::Duration::from_std(duration).unwrap_or(chrono::TimeDelta::MAX));
-        self
-    }
-}
-
-/// Status of a processing record.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Hash)]
-#[serde(rename_all = "snake_case")]
-pub enum ProcessingStatus {
-    Running,
-    Success,
-    Error,
-    Skipped,
-}
-
-/// Processing record for audit trail.
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-pub struct ProcessingRecord {
-    pub agent: String,
-    pub stage_order: i32,
-    pub started_at: DateTime<Utc>,
-
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub completed_at: Option<DateTime<Utc>>,
-
-    pub duration_ms: i32,
-    pub status: ProcessingStatus,
-
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub error: Option<String>,
-
-    pub llm_calls: i32,
-}
-
-// =============================================================================
-// Sub-structs
-// =============================================================================
-
-/// Envelope identity fields.
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-pub struct Identity {
-    pub envelope_id: EnvelopeId,
-    pub request_id: RequestId,
-    pub user_id: UserId,
-    pub session_id: SessionId,
-}
-
-/// Pipeline sequencing and parallel execution state.
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-pub struct Pipeline {
-    pub current_stage: String,
-    pub stage_order: Vec<String>,
-    pub iteration: i32,
-    pub max_iterations: i32,
-
-    #[serde(default, skip_serializing_if = "HashSet::is_empty")]
-    pub active_stages: HashSet<String>,
-
-    #[serde(default, skip_serializing_if = "HashSet::is_empty")]
-    pub completed_stage_set: HashSet<String>,
-
-    #[serde(default, skip_serializing_if = "HashMap::is_empty")]
-    pub failed_stages: HashMap<String, String>,
-
-    #[serde(default)]
-    pub parallel_mode: bool,
-}
-
-/// Resource limits and usage counters.
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-pub struct Bounds {
-    pub llm_call_count: i32,
-    pub max_llm_calls: i32,
-    pub tool_call_count: i32,
-    pub agent_hop_count: i32,
-    pub max_agent_hops: i32,
-    pub tokens_in: i64,
-    pub tokens_out: i64,
-
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub terminal_reason: Option<TerminalReason>,
-
-    pub terminated: bool,
-
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub termination_reason: Option<String>,
-}
-
-/// Human-in-the-loop interrupt state.
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-pub struct InterruptState {
-    pub interrupt_pending: bool,
-
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub interrupt: Option<FlowInterrupt>,
-}
-
-/// Multi-stage execution tracking (goals, retries).
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-pub struct Execution {
-    pub completed_stages: Vec<HashMap<String, serde_json::Value>>,
-    pub current_stage_number: i32,
-    pub max_stages: i32,
-    pub all_goals: Vec<String>,
-    pub remaining_goals: Vec<String>,
-    pub goal_completion_status: HashMap<String, String>,
-    pub prior_plans: Vec<HashMap<String, serde_json::Value>>,
-    pub loop_feedback: Vec<String>,
-}
-
-/// Audit trail: history, errors, timing, metadata.
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-pub struct Audit {
-    pub processing_history: Vec<ProcessingRecord>,
-    pub errors: Vec<HashMap<String, serde_json::Value>>,
-    pub created_at: DateTime<Utc>,
-
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub completed_at: Option<DateTime<Utc>>,
-
-    pub metadata: HashMap<String, serde_json::Value>,
-}
+pub use types::*;
 
 // =============================================================================
 // Envelope
@@ -832,7 +639,6 @@ mod tests {
 
     #[test]
     fn test_serde_terminal_reason() {
-        // TerminalReason uses SCREAMING_SNAKE_CASE
         let cases = vec![
             (TerminalReason::Completed, "\"COMPLETED\""),
             (TerminalReason::MaxIterationsExceeded, "\"MAX_ITERATIONS_EXCEEDED\""),
@@ -856,7 +662,6 @@ mod tests {
 
     #[test]
     fn test_serde_interrupt_kind() {
-        // InterruptKind uses snake_case
         let cases = vec![
             (InterruptKind::Clarification, "\"clarification\""),
             (InterruptKind::Confirmation, "\"confirmation\""),
@@ -879,7 +684,6 @@ mod tests {
 
     #[test]
     fn test_serde_processing_status() {
-        // ProcessingStatus uses lowercase
         let cases = vec![
             (ProcessingStatus::Running, "\"running\""),
             (ProcessingStatus::Success, "\"success\""),
@@ -899,8 +703,6 @@ mod tests {
 
     #[test]
     fn test_default_equals_new() {
-        // Both produce the same structural defaults (UUIDs differ, but the
-        // shape is identical).  We verify by checking every non-UUID field.
         let a = Envelope::new();
         let b = Envelope::default();
 
@@ -933,16 +735,13 @@ mod tests {
     #[test]
     fn test_merge_updates_empty_outputs() {
         let mut env = Envelope::new();
-        // Pre-populate some outputs
         let mut agent_out = HashMap::new();
         agent_out.insert("key1".to_string(), serde_json::json!("value1"));
         env.outputs.insert("agent1".to_string(), agent_out);
 
-        // Merge with empty outputs
         let updates = HashMap::new();
         env.merge_updates(updates);
 
-        // Existing outputs unchanged
         assert_eq!(env.outputs.len(), 1);
         assert_eq!(
             env.outputs.get("agent1").unwrap().get("key1").unwrap(),
@@ -955,11 +754,9 @@ mod tests {
     #[test]
     fn test_merge_updates_metadata_merge() {
         let mut env = Envelope::new();
-        // Pre-populate metadata
         env.audit.metadata.insert("existing_key".to_string(), serde_json::json!("original"));
         env.audit.metadata.insert("shared_key".to_string(), serde_json::json!("old_value"));
 
-        // Merge metadata with new and overlapping keys
         let mut updates = HashMap::new();
         updates.insert("metadata".to_string(), serde_json::json!({
             "new_key": "new_value",
@@ -967,7 +764,6 @@ mod tests {
         }));
         env.merge_updates(updates);
 
-        // Both original and new keys exist
         assert_eq!(
             env.audit.metadata.get("existing_key").unwrap(),
             &serde_json::json!("original")
@@ -976,7 +772,6 @@ mod tests {
             env.audit.metadata.get("new_key").unwrap(),
             &serde_json::json!("new_value")
         );
-        // Duplicate key overwritten by source
         assert_eq!(
             env.audit.metadata.get("shared_key").unwrap(),
             &serde_json::json!("overwritten")
@@ -991,16 +786,12 @@ mod tests {
         env.bounds.llm_call_count = 5;
         env.bounds.max_llm_calls = 10;
 
-        // Merge raw_input (a supported field)
         let mut updates = HashMap::new();
         updates.insert("raw_input".to_string(), serde_json::json!("new input text"));
 
         env.merge_updates(updates);
 
-        // raw_input updated
         assert_eq!(env.raw_input, "new input text");
-
-        // Bounds unchanged (merge_updates doesn't touch bounds)
         assert_eq!(env.bounds.llm_call_count, 5);
         assert_eq!(env.bounds.max_llm_calls, 10);
     }
@@ -1019,7 +810,6 @@ mod tests {
     fn test_validate_terminated_without_reason_fails() {
         let mut env = Envelope::new();
         env.bounds.terminated = true;
-        // terminal_reason is None → should fail
         assert!(env.validate().is_err());
     }
 
@@ -1027,7 +817,6 @@ mod tests {
     fn test_validate_reason_without_terminated_fails() {
         let mut env = Envelope::new();
         env.bounds.terminal_reason = Some(TerminalReason::Completed);
-        // terminated is false → should fail
         assert!(env.validate().is_err());
     }
 
@@ -1055,7 +844,6 @@ mod tests {
     fn test_validate_interrupt_pending_without_interrupt_fails() {
         let mut env = Envelope::new();
         env.interrupts.interrupt_pending = true;
-        // interrupt is None → should fail
         assert!(env.validate().is_err());
     }
 
