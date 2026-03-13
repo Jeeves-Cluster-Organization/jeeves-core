@@ -291,14 +291,14 @@ impl LlmProvider for OpenAiProvider {
 
 /// Parse an OpenAI SSE byte stream into StreamChunks.
 fn parse_sse_stream(
-    byte_stream: impl Stream<Item = std::result::Result<axum::body::Bytes, reqwest::Error>> + Send + 'static,
+    byte_stream: impl Stream<Item = std::result::Result<bytes::Bytes, reqwest::Error>> + Send + 'static,
 ) -> impl Stream<Item = Result<StreamChunk>> + Send {
     use futures::StreamExt;
 
     // Pin the byte stream so we can call .next() on it inside unfold
     let pinned: Pin<
         Box<
-            dyn Stream<Item = std::result::Result<axum::body::Bytes, reqwest::Error>> + Send,
+            dyn Stream<Item = std::result::Result<bytes::Bytes, reqwest::Error>> + Send,
         >,
     > = Box::pin(byte_stream);
 

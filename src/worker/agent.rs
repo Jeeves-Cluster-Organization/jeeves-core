@@ -36,6 +36,8 @@ pub struct AgentContext {
     pub metadata: HashMap<String, serde_json::Value>,
     pub allowed_tools: Vec<String>,
     pub event_tx: Option<mpsc::Sender<PipelineEvent>>,
+    /// Pipeline stage name this agent is executing within (None for ad-hoc execution).
+    pub stage_name: Option<String>,
 }
 
 /// Agent trait — implementations provide custom agent behavior.
@@ -128,7 +130,7 @@ impl Agent for LlmAgent {
 
             // Use streaming path — collect_stream forwards deltas to event_tx if present
             let resp = match self.llm.chat_stream(&req).await {
-                Ok(stream) => match collect_stream(stream, ctx.event_tx.as_ref()).await {
+                Ok(stream) => match collect_stream(stream, ctx.event_tx.as_ref(), ctx.stage_name.as_deref()).await {
                     Ok(resp) => resp,
                     Err(e) => return Ok(make_error_output(e, start, total_llm_calls + 1)),
                 },
@@ -160,6 +162,7 @@ impl Agent for LlmAgent {
                         .send(PipelineEvent::ToolCallStart {
                             id: tc.id.clone(),
                             name: tc.name.clone(),
+                            stage: ctx.stage_name.clone(),
                         })
                         .await;
                 }
@@ -187,6 +190,7 @@ impl Agent for LlmAgent {
                         .send(PipelineEvent::ToolResult {
                             id: tc.id.clone(),
                             content: result.clone(),
+                            stage: ctx.stage_name.clone(),
                         })
                         .await;
                 }
@@ -236,13 +240,52 @@ pub struct McpDelegatingAgent {
 #[async_trait]
 impl Agent for McpDelegatingAgent {
     async fn process(&self, ctx: &AgentContext) -> crate::types::Result<AgentOutput> {
+        let call_id = format!("mcp_{}", self.tool_name);
+
+        if let Some(ref tx) = ctx.event_tx {
+            let _ = tx
+                .send(PipelineEvent::ToolCallStart {
+                    id: call_id.clone(),
+                    name: self.tool_name.clone(),
+                    stage: ctx.stage_name.clone(),
+                })
+                .await;
+        }
+
         let params = serde_json::json!({
             "raw_input": ctx.raw_input,
             "outputs": ctx.outputs,
             "state": ctx.state,
             "metadata": ctx.metadata,
         });
-        let result = self.tools.execute(&self.tool_name, params).await?;
+        let start = std::time::Instant::now();
+        let (result, success, error_message) = match self.tools.execute(&self.tool_name, params).await {
+            Ok(v) => (v, true, String::new()),
+            Err(e) => {
+                let err_str = e.to_string();
+                if let Some(ref tx) = ctx.event_tx {
+                    let _ = tx
+                        .send(PipelineEvent::Error {
+                            message: err_str.clone(),
+                            stage: ctx.stage_name.clone(),
+                        })
+                        .await;
+                }
+                (serde_json::json!({"error": err_str}), false, err_str)
+            }
+        };
+        let duration_ms = start.elapsed().as_millis() as i64;
+
+        if let Some(ref tx) = ctx.event_tx {
+            let _ = tx
+                .send(PipelineEvent::ToolResult {
+                    id: call_id.clone(),
+                    content: result.to_string(),
+                    stage: ctx.stage_name.clone(),
+                })
+                .await;
+        }
+
         Ok(AgentOutput {
             output: result,
             metrics: AgentExecutionMetrics {
@@ -250,11 +293,16 @@ impl Agent for McpDelegatingAgent {
                 tool_calls: 1,
                 tokens_in: None,
                 tokens_out: None,
-                duration_ms: 0,
-                tool_results: vec![],
+                duration_ms,
+                tool_results: vec![ToolCallResult {
+                    name: self.tool_name.clone(),
+                    success,
+                    latency_ms: duration_ms as u64,
+                    error_type: if error_message.is_empty() { None } else { Some(error_message.clone()) },
+                }],
             },
-            success: true,
-            error_message: String::new(),
+            success,
+            error_message,
         })
     }
 }

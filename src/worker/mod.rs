@@ -4,12 +4,11 @@
 
 pub mod actor;
 pub mod agent;
-pub mod gateway;
-pub mod gateway_errors;
-pub mod gateway_types;
 pub mod handle;
 pub mod llm;
 pub mod mcp;
+#[cfg(feature = "mcp-stdio")]
+pub mod mcp_server;
 pub mod prompts;
 pub mod tools;
 
@@ -44,6 +43,20 @@ pub async fn run_pipeline(
     agents: &AgentRegistry,
 ) -> Result<WorkerResult> {
     let envelope = Envelope::new_minimal(user_id, session_id, raw_input, None);
+    let _session = handle
+        .initialize_session(process_id.clone(), pipeline_config, envelope, false)
+        .await?;
+    run_pipeline_loop(handle, &process_id, agents, None).await
+}
+
+/// Run a pipeline to completion with a pre-built Envelope (supports metadata).
+pub async fn run_pipeline_with_envelope(
+    handle: &KernelHandle,
+    process_id: ProcessId,
+    pipeline_config: PipelineConfig,
+    envelope: Envelope,
+    agents: &AgentRegistry,
+) -> Result<WorkerResult> {
     let _session = handle
         .initialize_session(process_id.clone(), pipeline_config, envelope, false)
         .await?;
@@ -102,6 +115,7 @@ pub async fn run_pipeline_loop(
                                 .terminal_reason
                                 .as_ref()
                                 .map(|r| format!("{:?}", r)),
+                            outputs: Some(serde_json::to_value(&outputs).unwrap_or_default()),
                         })
                         .await;
                 }
@@ -128,7 +142,7 @@ pub async fn run_pipeline_loop(
                         .await;
                 }
 
-                let ctx = build_agent_context(&instruction, event_tx.clone());
+                let ctx = build_agent_context(&instruction, event_tx.clone(), Some(agent_name.clone()));
                 let output = execute_agent(agents, agent_name, &ctx).await;
 
                 if let Some(ref tx) = event_tx {
@@ -206,7 +220,7 @@ async fn execute_parallel(
     let mut join_handles = Vec::new();
 
     for agent_name in &instruction.agents {
-        let ctx = build_agent_context(instruction, event_tx.clone());
+        let ctx = build_agent_context(instruction, event_tx.clone(), Some(agent_name.clone()));
         let name = agent_name.clone();
         let agent_impl = agents.get(&name).cloned();
 
@@ -254,6 +268,7 @@ async fn execute_parallel(
 fn build_agent_context(
     instruction: &crate::kernel::orchestrator_types::Instruction,
     event_tx: Option<mpsc::Sender<PipelineEvent>>,
+    stage_name: Option<String>,
 ) -> AgentContext {
     let ctx_val = instruction.agent_context.as_ref();
 
@@ -277,31 +292,52 @@ fn build_agent_context(
             .unwrap_or_default(),
         allowed_tools: instruction.allowed_tools.clone().unwrap_or_default(),
         event_tx,
+        stage_name,
     }
 }
 
 /// Execute a single agent. Falls back to DeterministicAgent if not registered.
+/// Emits PipelineEvent::Error on agent failure when streaming.
 async fn execute_agent(
     agents: &AgentRegistry,
     agent_name: &str,
     ctx: &AgentContext,
 ) -> AgentOutput {
-    if let Some(agent) = agents.get(agent_name) {
-        agent.process(ctx).await.unwrap_or_else(|e| AgentOutput {
-            output: serde_json::json!({"error": e.to_string()}),
-            metrics: Default::default(),
-            success: false,
-            error_message: e.to_string(),
-        })
+    let result = if let Some(agent) = agents.get(agent_name) {
+        agent.process(ctx).await
     } else {
-        DeterministicAgent
-            .process(ctx)
-            .await
-            .unwrap_or_else(|e| AgentOutput {
+        DeterministicAgent.process(ctx).await
+    };
+
+    match result {
+        Ok(output) => {
+            if !output.success {
+                if let Some(ref tx) = ctx.event_tx {
+                    let _ = tx
+                        .send(PipelineEvent::Error {
+                            message: output.error_message.clone(),
+                            stage: ctx.stage_name.clone(),
+                        })
+                        .await;
+                }
+            }
+            output
+        }
+        Err(e) => {
+            if let Some(ref tx) = ctx.event_tx {
+                let _ = tx
+                    .send(PipelineEvent::Error {
+                        message: e.to_string(),
+                        stage: ctx.stage_name.clone(),
+                    })
+                    .await;
+            }
+            AgentOutput {
                 output: serde_json::json!({"error": e.to_string()}),
                 metrics: Default::default(),
                 success: false,
                 error_message: e.to_string(),
-            })
+            }
+        }
     }
 }
