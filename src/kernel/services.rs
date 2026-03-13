@@ -22,6 +22,7 @@ pub type ServiceStatus = HealthStatus;
 pub const SERVICE_TYPE_FLOW: &str = "flow";
 pub const SERVICE_TYPE_WORKER: &str = "worker";
 pub const SERVICE_TYPE_INFERENCE: &str = "inference";
+pub const SERVICE_TYPE_MCP: &str = "mcp";
 
 // =============================================================================
 // Service Info

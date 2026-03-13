@@ -30,8 +30,14 @@ async fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
             jeeves_core::observability::init_tracing_from_config(&config.observability);
 
             // Create and spawn kernel actor
-            let kernel = Kernel::from_config(&config);
+            // `mut` enables pre-spawn registration (services, subscriptions) on &mut Kernel
+            #[allow(unused_mut)]
+            let mut kernel = Kernel::from_config(&config);
             let cancel = CancellationToken::new();
+
+            // Pre-spawn wiring point: register MCP services, CommBus subscriptions, etc.
+            // e.g. kernel.register_service(ServiceInfo::new("my_mcp".into(), "mcp".into()));
+
             let handle = spawn_kernel(kernel, cancel.clone());
 
             // Build agent registry (empty by default — capabilities register via HTTP)

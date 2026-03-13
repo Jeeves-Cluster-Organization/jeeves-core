@@ -99,6 +99,10 @@ impl Orchestrator {
         envelope.bounds.max_agent_hops = pipeline_config.max_agent_hops;
         envelope.pipeline.stage_order = pipeline_config.get_stage_order();
 
+        // Initialize execution tracking
+        envelope.execution.max_stages = pipeline_config.stages.len() as i32;
+        envelope.execution.current_stage_number = 1;
+
         // Set initial stage if not set
         if envelope.pipeline.current_stage.is_empty() && !envelope.pipeline.stage_order.is_empty() {
             envelope.pipeline.current_stage = envelope.pipeline.stage_order[0].clone();
@@ -409,10 +413,18 @@ impl Orchestrator {
             envelope.pipeline.parallel_mode = false;
             envelope.pipeline.active_stages.clear();
 
-            // Mark all parallel stages as completed
+            // Mark all parallel stages as completed + snapshot execution
             for stage_name in &parallel.stages {
                 *session.stage_visits.entry(stage_name.clone()).or_insert(0) += 1;
                 envelope.complete_stage(stage_name);
+
+                if let Ok(agent) = get_agent_for_stage(&session.pipeline_config, stage_name) {
+                    if let Some(agent_output) = envelope.outputs.get(&agent) {
+                        envelope.execution.completed_stages.push(
+                            build_stage_snapshot(stage_name, agent_output),
+                        );
+                    }
+                }
             }
 
             // Fork node owns post-join routing via its default_next
@@ -449,6 +461,13 @@ impl Orchestrator {
 
         // Mark current stage as completed
         envelope.complete_stage(&current_stage);
+
+        // Snapshot completed stage into execution tracking
+        if let Some(agent_output) = envelope.outputs.get(agent_name) {
+            envelope.execution.completed_stages.push(
+                build_stage_snapshot(&current_stage, agent_output),
+            );
+        }
 
         // Get agent name for output lookup
         let agent_name = pipeline_stage.agent.clone();
@@ -526,6 +545,12 @@ impl Orchestrator {
 
                 // Normal advance to target stage
                 tracing::info!(from = %from_stage, to = %target, "stage_transition");
+
+                // Update execution tracking before target is moved
+                if let Some(pos) = envelope.pipeline.stage_order.iter().position(|s| s == &target) {
+                    envelope.execution.current_stage_number = (pos + 1) as i32;
+                }
+
                 envelope.pipeline.current_stage = target;
                 session.last_activity_at = Utc::now();
             }
@@ -671,6 +696,19 @@ fn get_agent_for_stage(
         .find(|s| s.name == stage_name)
         .map(|s| s.agent.clone())
         .ok_or_else(|| Error::not_found(format!("Stage not found in pipeline: {}", stage_name)))
+}
+
+/// Build a stage completion snapshot from agent output.
+fn build_stage_snapshot(
+    stage_name: &str,
+    agent_output: &HashMap<String, serde_json::Value>,
+) -> HashMap<String, serde_json::Value> {
+    [
+        ("stage".to_string(), serde_json::Value::String(stage_name.to_string())),
+        ("output".to_string(), serde_json::Value::Object(
+            agent_output.iter().map(|(k, v)| (k.clone(), v.clone())).collect()
+        )),
+    ].into_iter().collect()
 }
 
 /// Check if an edge transition is within its limit.
@@ -963,6 +1001,7 @@ mod tests {
             tokens_in: Some(1000),
             tokens_out: Some(500),
             duration_ms: 1500,
+            ..Default::default()
         };
 
         orch.report_agent_result(&ProcessId::must("proc1"), "agent1", metrics, &mut envelope, false, false)
@@ -990,6 +1029,7 @@ mod tests {
             tokens_in: None,
             tokens_out: None,
             duration_ms: 100,
+            ..Default::default()
         };
 
         orch.report_agent_result(&ProcessId::must("proc1"), "agent1", metrics, &mut envelope, false, false)

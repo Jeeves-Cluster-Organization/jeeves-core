@@ -9,7 +9,9 @@ use std::sync::Arc;
 use std::time::Instant;
 use tokio::sync::mpsc;
 
-use crate::kernel::orchestrator_types::AgentExecutionMetrics;
+use tracing::instrument;
+
+use crate::kernel::orchestrator_types::{AgentExecutionMetrics, ToolCallResult};
 use crate::worker::llm::{
     collect_stream, ChatMessage, ChatRequest, LlmProvider, PipelineEvent, ToolCall,
 };
@@ -72,6 +74,7 @@ impl Default for LlmAgent {
 
 #[async_trait]
 impl Agent for LlmAgent {
+    #[instrument(skip(self, ctx), fields(prompt_key = %self.prompt_key))]
     async fn process(&self, ctx: &AgentContext) -> crate::types::Result<AgentOutput> {
         let start = Instant::now();
 
@@ -111,6 +114,7 @@ impl Agent for LlmAgent {
         let mut total_tokens_in = 0i64;
         let mut total_tokens_out = 0i64;
         let mut last_response = None;
+        let mut tool_results: Vec<ToolCallResult> = Vec::new();
 
         // ReAct tool loop
         for _round in 0..self.max_tool_rounds {
@@ -141,12 +145,15 @@ impl Agent for LlmAgent {
                 break;
             }
 
+            tracing::debug!(round = _round, tool_count = resp.tool_calls.len(), "tool_loop_round");
+
             // Tool calls: push assistant message, execute tools, push results
             let content = resp.content.clone().unwrap_or_default();
             messages.push(ChatMessage::assistant(content, Some(resp.tool_calls.clone())));
 
             for tc in &resp.tool_calls {
                 total_tool_calls += 1;
+                tracing::debug!(tool_name = %tc.name, "tool_execute");
 
                 if let Some(ref tx) = ctx.event_tx {
                     let _ = tx
@@ -159,10 +166,21 @@ impl Agent for LlmAgent {
 
                 let params: serde_json::Value =
                     serde_json::from_str(&tc.arguments).unwrap_or(serde_json::json!({}));
-                let result = match self.tools.execute(&tc.name, params).await {
-                    Ok(v) => v.to_string(),
-                    Err(e) => serde_json::json!({"error": e.to_string()}).to_string(),
+                let tool_start = Instant::now();
+                let (result, tool_success, tool_error) = match self.tools.execute(&tc.name, params).await {
+                    Ok(v) => (v.to_string(), true, None),
+                    Err(e) => (
+                        serde_json::json!({"error": e.to_string()}).to_string(),
+                        false,
+                        Some(e.to_string()),
+                    ),
                 };
+                tool_results.push(ToolCallResult {
+                    name: tc.name.clone(),
+                    success: tool_success,
+                    latency_ms: tool_start.elapsed().as_millis() as u64,
+                    error_type: tool_error,
+                });
 
                 if let Some(ref tx) = ctx.event_tx {
                     let _ = tx
@@ -186,6 +204,7 @@ impl Agent for LlmAgent {
             tokens_in: Some(total_tokens_in),
             tokens_out: Some(total_tokens_out),
             duration_ms: duration.as_millis() as i64,
+            tool_results,
         };
 
         // Build output from last response
@@ -218,6 +237,7 @@ impl Agent for DeterministicAgent {
                 tokens_in: None,
                 tokens_out: None,
                 duration_ms: 0,
+                tool_results: vec![],
             },
             success: true,
             error_message: String::new(),
@@ -330,6 +350,7 @@ fn make_error_output(
             tokens_in: None,
             tokens_out: None,
             duration_ms: start.elapsed().as_millis() as i64,
+            tool_results: vec![],
         },
         success: false,
         error_message: e.to_string(),

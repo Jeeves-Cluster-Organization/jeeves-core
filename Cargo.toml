@@ -17,7 +17,7 @@ path = "src/lib.rs"
 
 [dependencies]
 # Async runtime
-tokio = { version = "1.41", features = ["rt-multi-thread", "macros", "net", "io-util", "sync", "time", "signal"] }
+tokio = { version = "1.41", features = ["rt-multi-thread", "macros", "net", "io-util", "sync", "time", "signal", "process"] }
 tokio-util = "0.7"
 
 # HTTP client (LLM API calls)
@@ -31,7 +31,7 @@ clap = { version = "4", features = ["derive", "env"] }
 
 # HTTP server
 axum = "0.8"
-tower-http = { version = "0.6", features = ["cors"] }
+tower-http = { version = "0.6", features = ["cors", "trace", "limit"] }
 
 # SSE streaming
 futures = "0.3"

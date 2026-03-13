@@ -7,6 +7,7 @@ pub mod agent;
 pub mod gateway;
 pub mod handle;
 pub mod llm;
+pub mod mcp;
 pub mod prompts;
 pub mod tools;
 
@@ -49,24 +50,25 @@ pub async fn run_pipeline(
 
 /// Run a pipeline with streaming events. Returns a join handle and event receiver.
 /// The receiver yields PipelineEvent items (StageStarted, Delta, ToolCallStart, etc.).
-pub fn run_pipeline_streaming(
+/// Session is initialized before spawning so rate-limit errors surface to the caller.
+pub async fn run_pipeline_streaming(
     handle: KernelHandle,
     process_id: ProcessId,
     pipeline_config: PipelineConfig,
     envelope: Envelope,
     agents: Arc<AgentRegistry>,
-) -> (
+) -> Result<(
     tokio::task::JoinHandle<Result<WorkerResult>>,
     mpsc::Receiver<PipelineEvent>,
-) {
+)> {
+    handle
+        .initialize_session(process_id.clone(), pipeline_config, envelope, false)
+        .await?;
     let (tx, rx) = mpsc::channel(64);
     let jh = tokio::spawn(async move {
-        handle
-            .initialize_session(process_id.clone(), pipeline_config, envelope, false)
-            .await?;
         run_pipeline_loop(&handle, &process_id, &agents, Some(tx)).await
     });
-    (jh, rx)
+    Ok((jh, rx))
 }
 
 /// Run the pipeline loop for an already-initialized session.
@@ -157,10 +159,35 @@ pub async fn run_pipeline_loop(
             InstructionKind::WaitParallel => continue,
 
             InstructionKind::WaitInterrupt => {
-                tracing::warn!("WaitInterrupt not yet implemented in embedded worker");
-                return Err(crate::types::Error::internal(
-                    "WaitInterrupt not supported in embedded worker",
-                ));
+                let interrupt = &instruction.interrupt;
+                let interrupt_id = interrupt.as_ref().map(|i| i.id.clone()).unwrap_or_default();
+
+                if let Some(ref tx) = event_tx {
+                    // Streaming: emit event, poll until resolved
+                    let _ = tx.send(PipelineEvent::InterruptPending {
+                        process_id: process_id.as_str().to_string(),
+                        interrupt_id: interrupt_id.clone(),
+                        kind: interrupt.as_ref().map(|i| format!("{:?}", i.kind)).unwrap_or_default(),
+                        question: interrupt.as_ref().and_then(|i| i.question.clone()),
+                        message: interrupt.as_ref().and_then(|i| i.message.clone()),
+                    }).await;
+                    // Poll: kernel returns WaitInterrupt until resolved, then RunAgent/Terminate
+                    loop {
+                        tokio::time::sleep(tokio::time::Duration::from_millis(500)).await;
+                        match handle.get_next_instruction(process_id).await?.kind {
+                            InstructionKind::WaitInterrupt => continue,
+                            _ => break, // resolved — outer loop re-fetches
+                        }
+                    }
+                } else {
+                    // Buffered: return incomplete result, caller resolves + re-enters
+                    return Ok(WorkerResult {
+                        process_id: process_id.clone(),
+                        terminated: false,
+                        terminal_reason: None,
+                        outputs: Default::default(),
+                    });
+                }
             }
         }
     }
