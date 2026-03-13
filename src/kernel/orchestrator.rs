@@ -258,10 +258,10 @@ impl Orchestrator {
                 // ALL-match: every matching rule contributes a target
                 let mut targets: Vec<String> = vec![];
                 for rule in &sc.routing {
-                    if evaluate_expr(&rule.expr, &envelope.outputs, &sc.name, &envelope.audit.metadata, None, &envelope.state) {
-                        if !targets.contains(&rule.target) {
-                            targets.push(rule.target.clone());
-                        }
+                    if evaluate_expr(&rule.expr, &envelope.outputs, &sc.name, &envelope.audit.metadata, None, &envelope.state)
+                        && !targets.contains(&rule.target)
+                    {
+                        targets.push(rule.target.clone());
                     }
                 }
                 if targets.is_empty() {
@@ -280,9 +280,10 @@ impl Orchestrator {
                     }
                     1 => {
                         // Single target — advance sequentially
-                        let target = targets.into_iter().next().unwrap();
-                        self.apply_routing_result(process_id, &current_stage_owned, Some(target), envelope)?;
-                        return self.get_next_instruction(process_id, envelope);
+                        if let Some(target) = targets.into_iter().next() {
+                            self.apply_routing_result(process_id, &current_stage_owned, Some(target), envelope)?;
+                            return self.get_next_instruction(process_id, envelope);
+                        }
                     }
                     _ => {
                         // Multiple targets — set up parallel state
@@ -332,6 +333,7 @@ impl Orchestrator {
     pub fn report_agent_result(
         &mut self,
         process_id: &ProcessId,
+        agent_name: &str,
         metrics: AgentExecutionMetrics,
         envelope: &mut Envelope,
         agent_failed: bool,
@@ -380,17 +382,14 @@ impl Orchestrator {
         // ===== PARALLEL GROUP HANDLING =====
         // Step 1: Mark agent completed/failed (needs &mut)
         if let Some(parallel) = session.active_parallel.as_mut() {
-            let current_stage = envelope.pipeline.current_stage.clone();
-            let agent_name_for_parallel = get_agent_for_stage(&session.pipeline_config, &current_stage)
-                .unwrap_or_default();
-            parallel.pending_agents.remove(&agent_name_for_parallel);
+            parallel.pending_agents.remove(agent_name);
             if agent_failed {
                 parallel.failed_agents.insert(
-                    agent_name_for_parallel.clone(),
+                    agent_name.to_string(),
                     "agent failed".to_string(),
                 );
             } else {
-                parallel.completed_agents.insert(agent_name_for_parallel.clone());
+                parallel.completed_agents.insert(agent_name.to_string());
             }
         }
 
@@ -966,7 +965,7 @@ mod tests {
             duration_ms: 1500,
         };
 
-        orch.report_agent_result(&ProcessId::must("proc1"), metrics, &mut envelope, false, false)
+        orch.report_agent_result(&ProcessId::must("proc1"), "agent1", metrics, &mut envelope, false, false)
             .unwrap();
 
         assert_eq!(envelope.bounds.llm_call_count, 2);
@@ -993,7 +992,7 @@ mod tests {
             duration_ms: 100,
         };
 
-        orch.report_agent_result(&ProcessId::must("proc1"), metrics, &mut envelope, false, false)
+        orch.report_agent_result(&ProcessId::must("proc1"), "agent1", metrics, &mut envelope, false, false)
             .unwrap();
 
         assert_eq!(envelope.bounds.tokens_in, 0);
@@ -1254,7 +1253,7 @@ mod tests {
         output.insert("intent".to_string(), serde_json::json!("skip"));
         envelope.outputs.insert("a1".to_string(), output);
 
-        orch.report_agent_result(&ProcessId::must("p1"), zero_metrics(), &mut envelope, false, false).unwrap();
+        orch.report_agent_result(&ProcessId::must("p1"), "agent1", zero_metrics(), &mut envelope, false, false).unwrap();
 
         assert_eq!(envelope.pipeline.current_stage, "s3");
         assert!(!envelope.bounds.terminated);
@@ -1279,7 +1278,7 @@ mod tests {
         let mut envelope = create_test_envelope();
         orch.initialize_session(ProcessId::must("p1"), pipeline, &mut envelope, false).unwrap();
 
-        orch.report_agent_result(&ProcessId::must("p1"), zero_metrics(), &mut envelope, false, false).unwrap();
+        orch.report_agent_result(&ProcessId::must("p1"), "agent1", zero_metrics(), &mut envelope, false, false).unwrap();
 
         assert_eq!(envelope.pipeline.current_stage, "s2");
         assert!(!envelope.bounds.terminated);
@@ -1312,7 +1311,7 @@ mod tests {
         output.insert("intent".to_string(), serde_json::json!("greet"));
         envelope.outputs.insert("a1".to_string(), output);
 
-        orch.report_agent_result(&ProcessId::must("p1"), zero_metrics(), &mut envelope, false, false).unwrap();
+        orch.report_agent_result(&ProcessId::must("p1"), "agent1", zero_metrics(), &mut envelope, false, false).unwrap();
 
         // First rule wins → s2, not s3
         assert_eq!(envelope.pipeline.current_stage, "s2");
@@ -1337,7 +1336,7 @@ mod tests {
         let mut envelope = create_test_envelope();
         orch.initialize_session(ProcessId::must("p1"), pipeline, &mut envelope, false).unwrap();
 
-        orch.report_agent_result(&ProcessId::must("p1"), zero_metrics(), &mut envelope, false, false).unwrap();
+        orch.report_agent_result(&ProcessId::must("p1"), "agent1", zero_metrics(), &mut envelope, false, false).unwrap();
 
         assert_eq!(envelope.pipeline.current_stage, "s2");
         assert!(!envelope.bounds.terminated);
@@ -1361,7 +1360,7 @@ mod tests {
         let mut envelope = create_test_envelope();
         orch.initialize_session(ProcessId::must("p1"), pipeline, &mut envelope, false).unwrap();
 
-        orch.report_agent_result(&ProcessId::must("p1"), zero_metrics(), &mut envelope, false, false).unwrap();
+        orch.report_agent_result(&ProcessId::must("p1"), "agent1", zero_metrics(), &mut envelope, false, false).unwrap();
 
         assert!(envelope.bounds.terminated);
         assert_eq!(envelope.bounds.terminal_reason, Some(TerminalReason::Completed));
@@ -1389,7 +1388,7 @@ mod tests {
         let mut envelope = create_test_envelope();
         orch.initialize_session(ProcessId::must("p1"), pipeline, &mut envelope, false).unwrap();
 
-        orch.report_agent_result(&ProcessId::must("p1"), zero_metrics(), &mut envelope, true, false).unwrap();
+        orch.report_agent_result(&ProcessId::must("p1"), "agent1", zero_metrics(), &mut envelope, true, false).unwrap();
 
         assert_eq!(envelope.pipeline.current_stage, "s3");
     }
@@ -1413,7 +1412,7 @@ mod tests {
         let mut envelope = create_test_envelope();
         orch.initialize_session(ProcessId::must("p1"), pipeline, &mut envelope, false).unwrap();
 
-        orch.report_agent_result(&ProcessId::must("p1"), zero_metrics(), &mut envelope, true, false).unwrap();
+        orch.report_agent_result(&ProcessId::must("p1"), "agent1", zero_metrics(), &mut envelope, true, false).unwrap();
 
         assert_eq!(envelope.pipeline.current_stage, "s2");
     }
@@ -1451,7 +1450,7 @@ mod tests {
         orch.initialize_session(ProcessId::must("p1"), pipeline, &mut envelope, false).unwrap();
 
         // First iteration: no output → completed missing → not_(eq) = true → loops
-        orch.report_agent_result(&ProcessId::must("p1"), zero_metrics(), &mut envelope, false, false).unwrap();
+        orch.report_agent_result(&ProcessId::must("p1"), "agent1", zero_metrics(), &mut envelope, false, false).unwrap();
         assert_eq!(envelope.pipeline.current_stage, "s1");
         assert!(!envelope.bounds.terminated);
 
@@ -1459,7 +1458,7 @@ mod tests {
         let mut output = HashMap::new();
         output.insert("completed".to_string(), serde_json::json!(false));
         envelope.outputs.insert("a1".to_string(), output);
-        orch.report_agent_result(&ProcessId::must("p1"), zero_metrics(), &mut envelope, false, false).unwrap();
+        orch.report_agent_result(&ProcessId::must("p1"), "agent1", zero_metrics(), &mut envelope, false, false).unwrap();
         assert_eq!(envelope.pipeline.current_stage, "s1");
         assert!(!envelope.bounds.terminated);
 
@@ -1467,7 +1466,7 @@ mod tests {
         let mut output2 = HashMap::new();
         output2.insert("completed".to_string(), serde_json::json!(true));
         envelope.outputs.insert("a1".to_string(), output2);
-        orch.report_agent_result(&ProcessId::must("p1"), zero_metrics(), &mut envelope, false, false).unwrap();
+        orch.report_agent_result(&ProcessId::must("p1"), "agent1", zero_metrics(), &mut envelope, false, false).unwrap();
         assert!(envelope.bounds.terminated);
         assert_eq!(envelope.bounds.terminal_reason, Some(TerminalReason::Completed));
     }
@@ -1496,13 +1495,13 @@ mod tests {
         let mut envelope = create_test_envelope();
         orch.initialize_session(ProcessId::must("p1"), pipeline, &mut envelope, false).unwrap();
 
-        orch.report_agent_result(&ProcessId::must("p1"), zero_metrics(), &mut envelope, false, false).unwrap();
+        orch.report_agent_result(&ProcessId::must("p1"), "agent1", zero_metrics(), &mut envelope, false, false).unwrap();
         assert_eq!(envelope.pipeline.current_stage, "s2");
 
-        orch.report_agent_result(&ProcessId::must("p1"), zero_metrics(), &mut envelope, false, false).unwrap();
+        orch.report_agent_result(&ProcessId::must("p1"), "agent1", zero_metrics(), &mut envelope, false, false).unwrap();
         assert_eq!(envelope.pipeline.current_stage, "s3");
 
-        orch.report_agent_result(&ProcessId::must("p1"), zero_metrics(), &mut envelope, false, false).unwrap();
+        orch.report_agent_result(&ProcessId::must("p1"), "agent1", zero_metrics(), &mut envelope, false, false).unwrap();
         assert!(envelope.bounds.terminated);
         assert_eq!(envelope.bounds.terminal_reason, Some(TerminalReason::Completed));
     }
@@ -1528,7 +1527,7 @@ mod tests {
 
         let mut terminated = false;
         for _ in 0..20 {
-            orch.report_agent_result(&ProcessId::must("p1"), zero_metrics(), &mut envelope, false, false).unwrap();
+            orch.report_agent_result(&ProcessId::must("p1"), "agent1", zero_metrics(), &mut envelope, false, false).unwrap();
 
             if envelope.bounds.terminated {
                 terminated = true;
@@ -1569,7 +1568,7 @@ mod tests {
                 assert_eq!(envelope.bounds.terminal_reason, Some(TerminalReason::MaxAgentHopsExceeded));
                 break;
             }
-            orch.report_agent_result(&ProcessId::must("p1"), zero_metrics(), &mut envelope, false, false).unwrap();
+            orch.report_agent_result(&ProcessId::must("p1"), "agent1", zero_metrics(), &mut envelope, false, false).unwrap();
         }
         assert!(terminated, "Edge limit should have terminated the cycle");
     }
@@ -1581,7 +1580,7 @@ mod tests {
         let mut envelope = create_test_envelope();
         orch.initialize_session(ProcessId::must("p1"), pipeline, &mut envelope, false).unwrap();
 
-        orch.report_agent_result(&ProcessId::must("p1"), zero_metrics(), &mut envelope, false, false).unwrap();
+        orch.report_agent_result(&ProcessId::must("p1"), "agent1", zero_metrics(), &mut envelope, false, false).unwrap();
 
         let session = orch.pipelines.get(&ProcessId::must("p1")).unwrap();
         assert_eq!(session.edge_traversals.get("stage1->stage2"), Some(&1));
@@ -1613,19 +1612,19 @@ mod tests {
         orch.initialize_session(ProcessId::must("p1"), pipeline, &mut envelope, false).unwrap();
 
         // visit 1: s1 → s2 (s1 visits=1)
-        orch.report_agent_result(&ProcessId::must("p1"), zero_metrics(), &mut envelope, false, false).unwrap();
+        orch.report_agent_result(&ProcessId::must("p1"), "agent1", zero_metrics(), &mut envelope, false, false).unwrap();
         assert_eq!(envelope.pipeline.current_stage, "s2");
 
         // s2 → s1 (s1 visits still 1, about to visit again)
-        orch.report_agent_result(&ProcessId::must("p1"), zero_metrics(), &mut envelope, false, false).unwrap();
+        orch.report_agent_result(&ProcessId::must("p1"), "agent1", zero_metrics(), &mut envelope, false, false).unwrap();
         assert_eq!(envelope.pipeline.current_stage, "s1");
 
         // visit 2: s1 → s2 (s1 visits=2)
-        orch.report_agent_result(&ProcessId::must("p1"), zero_metrics(), &mut envelope, false, false).unwrap();
+        orch.report_agent_result(&ProcessId::must("p1"), "agent1", zero_metrics(), &mut envelope, false, false).unwrap();
         assert_eq!(envelope.pipeline.current_stage, "s2");
 
         // s2 tries to route to s1, but s1 has max_visits=2 and visits=2 → terminate
-        orch.report_agent_result(&ProcessId::must("p1"), zero_metrics(), &mut envelope, false, false).unwrap();
+        orch.report_agent_result(&ProcessId::must("p1"), "agent1", zero_metrics(), &mut envelope, false, false).unwrap();
         assert!(envelope.bounds.terminated);
         assert_eq!(envelope.bounds.terminal_reason, Some(TerminalReason::MaxStageVisitsExceeded));
     }
@@ -1684,7 +1683,7 @@ mod tests {
         orch.initialize_session(ProcessId::must("p1"), pipeline, &mut envelope, false).unwrap();
 
         // context agent reports → routes to fork
-        orch.report_agent_result(&ProcessId::must("p1"), zero_metrics(), &mut envelope, false, false).unwrap();
+        orch.report_agent_result(&ProcessId::must("p1"), "ctx_agent", zero_metrics(), &mut envelope, false, false).unwrap();
 
         // get_next_instruction detects Fork → sets up parallel → dispatches agents
         let instr = orch.get_next_instruction(&ProcessId::must("p1"), &mut envelope).unwrap();
@@ -1700,17 +1699,17 @@ mod tests {
 
         // Report all 3 branches
         envelope.pipeline.current_stage = "think_a".to_string();
-        orch.report_agent_result(&ProcessId::must("p1"), zero_metrics(), &mut envelope, false, false).unwrap();
+        orch.report_agent_result(&ProcessId::must("p1"), "agent_a", zero_metrics(), &mut envelope, false, false).unwrap();
         let instr = orch.get_next_instruction(&ProcessId::must("p1"), &mut envelope).unwrap();
         assert_eq!(instr.kind, InstructionKind::WaitParallel);
 
         envelope.pipeline.current_stage = "think_b".to_string();
-        orch.report_agent_result(&ProcessId::must("p1"), zero_metrics(), &mut envelope, false, false).unwrap();
+        orch.report_agent_result(&ProcessId::must("p1"), "agent_b", zero_metrics(), &mut envelope, false, false).unwrap();
         let instr = orch.get_next_instruction(&ProcessId::must("p1"), &mut envelope).unwrap();
         assert_eq!(instr.kind, InstructionKind::WaitParallel);
 
         envelope.pipeline.current_stage = "think_c".to_string();
-        orch.report_agent_result(&ProcessId::must("p1"), zero_metrics(), &mut envelope, false, false).unwrap();
+        orch.report_agent_result(&ProcessId::must("p1"), "agent_c", zero_metrics(), &mut envelope, false, false).unwrap();
 
         // After all 3 branches complete, fork advances to resolve via default_next
         assert_eq!(envelope.pipeline.current_stage, "resolve");
@@ -1718,7 +1717,7 @@ mod tests {
         assert!(!envelope.bounds.terminated);
 
         // Resolve completes
-        orch.report_agent_result(&ProcessId::must("p1"), zero_metrics(), &mut envelope, false, false).unwrap();
+        orch.report_agent_result(&ProcessId::must("p1"), "resolver", zero_metrics(), &mut envelope, false, false).unwrap();
         assert!(envelope.bounds.terminated);
         assert_eq!(envelope.bounds.terminal_reason, Some(TerminalReason::Completed));
     }
@@ -1749,7 +1748,7 @@ mod tests {
         let mut envelope = create_test_envelope();
         orch.initialize_session(ProcessId::must("p1"), pipeline, &mut envelope, false).unwrap();
 
-        orch.report_agent_result(&ProcessId::must("p1"), zero_metrics(), &mut envelope, false, false).unwrap();
+        orch.report_agent_result(&ProcessId::must("p1"), "starter", zero_metrics(), &mut envelope, false, false).unwrap();
 
         // get_next_instruction sets up Fork parallel state
         let _instr = orch.get_next_instruction(&ProcessId::must("p1"), &mut envelope).unwrap();
@@ -1757,7 +1756,7 @@ mod tests {
 
         // First branch completes → should advance immediately
         envelope.pipeline.current_stage = "think_a".to_string();
-        orch.report_agent_result(&ProcessId::must("p1"), zero_metrics(), &mut envelope, false, false).unwrap();
+        orch.report_agent_result(&ProcessId::must("p1"), "agent_a", zero_metrics(), &mut envelope, false, false).unwrap();
 
         assert_eq!(envelope.pipeline.current_stage, "resolve");
         assert!(orch.pipelines.get(&ProcessId::must("p1")).unwrap().active_parallel.is_none());
@@ -1881,7 +1880,7 @@ mod tests {
         orch.initialize_session(ProcessId::must("p1"), pipeline, &mut envelope, false).unwrap();
 
         for _ in 0..50 {
-            orch.report_agent_result(&ProcessId::must("p1"), zero_metrics(), &mut envelope, false, false).unwrap();
+            orch.report_agent_result(&ProcessId::must("p1"), "agent1", zero_metrics(), &mut envelope, false, false).unwrap();
             if envelope.bounds.terminated {
                 assert_ne!(envelope.bounds.terminal_reason, None);
                 break;
@@ -1910,7 +1909,7 @@ mod tests {
 
         let mut terminated = false;
         for _ in 0..10 {
-            orch.report_agent_result(&ProcessId::must("p1"), zero_metrics(), &mut envelope, false, false).unwrap();
+            orch.report_agent_result(&ProcessId::must("p1"), "agent1", zero_metrics(), &mut envelope, false, false).unwrap();
             if envelope.bounds.terminated {
                 terminated = true;
                 assert_eq!(envelope.bounds.terminal_reason, Some(TerminalReason::MaxIterationsExceeded));
@@ -1983,9 +1982,9 @@ mod tests {
 
         let _instr = orch.get_next_instruction(&ProcessId::must("p1"), &mut envelope).unwrap();
         envelope.pipeline.current_stage = "branch_a".to_string();
-        orch.report_agent_result(&ProcessId::must("p1"), zero_metrics(), &mut envelope, false, false).unwrap();
+        orch.report_agent_result(&ProcessId::must("p1"), "agent_a", zero_metrics(), &mut envelope, false, false).unwrap();
         envelope.pipeline.current_stage = "branch_b".to_string();
-        orch.report_agent_result(&ProcessId::must("p1"), zero_metrics(), &mut envelope, false, false).unwrap();
+        orch.report_agent_result(&ProcessId::must("p1"), "agent_b", zero_metrics(), &mut envelope, false, false).unwrap();
 
         // After both branches, should advance to "final" (Fork's default_next)
         assert_eq!(envelope.pipeline.current_stage, "final");
@@ -2012,7 +2011,7 @@ mod tests {
 
         let mut terminated = false;
         for _ in 0..10 {
-            orch.report_agent_result(&ProcessId::must("p1"), zero_metrics(), &mut envelope, false, false).unwrap();
+            orch.report_agent_result(&ProcessId::must("p1"), "agent1", zero_metrics(), &mut envelope, false, false).unwrap();
             if envelope.bounds.terminated {
                 terminated = true;
                 assert_eq!(envelope.bounds.terminal_reason, Some(TerminalReason::MaxStageVisitsExceeded));
@@ -2041,7 +2040,7 @@ mod tests {
         orch.initialize_session(ProcessId::must("p1"), pipeline, &mut envelope, false).unwrap();
 
         for _ in 0..50 {
-            orch.report_agent_result(&ProcessId::must("p1"), zero_metrics(), &mut envelope, false, false).unwrap();
+            orch.report_agent_result(&ProcessId::must("p1"), "agent1", zero_metrics(), &mut envelope, false, false).unwrap();
             if envelope.bounds.terminated {
                 assert_ne!(envelope.bounds.terminal_reason, Some(TerminalReason::MaxStageVisitsExceeded));
                 return;
@@ -2073,7 +2072,7 @@ mod tests {
         let mut envelope = create_test_envelope();
         orch.initialize_session(ProcessId::must("p1"), pipeline, &mut envelope, false).unwrap();
 
-        orch.report_agent_result(&ProcessId::must("p1"), zero_metrics(), &mut envelope, true, false).unwrap();
+        orch.report_agent_result(&ProcessId::must("p1"), "agent1", zero_metrics(), &mut envelope, true, false).unwrap();
         assert_eq!(envelope.pipeline.current_stage, "recovery");
     }
 
@@ -2100,7 +2099,7 @@ mod tests {
         let mut envelope = create_test_envelope();
         orch.initialize_session(ProcessId::must("p1"), pipeline, &mut envelope, false).unwrap();
 
-        orch.report_agent_result(&ProcessId::must("p1"), zero_metrics(), &mut envelope, false, false).unwrap();
+        orch.report_agent_result(&ProcessId::must("p1"), "agent1", zero_metrics(), &mut envelope, false, false).unwrap();
         assert_eq!(envelope.pipeline.current_stage, "s2");
     }
 
@@ -2143,7 +2142,7 @@ mod tests {
                 assert_eq!(envelope.bounds.terminal_reason, Some(TerminalReason::MaxAgentHopsExceeded));
                 break;
             }
-            orch.report_agent_result(&ProcessId::must("p1"), zero_metrics(), &mut envelope, false, false).unwrap();
+            orch.report_agent_result(&ProcessId::must("p1"), "agent1", zero_metrics(), &mut envelope, false, false).unwrap();
         }
         assert!(terminated, "Edge limit should have terminated the cycle");
     }
@@ -2167,7 +2166,7 @@ mod tests {
         let mut envelope = create_test_envelope();
         orch.initialize_session(ProcessId::must("p1"), pipeline, &mut envelope, false).unwrap();
 
-        orch.report_agent_result(&ProcessId::must("p1"), zero_metrics(), &mut envelope, false, false).unwrap();
+        orch.report_agent_result(&ProcessId::must("p1"), "agent1", zero_metrics(), &mut envelope, false, false).unwrap();
         assert_eq!(envelope.pipeline.current_stage, "foo");
     }
 
@@ -2268,7 +2267,7 @@ mod tests {
         let mut envelope = create_test_envelope();
         orch.initialize_session(ProcessId::must("p1"), pipeline, &mut envelope, false).unwrap();
 
-        orch.report_agent_result(&ProcessId::must("p1"), zero_metrics(), &mut envelope, false, false).unwrap();
+        orch.report_agent_result(&ProcessId::must("p1"), "agent1", zero_metrics(), &mut envelope, false, false).unwrap();
         assert!(envelope.bounds.terminated);
         assert_eq!(envelope.bounds.terminal_reason, Some(TerminalReason::Completed));
     }
@@ -2332,7 +2331,7 @@ mod tests {
         let mut agent_output = std::collections::HashMap::new();
         agent_output.insert("choice".to_string(), serde_json::json!("a"));
         envelope.outputs.insert("entry_agent".to_string(), agent_output);
-        orch.report_agent_result(&ProcessId::must("p1"), zero_metrics(), &mut envelope, false, false).unwrap();
+        orch.report_agent_result(&ProcessId::must("p1"), "agent1", zero_metrics(), &mut envelope, false, false).unwrap();
 
         // Next instruction should skip the Gate and dispatch agent_a directly
         let instr = orch.get_next_instruction(&ProcessId::must("p1"), &mut envelope).unwrap();
@@ -2501,7 +2500,7 @@ mod tests {
         orch.initialize_session(ProcessId::must("p1"), pipeline, &mut envelope, false).unwrap();
 
         // Agent reports break
-        orch.report_agent_result(&ProcessId::must("p1"), zero_metrics(), &mut envelope, false, true).unwrap();
+        orch.report_agent_result(&ProcessId::must("p1"), "agent1", zero_metrics(), &mut envelope, false, true).unwrap();
 
         assert!(envelope.bounds.terminated);
         assert_eq!(envelope.bounds.terminal_reason, Some(TerminalReason::BreakRequested));
@@ -2537,7 +2536,7 @@ mod tests {
         envelope.outputs.insert("a1".to_string(), agent_output);
 
         // Break
-        orch.report_agent_result(&ProcessId::must("p1"), zero_metrics(), &mut envelope, false, true).unwrap();
+        orch.report_agent_result(&ProcessId::must("p1"), "agent1", zero_metrics(), &mut envelope, false, true).unwrap();
 
         // Output should still be there
         assert!(envelope.outputs.contains_key("a1"));
@@ -2566,12 +2565,12 @@ mod tests {
         orch.initialize_session(ProcessId::must("p1"), pipeline, &mut envelope, false).unwrap();
 
         // First iteration — no break, should loop
-        orch.report_agent_result(&ProcessId::must("p1"), zero_metrics(), &mut envelope, false, false).unwrap();
+        orch.report_agent_result(&ProcessId::must("p1"), "agent1", zero_metrics(), &mut envelope, false, false).unwrap();
         assert!(!envelope.bounds.terminated);
         assert_eq!(envelope.pipeline.current_stage, "loop");
 
         // Second iteration — break
-        orch.report_agent_result(&ProcessId::must("p1"), zero_metrics(), &mut envelope, false, true).unwrap();
+        orch.report_agent_result(&ProcessId::must("p1"), "agent1", zero_metrics(), &mut envelope, false, true).unwrap();
         assert!(envelope.bounds.terminated);
         assert_eq!(envelope.bounds.terminal_reason, Some(TerminalReason::BreakRequested));
     }
@@ -2598,7 +2597,7 @@ mod tests {
         // Set interrupt pending — but break should win
         envelope.interrupts.interrupt_pending = true;
 
-        orch.report_agent_result(&ProcessId::must("p1"), zero_metrics(), &mut envelope, false, true).unwrap();
+        orch.report_agent_result(&ProcessId::must("p1"), "agent1", zero_metrics(), &mut envelope, false, true).unwrap();
         assert!(envelope.bounds.terminated);
         assert_eq!(envelope.bounds.terminal_reason, Some(TerminalReason::BreakRequested));
     }

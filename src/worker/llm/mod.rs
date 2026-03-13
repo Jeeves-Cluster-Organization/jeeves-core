@@ -1,16 +1,43 @@
-//! LLM provider abstraction — HTTP-based LLM calls.
+//! LLM provider abstraction — HTTP-based LLM calls + streaming.
 
 pub mod mock;
 pub mod openai;
 
 use async_trait::async_trait;
+use futures::stream::{Stream, StreamExt};
 use serde::{Deserialize, Serialize};
+use std::pin::Pin;
+use tokio::sync::mpsc;
 
-/// A single message in a chat conversation.
+use crate::types::Result;
+
+/// A single message in a chat conversation (OpenAI multi-turn tool protocol).
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ChatMessage {
     pub role: String,
     pub content: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub tool_call_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub tool_calls: Option<Vec<ToolCall>>,
+}
+
+impl ChatMessage {
+    pub fn system(content: impl Into<String>) -> Self {
+        Self { role: "system".into(), content: content.into(), tool_call_id: None, tool_calls: None }
+    }
+
+    pub fn user(content: impl Into<String>) -> Self {
+        Self { role: "user".into(), content: content.into(), tool_call_id: None, tool_calls: None }
+    }
+
+    pub fn assistant(content: impl Into<String>, tool_calls: Option<Vec<ToolCall>>) -> Self {
+        Self { role: "assistant".into(), content: content.into(), tool_call_id: None, tool_calls }
+    }
+
+    pub fn tool_result(tool_call_id: impl Into<String>, content: impl Into<String>) -> Self {
+        Self { role: "tool".into(), content: content.into(), tool_call_id: Some(tool_call_id.into()), tool_calls: None }
+    }
 }
 
 /// Tool call returned by the LLM.
@@ -52,7 +79,7 @@ pub struct ChatResponse {
     pub model: String,
 }
 
-/// A streaming chunk.
+/// A streaming chunk from the LLM.
 #[derive(Debug, Clone)]
 pub struct StreamChunk {
     pub delta_content: Option<String>,
@@ -61,11 +88,94 @@ pub struct StreamChunk {
     pub usage: Option<TokenUsage>,
 }
 
-/// LLM provider trait.
+/// Events emitted during pipeline execution for SSE streaming.
+#[derive(Debug, Clone, Serialize)]
+#[serde(tag = "type")]
+pub enum PipelineEvent {
+    StageStarted { stage: String },
+    Delta { content: String },
+    ToolCallStart { id: String, name: String },
+    ToolResult { id: String, content: String },
+    StageCompleted { stage: String },
+    Done { process_id: String, terminated: bool, terminal_reason: Option<String> },
+    Error { message: String },
+}
+
+impl PipelineEvent {
+    pub fn event_type(&self) -> &'static str {
+        match self {
+            Self::StageStarted { .. } => "stage_started",
+            Self::Delta { .. } => "delta",
+            Self::ToolCallStart { .. } => "tool_call_start",
+            Self::ToolResult { .. } => "tool_result",
+            Self::StageCompleted { .. } => "stage_completed",
+            Self::Done { .. } => "done",
+            Self::Error { .. } => "error",
+        }
+    }
+}
+
+/// LLM provider trait — non-streaming and streaming.
 #[async_trait]
 pub trait LlmProvider: Send + Sync + std::fmt::Debug {
     /// Non-streaming chat completion.
-    async fn chat(&self, req: &ChatRequest) -> crate::types::Result<ChatResponse>;
+    async fn chat(&self, req: &ChatRequest) -> Result<ChatResponse>;
+
+    /// Streaming chat completion. Returns a stream of chunks.
+    async fn chat_stream(
+        &self,
+        req: &ChatRequest,
+    ) -> Result<Pin<Box<dyn Stream<Item = Result<StreamChunk>> + Send>>>;
+}
+
+/// Collect a StreamChunk stream into a ChatResponse, optionally forwarding content deltas
+/// as PipelineEvent::Delta through the event channel.
+pub async fn collect_stream(
+    stream: Pin<Box<dyn Stream<Item = Result<StreamChunk>> + Send>>,
+    event_tx: Option<&mpsc::Sender<PipelineEvent>>,
+) -> Result<ChatResponse> {
+    let mut content = String::new();
+    let mut tool_calls: Vec<ToolCall> = Vec::new();
+    let mut usage = TokenUsage::default();
+
+    futures::pin_mut!(stream);
+    while let Some(chunk) = stream.next().await {
+        let chunk = chunk?;
+        if let Some(ref delta) = chunk.delta_content {
+            content.push_str(delta);
+            if let Some(tx) = event_tx {
+                let _ = tx.send(PipelineEvent::Delta { content: delta.clone() }).await;
+            }
+        }
+        merge_tool_call_deltas(&mut tool_calls, &chunk.tool_calls);
+        if let Some(u) = chunk.usage {
+            usage = u;
+        }
+    }
+
+    Ok(ChatResponse {
+        content: if content.is_empty() { None } else { Some(content) },
+        tool_calls,
+        usage,
+        model: String::new(),
+    })
+}
+
+/// Merge streaming tool call deltas into accumulated tool calls.
+/// OpenAI streams tool calls incrementally: first chunk has id+name, subsequent chunks
+/// append to arguments. Deltas are identified by index in the tool_calls array.
+fn merge_tool_call_deltas(accumulated: &mut Vec<ToolCall>, deltas: &[ToolCall]) {
+    for delta in deltas {
+        // Use id as the lookup key — if we already have this id, append arguments
+        if let Some(existing) = accumulated.iter_mut().find(|tc| tc.id == delta.id && !delta.id.is_empty()) {
+            existing.arguments.push_str(&delta.arguments);
+            if existing.name.is_empty() && !delta.name.is_empty() {
+                existing.name.clone_from(&delta.name);
+            }
+        } else {
+            accumulated.push(delta.clone());
+        }
+    }
 }
 
 /// Resolve a model role (e.g. "fast", "reasoning") to a concrete model name.

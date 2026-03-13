@@ -247,10 +247,60 @@ impl PipelineConfig {
             )));
         }
 
-        let stage_names: HashSet<&str> =
-            self.stages.iter().map(|s| s.name.as_str()).collect();
+        // Validate stage names: non-empty and unique
+        let mut stage_names: HashSet<&str> = HashSet::new();
+        let mut output_keys: HashSet<&str> = HashSet::new();
+        for stage in &self.stages {
+            if stage.name.is_empty() {
+                return Err(Error::validation("Stage name must not be empty"));
+            }
+            if !stage_names.insert(stage.name.as_str()) {
+                return Err(Error::validation(format!(
+                    "Duplicate stage name '{}'", stage.name
+                )));
+            }
+            // Track explicit output_keys for uniqueness
+            if let Some(ref ok) = stage.output_key {
+                if !output_keys.insert(ok.as_str()) {
+                    return Err(Error::validation(format!(
+                        "Duplicate output_key '{}' on stage '{}'", ok, stage.name
+                    )));
+                }
+            }
+        }
 
         for stage in &self.stages {
+            // Validate node-kind constraints
+            match stage.node_kind {
+                NodeKind::Agent => {
+                    if stage.agent.is_empty() {
+                        return Err(Error::validation(format!(
+                            "Agent stage '{}' must have a non-empty agent field", stage.name
+                        )));
+                    }
+                }
+                NodeKind::Gate => {
+                    // Gate stages route without running an agent.
+                    // The agent field may be populated (ignored at runtime).
+                }
+                NodeKind::Fork => {
+                    if stage.routing.is_empty() {
+                        return Err(Error::validation(format!(
+                            "Fork stage '{}' must have at least one routing rule", stage.name
+                        )));
+                    }
+                }
+            }
+
+            // Detect unbounded self-loops
+            if let Some(ref dn) = stage.default_next {
+                if dn == &stage.name && stage.max_visits.is_none() {
+                    return Err(Error::validation(format!(
+                        "Stage '{}' has default_next pointing to itself without max_visits (infinite loop)",
+                        stage.name
+                    )));
+                }
+            }
             // Validate routing targets reference existing stages
             for rule in &stage.routing {
                 if !stage_names.contains(rule.target.as_str()) {
@@ -423,4 +473,127 @@ pub struct SessionState {
     pub terminated: bool,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub terminal_reason: Option<TerminalReason>,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn minimal_stage(name: &str) -> PipelineStage {
+        PipelineStage {
+            name: name.to_string(),
+            agent: name.to_string(),
+            routing: vec![],
+            default_next: None,
+            error_next: None,
+            max_visits: None,
+            join_strategy: JoinStrategy::default(),
+            output_schema: None,
+            allowed_tools: None,
+            node_kind: NodeKind::Agent,
+            output_key: None,
+            prompt_key: None,
+            has_llm: false,
+            temperature: None,
+            max_tokens: None,
+            model_role: None,
+        }
+    }
+
+    fn minimal_config(stages: Vec<PipelineStage>) -> PipelineConfig {
+        PipelineConfig {
+            name: "test".to_string(),
+            stages,
+            max_iterations: 10,
+            max_llm_calls: 10,
+            max_agent_hops: 10,
+            edge_limits: vec![],
+            step_limit: None,
+            state_schema: vec![],
+        }
+    }
+
+    #[test]
+    fn test_validate_duplicate_stage_names() {
+        let config = minimal_config(vec![minimal_stage("a"), minimal_stage("a")]);
+        let err = config.validate().unwrap_err();
+        assert!(err.to_string().contains("Duplicate stage name 'a'"));
+    }
+
+    #[test]
+    fn test_validate_empty_stage_name() {
+        let config = minimal_config(vec![minimal_stage("")]);
+        let err = config.validate().unwrap_err();
+        assert!(err.to_string().contains("Stage name must not be empty"));
+    }
+
+    #[test]
+    fn test_validate_gate_allows_agent_field() {
+        // Gate stages may have agent field populated (ignored at runtime)
+        let mut stage = minimal_stage("router");
+        stage.node_kind = NodeKind::Gate;
+        let config = minimal_config(vec![stage]);
+        assert!(config.validate().is_ok());
+    }
+
+    #[test]
+    fn test_validate_agent_empty_agent_field() {
+        let mut stage = minimal_stage("worker");
+        stage.agent = String::new();
+        let config = minimal_config(vec![stage]);
+        let err = config.validate().unwrap_err();
+        assert!(err.to_string().contains("must have a non-empty agent field"));
+    }
+
+    #[test]
+    fn test_validate_fork_empty_routing() {
+        let mut stage = minimal_stage("splitter");
+        stage.node_kind = NodeKind::Fork;
+        stage.routing = vec![];
+        let config = minimal_config(vec![stage]);
+        let err = config.validate().unwrap_err();
+        assert!(err.to_string().contains("Fork stage 'splitter' must have at least one routing rule"));
+    }
+
+    #[test]
+    fn test_validate_self_loop_without_max_visits() {
+        let mut stage = minimal_stage("loop");
+        stage.default_next = Some("loop".to_string());
+        // No max_visits — should fail
+        let config = minimal_config(vec![stage]);
+        let err = config.validate().unwrap_err();
+        assert!(err.to_string().contains("infinite loop"));
+    }
+
+    #[test]
+    fn test_validate_self_loop_with_max_visits_ok() {
+        let mut stage = minimal_stage("loop");
+        stage.default_next = Some("loop".to_string());
+        stage.max_visits = Some(3);
+        let config = minimal_config(vec![stage]);
+        assert!(config.validate().is_ok());
+    }
+
+    #[test]
+    fn test_validate_duplicate_output_key() {
+        let mut a = minimal_stage("a");
+        a.output_key = Some("shared".to_string());
+        let mut b = minimal_stage("b");
+        b.output_key = Some("shared".to_string());
+        let config = minimal_config(vec![a, b]);
+        let err = config.validate().unwrap_err();
+        assert!(err.to_string().contains("Duplicate output_key 'shared'"));
+    }
+
+    #[test]
+    fn test_validate_valid_complex_pipeline() {
+        let mut gate = minimal_stage("router");
+        gate.node_kind = NodeKind::Gate;
+        gate.agent = String::new(); // Gate has no agent
+        gate.default_next = Some("fallback".to_string());
+
+        let fallback = minimal_stage("fallback");
+        let config = minimal_config(vec![gate, fallback]);
+        assert!(config.validate().is_ok());
+    }
 }
