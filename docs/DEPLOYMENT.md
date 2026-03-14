@@ -1,69 +1,69 @@
 # Deployment Guide
 
-## Prerequisites
+Jeeves Core is a library, not a standalone service. It runs embedded in Python capabilities (via PyO3) or as an MCP stdio server for tool aggregation.
 
-- Rust 1.75+ (matches `rust-version` in Cargo.toml)
-- Linux or Windows host
-
-## Build
+## PyO3 (Primary Pattern)
 
 ```bash
-cargo build --release
+# Build and install
+cd jeeves-core
+pip install -e .
+
+# Verify
+python -c "from jeeves_core import PipelineRunner; print('ok')"
+```
+
+Capabilities import and use the kernel directly:
+
+```python
+# capability/app.py
+from jeeves_core import PipelineRunner
+runner = PipelineRunner.from_json("pipeline.json", prompts_dir="prompts/")
+result = runner.run("hello", user_id="user1")
+```
+
+## MCP Stdio Server
+
+For tool aggregation (proxying upstream MCP servers):
+
+```bash
+cargo build --release --features mcp-stdio
 ```
 
 Binary: `target/release/jeeves-kernel`
 
-### Docker
+Run with upstream MCP servers:
 
 ```bash
-docker build -t jeeves-core .
-docker run -p 8080:8080 jeeves-core
+JEEVES_MCP_SERVERS='[
+  {"name": "fs", "transport": "stdio", "command": "npx", "args": ["-y", "@anthropic-ai/mcp-filesystem"]},
+  {"name": "api", "transport": "http", "url": "http://localhost:8081/mcp"}
+]' ./target/release/jeeves-kernel
 ```
 
-## Run
-
-```bash
-# HTTP on 0.0.0.0:8080 (default)
-./target/release/jeeves-kernel run
-
-# Custom address
-./target/release/jeeves-kernel run --http-addr 0.0.0.0:9000
-
-# With LLM configuration
-./target/release/jeeves-kernel run \
-  --llm-model gpt-4o \
-  --llm-base-url https://api.openai.com/v1
-```
-
----
+The server reads JSON-RPC from stdin and writes to stdout. Tracing goes to stderr.
 
 ## Configuration
 
-### Server
+### Environment Variables
 
-| Field | Default | Env Var | Description |
-|-------|---------|---------|-------------|
-| `server.listen_addr` | `0.0.0.0:8080` | `JEEVES_HTTP_ADDR` | HTTP bind address |
-| `server.metrics_addr` | `127.0.0.1:9090` | `JEEVES_METRICS_ADDR` | Prometheus metrics endpoint |
+#### LLM
 
-### Observability
+| Env Var | Default | Description |
+|---------|---------|-------------|
+| `LLM_API_KEY` | — | API key for LLM provider (required for real calls) |
+| `LLM_MODEL` | `gpt-4o-mini` | Model name |
+| `LLM_BASE_URL` | — | OpenAI-compatible API base URL |
 
-| Field | Default | Env Var | Description |
-|-------|---------|---------|-------------|
-| `observability.log_level` | `info` | `RUST_LOG` | Log level (trace, debug, info, warn, error) |
-| `observability.json_logs` | `false` | `JEEVES_LOG_FORMAT=json` | JSON-formatted log output |
-| `observability.otlp_endpoint` | None | `OTEL_EXPORTER_OTLP_ENDPOINT` | OpenTelemetry OTLP exporter |
+#### Pipeline Bounds
 
-### Default Resource Limits
+| Env Var | Default | Description |
+|---------|---------|-------------|
+| `CORE_MAX_ITERATIONS` | `20` | Max iterations per envelope |
+| `CORE_MAX_LLM_CALLS` | `100` | Max LLM calls per envelope |
+| `CORE_MAX_AGENT_HOPS` | `10` | Max agent hops per envelope |
 
-| Field | Default | Env Var | Description |
-|-------|---------|---------|-------------|
-| `defaults.max_llm_calls` | `100` | `CORE_MAX_LLM_CALLS` | Max LLM calls per envelope |
-| `defaults.max_agent_hops` | `10` | `CORE_MAX_AGENT_HOPS` | Max agent hops per envelope |
-| `defaults.max_iterations` | `20` | `CORE_MAX_ITERATIONS` | Max iterations per envelope |
-| `defaults.process_timeout` | `300s` | — | Process timeout |
-
-### Rate Limiting
+#### Rate Limiting
 
 | Env Var | Default | Description |
 |---------|---------|-------------|
@@ -71,32 +71,46 @@ docker run -p 8080:8080 jeeves-core
 | `CORE_RATE_LIMIT_RPH` | `1000` | Per-user requests per hour |
 | `CORE_RATE_LIMIT_BURST` | `10` | Burst size (per 10s window) |
 
-### LLM
+#### Background Cleanup
 
-| Env Var / CLI Flag | Description |
-|-------------------|-------------|
-| `LLM_API_KEY` / `--llm-api-key` | API key for LLM provider |
-| `LLM_MODEL` / `--llm-model` | Model name (default: `gpt-4o-mini`) |
-| `LLM_BASE_URL` / `--llm-base-url` | OpenAI-compatible API base URL |
+| Env Var | Default | Description |
+|---------|---------|-------------|
+| `CORE_CLEANUP_INTERVAL` | `300` | Seconds between cleanup cycles |
+| `CORE_SESSION_RETENTION` | `3600` | Seconds to keep stale sessions |
 
----
+#### Observability
 
-## Health Checks
+| Env Var | Default | Description |
+|---------|---------|-------------|
+| `RUST_LOG` | `info` | Log level (trace, debug, info, warn, error) |
+| `JEEVES_LOG_FORMAT` | `text` | `text` or `json` |
+| `OTEL_EXPORTER_OTLP_ENDPOINT` | — | OpenTelemetry OTLP exporter (optional) |
 
-| Endpoint | Purpose |
-|----------|---------|
-| `GET /health` | Liveness — always returns 200 |
-| `GET /ready` | Readiness — returns 200 when kernel is operational |
-| `GET /api/v1/status` | System status — process counts, health metrics |
+#### MCP
 
-## Monitoring
+| Env Var | Description |
+|---------|-------------|
+| `JEEVES_MCP_SERVERS` | JSON array of upstream MCP server configs |
 
-Prometheus metrics exposed at `metrics_addr` (default `:9090`). OpenTelemetry traces via OTLP when `OTEL_EXPORTER_OTLP_ENDPOINT` is set.
+## Build from Source
 
-## Production Considerations
+```bash
+# Library only (for testing)
+cargo build
 
-- Bind `JEEVES_HTTP_ADDR` to `0.0.0.0:8080` for non-localhost access
-- Set `JEEVES_LOG_FORMAT=json` for structured log aggregation
-- Set `OTEL_EXPORTER_OTLP_ENDPOINT` for distributed tracing (Jaeger, Grafana Tempo)
-- Configure `LLM_API_KEY` and `LLM_MODEL` for your LLM provider
-- Tune `CORE_MAX_*` bounds based on expected workload
+# MCP stdio binary
+cargo build --release --features mcp-stdio
+
+# PyO3 module
+pip install -e .
+
+# All features (for CI)
+cargo test --all-features
+cargo clippy --all-features
+```
+
+## Prerequisites
+
+- Rust 1.75+
+- Python 3.10+ (for PyO3)
+- `LLM_API_KEY` set for real LLM calls (tests use mock provider)

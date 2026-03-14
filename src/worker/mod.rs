@@ -15,7 +15,7 @@ pub mod tools;
 use std::sync::Arc;
 
 use crate::envelope::Envelope;
-use crate::kernel::orchestrator_types::{InstructionKind, PipelineConfig};
+use crate::kernel::orchestrator_types::{AgentDispatchContext, Instruction, PipelineConfig};
 use crate::types::{ProcessId, Result};
 
 use agent::{Agent, AgentContext, AgentOutput, AgentRegistry, DeterministicAgent};
@@ -27,9 +27,17 @@ use tokio::sync::mpsc;
 #[derive(Debug)]
 pub struct WorkerResult {
     pub process_id: ProcessId,
-    pub terminated: bool,
-    pub terminal_reason: Option<crate::envelope::TerminalReason>,
+    pub termination: Option<crate::envelope::Termination>,
     pub outputs: std::collections::HashMap<String, std::collections::HashMap<String, serde_json::Value>>,
+}
+
+impl WorkerResult {
+    pub fn terminated(&self) -> bool {
+        self.termination.is_some()
+    }
+    pub fn terminal_reason(&self) -> Option<crate::envelope::TerminalReason> {
+        self.termination.as_ref().map(|t| t.reason)
+    }
 }
 
 /// Run a pipeline to completion: init session + loop (buffered, no streaming).
@@ -42,12 +50,8 @@ pub async fn run_pipeline(
     session_id: &str,
     agents: &AgentRegistry,
 ) -> Result<WorkerResult> {
-    let pipeline_name = pipeline_config.name.clone();
     let envelope = Envelope::new_minimal(user_id, session_id, raw_input, None);
-    let _session = handle
-        .initialize_session(process_id.clone(), pipeline_config, envelope, false)
-        .await?;
-    run_pipeline_loop(handle, &process_id, agents, None, &pipeline_name).await
+    run_pipeline_with_envelope(handle, process_id, pipeline_config, envelope, agents).await
 }
 
 /// Run a pipeline to completion with a pre-built Envelope (supports metadata).
@@ -83,10 +87,10 @@ pub async fn run_pipeline_streaming(
         .initialize_session(process_id.clone(), pipeline_config, envelope, false)
         .await?;
     let (tx, rx) = mpsc::channel(64);
-    let jh = tokio::spawn(async move {
+    let task = tokio::spawn(async move {
         run_pipeline_loop(&handle, &process_id, &agents, Some(tx), &pipeline_name).await
     });
-    Ok((jh, rx))
+    Ok((task, rx))
 }
 
 /// Run the pipeline loop for an already-initialized session.
@@ -98,12 +102,13 @@ pub async fn run_pipeline_loop(
     event_tx: Option<mpsc::Sender<PipelineEvent>>,
     pipeline_name: &str,
 ) -> Result<WorkerResult> {
+    let pipeline_name: Arc<str> = Arc::from(pipeline_name);
     loop {
         let instruction = handle.get_next_instruction(process_id).await?;
 
-        match instruction.kind {
-            InstructionKind::Terminate => {
-                let outputs = instruction
+        match instruction {
+            Instruction::Terminate { reason, message, context } => {
+                let outputs = context
                     .agent_context
                     .as_ref()
                     .and_then(|c| c.get("outputs"))
@@ -115,47 +120,38 @@ pub async fn run_pipeline_loop(
                         .send(PipelineEvent::Done {
                             process_id: process_id.as_str().to_string(),
                             terminated: true,
-                            terminal_reason: instruction
-                                .terminal_reason
-                                .as_ref()
-                                .map(|r| format!("{:?}", r)),
+                            terminal_reason: Some(format!("{:?}", reason)),
                             outputs: Some(serde_json::to_value(&outputs).unwrap_or_default()),
-                            pipeline: pipeline_name.to_string(),
+                            pipeline: pipeline_name.clone(),
                         })
                         .await;
                 }
 
                 return Ok(WorkerResult {
                     process_id: process_id.clone(),
-                    terminated: true,
-                    terminal_reason: instruction.terminal_reason,
+                    termination: Some(crate::envelope::Termination { reason, message }),
                     outputs,
                 });
             }
 
-            InstructionKind::RunAgent => {
-                let agent_name = instruction
-                    .agents
-                    .first()
-                    .ok_or_else(|| crate::types::Error::internal("RunAgent with no agent name"))?;
-
+            Instruction::RunAgent { ref agent, ref context } => {
                 if let Some(ref tx) = event_tx {
                     let _ = tx
                         .send(PipelineEvent::StageStarted {
-                            stage: agent_name.clone(),
-                            pipeline: pipeline_name.to_string(),
+                            stage: agent.clone(),
+                            pipeline: pipeline_name.clone(),
                         })
                         .await;
                 }
 
-                let ctx = build_agent_context(&instruction, event_tx.clone(), Some(agent_name.clone()), pipeline_name);
-                let output = execute_agent(agents, agent_name, &ctx).await;
+                let ctx = build_agent_context(context, event_tx.clone(), Some(agent.clone()), pipeline_name.clone());
+                let output = execute_agent(agents, agent, &ctx).await;
 
                 if let Some(ref tx) = event_tx {
                     let _ = tx
                         .send(PipelineEvent::StageCompleted {
-                            stage: agent_name.clone(),
-                            pipeline: pipeline_name.to_string(),
+                            stage: agent.clone(),
+                            pipeline: pipeline_name.clone(),
                         })
                         .await;
                 }
@@ -163,7 +159,7 @@ pub async fn run_pipeline_loop(
                 handle
                     .process_agent_result(
                         process_id,
-                        agent_name,
+                        agent,
                         output.output,
                         None,
                         output.metrics,
@@ -174,15 +170,14 @@ pub async fn run_pipeline_loop(
                     .await?;
             }
 
-            InstructionKind::RunAgents => {
-                execute_parallel(handle, process_id, &instruction, agents, event_tx.clone(), pipeline_name)
+            Instruction::RunAgents { agents: ref agent_names, ref context } => {
+                execute_parallel(handle, process_id, agent_names, context, agents, event_tx.clone(), pipeline_name.clone())
                     .await?;
             }
 
-            InstructionKind::WaitParallel => continue,
+            Instruction::WaitParallel => continue,
 
-            InstructionKind::WaitInterrupt => {
-                let interrupt = &instruction.interrupt;
+            Instruction::WaitInterrupt { ref interrupt } => {
                 let interrupt_id = interrupt.as_ref().map(|i| i.id.clone()).unwrap_or_default();
 
                 if let Some(ref tx) = event_tx {
@@ -193,22 +188,20 @@ pub async fn run_pipeline_loop(
                         kind: interrupt.as_ref().map(|i| format!("{:?}", i.kind)).unwrap_or_default(),
                         question: interrupt.as_ref().and_then(|i| i.question.clone()),
                         message: interrupt.as_ref().and_then(|i| i.message.clone()),
-                        pipeline: pipeline_name.to_string(),
+                        pipeline: pipeline_name.clone(),
                     }).await;
                     // Poll: kernel returns WaitInterrupt until resolved, then RunAgent/Terminate
                     loop {
                         tokio::time::sleep(tokio::time::Duration::from_millis(500)).await;
-                        match handle.get_next_instruction(process_id).await?.kind {
-                            InstructionKind::WaitInterrupt => continue,
-                            _ => break, // resolved — outer loop re-fetches
+                        if !matches!(handle.get_next_instruction(process_id).await?, Instruction::WaitInterrupt { .. }) {
+                            break; // resolved — outer loop re-fetches
                         }
                     }
                 } else {
                     // Buffered: return incomplete result, caller resolves + re-enters
                     return Ok(WorkerResult {
                         process_id: process_id.clone(),
-                        terminated: false,
-                        terminal_reason: None,
+                        termination: None,
                         outputs: Default::default(),
                     });
                 }
@@ -221,17 +214,18 @@ pub async fn run_pipeline_loop(
 async fn execute_parallel(
     handle: &KernelHandle,
     process_id: &ProcessId,
-    instruction: &crate::kernel::orchestrator_types::Instruction,
+    agent_names: &[String],
+    context: &AgentDispatchContext,
     agents: &AgentRegistry,
     event_tx: Option<mpsc::Sender<PipelineEvent>>,
-    pipeline_name: &str,
+    pipeline_name: Arc<str>,
 ) -> Result<()> {
     let mut join_handles = Vec::new();
 
-    for agent_name in &instruction.agents {
-        let ctx = build_agent_context(instruction, event_tx.clone(), Some(agent_name.clone()), pipeline_name);
-        let name = agent_name.clone();
-        let agent_impl = agents.get(&name).cloned();
+    for agent_name in agent_names {
+        let ctx = build_agent_context(context, event_tx.clone(), Some(agent_name.clone()), pipeline_name.clone());
+        let agent_name = agent_name.clone();
+        let agent_impl = agents.get(&agent_name).cloned();
 
         join_handles.push(tokio::spawn(async move {
             let output: AgentOutput = if let Some(a) = agent_impl {
@@ -249,16 +243,16 @@ async fn execute_parallel(
                     error_message: e.to_string(),
                 })
             };
-            (name, output)
+            (agent_name, output)
         }));
     }
 
-    for jh in join_handles {
-        if let Ok((name, output)) = jh.await {
+    for task in join_handles {
+        if let Ok((agent_name, output)) = task.await {
             handle
                 .process_agent_result(
                     process_id,
-                    &name,
+                    &agent_name,
                     output.output,
                     None,
                     output.metrics,
@@ -273,37 +267,37 @@ async fn execute_parallel(
     Ok(())
 }
 
-/// Build an AgentContext from an instruction's agent_context field.
+/// Build an AgentContext from an AgentDispatchContext.
 fn build_agent_context(
-    instruction: &crate::kernel::orchestrator_types::Instruction,
+    context: &AgentDispatchContext,
     event_tx: Option<mpsc::Sender<PipelineEvent>>,
     stage_name: Option<String>,
-    pipeline_name: &str,
+    pipeline_name: Arc<str>,
 ) -> AgentContext {
-    let ctx_val = instruction.agent_context.as_ref();
+    let dispatch_payload = context.agent_context.as_ref();
 
     AgentContext {
-        raw_input: ctx_val
+        raw_input: dispatch_payload
             .and_then(|c| c.get("raw_input"))
             .and_then(|v| v.as_str())
             .unwrap_or_default()
             .to_string(),
-        outputs: ctx_val
+        outputs: dispatch_payload
             .and_then(|c| c.get("outputs"))
             .and_then(|v| serde_json::from_value(v.clone()).ok())
             .unwrap_or_default(),
-        state: ctx_val
+        state: dispatch_payload
             .and_then(|c| c.get("state"))
             .and_then(|v| serde_json::from_value(v.clone()).ok())
             .unwrap_or_default(),
-        metadata: ctx_val
+        metadata: dispatch_payload
             .and_then(|c| c.get("metadata"))
             .and_then(|v| serde_json::from_value(v.clone()).ok())
             .unwrap_or_default(),
-        allowed_tools: instruction.allowed_tools.clone().unwrap_or_default(),
+        allowed_tools: context.allowed_tools.clone().unwrap_or_default(),
         event_tx,
         stage_name,
-        pipeline_name: pipeline_name.to_string(),
+        pipeline_name,
     }
 }
 

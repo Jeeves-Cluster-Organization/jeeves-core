@@ -99,9 +99,7 @@ impl Envelope {
                 max_agent_hops: 21,
                 tokens_in: 0,
                 tokens_out: 0,
-                terminal_reason: None,
-                terminated: false,
-                termination_reason: None,
+                termination: None,
             },
 
             interrupts: InterruptState {
@@ -113,11 +111,6 @@ impl Envelope {
                 completed_stages: Vec::new(),
                 current_stage_number: 1,
                 max_stages: 5,
-                all_goals: Vec::new(),
-                remaining_goals: Vec::new(),
-                goal_completion_status: HashMap::new(),
-                prior_plans: Vec::new(),
-                loop_feedback: Vec::new(),
             },
 
             audit: Audit {
@@ -181,9 +174,7 @@ impl Envelope {
                 max_agent_hops: 100,  // placeholder — overwritten by PipelineConfig
                 tokens_in: 0,
                 tokens_out: 0,
-                terminal_reason: None,
-                terminated: false,
-                termination_reason: None,
+                termination: None,
             },
             interrupts: InterruptState {
                 interrupt_pending: false,
@@ -193,11 +184,6 @@ impl Envelope {
                 completed_stages: Vec::new(),
                 current_stage_number: 0,
                 max_stages: 0,
-                all_goals: Vec::new(),
-                remaining_goals: Vec::new(),
-                goal_completion_status: HashMap::new(),
-                prior_plans: Vec::new(),
-                loop_feedback: Vec::new(),
             },
             audit: Audit {
                 processing_history: Vec::new(),
@@ -279,8 +265,7 @@ impl Envelope {
 
     /// Terminate envelope with reason.
     pub fn terminate(&mut self, reason: impl Into<String>) {
-        self.bounds.terminated = true;
-        self.bounds.termination_reason = Some(reason.into());
+        self.bounds.terminate(TerminalReason::Completed, Some(reason.into()));
         self.audit.completed_at = Some(Utc::now());
     }
 
@@ -313,18 +298,6 @@ impl Envelope {
         }
         if self.identity.session_id.as_str().is_empty() {
             return Err(crate::types::Error::validation("session_id must not be empty"));
-        }
-
-        // Bounds: terminated ↔ terminal_reason coherence
-        if self.bounds.terminated && self.bounds.terminal_reason.is_none() {
-            return Err(crate::types::Error::validation(
-                "bounds.terminated=true but bounds.terminal_reason is None",
-            ));
-        }
-        if self.bounds.terminal_reason.is_some() && !self.bounds.terminated {
-            return Err(crate::types::Error::validation(
-                "bounds.terminal_reason is set but bounds.terminated=false",
-            ));
         }
 
         // Bounds: non-negative counters
@@ -453,9 +426,7 @@ mod tests {
         assert_eq!(env.bounds.max_agent_hops, 21);
         assert_eq!(env.bounds.tokens_in, 0);
         assert_eq!(env.bounds.tokens_out, 0);
-        assert!(env.bounds.terminal_reason.is_none());
-        assert!(!env.bounds.terminated);
-        assert!(env.bounds.termination_reason.is_none());
+        assert!(!env.bounds.is_terminated());
 
         // Interrupts defaults
         assert!(!env.interrupts.interrupt_pending);
@@ -465,11 +436,6 @@ mod tests {
         assert!(env.execution.completed_stages.is_empty());
         assert_eq!(env.execution.current_stage_number, 1);
         assert_eq!(env.execution.max_stages, 5);
-        assert!(env.execution.all_goals.is_empty());
-        assert!(env.execution.remaining_goals.is_empty());
-        assert!(env.execution.goal_completion_status.is_empty());
-        assert!(env.execution.prior_plans.is_empty());
-        assert!(env.execution.loop_feedback.is_empty());
 
         // Audit defaults
         assert!(env.audit.processing_history.is_empty());
@@ -578,15 +544,14 @@ mod tests {
     fn test_terminate() {
         let mut env = Envelope::new();
 
-        assert!(!env.bounds.terminated);
-        assert!(env.bounds.termination_reason.is_none());
+        assert!(!env.bounds.is_terminated());
         assert!(env.audit.completed_at.is_none());
 
         env.terminate("user cancelled the request");
 
-        assert!(env.bounds.terminated);
+        assert!(env.bounds.is_terminated());
         assert_eq!(
-            env.bounds.termination_reason.as_deref(),
+            env.bounds.termination.as_ref().unwrap().message.as_deref(),
             Some("user cancelled the request")
         );
         assert!(env.audit.completed_at.is_some());
@@ -722,7 +687,7 @@ mod tests {
         // Bounds
         assert_eq!(a.bounds.max_llm_calls, b.bounds.max_llm_calls);
         assert_eq!(a.bounds.max_agent_hops, b.bounds.max_agent_hops);
-        assert_eq!(a.bounds.terminated, b.bounds.terminated);
+        assert_eq!(a.bounds.is_terminated(), b.bounds.is_terminated());
 
         // Interrupts
         assert_eq!(a.interrupts.interrupt_pending, b.interrupts.interrupt_pending);
@@ -815,17 +780,10 @@ mod tests {
     // ── 18. validate: terminated coherence ────────────────────────────────
 
     #[test]
-    fn test_validate_terminated_without_reason_fails() {
+    fn test_validate_terminated_passes() {
         let mut env = Envelope::new();
-        env.bounds.terminated = true;
-        assert!(env.validate().is_err());
-    }
-
-    #[test]
-    fn test_validate_reason_without_terminated_fails() {
-        let mut env = Envelope::new();
-        env.bounds.terminal_reason = Some(TerminalReason::Completed);
-        assert!(env.validate().is_err());
+        env.bounds.terminate(TerminalReason::Completed, None);
+        assert!(env.validate().is_ok());
     }
 
     // ── 19. validate: negative counters ───────────────────────────────────

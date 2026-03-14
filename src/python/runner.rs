@@ -512,8 +512,8 @@ fn merge_agents_from_config(
 
         let agent: Arc<dyn Agent> = match stage.node_kind {
             NodeKind::Gate => Arc::new(DeterministicAgent),
-            _ if stage.child_pipeline.is_some() => {
-                match (stage.child_pipeline.as_ref(), stage.child_pipeline.as_deref().and_then(|n| pipeline_configs.get(n))) {
+            _ if stage.agent_config.child_pipeline.is_some() => {
+                match (stage.agent_config.child_pipeline.as_ref(), stage.agent_config.child_pipeline.as_deref().and_then(|n| pipeline_configs.get(n))) {
                     (Some(child_name), Some(child_config)) => {
                         Arc::new(PipelineAgent {
                             pipeline_name: child_name.clone(),
@@ -533,8 +533,9 @@ fn merge_agents_from_config(
                     _ => Arc::new(DeterministicAgent),
                 }
             }
-            _ if stage.has_llm => {
+            _ if stage.agent_config.has_llm => {
                 let prompt_key = stage
+                    .agent_config
                     .prompt_key
                     .clone()
                     .unwrap_or_else(|| agent_name.clone());
@@ -543,9 +544,9 @@ fn merge_agents_from_config(
                     prompts: prompts.clone(),
                     tools: tools.clone(),
                     prompt_key,
-                    temperature: stage.temperature,
-                    max_tokens: stage.max_tokens,
-                    model: stage.model_role.clone(),
+                    temperature: stage.agent_config.temperature,
+                    max_tokens: stage.agent_config.max_tokens,
+                    model: stage.agent_config.model_role.clone(),
                     max_tool_rounds: 10,
                 })
             }
@@ -620,11 +621,11 @@ fn worker_result_to_pyobject(
 
     let dict = pyo3::types::PyDict::new_bound(py);
     dict.set_item("process_id", result.process_id.as_str())?;
-    dict.set_item("terminated", result.terminated)?;
+    dict.set_item("terminated", result.terminated())?;
     dict.set_item(
         "terminal_reason",
         result
-            .terminal_reason
+            .terminal_reason()
             .as_ref()
             .map(|r| format!("{r:?}")),
     )?;

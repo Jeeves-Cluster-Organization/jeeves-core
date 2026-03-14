@@ -144,45 +144,24 @@ impl Orchestrator {
         session.last_activity_at = Utc::now();
 
         // Check if already terminated
-        if envelope.bounds.terminated {
-            return Ok(Instruction {
-                kind: InstructionKind::Terminate,
-                agents: vec![],
-                terminal_reason: envelope.bounds.terminal_reason,
-                termination_message: Some("Session already terminated".to_string()),
-                interrupt_pending: false,
-                interrupt: None,
-                agent_context: None,
-                output_schema: None,
-                allowed_tools: None,
-            });
+        if envelope.bounds.is_terminated() {
+            return Ok(Instruction::terminate(
+                envelope.bounds.terminal_reason().unwrap_or(TerminalReason::Completed),
+                "Session already terminated",
+            ));
         }
 
         // Check for pending interrupt
         if envelope.interrupts.interrupt_pending {
-            return Ok(match envelope.interrupts.interrupt.clone() {
-                Some(interrupt) => Instruction::wait_interrupt(interrupt),
-                // interrupt_pending=true with no interrupt object: return WaitInterrupt
-                // with interrupt=None (kept inline — factory requires non-optional FlowInterrupt)
-                None => Instruction {
-                    kind: InstructionKind::WaitInterrupt,
-                    agents: vec![],
-                    terminal_reason: None,
-                    termination_message: None,
-                    interrupt_pending: true,
-                    interrupt: None,
-                    agent_context: None,
-                    output_schema: None,
-                    allowed_tools: None,
-                },
+            return Ok(Instruction::WaitInterrupt {
+                interrupt: envelope.interrupts.interrupt.clone(),
             });
         }
 
         // Check bounds
         if let Some(reason) = envelope.check_bounds() {
             tracing::warn!(reason = ?reason, "bounds_terminated");
-            envelope.bounds.terminated = true;
-            envelope.bounds.terminal_reason = Some(reason);
+            envelope.bounds.terminate(reason, None);
             return Ok(Instruction::terminate(reason, format!("Bounds exceeded: {:?}", reason)));
         }
 
@@ -223,8 +202,7 @@ impl Orchestrator {
 
                 // Bounds check
                 if let Some(reason) = envelope.check_bounds() {
-                    envelope.bounds.terminated = true;
-                    envelope.bounds.terminal_reason = Some(reason);
+                    envelope.bounds.terminate(reason, None);
                     return Ok(Instruction::terminate(reason, format!("Gate bounds exceeded: {:?}", reason)));
                 }
 
@@ -254,8 +232,7 @@ impl Orchestrator {
                 envelope.pipeline.iteration += 1;
 
                 if let Some(reason) = envelope.check_bounds() {
-                    envelope.bounds.terminated = true;
-                    envelope.bounds.terminal_reason = Some(reason);
+                    envelope.bounds.terminate(reason, None);
                     return Ok(Instruction::terminate(reason, format!("Fork bounds exceeded: {:?}", reason)));
                 }
 
@@ -277,8 +254,7 @@ impl Orchestrator {
                 match targets.len() {
                     0 => {
                         // No targets — terminate COMPLETED
-                        envelope.bounds.terminated = true;
-                        envelope.bounds.terminal_reason = Some(TerminalReason::Completed);
+                        envelope.bounds.terminate(TerminalReason::Completed, None);
                         session.last_activity_at = Utc::now();
                         return Ok(Instruction::terminate_completed());
                     }
@@ -363,8 +339,7 @@ impl Orchestrator {
 
         // Check bounds after iteration increment (terminates cycles)
         if let Some(reason) = envelope.check_bounds() {
-            envelope.bounds.terminated = true;
-            envelope.bounds.terminal_reason = Some(reason);
+            envelope.bounds.terminate(reason, None);
             return Ok(());
         }
 
@@ -376,8 +351,7 @@ impl Orchestrator {
                 // (don't terminate the whole pipeline)
             } else {
                 // Top-level: break = pipeline exit
-                envelope.bounds.terminated = true;
-                envelope.bounds.terminal_reason = Some(TerminalReason::BreakRequested);
+                envelope.bounds.terminate(TerminalReason::BreakRequested, None);
                 session.last_activity_at = Utc::now();
                 return Ok(());
             }
@@ -511,11 +485,10 @@ impl Orchestrator {
                     if let Some(max_visits) = target_stage.max_visits {
                         let visits = session.stage_visits.get(&target).copied().unwrap_or(0);
                         if visits >= max_visits {
-                            envelope.bounds.terminated = true;
-                            envelope.bounds.terminal_reason = Some(TerminalReason::MaxStageVisitsExceeded);
-                            envelope.bounds.termination_reason = Some(format!(
-                                "Stage '{}' exceeded max_visits limit of {}", target, max_visits
-                            ));
+                            envelope.bounds.terminate(
+                                TerminalReason::MaxStageVisitsExceeded,
+                                Some(format!("Stage '{}' exceeded max_visits limit of {}", target, max_visits)),
+                            );
                             session.last_activity_at = Utc::now();
                             return Ok(());
                         }
@@ -529,11 +502,10 @@ impl Orchestrator {
                     from_stage,
                     &target,
                 ) {
-                    envelope.bounds.terminated = true;
-                    envelope.bounds.terminal_reason = Some(TerminalReason::MaxAgentHopsExceeded);
-                    envelope.bounds.termination_reason = Some(format!(
-                        "Edge limit exceeded: {} -> {}", from_stage, target
-                    ));
+                    envelope.bounds.terminate(
+                        TerminalReason::MaxAgentHopsExceeded,
+                        Some(format!("Edge limit exceeded: {} -> {}", from_stage, target)),
+                    );
                     session.last_activity_at = Utc::now();
                     return Ok(());
                 }
@@ -557,8 +529,7 @@ impl Orchestrator {
             None => {
                 // No routing matched, no default_next — pipeline complete (Temporal pattern)
                 tracing::info!(reason = ?TerminalReason::Completed, "pipeline_completed");
-                envelope.bounds.terminated = true;
-                envelope.bounds.terminal_reason = Some(TerminalReason::Completed);
+                envelope.bounds.terminate(TerminalReason::Completed, None);
                 session.last_activity_at = Utc::now();
             }
         }
@@ -669,8 +640,8 @@ impl Orchestrator {
             stage_order: envelope.pipeline.stage_order.clone(),
             envelope: envelope_value,
             edge_traversals: session.edge_traversals.clone(),
-            terminated: envelope.bounds.terminated,
-            terminal_reason: envelope.bounds.terminal_reason,
+            terminated: envelope.bounds.is_terminated(),
+            terminal_reason: envelope.bounds.terminal_reason(),
         }
     }
 }
@@ -764,12 +735,7 @@ mod tests {
             allowed_tools: None,
             node_kind: NodeKind::default(),
             output_key: None,
-            prompt_key: None,
-            has_llm: true,
-            temperature: None,
-            max_tokens: None,
-            model_role: None,
-            child_pipeline: None,
+            agent_config: AgentConfig::default(),
         }
     }
 
@@ -894,9 +860,8 @@ mod tests {
 
         let instruction = orch.get_next_instruction(&ProcessId::must("proc1"), &mut envelope).unwrap();
 
-        assert_eq!(instruction.kind, InstructionKind::RunAgent);
-        assert_eq!(instruction.agents, vec!["agent1".to_string()]);
-        assert!(!instruction.interrupt_pending);
+        let Instruction::RunAgent { ref agent, .. } = instruction else { panic!("Expected RunAgent") };
+        assert_eq!(agent, "agent1");
     }
 
     #[test]
@@ -909,16 +874,12 @@ mod tests {
             .unwrap();
 
         // Termination state lives exclusively in envelope.bounds
-        envelope.bounds.terminated = true;
-        envelope.bounds.terminal_reason = Some(TerminalReason::MaxIterationsExceeded);
+        envelope.bounds.terminate(TerminalReason::MaxIterationsExceeded, None);
 
         let instruction = orch.get_next_instruction(&ProcessId::must("proc1"), &mut envelope).unwrap();
 
-        assert_eq!(instruction.kind, InstructionKind::Terminate);
-        assert_eq!(
-            instruction.terminal_reason,
-            Some(TerminalReason::MaxIterationsExceeded)
-        );
+        let Instruction::Terminate { reason, .. } = instruction else { panic!("Expected Terminate") };
+        assert_eq!(reason, TerminalReason::MaxIterationsExceeded);
     }
 
     #[test]
@@ -938,9 +899,8 @@ mod tests {
 
         let instruction = orch.get_next_instruction(&ProcessId::must("proc1"), &mut envelope).unwrap();
 
-        assert_eq!(instruction.kind, InstructionKind::WaitInterrupt);
-        assert!(instruction.interrupt_pending);
-        assert!(instruction.interrupt.is_some());
+        let Instruction::WaitInterrupt { ref interrupt } = instruction else { panic!("Expected WaitInterrupt") };
+        assert!(interrupt.is_some());
     }
 
     #[test]
@@ -957,11 +917,8 @@ mod tests {
 
         let instruction = orch.get_next_instruction(&ProcessId::must("proc1"), &mut envelope).unwrap();
 
-        assert_eq!(instruction.kind, InstructionKind::Terminate);
-        assert_eq!(
-            instruction.terminal_reason,
-            Some(TerminalReason::MaxLlmCallsExceeded)
-        );
+        let Instruction::Terminate { reason, .. } = instruction else { panic!("Expected Terminate") };
+        assert_eq!(reason, TerminalReason::MaxLlmCallsExceeded);
     }
 
     #[test]
@@ -978,11 +935,8 @@ mod tests {
 
         let instruction = orch.get_next_instruction(&ProcessId::must("proc1"), &mut envelope).unwrap();
 
-        assert_eq!(instruction.kind, InstructionKind::Terminate);
-        assert_eq!(
-            instruction.terminal_reason,
-            Some(TerminalReason::MaxIterationsExceeded)
-        );
+        let Instruction::Terminate { reason, .. } = instruction else { panic!("Expected Terminate") };
+        assert_eq!(reason, TerminalReason::MaxIterationsExceeded);
     }
 
     // =========================================================================
@@ -1319,7 +1273,7 @@ mod tests {
         orch.report_agent_result(&ProcessId::must("p1"), "agent1", zero_metrics(), &mut envelope, false, false).unwrap();
 
         assert_eq!(envelope.pipeline.current_stage, "s3");
-        assert!(!envelope.bounds.terminated);
+        assert!(!envelope.bounds.is_terminated());
     }
 
     #[test]
@@ -1346,7 +1300,7 @@ mod tests {
         orch.report_agent_result(&ProcessId::must("p1"), "agent1", zero_metrics(), &mut envelope, false, false).unwrap();
 
         assert_eq!(envelope.pipeline.current_stage, "s2");
-        assert!(!envelope.bounds.terminated);
+        assert!(!envelope.bounds.is_terminated());
     }
 
     #[test]
@@ -1408,7 +1362,7 @@ mod tests {
         orch.report_agent_result(&ProcessId::must("p1"), "agent1", zero_metrics(), &mut envelope, false, false).unwrap();
 
         assert_eq!(envelope.pipeline.current_stage, "s2");
-        assert!(!envelope.bounds.terminated);
+        assert!(!envelope.bounds.is_terminated());
     }
 
     #[test]
@@ -1433,8 +1387,8 @@ mod tests {
 
         orch.report_agent_result(&ProcessId::must("p1"), "agent1", zero_metrics(), &mut envelope, false, false).unwrap();
 
-        assert!(envelope.bounds.terminated);
-        assert_eq!(envelope.bounds.terminal_reason, Some(TerminalReason::Completed));
+        assert!(envelope.bounds.is_terminated());
+        assert_eq!(envelope.bounds.terminal_reason(), Some(TerminalReason::Completed));
     }
 
     #[test]
@@ -1529,7 +1483,7 @@ mod tests {
         // First iteration: no output → completed missing → not_(eq) = true → loops
         orch.report_agent_result(&ProcessId::must("p1"), "agent1", zero_metrics(), &mut envelope, false, false).unwrap();
         assert_eq!(envelope.pipeline.current_stage, "s1");
-        assert!(!envelope.bounds.terminated);
+        assert!(!envelope.bounds.is_terminated());
 
         // Second iteration: completed=false → not_(eq(false,true)) = true → loops
         let mut output = HashMap::new();
@@ -1537,15 +1491,15 @@ mod tests {
         envelope.outputs.insert("a1".to_string(), output);
         orch.report_agent_result(&ProcessId::must("p1"), "agent1", zero_metrics(), &mut envelope, false, false).unwrap();
         assert_eq!(envelope.pipeline.current_stage, "s1");
-        assert!(!envelope.bounds.terminated);
+        assert!(!envelope.bounds.is_terminated());
 
         // Third iteration: completed=true → not_(eq(true,true)) = false → no match → terminate
         let mut output2 = HashMap::new();
         output2.insert("completed".to_string(), serde_json::json!(true));
         envelope.outputs.insert("a1".to_string(), output2);
         orch.report_agent_result(&ProcessId::must("p1"), "agent1", zero_metrics(), &mut envelope, false, false).unwrap();
-        assert!(envelope.bounds.terminated);
-        assert_eq!(envelope.bounds.terminal_reason, Some(TerminalReason::Completed));
+        assert!(envelope.bounds.is_terminated());
+        assert_eq!(envelope.bounds.terminal_reason(), Some(TerminalReason::Completed));
     }
 
     // =========================================================================
@@ -1581,8 +1535,8 @@ mod tests {
         assert_eq!(envelope.pipeline.current_stage, "s3");
 
         orch.report_agent_result(&ProcessId::must("p1"), "agent1", zero_metrics(), &mut envelope, false, false).unwrap();
-        assert!(envelope.bounds.terminated);
-        assert_eq!(envelope.bounds.terminal_reason, Some(TerminalReason::Completed));
+        assert!(envelope.bounds.is_terminated());
+        assert_eq!(envelope.bounds.terminal_reason(), Some(TerminalReason::Completed));
     }
 
     #[test]
@@ -1610,9 +1564,9 @@ mod tests {
         for _ in 0..20 {
             orch.report_agent_result(&ProcessId::must("p1"), "agent1", zero_metrics(), &mut envelope, false, false).unwrap();
 
-            if envelope.bounds.terminated {
+            if envelope.bounds.is_terminated() {
                 terminated = true;
-                assert_eq!(envelope.bounds.terminal_reason, Some(TerminalReason::MaxIterationsExceeded));
+                assert_eq!(envelope.bounds.terminal_reason(), Some(TerminalReason::MaxIterationsExceeded));
                 break;
             }
         }
@@ -1646,9 +1600,9 @@ mod tests {
 
         let mut terminated = false;
         for _ in 0..20 {
-            if envelope.bounds.terminated {
+            if envelope.bounds.is_terminated() {
                 terminated = true;
-                assert_eq!(envelope.bounds.terminal_reason, Some(TerminalReason::MaxAgentHopsExceeded));
+                assert_eq!(envelope.bounds.terminal_reason(), Some(TerminalReason::MaxAgentHopsExceeded));
                 break;
             }
             orch.report_agent_result(&ProcessId::must("p1"), "agent1", zero_metrics(), &mut envelope, false, false).unwrap();
@@ -1710,8 +1664,8 @@ mod tests {
 
         // s2 tries to route to s1, but s1 has max_visits=2 and visits=2 → terminate
         orch.report_agent_result(&ProcessId::must("p1"), "agent1", zero_metrics(), &mut envelope, false, false).unwrap();
-        assert!(envelope.bounds.terminated);
-        assert_eq!(envelope.bounds.terminal_reason, Some(TerminalReason::MaxStageVisitsExceeded));
+        assert!(envelope.bounds.is_terminated());
+        assert_eq!(envelope.bounds.terminal_reason(), Some(TerminalReason::MaxStageVisitsExceeded));
     }
 
     // =========================================================================
@@ -1731,12 +1685,7 @@ mod tests {
             allowed_tools: None,
             node_kind: NodeKind::Fork,
             output_key: None,
-            prompt_key: None,
-            has_llm: true,
-            temperature: None,
-            max_tokens: None,
-            model_role: None,
-            child_pipeline: None,
+            agent_config: AgentConfig::default(),
         }
     }
 
@@ -1775,8 +1724,8 @@ mod tests {
 
         // get_next_instruction detects Fork → sets up parallel → dispatches agents
         let instr = orch.get_next_instruction(&ProcessId::must("p1"), &mut envelope).unwrap();
-        assert_eq!(instr.kind, InstructionKind::RunAgents);
-        assert_eq!(instr.agents.len(), 3);
+        let Instruction::RunAgents { ref agents, .. } = instr else { panic!("Expected RunAgents") };
+        assert_eq!(agents.len(), 3);
 
         let session = orch.pipelines.get(&ProcessId::must("p1")).unwrap();
         assert!(session.active_parallel.is_some());
@@ -1789,12 +1738,12 @@ mod tests {
         envelope.pipeline.current_stage = "think_a".to_string();
         orch.report_agent_result(&ProcessId::must("p1"), "agent_a", zero_metrics(), &mut envelope, false, false).unwrap();
         let instr = orch.get_next_instruction(&ProcessId::must("p1"), &mut envelope).unwrap();
-        assert_eq!(instr.kind, InstructionKind::WaitParallel);
+        assert!(matches!(instr, Instruction::WaitParallel));
 
         envelope.pipeline.current_stage = "think_b".to_string();
         orch.report_agent_result(&ProcessId::must("p1"), "agent_b", zero_metrics(), &mut envelope, false, false).unwrap();
         let instr = orch.get_next_instruction(&ProcessId::must("p1"), &mut envelope).unwrap();
-        assert_eq!(instr.kind, InstructionKind::WaitParallel);
+        assert!(matches!(instr, Instruction::WaitParallel));
 
         envelope.pipeline.current_stage = "think_c".to_string();
         orch.report_agent_result(&ProcessId::must("p1"), "agent_c", zero_metrics(), &mut envelope, false, false).unwrap();
@@ -1802,12 +1751,12 @@ mod tests {
         // After all 3 branches complete, fork advances to resolve via default_next
         assert_eq!(envelope.pipeline.current_stage, "resolve");
         assert!(!envelope.pipeline.parallel_mode);
-        assert!(!envelope.bounds.terminated);
+        assert!(!envelope.bounds.is_terminated());
 
         // Resolve completes
         orch.report_agent_result(&ProcessId::must("p1"), "resolver", zero_metrics(), &mut envelope, false, false).unwrap();
-        assert!(envelope.bounds.terminated);
-        assert_eq!(envelope.bounds.terminal_reason, Some(TerminalReason::Completed));
+        assert!(envelope.bounds.is_terminated());
+        assert_eq!(envelope.bounds.terminal_reason(), Some(TerminalReason::Completed));
     }
 
     #[test]
@@ -1906,25 +1855,16 @@ mod tests {
     }
 
     #[test]
-    fn test_instruction_serde_without_envelope() {
-        let instruction = Instruction {
-            kind: InstructionKind::RunAgent,
-            agents: vec!["agent1".to_string()],
-            terminal_reason: None,
-            termination_message: None,
-            interrupt_pending: false,
-            interrupt: None,
-            agent_context: None,
-            output_schema: None,
-            allowed_tools: None,
-        };
+    fn test_instruction_serde_roundtrip() {
+        let instruction = Instruction::run_agent("agent1");
         let json = serde_json::to_string(&instruction).unwrap();
         let parsed: serde_json::Value = serde_json::from_str(&json).unwrap();
+        assert_eq!(parsed.get("kind").unwrap().as_str().unwrap(), "RUN_AGENT");
+        assert_eq!(parsed.get("agent").unwrap().as_str().unwrap(), "agent1");
         assert!(parsed.get("envelope").is_none(), "Instruction should not contain envelope field");
         let deserialized: Instruction = serde_json::from_str(&json).unwrap();
-        assert_eq!(deserialized.kind, InstructionKind::RunAgent);
-        assert_eq!(deserialized.agents, vec!["agent1"]);
-        assert!(!deserialized.interrupt_pending);
+        let Instruction::RunAgent { agent, .. } = deserialized else { panic!("Expected RunAgent") };
+        assert_eq!(agent, "agent1");
     }
 
     // =========================================================================
@@ -1977,12 +1917,12 @@ mod tests {
 
         for _ in 0..50 {
             orch.report_agent_result(&ProcessId::must("p1"), "agent1", zero_metrics(), &mut envelope, false, false).unwrap();
-            if envelope.bounds.terminated {
-                assert_ne!(envelope.bounds.terminal_reason, None);
+            if envelope.bounds.is_terminated() {
+                assert!(envelope.bounds.terminal_reason().is_some());
                 break;
             }
         }
-        assert!(!envelope.bounds.terminated, "Pipeline should not terminate with step_limit=None after 50 iterations");
+        assert!(!envelope.bounds.is_terminated(), "Pipeline should not terminate with step_limit=None after 50 iterations");
     }
 
     #[test]
@@ -2008,9 +1948,9 @@ mod tests {
         let mut terminated = false;
         for _ in 0..10 {
             orch.report_agent_result(&ProcessId::must("p1"), "agent1", zero_metrics(), &mut envelope, false, false).unwrap();
-            if envelope.bounds.terminated {
+            if envelope.bounds.is_terminated() {
                 terminated = true;
-                assert_eq!(envelope.bounds.terminal_reason, Some(TerminalReason::MaxIterationsExceeded));
+                assert_eq!(envelope.bounds.terminal_reason(), Some(TerminalReason::MaxIterationsExceeded));
                 break;
             }
         }
@@ -2051,8 +1991,8 @@ mod tests {
         // Fork dispatches only branch_a (always matches), not branch_b (eq never matches)
         let instr = orch.get_next_instruction(&ProcessId::must("p1"), &mut envelope).unwrap();
         // Single target → sequential advance (not RunAgents)
-        assert_eq!(instr.kind, InstructionKind::RunAgent);
-        assert_eq!(instr.agents, vec!["agent_a"]);
+        let Instruction::RunAgent { ref agent, .. } = instr else { panic!("Expected RunAgent") };
+        assert_eq!(agent, "agent_a");
     }
 
     #[test]
@@ -2116,9 +2056,9 @@ mod tests {
         let mut terminated = false;
         for _ in 0..10 {
             orch.report_agent_result(&ProcessId::must("p1"), "agent1", zero_metrics(), &mut envelope, false, false).unwrap();
-            if envelope.bounds.terminated {
+            if envelope.bounds.is_terminated() {
                 terminated = true;
-                assert_eq!(envelope.bounds.terminal_reason, Some(TerminalReason::MaxStageVisitsExceeded));
+                assert_eq!(envelope.bounds.terminal_reason(), Some(TerminalReason::MaxStageVisitsExceeded));
                 break;
             }
         }
@@ -2147,12 +2087,12 @@ mod tests {
 
         for _ in 0..50 {
             orch.report_agent_result(&ProcessId::must("p1"), "agent1", zero_metrics(), &mut envelope, false, false).unwrap();
-            if envelope.bounds.terminated {
-                assert_ne!(envelope.bounds.terminal_reason, Some(TerminalReason::MaxStageVisitsExceeded));
+            if envelope.bounds.is_terminated() {
+                assert_ne!(envelope.bounds.terminal_reason(), Some(TerminalReason::MaxStageVisitsExceeded));
                 return;
             }
         }
-        assert!(!envelope.bounds.terminated);
+        assert!(!envelope.bounds.is_terminated());
     }
 
     #[test]
@@ -2249,9 +2189,9 @@ mod tests {
 
         let mut terminated = false;
         for _ in 0..20 {
-            if envelope.bounds.terminated {
+            if envelope.bounds.is_terminated() {
                 terminated = true;
-                assert_eq!(envelope.bounds.terminal_reason, Some(TerminalReason::MaxAgentHopsExceeded));
+                assert_eq!(envelope.bounds.terminal_reason(), Some(TerminalReason::MaxAgentHopsExceeded));
                 break;
             }
             orch.report_agent_result(&ProcessId::must("p1"), "agent1", zero_metrics(), &mut envelope, false, false).unwrap();
@@ -2384,8 +2324,8 @@ mod tests {
         orch.initialize_session(ProcessId::must("p1"), pipeline, &mut envelope, false).unwrap();
 
         orch.report_agent_result(&ProcessId::must("p1"), "agent1", zero_metrics(), &mut envelope, false, false).unwrap();
-        assert!(envelope.bounds.terminated);
-        assert_eq!(envelope.bounds.terminal_reason, Some(TerminalReason::Completed));
+        assert!(envelope.bounds.is_terminated());
+        assert_eq!(envelope.bounds.terminal_reason(), Some(TerminalReason::Completed));
     }
 
     // =========================================================================
@@ -2405,12 +2345,7 @@ mod tests {
             allowed_tools: None,
             node_kind: NodeKind::Gate,
             output_key: None,
-            prompt_key: None,
-            has_llm: true,
-            temperature: None,
-            max_tokens: None,
-            model_role: None,
-            child_pipeline: None,
+            agent_config: AgentConfig::default(),
         }
     }
 
@@ -2443,8 +2378,8 @@ mod tests {
 
         // First instruction: run entry agent
         let instr = orch.get_next_instruction(&ProcessId::must("p1"), &mut envelope).unwrap();
-        assert_eq!(instr.kind, InstructionKind::RunAgent);
-        assert_eq!(instr.agents, vec!["entry_agent"]);
+        let Instruction::RunAgent { ref agent, .. } = instr else { panic!("Expected RunAgent") };
+        assert_eq!(agent, "entry_agent");
 
         // Entry agent reports output with choice=a, routes to router Gate
         let mut agent_output = std::collections::HashMap::new();
@@ -2454,8 +2389,8 @@ mod tests {
 
         // Next instruction should skip the Gate and dispatch agent_a directly
         let instr = orch.get_next_instruction(&ProcessId::must("p1"), &mut envelope).unwrap();
-        assert_eq!(instr.kind, InstructionKind::RunAgent);
-        assert_eq!(instr.agents, vec!["agent_a"]);
+        let Instruction::RunAgent { ref agent, .. } = instr else { panic!("Expected RunAgent") };
+        assert_eq!(agent, "agent_a");
     }
 
     #[test]
@@ -2483,8 +2418,8 @@ mod tests {
 
         // Should skip both gates and return RunAgent for final_agent
         let instr = orch.get_next_instruction(&ProcessId::must("p1"), &mut envelope).unwrap();
-        assert_eq!(instr.kind, InstructionKind::RunAgent);
-        assert_eq!(instr.agents, vec!["final_agent"]);
+        let Instruction::RunAgent { ref agent, .. } = instr else { panic!("Expected RunAgent") };
+        assert_eq!(agent, "final_agent");
     }
 
     #[test]
@@ -2513,8 +2448,8 @@ mod tests {
         orch.initialize_session(ProcessId::must("p1"), pipeline, &mut envelope, false).unwrap();
 
         let instr = orch.get_next_instruction(&ProcessId::must("p1"), &mut envelope).unwrap();
-        assert_eq!(instr.kind, InstructionKind::RunAgent);
-        assert_eq!(instr.agents, vec!["fb_agent"]);
+        let Instruction::RunAgent { ref agent, .. } = instr else { panic!("Expected RunAgent") };
+        assert_eq!(agent, "fb_agent");
     }
 
     #[test]
@@ -2542,8 +2477,8 @@ mod tests {
         orch.initialize_session(ProcessId::must("p1"), pipeline, &mut envelope, false).unwrap();
 
         let instr = orch.get_next_instruction(&ProcessId::must("p1"), &mut envelope).unwrap();
-        assert_eq!(instr.kind, InstructionKind::Terminate);
-        assert_eq!(instr.terminal_reason, Some(TerminalReason::Completed));
+        let Instruction::Terminate { reason, .. } = instr else { panic!("Expected Terminate") };
+        assert_eq!(reason, TerminalReason::Completed);
     }
 
     #[test]
@@ -2568,10 +2503,7 @@ mod tests {
         orch.initialize_session(ProcessId::must("p1"), pipeline, &mut envelope, false).unwrap();
 
         let instr = orch.get_next_instruction(&ProcessId::must("p1"), &mut envelope).unwrap();
-        assert_eq!(instr.kind, InstructionKind::Terminate);
-        // Should terminate due to iteration bounds
-        assert!(instr.terminal_reason.is_some());
-        let reason = instr.terminal_reason.unwrap();
+        let Instruction::Terminate { reason, .. } = instr else { panic!("Expected Terminate") };
         assert_eq!(reason.outcome(), "bounds_exceeded");
     }
 
@@ -2601,7 +2533,7 @@ mod tests {
         envelope.interrupts.interrupt_pending = true;
 
         let instr = orch.get_next_instruction(&ProcessId::must("p1"), &mut envelope).unwrap();
-        assert_eq!(instr.kind, InstructionKind::WaitInterrupt);
+        assert!(matches!(instr, Instruction::WaitInterrupt { .. }));
     }
 
     // =========================================================================
@@ -2633,13 +2565,13 @@ mod tests {
         // Agent reports break
         orch.report_agent_result(&ProcessId::must("p1"), "agent1", zero_metrics(), &mut envelope, false, true).unwrap();
 
-        assert!(envelope.bounds.terminated);
-        assert_eq!(envelope.bounds.terminal_reason, Some(TerminalReason::BreakRequested));
+        assert!(envelope.bounds.is_terminated());
+        assert_eq!(envelope.bounds.terminal_reason(), Some(TerminalReason::BreakRequested));
 
         // Verify outcome is "completed" (clean exit)
         let instr = orch.get_next_instruction(&ProcessId::must("p1"), &mut envelope).unwrap();
-        assert_eq!(instr.kind, InstructionKind::Terminate);
-        assert_eq!(instr.terminal_reason.unwrap().outcome(), "completed");
+        let Instruction::Terminate { reason, .. } = instr else { panic!("Expected Terminate") };
+        assert_eq!(reason.outcome(), "completed");
     }
 
     #[test]
@@ -2674,8 +2606,8 @@ mod tests {
         // Output should still be there
         assert!(envelope.outputs.contains_key("a1"));
         assert_eq!(envelope.outputs["a1"]["result"], serde_json::json!("done"));
-        assert!(envelope.bounds.terminated);
-        assert_eq!(envelope.bounds.terminal_reason, Some(TerminalReason::BreakRequested));
+        assert!(envelope.bounds.is_terminated());
+        assert_eq!(envelope.bounds.terminal_reason(), Some(TerminalReason::BreakRequested));
     }
 
     #[test]
@@ -2701,13 +2633,13 @@ mod tests {
 
         // First iteration — no break, should loop
         orch.report_agent_result(&ProcessId::must("p1"), "agent1", zero_metrics(), &mut envelope, false, false).unwrap();
-        assert!(!envelope.bounds.terminated);
+        assert!(!envelope.bounds.is_terminated());
         assert_eq!(envelope.pipeline.current_stage, "loop");
 
         // Second iteration — break
         orch.report_agent_result(&ProcessId::must("p1"), "agent1", zero_metrics(), &mut envelope, false, true).unwrap();
-        assert!(envelope.bounds.terminated);
-        assert_eq!(envelope.bounds.terminal_reason, Some(TerminalReason::BreakRequested));
+        assert!(envelope.bounds.is_terminated());
+        assert_eq!(envelope.bounds.terminal_reason(), Some(TerminalReason::BreakRequested));
     }
 
     #[test]
@@ -2735,7 +2667,7 @@ mod tests {
         envelope.interrupts.interrupt_pending = true;
 
         orch.report_agent_result(&ProcessId::must("p1"), "agent1", zero_metrics(), &mut envelope, false, true).unwrap();
-        assert!(envelope.bounds.terminated);
-        assert_eq!(envelope.bounds.terminal_reason, Some(TerminalReason::BreakRequested));
+        assert!(envelope.bounds.is_terminated());
+        assert_eq!(envelope.bounds.terminal_reason(), Some(TerminalReason::BreakRequested));
     }
 }

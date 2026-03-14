@@ -159,7 +159,7 @@ impl StageHandle {
 
     /// Set whether this agent makes LLM calls.
     pub fn has_llm(mut self, v: bool) -> Self {
-        self.stage_mut().has_llm = v;
+        self.stage_mut().agent_config.has_llm = v;
         self
     }
 
@@ -177,25 +177,25 @@ impl StageHandle {
 
     /// Set LLM temperature for this stage.
     pub fn temperature(mut self, t: f64) -> Self {
-        self.stage_mut().temperature = Some(t);
+        self.stage_mut().agent_config.temperature = Some(t);
         self
     }
 
     /// Set LLM max_tokens for this stage.
     pub fn max_tokens(mut self, n: i32) -> Self {
-        self.stage_mut().max_tokens = Some(n);
+        self.stage_mut().agent_config.max_tokens = Some(n);
         self
     }
 
     /// Set model_role for this stage.
     pub fn model_role(mut self, role: &str) -> Self {
-        self.stage_mut().model_role = Some(role.to_string());
+        self.stage_mut().agent_config.model_role = Some(role.to_string());
         self
     }
 
     /// Set prompt_key for this stage.
     pub fn prompt_key(mut self, key: &str) -> Self {
-        self.stage_mut().prompt_key = Some(key.to_string());
+        self.stage_mut().agent_config.prompt_key = Some(key.to_string());
         self
     }
 
@@ -219,8 +219,8 @@ impl StageHandle {
 
     /// Set child_pipeline for this stage (composition).
     pub fn child_pipeline(mut self, name: &str) -> Self {
-        self.stage_mut().child_pipeline = Some(name.to_string());
-        self.stage_mut().has_llm = false; // mutually exclusive
+        self.stage_mut().agent_config.child_pipeline = Some(name.to_string());
+        self.stage_mut().agent_config.has_llm = false; // mutually exclusive
         self
     }
 
@@ -234,29 +234,8 @@ impl StageHandle {
 // Default impl for PipelineStage
 // =============================================================================
 
-impl Default for PipelineStage {
-    fn default() -> Self {
-        Self {
-            name: String::new(),
-            agent: String::new(),
-            routing: vec![],
-            default_next: None,
-            error_next: None,
-            max_visits: None,
-            join_strategy: JoinStrategy::default(),
-            output_schema: None,
-            allowed_tools: None,
-            node_kind: NodeKind::default(),
-            output_key: None,
-            prompt_key: None,
-            has_llm: true,
-            temperature: None,
-            max_tokens: None,
-            model_role: None,
-            child_pipeline: None,
-        }
-    }
-}
+// PipelineStage Default is derived — all fields have matching defaults.
+// AgentConfig::default() sets has_llm=true, matching serde `default_has_llm()`.
 
 // =============================================================================
 // RoutingExpr convenience constructors
@@ -351,10 +330,10 @@ mod tests {
         assert_eq!(config.name, "chat");
         assert_eq!(config.stages.len(), 2);
         assert_eq!(config.stages[0].name, "understand");
-        assert!(!config.stages[0].has_llm);
+        assert!(!config.stages[0].agent_config.has_llm);
         assert_eq!(config.stages[0].default_next.as_deref(), Some("respond"));
         assert_eq!(config.stages[1].name, "respond");
-        assert!(config.stages[1].has_llm); // default
+        assert!(config.stages[1].agent_config.has_llm); // default
         assert_eq!(config.max_iterations, 10);
         assert_eq!(config.max_llm_calls, 5);
         assert_eq!(config.max_agent_hops, 5);
@@ -463,12 +442,12 @@ mod tests {
             .unwrap();
 
         let s = &config.stages[0];
-        assert!(s.has_llm);
+        assert!(s.agent_config.has_llm);
         assert_eq!(s.max_visits, Some(3));
-        assert_eq!(s.temperature, Some(0.7));
-        assert_eq!(s.max_tokens, Some(1000));
-        assert_eq!(s.model_role.as_deref(), Some("fast"));
-        assert_eq!(s.prompt_key.as_deref(), Some("my_prompt"));
+        assert_eq!(s.agent_config.temperature, Some(0.7));
+        assert_eq!(s.agent_config.max_tokens, Some(1000));
+        assert_eq!(s.agent_config.model_role.as_deref(), Some("fast"));
+        assert_eq!(s.agent_config.prompt_key.as_deref(), Some("my_prompt"));
         assert_eq!(s.output_key.as_deref(), Some("my_output"));
         assert_eq!(s.allowed_tools.as_ref().unwrap().len(), 2);
         assert_eq!(s.join_strategy, JoinStrategy::WaitFirst);
@@ -478,16 +457,16 @@ mod tests {
     #[test]
     fn test_pipeline_stage_default_matches_serde() {
         let stage = PipelineStage::default();
-        assert!(stage.has_llm);  // matches default_has_llm()
+        assert!(stage.agent_config.has_llm);  // matches default_has_llm()
         assert_eq!(stage.node_kind, NodeKind::Agent);
         assert_eq!(stage.join_strategy, JoinStrategy::WaitAll);
         assert!(stage.routing.is_empty());
         assert!(stage.default_next.is_none());
         assert!(stage.error_next.is_none());
         assert!(stage.max_visits.is_none());
-        assert!(stage.temperature.is_none());
-        assert!(stage.max_tokens.is_none());
-        assert!(stage.model_role.is_none());
+        assert!(stage.agent_config.temperature.is_none());
+        assert!(stage.agent_config.max_tokens.is_none());
+        assert!(stage.agent_config.model_role.is_none());
     }
 
     #[test]

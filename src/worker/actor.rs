@@ -3,7 +3,7 @@
 //! Replaces the IPC server's `run_kernel_actor` + `router.rs` + all handler
 //! modules. Typed match on KernelCommand, calls kernel methods directly.
 
-use crate::kernel::orchestrator_types::InstructionKind;
+use crate::kernel::orchestrator_types::Instruction;
 use crate::kernel::{Kernel, SchedulingPriority};
 use crate::worker::handle::{KernelCommand, KernelHandle};
 use tokio::sync::mpsc;
@@ -51,7 +51,7 @@ async fn dispatch(kernel: &mut Kernel, cmd: KernelCommand) {
             resp_tx,
         } => {
             // Auto-create PCB if not already registered
-            if kernel.get_process(&process_id).is_none() {
+            if kernel.lifecycle.get(&process_id).is_none() {
                 let _ = kernel.create_process(
                     process_id.clone(),
                     envelope.identity.request_id.clone(),
@@ -80,7 +80,7 @@ async fn dispatch(kernel: &mut Kernel, cmd: KernelCommand) {
             let result = kernel.get_next_instruction(&process_id);
             // Auto-terminate PCB when orchestrator says TERMINATE
             if let Ok(ref instr) = result {
-                if instr.kind == InstructionKind::Terminate {
+                if matches!(instr, Instruction::Terminate { .. }) {
                     let _ = kernel.terminate_process(&process_id);
                 }
             }
@@ -157,7 +157,7 @@ async fn dispatch(kernel: &mut Kernel, cmd: KernelCommand) {
             response,
             resp_tx,
         } => {
-            let resolved = kernel.resolve_interrupt(&interrupt_id, response, None);
+            let resolved = kernel.interrupts.resolve(&interrupt_id, response, None);
             let result = if resolved {
                 kernel.resume_process(&process_id)
             } else {
@@ -171,7 +171,7 @@ async fn dispatch(kernel: &mut Kernel, cmd: KernelCommand) {
         // =====================================================================
 
         KernelCommand::PublishEvent { event, resp_tx } => {
-            let result = kernel.commbus.publish(event);
+            let result = kernel.comm.bus.publish(event);
             let _ = resp_tx.send(result);
         }
 
@@ -180,7 +180,7 @@ async fn dispatch(kernel: &mut Kernel, cmd: KernelCommand) {
             event_types,
             resp_tx,
         } => {
-            let result = kernel.commbus.subscribe(subscriber_id, event_types);
+            let result = kernel.comm.bus.subscribe(subscriber_id, event_types);
             let _ = resp_tx.send(result);
         }
 
@@ -188,14 +188,14 @@ async fn dispatch(kernel: &mut Kernel, cmd: KernelCommand) {
             subscription,
             resp_tx,
         } => {
-            kernel.commbus.unsubscribe(&subscription);
+            kernel.comm.bus.unsubscribe(&subscription);
             let _ = resp_tx.send(());
         }
 
         KernelCommand::CommBusQuery { query, resp_tx } => {
             // Fire-and-spawn to prevent deadlock: get handler, then spawn
             // a task to send query + await response outside the actor loop.
-            if let Some(handler) = kernel.commbus.get_query_handler(&query.query_type) {
+            if let Some(handler) = kernel.comm.bus.get_query_handler(&query.query_type) {
                 tokio::spawn(async move {
                     let (response_tx, response_rx) = tokio::sync::oneshot::channel();
                     if handler.send((query.clone(), response_tx)).is_err() {
@@ -237,7 +237,7 @@ async fn dispatch(kernel: &mut Kernel, cmd: KernelCommand) {
 
         KernelCommand::ListAgentCards { filter, resp_tx } => {
             let cards = kernel
-                .agent_cards
+                .comm.agent_cards
                 .list(filter.as_deref())
                 .into_iter()
                 .cloned()

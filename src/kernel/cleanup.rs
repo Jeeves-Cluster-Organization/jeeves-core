@@ -127,7 +127,7 @@ impl CleanupService {
         // Phase 1: Zombie processes
         {
             let mut k = kernel.lock().await;
-            stats.zombies_removed = k.cleanup_zombie_processes(config.process_retention_seconds);
+            stats.zombies_removed = k.lifecycle.cleanup_zombies(config.process_retention_seconds);
         }
 
         // Phase 2: Stale sessions (also removes associated process envelopes)
@@ -140,13 +140,13 @@ impl CleanupService {
         {
             let mut k = kernel.lock().await;
             let interrupt_duration = Duration::seconds(config.interrupt_retention_seconds);
-            stats.interrupts_removed = k.cleanup_resolved_interrupts(interrupt_duration);
+            stats.interrupts_removed = k.interrupts.cleanup_resolved(interrupt_duration);
         }
 
         // Phase 4: Rate limit windows + user usage
         {
             let mut k = kernel.lock().await;
-            k.cleanup_expired_rate_windows();
+            k.rate_limiter.cleanup_expired();
             stats.user_usage_evicted = k.cleanup_stale_user_usage(config.max_user_usage_entries);
         }
 
@@ -169,17 +169,17 @@ impl CleanupService {
         config: &CleanupConfig,
     ) -> Result<CleanupStats> {
         // Clean up zombie processes
-        let zombies_removed = kernel.cleanup_zombie_processes(config.process_retention_seconds);
+        let zombies_removed = kernel.lifecycle.cleanup_zombies(config.process_retention_seconds);
 
         // Clean up stale sessions (also removes associated process envelopes)
         let sessions_removed = kernel.cleanup_stale_sessions(config.session_retention_seconds);
 
         // Clean up resolved interrupts
         let interrupt_duration = Duration::seconds(config.interrupt_retention_seconds);
-        let interrupts_removed = kernel.cleanup_resolved_interrupts(interrupt_duration);
+        let interrupts_removed = kernel.interrupts.cleanup_resolved(interrupt_duration);
 
         // Clean up rate limit windows
-        kernel.cleanup_expired_rate_windows();
+        kernel.rate_limiter.cleanup_expired();
 
         // Evict stale user_usage entries (users with no active processes)
         let user_usage_evicted = kernel.cleanup_stale_user_usage(config.max_user_usage_entries);

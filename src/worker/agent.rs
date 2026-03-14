@@ -39,7 +39,7 @@ pub struct AgentContext {
     /// Pipeline stage name this agent is executing within (None for ad-hoc execution).
     pub stage_name: Option<String>,
     /// Pipeline name for event attribution.
-    pub pipeline_name: String,
+    pub pipeline_name: Arc<str>,
 }
 
 /// Agent trait — implementations provide custom agent behavior.
@@ -110,7 +110,7 @@ impl Agent for LlmAgent {
         ];
 
         // Build tool definitions filtered by allowed_tools
-        let tool_defs = build_tool_defs(&self.tools, &ctx.allowed_tools);
+        let tool_defs = Arc::new(build_tool_defs(&self.tools, &ctx.allowed_tools));
 
         // Accumulated metrics across all rounds
         let mut total_llm_calls = 0i32;
@@ -132,7 +132,7 @@ impl Agent for LlmAgent {
 
             // Use streaming path — collect_stream forwards deltas to event_tx if present
             let resp = match self.llm.chat_stream(&req).await {
-                Ok(stream) => match collect_stream(stream, ctx.event_tx.as_ref(), ctx.stage_name.as_deref(), &ctx.pipeline_name).await {
+                Ok(stream) => match collect_stream(stream, ctx.event_tx.as_ref(), ctx.stage_name.as_deref(), ctx.pipeline_name.clone()).await {
                     Ok(resp) => resp,
                     Err(e) => return Ok(make_error_output(e, start, total_llm_calls + 1)),
                 },
@@ -410,7 +410,7 @@ impl Agent for PipelineAgent {
         let bridge_handle = if let (Some(parent_tx), Some(mut child_rx)) =
             (ctx.event_tx.clone(), child_event_rx)
         {
-            let child_name = child_pipeline_name.clone();
+            let child_pipeline: Arc<str> = Arc::from(child_pipeline_name.as_str());
             Some(tokio::spawn(async move {
                 while let Some(event) = child_rx.recv().await {
                     // Filter out child Done events — parent emits its own
@@ -418,7 +418,7 @@ impl Agent for PipelineAgent {
                         continue;
                     }
                     // Rewrite pipeline field to child name
-                    let rewritten = rewrite_event_pipeline(event, &child_name);
+                    let rewritten = rewrite_event_pipeline(event, child_pipeline.clone());
                     if parent_tx.send(rewritten).await.is_err() {
                         break; // Parent channel closed
                     }
@@ -468,7 +468,7 @@ impl Agent for PipelineAgent {
                 nested_output.insert(
                     "_terminal_reason".to_string(),
                     serde_json::Value::String(
-                        result.terminal_reason.as_ref().map(|r| format!("{:?}", r)).unwrap_or_else(|| "Unknown".to_string()),
+                        result.terminal_reason().as_ref().map(|r| format!("{:?}", r)).unwrap_or_else(|| "Unknown".to_string()),
                     ),
                 );
 
@@ -482,7 +482,7 @@ impl Agent for PipelineAgent {
                         duration_ms: duration.as_millis() as i64,
                         tool_results: vec![],
                     },
-                    success: result.terminated,
+                    success: result.terminated(),
                     error_message: String::new(),
                 })
             }
@@ -504,39 +504,39 @@ impl Agent for PipelineAgent {
 }
 
 /// Rewrite a PipelineEvent's pipeline field to the given name.
-fn rewrite_event_pipeline(event: PipelineEvent, pipeline_name: &str) -> PipelineEvent {
+fn rewrite_event_pipeline(event: PipelineEvent, pipeline_name: Arc<str>) -> PipelineEvent {
     match event {
         PipelineEvent::StageStarted { stage, .. } => PipelineEvent::StageStarted {
             stage,
-            pipeline: pipeline_name.to_string(),
+            pipeline: pipeline_name,
         },
         PipelineEvent::Delta { content, stage, .. } => PipelineEvent::Delta {
             content,
             stage,
-            pipeline: pipeline_name.to_string(),
+            pipeline: pipeline_name,
         },
         PipelineEvent::ToolCallStart { id, name, stage, .. } => PipelineEvent::ToolCallStart {
             id,
             name,
             stage,
-            pipeline: pipeline_name.to_string(),
+            pipeline: pipeline_name,
         },
         PipelineEvent::ToolResult { id, content, stage, .. } => PipelineEvent::ToolResult {
             id,
             content,
             stage,
-            pipeline: pipeline_name.to_string(),
+            pipeline: pipeline_name,
         },
         PipelineEvent::StageCompleted { stage, .. } => PipelineEvent::StageCompleted {
             stage,
-            pipeline: pipeline_name.to_string(),
+            pipeline: pipeline_name,
         },
         PipelineEvent::Done { process_id, terminated, terminal_reason, outputs, .. } => PipelineEvent::Done {
             process_id,
             terminated,
             terminal_reason,
             outputs,
-            pipeline: pipeline_name.to_string(),
+            pipeline: pipeline_name,
         },
         PipelineEvent::InterruptPending { process_id, interrupt_id, kind, question, message, .. } => PipelineEvent::InterruptPending {
             process_id,
@@ -544,12 +544,12 @@ fn rewrite_event_pipeline(event: PipelineEvent, pipeline_name: &str) -> Pipeline
             kind,
             question,
             message,
-            pipeline: pipeline_name.to_string(),
+            pipeline: pipeline_name,
         },
         PipelineEvent::Error { message, stage, .. } => PipelineEvent::Error {
             message,
             stage,
-            pipeline: pipeline_name.to_string(),
+            pipeline: pipeline_name,
         },
     }
 }

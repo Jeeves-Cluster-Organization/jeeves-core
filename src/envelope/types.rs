@@ -148,6 +148,14 @@ pub struct Pipeline {
     pub parallel_mode: bool,
 }
 
+/// Represents a completed termination with reason and optional message.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct Termination {
+    pub reason: super::enums::TerminalReason,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub message: Option<String>,
+}
+
 /// Resource limits and usage counters.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct Bounds {
@@ -160,12 +168,24 @@ pub struct Bounds {
     pub tokens_out: i64,
 
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub terminal_reason: Option<super::enums::TerminalReason>,
+    pub termination: Option<Termination>,
+}
 
-    pub terminated: bool,
+impl Bounds {
+    /// Check if terminated.
+    pub fn is_terminated(&self) -> bool {
+        self.termination.is_some()
+    }
 
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub termination_reason: Option<String>,
+    /// Get the terminal reason, if terminated.
+    pub fn terminal_reason(&self) -> Option<super::enums::TerminalReason> {
+        self.termination.as_ref().map(|t| t.reason)
+    }
+
+    /// Terminate with a reason and optional message.
+    pub fn terminate(&mut self, reason: super::enums::TerminalReason, message: Option<String>) {
+        self.termination = Some(Termination { reason, message });
+    }
 }
 
 /// Human-in-the-loop interrupt state.
@@ -177,17 +197,12 @@ pub struct InterruptState {
     pub interrupt: Option<FlowInterrupt>,
 }
 
-/// Multi-stage execution tracking (goals, retries).
+/// Multi-stage execution tracking.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct Execution {
     pub completed_stages: Vec<HashMap<String, serde_json::Value>>,
     pub current_stage_number: i32,
     pub max_stages: i32,
-    pub all_goals: Vec<String>,
-    pub remaining_goals: Vec<String>,
-    pub goal_completion_status: HashMap<String, String>,
-    pub prior_plans: Vec<HashMap<String, serde_json::Value>>,
-    pub loop_feedback: Vec<String>,
 }
 
 /// Audit trail: history, errors, timing, metadata.

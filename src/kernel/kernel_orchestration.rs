@@ -4,12 +4,12 @@ use std::collections::HashMap;
 
 use tracing::instrument;
 
-use crate::envelope::Envelope;
-use crate::types::{Error, ProcessId, Result};
+use crate::envelope::{Envelope, FlowInterrupt};
+use crate::types::{Error, ProcessId, RequestId, Result, SessionId, UserId};
 
 use super::merge_state_field;
 use super::orchestrator;
-use super::Kernel;
+use super::{Kernel, ProcessState, RemainingBudget, ResourceQuota, SchedulingPriority, SystemStatus};
 
 impl Kernel {
     /// Initialize an orchestration session.
@@ -28,7 +28,7 @@ impl Kernel {
         // Wire tool access from pipeline stages (before pipeline_config is moved)
         for stage in &pipeline_config.stages {
             if let Some(ref tools) = stage.allowed_tools {
-                self.tool_access.grant_many(&stage.agent, tools);
+                self.tools.access.grant_many(&stage.agent, tools);
             }
         }
 
@@ -42,9 +42,9 @@ impl Kernel {
         // Subscribe to CommBus event types if configured
         if !subscription_types.is_empty() {
             let subscriber_id = format!("pipeline:{}", process_id);
-            match self.commbus.subscribe(subscriber_id, subscription_types) {
+            match self.comm.bus.subscribe(subscriber_id, subscription_types) {
                 Ok((subscription, receiver)) => {
-                    self.process_subscriptions
+                    self.comm.subscriptions
                         .entry(process_id)
                         .or_default()
                         .push((subscription, receiver));
@@ -68,7 +68,7 @@ impl Kernel {
         process_id: &ProcessId,
     ) -> Result<orchestrator::Instruction> {
         // Phase 0: Drain CommBus subscription receivers into envelope.event_inbox
-        if let Some(subs) = self.process_subscriptions.get_mut(process_id) {
+        if let Some(subs) = self.comm.subscriptions.get_mut(process_id) {
             if let Some(envelope) = self.process_envelopes.get_mut(process_id) {
                 for (_subscription, receiver) in subs.iter_mut() {
                     while let Ok(event) = receiver.try_recv() {
@@ -85,22 +85,20 @@ impl Kernel {
         // &mut envelope borrow ends here (we don't use it below)
 
         // Phase 2: Enrich instruction with context for the worker
-        match instruction.kind {
-            orchestrator::InstructionKind::RunAgent
-            | orchestrator::InstructionKind::RunAgents => {
+        match &mut instruction {
+            orchestrator::Instruction::RunAgent { agent, context }=> {
                 if let Some(envelope) = self.process_envelopes.get(process_id) {
-                    // Build agent context from envelope
-                    let mut prompt_context = serde_json::Map::new();
+                    let mut template_vars = serde_json::Map::new();
                     for (agent_name, output) in &envelope.outputs {
                         for (key, value) in output {
-                            prompt_context.insert(format!("{}_{}", agent_name, key), value.clone());
+                            template_vars.insert(format!("{}_{}", agent_name, key), value.clone());
                         }
                     }
                     for (key, value) in &envelope.audit.metadata {
-                        prompt_context.insert(key.clone(), value.clone());
+                        template_vars.insert(key.clone(), value.clone());
                     }
 
-                    instruction.agent_context = Some(serde_json::json!({
+                    context.agent_context = Some(serde_json::json!({
                         "envelope_id": envelope.identity.envelope_id.as_str(),
                         "request_id": envelope.identity.request_id.as_str(),
                         "user_id": envelope.identity.user_id.as_str(),
@@ -109,38 +107,85 @@ impl Kernel {
                         "outputs": &envelope.outputs,
                         "state": &envelope.state,
                         "metadata": &envelope.audit.metadata,
-                        "prompt_context": serde_json::Value::Object(prompt_context),
+                        "template_vars": serde_json::Value::Object(template_vars),
                         "llm_call_count": envelope.bounds.llm_call_count,
                         "agent_hop_count": envelope.bounds.agent_hop_count,
                         "tokens_in": envelope.bounds.tokens_in,
                         "tokens_out": envelope.bounds.tokens_out,
-                        "circuit_broken_tools": self.tool_health.get_circuit_broken_tools(),
+                        "circuit_broken_tools": self.tools.health.get_circuit_broken_tools(),
                         "pending_events": &envelope.event_inbox,
                     }));
                 }
 
                 // Look up stage-level config
-                if let Some(agent_name) = instruction.agents.first() {
+                let stage_name = self.process_envelopes.get(process_id)
+                    .map(|e| e.pipeline.current_stage.clone())
+                    .unwrap_or_default();
+                context.output_schema = self.orchestrator.get_stage_output_schema(process_id, &stage_name);
+
+                let allowed = self.tools.access.tools_for_agent(agent);
+                if !allowed.is_empty() {
+                    context.allowed_tools = Some(allowed);
+                }
+            }
+            orchestrator::Instruction::RunAgents { agents, context } => {
+                if let Some(envelope) = self.process_envelopes.get(process_id) {
+                    let mut template_vars = serde_json::Map::new();
+                    for (agent_name, output) in &envelope.outputs {
+                        for (key, value) in output {
+                            template_vars.insert(format!("{}_{}", agent_name, key), value.clone());
+                        }
+                    }
+                    for (key, value) in &envelope.audit.metadata {
+                        template_vars.insert(key.clone(), value.clone());
+                    }
+
+                    context.agent_context = Some(serde_json::json!({
+                        "envelope_id": envelope.identity.envelope_id.as_str(),
+                        "request_id": envelope.identity.request_id.as_str(),
+                        "user_id": envelope.identity.user_id.as_str(),
+                        "session_id": envelope.identity.session_id.as_str(),
+                        "raw_input": &envelope.raw_input,
+                        "outputs": &envelope.outputs,
+                        "state": &envelope.state,
+                        "metadata": &envelope.audit.metadata,
+                        "template_vars": serde_json::Value::Object(template_vars),
+                        "llm_call_count": envelope.bounds.llm_call_count,
+                        "agent_hop_count": envelope.bounds.agent_hop_count,
+                        "tokens_in": envelope.bounds.tokens_in,
+                        "tokens_out": envelope.bounds.tokens_out,
+                        "circuit_broken_tools": self.tools.health.get_circuit_broken_tools(),
+                        "pending_events": &envelope.event_inbox,
+                    }));
+                }
+
+                // Look up stage-level config from first agent
+                if let Some(agent_name) = agents.first() {
                     let stage_name = self.process_envelopes.get(process_id)
                         .map(|e| e.pipeline.current_stage.clone())
                         .unwrap_or_default();
-                    instruction.output_schema = self.orchestrator.get_stage_output_schema(process_id, &stage_name);
+                    context.output_schema = self.orchestrator.get_stage_output_schema(process_id, &stage_name);
 
-                    let allowed = self.tool_access.tools_for_agent(agent_name);
+                    let allowed = self.tools.access.tools_for_agent(agent_name);
                     if !allowed.is_empty() {
-                        instruction.allowed_tools = Some(allowed);
+                        context.allowed_tools = Some(allowed);
                     }
                 }
             }
-            orchestrator::InstructionKind::Terminate => {
+            orchestrator::Instruction::Terminate { context, .. } => {
                 // Attach final outputs so the worker can return them
                 if let Some(envelope) = self.process_envelopes.get(process_id) {
-                    instruction.agent_context = Some(serde_json::json!({
+                    context.agent_context = Some(serde_json::json!({
                         "outputs": &envelope.outputs,
                     }));
                 }
             }
             _ => {}
+        }
+
+        // Phase 3: Clear event_inbox after enrichment (events now in agent_context)
+        if let Some(envelope) = self.process_envelopes.get_mut(process_id) {
+            envelope.event_inbox.clear();
         }
 
         Ok(instruction)
@@ -171,8 +216,8 @@ impl Kernel {
         let tokens_out = metrics.tokens_out.unwrap_or(0);
 
         // Record per-tool health from agent metrics
-        for tr in &metrics.tool_results {
-            self.tool_health.record_execution(&tr.name, tr.success, tr.latency_ms, tr.error_type.clone());
+        for tool_result in &metrics.tool_results {
+            self.tools.health.record_execution(&tool_result.name, tool_result.success, tool_result.latency_ms, tool_result.error_type.clone());
         }
 
         // Clone state_schema + output_key from orchestrator before mutable envelope borrow
@@ -255,7 +300,7 @@ impl Kernel {
             {
                 for tc in tool_calls_arr {
                     if let Some(tool_name) = tc.get("name").or_else(|| tc.get("tool_name")).and_then(|v| v.as_str()) {
-                        if !self.tool_access.check_access(agent_name, tool_name) {
+                        if !self.tools.access.check_access(agent_name, tool_name) {
                             tracing::warn!(agent = %agent_name, tool = %tool_name, "unauthorized_tool_call");
                             agent_failed_override = true;
                         }
@@ -295,13 +340,221 @@ impl Kernel {
             .ok_or_else(|| Error::not_found(format!("Envelope not found for process: {}", process_id)))?;
         self.orchestrator.get_session_state(process_id, envelope)
     }
+
+    // =============================================================================
+    // Process Lifecycle (cross-domain coordination)
+    // =============================================================================
+
+    /// Create a new process.
+    #[instrument(skip(self), fields(pid = %pid))]
+    pub fn create_process(
+        &mut self,
+        pid: ProcessId,
+        request_id: RequestId,
+        user_id: UserId,
+        session_id: SessionId,
+        priority: SchedulingPriority,
+        quota: Option<ResourceQuota>,
+    ) -> Result<super::ProcessControlBlock> {
+        self.rate_limiter.check_rate_limit(user_id.as_str())?;
+        let pcb = self.lifecycle.submit(
+            pid.clone(),
+            request_id,
+            user_id,
+            session_id,
+            priority,
+            quota,
+        )?;
+        self.lifecycle.schedule(&pid)?;
+        Ok(pcb)
+    }
+
+    /// Check process quota.
+    pub fn check_quota(&self, pid: &ProcessId) -> Result<()> {
+        let pcb = self
+            .lifecycle
+            .get(pid)
+            .ok_or_else(|| Error::not_found(format!("Process {} not found", pid)))?;
+        self.resources.check_quota(pcb)
+    }
+
+    /// Record resource usage.
+    pub fn record_usage(
+        &mut self,
+        pid: &ProcessId,
+        user_id: &str,
+        llm_calls: i32,
+        tool_calls: i32,
+        tokens_in: i64,
+        tokens_out: i64,
+    ) {
+        self.resources
+            .record_usage(user_id, llm_calls, tool_calls, tokens_in, tokens_out);
+        if let Some(pcb) = self.lifecycle.get_mut(pid) {
+            pcb.usage.llm_calls += llm_calls;
+            pcb.usage.tool_calls += tool_calls;
+            pcb.usage.tokens_in += tokens_in;
+            pcb.usage.tokens_out += tokens_out;
+        }
+    }
+
+    /// Wait a process (e.g., awaiting interrupt response).
+    pub fn wait_process(&mut self, pid: &ProcessId, interrupt: FlowInterrupt) -> Result<()> {
+        self.lifecycle.wait(pid, interrupt.kind)?;
+        if let Some(env) = self.process_envelopes.get_mut(pid) {
+            env.set_interrupt(interrupt);
+        }
+        Ok(())
+    }
+
+    /// Resume a process from waiting/blocked.
+    pub fn resume_process(&mut self, pid: &ProcessId) -> Result<()> {
+        self.lifecycle.resume(pid)?;
+        if let Some(env) = self.process_envelopes.get_mut(pid) {
+            env.clear_interrupt();
+        }
+        Ok(())
+    }
+
+    /// Resume a process with optional envelope updates.
+    pub fn resume_process_with_update(
+        &mut self,
+        pid: &ProcessId,
+        envelope_update: Option<HashMap<String, serde_json::Value>>,
+    ) -> Result<()> {
+        self.lifecycle.resume(pid)?;
+        if let Some(env) = self.process_envelopes.get_mut(pid) {
+            env.clear_interrupt();
+            if let Some(updates) = envelope_update {
+                env.merge_updates(updates);
+            }
+        }
+        Ok(())
+    }
+
+    /// Terminate a process.
+    pub fn terminate_process(&mut self, pid: &ProcessId) -> Result<()> {
+        self.lifecycle.terminate(pid)?;
+        if let Some(env) = self.process_envelopes.get_mut(pid) {
+            env.terminate("Process terminated");
+        }
+        // Unsubscribe CommBus subscriptions and drop receivers
+        if let Some(subs) = self.comm.subscriptions.remove(pid) {
+            for (subscription, _receiver) in subs {
+                self.comm.bus.unsubscribe(&subscription);
+            }
+        }
+        Ok(())
+    }
+
+    /// Cleanup and remove a terminated process.
+    pub fn cleanup_process(&mut self, pid: &ProcessId) -> Result<()> {
+        self.lifecycle.cleanup(pid)?;
+        self.lifecycle.remove(pid)?;
+        self.process_envelopes.remove(pid);
+        self.orchestrator.cleanup_session(pid);
+        // Cleanup any remaining subscriptions (belt-and-suspenders)
+        if let Some(subs) = self.comm.subscriptions.remove(pid) {
+            for (subscription, _receiver) in subs {
+                self.comm.bus.unsubscribe(&subscription);
+            }
+        }
+        Ok(())
+    }
+
+    /// Record a tool call for a process.
+    pub fn record_tool_call(&mut self, pid: &ProcessId) -> Result<()> {
+        let pcb = self.lifecycle.get_mut(pid)
+            .ok_or_else(|| Error::not_found(format!("Process {} not found in record_tool_call", pid)))?;
+        pcb.usage.tool_calls += 1;
+        Ok(())
+    }
+
+    /// Record an agent hop for a process.
+    pub fn record_agent_hop(&mut self, pid: &ProcessId) -> Result<()> {
+        let pcb = self.lifecycle.get_mut(pid)
+            .ok_or_else(|| Error::not_found(format!("Process {} not found in record_agent_hop", pid)))?;
+        pcb.usage.agent_hops += 1;
+        Ok(())
+    }
+
+    // =============================================================================
+    // Cleanup (cross-domain coordination)
+    // =============================================================================
+
+    /// Cleanup stale orchestration sessions and their envelopes.
+    pub fn cleanup_stale_sessions(&mut self, max_age_seconds: i64) -> usize {
+        let removed_pids = self.orchestrator.cleanup_stale_sessions(max_age_seconds);
+        let count = removed_pids.len();
+        for pid in &removed_pids {
+            self.process_envelopes.remove(pid);
+        }
+        count
+    }
+
+    /// Cleanup stale user usage entries.
+    pub fn cleanup_stale_user_usage(&mut self, max_entries: usize) -> usize {
+        let active_user_ids = self.lifecycle.get_active_user_ids();
+        self.resources.cleanup_stale_users(&active_user_ids, max_entries)
+    }
+
+    // =============================================================================
+    // System Status (cross-domain aggregation)
+    // =============================================================================
+
+    /// Get a full system status snapshot.
+    pub fn get_system_status(&self) -> SystemStatus {
+        let total = self.lifecycle.count();
+        let mut by_state = HashMap::new();
+        for state in &[
+            ProcessState::New,
+            ProcessState::Ready,
+            ProcessState::Running,
+            ProcessState::Waiting,
+            ProcessState::Blocked,
+            ProcessState::Terminated,
+            ProcessState::Zombie,
+        ] {
+            by_state.insert(*state, self.lifecycle.count_by_state(*state));
+        }
+
+        let service_stats = self.services.get_stats();
+        let orchestrator_sessions = self.orchestrator.get_session_count();
+
+        SystemStatus {
+            processes_total: total,
+            processes_by_state: by_state,
+            services_healthy: service_stats.healthy_services,
+            services_degraded: service_stats.degraded_services,
+            services_unhealthy: service_stats.unhealthy_services,
+            active_orchestration_sessions: orchestrator_sessions,
+        }
+    }
+
+    /// Get remaining resource budget for a process.
+    pub fn get_remaining_budget(&self, pid: &ProcessId) -> Option<RemainingBudget> {
+        let pcb = self.lifecycle.get(pid)?;
+        Some(RemainingBudget {
+            llm_calls_remaining: (pcb.quota.max_llm_calls - pcb.usage.llm_calls).max(0),
+            iterations_remaining: (pcb.quota.max_iterations - pcb.usage.iterations).max(0),
+            agent_hops_remaining: (pcb.quota.max_agent_hops - pcb.usage.agent_hops).max(0),
+            tokens_in_remaining: (pcb.quota.max_input_tokens as i64 - pcb.usage.tokens_in).max(0),
+            tokens_out_remaining: (pcb.quota.max_output_tokens as i64 - pcb.usage.tokens_out)
+                .max(0),
+            time_remaining_seconds: if pcb.quota.timeout_seconds > 0 {
+                (pcb.quota.timeout_seconds as f64 - pcb.usage.elapsed_seconds).max(0.0)
+            } else {
+                f64::MAX
+            },
+        })
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use crate::envelope::Envelope;
     use crate::kernel::orchestrator::{
-        InstructionKind, NodeKind, PipelineConfig, PipelineStage, JoinStrategy,
+        Instruction, NodeKind, PipelineConfig, PipelineStage, JoinStrategy,
     };
     use crate::kernel::{Kernel, SchedulingPriority};
     use crate::types::{ProcessId, RequestId, UserId, SessionId};
@@ -317,14 +570,12 @@ mod tests {
             node_kind: NodeKind::Agent,
             output_key: None,
             join_strategy: JoinStrategy::WaitAll,
-            has_llm: false,
-            prompt_key: None,
-            temperature: None,
-            max_tokens: None,
-            model_role: None,
             allowed_tools: None,
             output_schema: None,
-            child_pipeline: None,
+            agent_config: crate::kernel::orchestrator_types::AgentConfig {
+                has_llm: false,
+                ..Default::default()
+            },
         }
     }
 
@@ -373,8 +624,8 @@ mod tests {
         assert!(result.is_ok());
 
         // Subscriptions should be stored
-        assert!(kernel.process_subscriptions.contains_key(&pid));
-        let subs = kernel.process_subscriptions.get(&pid).unwrap();
+        assert!(kernel.comm.subscriptions.contains_key(&pid));
+        let subs = kernel.comm.subscriptions.get(&pid).unwrap();
         assert_eq!(subs.len(), 1); // One subscribe call with multiple event types
     }
 
@@ -390,7 +641,7 @@ mod tests {
         let _ = kernel.initialize_orchestration(pid.clone(), config, envelope, false);
 
         // No subscriptions should be created
-        assert!(!kernel.process_subscriptions.contains_key(&pid));
+        assert!(!kernel.comm.subscriptions.contains_key(&pid));
     }
 
     #[test]
@@ -412,17 +663,15 @@ mod tests {
             timestamp_ms: chrono::Utc::now().timestamp_millis(),
             source: "external".to_string(),
         };
-        kernel.commbus.publish(event).unwrap();
+        kernel.comm.bus.publish(event).unwrap();
 
         // get_next_instruction should drain events into envelope.event_inbox
         let instruction = kernel.get_next_instruction(&pid).unwrap();
-        assert_eq!(instruction.kind, InstructionKind::RunAgent);
+        assert!(matches!(instruction, Instruction::RunAgent { .. }));
 
-        // Check that the event was drained into the envelope
+        // Event inbox should be cleared after get_next_instruction
         let envelope = kernel.process_envelopes.get(&pid).unwrap();
-        assert_eq!(envelope.event_inbox.len(), 1);
-        assert_eq!(envelope.event_inbox[0].event_type, "test.event");
-        assert_eq!(envelope.event_inbox[0].source, "external");
+        assert!(envelope.event_inbox.is_empty(), "event_inbox should be cleared after drain");
     }
 
     #[test]
@@ -437,11 +686,11 @@ mod tests {
         let envelope = Envelope::new_minimal("user-1", "sess-1", "hello", None);
         kernel.initialize_orchestration(pid.clone(), config, envelope, false).unwrap();
 
-        assert!(kernel.process_subscriptions.contains_key(&pid));
+        assert!(kernel.comm.subscriptions.contains_key(&pid));
 
         // Terminate should clean up subscriptions
         kernel.terminate_process(&pid).unwrap();
-        assert!(!kernel.process_subscriptions.contains_key(&pid));
+        assert!(!kernel.comm.subscriptions.contains_key(&pid));
     }
 
     #[test]
@@ -464,12 +713,16 @@ mod tests {
                 timestamp_ms: chrono::Utc::now().timestamp_millis(),
                 source: "game".to_string(),
             };
-            kernel.commbus.publish(event).unwrap();
+            kernel.comm.bus.publish(event).unwrap();
         }
 
         let instruction = kernel.get_next_instruction(&pid).unwrap();
         // Agent context should include pending_events
-        let ctx = instruction.agent_context.unwrap();
+        let context = match &instruction {
+            Instruction::RunAgent { context, .. } => context,
+            _ => panic!("Expected RunAgent"),
+        };
+        let ctx = context.agent_context.as_ref().unwrap();
         let pending = ctx.get("pending_events").unwrap().as_array().unwrap();
         assert_eq!(pending.len(), 2);
     }
@@ -493,17 +746,17 @@ mod tests {
             output_schema: None,
         };
 
-        kernel.agent_cards.register(card);
+        kernel.comm.agent_cards.register(card);
 
-        let all = kernel.agent_cards.list(None);
+        let all = kernel.comm.agent_cards.list(None);
         assert_eq!(all.len(), 1);
         assert_eq!(all[0].name, "npc_dialogue");
 
         // Filter by name substring
-        let filtered = kernel.agent_cards.list(Some("npc"));
+        let filtered = kernel.comm.agent_cards.list(Some("npc"));
         assert_eq!(filtered.len(), 1);
 
-        let no_match = kernel.agent_cards.list(Some("zzz_nonexistent"));
+        let no_match = kernel.comm.agent_cards.list(Some("zzz_nonexistent"));
         assert_eq!(no_match.len(), 0);
     }
 
@@ -522,9 +775,9 @@ mod tests {
             output_schema: None,
         };
 
-        kernel.agent_cards.register(card);
+        kernel.comm.agent_cards.register(card);
 
-        assert!(kernel.agent_cards.get("search_agent").is_some());
-        assert!(kernel.agent_cards.get("nonexistent").is_none());
+        assert!(kernel.comm.agent_cards.get("search_agent").is_some());
+        assert!(kernel.comm.agent_cards.get("nonexistent").is_none());
     }
 }

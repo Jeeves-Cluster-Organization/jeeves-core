@@ -8,7 +8,7 @@
 //!     .mock_agent("understand", my_agent)
 //!     .run("Hello, world!")
 //!     .await?;
-//! assert!(result.terminated);
+//! assert!(result.terminated());
 //! ```
 
 use std::sync::Arc;
@@ -146,7 +146,7 @@ mod tests {
             .await
             .unwrap();
 
-        assert!(result.terminated);
+        assert!(result.terminated());
     }
 
     #[tokio::test]
@@ -165,7 +165,7 @@ mod tests {
             .await
             .unwrap();
 
-        assert!(result.terminated);
+        assert!(result.terminated());
         assert!(!events.is_empty());
     }
 }
