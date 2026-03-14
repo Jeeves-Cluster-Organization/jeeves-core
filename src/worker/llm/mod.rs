@@ -7,6 +7,7 @@ use async_trait::async_trait;
 use futures::stream::{Stream, StreamExt};
 use serde::{Deserialize, Serialize};
 use std::pin::Pin;
+use std::sync::Arc;
 use tokio::sync::mpsc;
 
 use crate::types::Result;
@@ -59,7 +60,7 @@ pub struct ChatRequest {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub model: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub tools: Option<Vec<serde_json::Value>>,
+    pub tools: Option<Arc<Vec<serde_json::Value>>>,
 }
 
 /// Token usage from the API response.
@@ -101,31 +102,31 @@ pub struct StreamChunk {
 pub enum PipelineEvent {
     StageStarted {
         stage: String,
-        pipeline: String,
+        pipeline: Arc<str>,
     },
     Delta {
         content: String,
         #[serde(skip_serializing_if = "Option::is_none")]
         stage: Option<String>,
-        pipeline: String,
+        pipeline: Arc<str>,
     },
     ToolCallStart {
         id: String,
         name: String,
         #[serde(skip_serializing_if = "Option::is_none")]
         stage: Option<String>,
-        pipeline: String,
+        pipeline: Arc<str>,
     },
     ToolResult {
         id: String,
         content: String,
         #[serde(skip_serializing_if = "Option::is_none")]
         stage: Option<String>,
-        pipeline: String,
+        pipeline: Arc<str>,
     },
     StageCompleted {
         stage: String,
-        pipeline: String,
+        pipeline: Arc<str>,
     },
     Done {
         process_id: String,
@@ -133,7 +134,7 @@ pub enum PipelineEvent {
         terminal_reason: Option<String>,
         #[serde(skip_serializing_if = "Option::is_none")]
         outputs: Option<serde_json::Value>,
-        pipeline: String,
+        pipeline: Arc<str>,
     },
     InterruptPending {
         process_id: String,
@@ -141,13 +142,13 @@ pub enum PipelineEvent {
         kind: String,
         question: Option<String>,
         message: Option<String>,
-        pipeline: String,
+        pipeline: Arc<str>,
     },
     Error {
         message: String,
         #[serde(skip_serializing_if = "Option::is_none")]
         stage: Option<String>,
-        pipeline: String,
+        pipeline: Arc<str>,
     },
 }
 
@@ -188,7 +189,7 @@ pub async fn collect_stream(
     stream: Pin<Box<dyn Stream<Item = Result<StreamChunk>> + Send>>,
     event_tx: Option<&mpsc::Sender<PipelineEvent>>,
     stage: Option<&str>,
-    pipeline: &str,
+    pipeline: Arc<str>,
 ) -> Result<ChatResponse> {
     let mut content = String::new();
     let mut tool_calls: Vec<ToolCall> = Vec::new();
@@ -204,7 +205,7 @@ pub async fn collect_stream(
                     .send(PipelineEvent::Delta {
                         content: delta.clone(),
                         stage: stage.map(String::from),
-                        pipeline: pipeline.to_string(),
+                        pipeline: pipeline.clone(),
                     })
                     .await;
             }

@@ -636,12 +636,7 @@ mod tests {
             allowed_tools: None,
             node_kind: crate::kernel::orchestrator_types::NodeKind::default(),
             output_key: None,
-            prompt_key: None,
-            has_llm: true,
-            temperature: None,
-            max_tokens: None,
-            model_role: None,
-            child_pipeline: None,
+            agent_config: crate::kernel::orchestrator_types::AgentConfig::default(),
         };
         let (outputs, metadata) = empty_ctx();
 

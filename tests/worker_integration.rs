@@ -160,8 +160,8 @@ async fn test_kernel_actor_pipeline_round_trip() {
     .await
     .expect("pipeline should complete");
 
-    assert!(result.terminated);
-    assert_eq!(result.terminal_reason, Some(TerminalReason::Completed));
+    assert!(result.terminated());
+    assert_eq!(result.terminal_reason(), Some(TerminalReason::Completed));
     cancel.cancel();
 }
 
@@ -249,8 +249,8 @@ async fn test_pipeline_with_three_stages() {
     .await
     .expect("three-stage pipeline should complete");
 
-    assert!(result.terminated);
-    assert_eq!(result.terminal_reason, Some(TerminalReason::Completed));
+    assert!(result.terminated());
+    assert_eq!(result.terminal_reason(), Some(TerminalReason::Completed));
     cancel.cancel();
 }
 
@@ -295,8 +295,8 @@ async fn test_single_tool_call_round_trip() {
     .await
     .expect("pipeline should complete");
 
-    assert!(result.terminated);
-    assert_eq!(result.terminal_reason, Some(TerminalReason::Completed));
+    assert!(result.terminated());
+    assert_eq!(result.terminal_reason(), Some(TerminalReason::Completed));
     cancel.cancel();
 }
 
@@ -339,7 +339,7 @@ async fn test_multi_tool_sequential() {
     .await
     .expect("pipeline should complete");
 
-    assert!(result.terminated);
+    assert!(result.terminated());
     cancel.cancel();
 }
 
@@ -380,7 +380,7 @@ async fn test_tool_loop_max_rounds() {
     .await
     .expect("pipeline should complete (tool loop capped)");
 
-    assert!(result.terminated);
+    assert!(result.terminated());
     cancel.cancel();
 }
 
@@ -418,7 +418,7 @@ async fn test_streaming_emits_stage_events() {
     let (tx, mut rx) = tokio::sync::mpsc::channel(64);
     let result = run_pipeline_loop(&handle, &pid, &agents, Some(tx), "test").await.unwrap();
 
-    assert!(result.terminated);
+    assert!(result.terminated());
 
     // Collect all events
     let mut events = Vec::new();
@@ -523,7 +523,7 @@ async fn test_streaming_emits_done() {
     assert_eq!(last.event_type(), "done");
     if let PipelineEvent::Done { process_id, terminated, .. } = last {
         assert_eq!(process_id, "done-test");
-        assert!(terminated);
+        assert!(*terminated);
     } else {
         panic!("last event should be Done");
     }
@@ -566,8 +566,8 @@ async fn test_gate_routing() {
     .await
     .expect("gate pipeline should complete");
 
-    assert!(result.terminated);
-    assert_eq!(result.terminal_reason, Some(TerminalReason::Completed));
+    assert!(result.terminated());
+    assert_eq!(result.terminal_reason(), Some(TerminalReason::Completed));
     cancel.cancel();
 }
 
@@ -627,8 +627,8 @@ async fn test_fork_join_parallel() {
     .await
     .expect("fork/join pipeline should complete without deadlock");
 
-    assert!(result.terminated);
-    assert_eq!(result.terminal_reason, Some(TerminalReason::Completed));
+    assert!(result.terminated());
+    assert_eq!(result.terminal_reason(), Some(TerminalReason::Completed));
 
     // Pipeline completed without deadlock — fork/join works
     // (output keys depend on agent registration names, not stage names)
@@ -672,9 +672,9 @@ async fn test_max_visits_terminates() {
     .await
     .expect("should terminate via max_visits");
 
-    assert!(result.terminated);
+    assert!(result.terminated());
     assert_eq!(
-        result.terminal_reason,
+        result.terminal_reason(),
         Some(TerminalReason::MaxStageVisitsExceeded)
     );
     cancel.cancel();
@@ -715,9 +715,9 @@ async fn test_error_next_routing() {
     .await
     .expect("should route to error handler");
 
-    assert!(result.terminated);
+    assert!(result.terminated());
     // Should complete via the error handler path
-    assert_eq!(result.terminal_reason, Some(TerminalReason::Completed));
+    assert_eq!(result.terminal_reason(), Some(TerminalReason::Completed));
     cancel.cancel();
 }
 
@@ -765,8 +765,8 @@ async fn test_conditional_routing() {
     .await
     .expect("conditional pipeline should complete");
 
-    assert!(result.terminated);
-    assert_eq!(result.terminal_reason, Some(TerminalReason::Completed));
+    assert!(result.terminated());
+    assert_eq!(result.terminal_reason(), Some(TerminalReason::Completed));
     cancel.cancel();
 }
 
@@ -805,7 +805,7 @@ async fn test_llm_failure_propagates() {
     .expect("pipeline should still complete (agent reports failure)");
 
     // Pipeline terminates because agent reports failure and no error_next
-    assert!(result.terminated);
+    assert!(result.terminated());
     cancel.cancel();
 }
 
@@ -845,7 +845,7 @@ async fn test_tool_execution_failure() {
     .await
     .expect("pipeline should complete (tool error sent back to LLM)");
 
-    assert!(result.terminated);
+    assert!(result.terminated());
     cancel.cancel();
 }
 

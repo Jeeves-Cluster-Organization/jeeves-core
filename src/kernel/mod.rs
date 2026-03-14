@@ -25,7 +25,6 @@ pub mod services;
 pub mod builder;
 
 // Kernel impl split across focused files
-mod kernel_delegation;
 mod kernel_events;
 mod kernel_orchestration;
 
@@ -86,10 +85,37 @@ fn merge_state_field(
     }
 }
 
+/// Tool subsystem — catalog, access policy, health tracking.
+#[derive(Debug)]
+pub struct ToolDomain {
+    /// Tool catalog — metadata, validation, prompt generation.
+    #[allow(dead_code)]
+    pub(crate) catalog: crate::tools::ToolCatalog,
+    /// Tool access policy — agent-scoped permissions.
+    pub(crate) access: crate::tools::ToolAccessPolicy,
+    /// Tool health tracking — sliding-window metrics and circuit breaking.
+    pub(crate) health: crate::tools::ToolHealthTracker,
+}
+
+/// Communication subsystem — bus, agent cards, subscriptions.
+#[derive(Debug)]
+pub struct CommDomain {
+    /// Communication bus (kernel-mediated inter-process communication).
+    pub(crate) bus: crate::commbus::CommBus,
+    /// Agent card registry for federation discovery.
+    pub(crate) agent_cards: agent_card::AgentCardRegistry,
+    /// Per-process CommBus subscriptions (subscription + event receiver).
+    pub(crate) subscriptions:
+        HashMap<ProcessId, Vec<(crate::commbus::Subscription, tokio::sync::mpsc::UnboundedReceiver<crate::commbus::Event>)>>,
+}
+
 /// Kernel - the main orchestrator.
 ///
 /// Owns all subsystems and provides unified interface for process management.
 /// NOT an actor in the message-passing sense - called directly via &mut self.
+///
+/// `process_envelopes` and `orchestrator` are separate top-level fields (not in a
+/// domain struct) because `process_agent_result()` borrows both mutably.
 #[derive(Debug)]
 pub struct Kernel {
     /// Process lifecycle management
@@ -110,28 +136,14 @@ pub struct Kernel {
     /// Pipeline orchestration (kernel-driven execution)
     pub(crate) orchestrator: orchestrator::Orchestrator,
 
-    /// Communication bus (kernel-mediated inter-process communication)
-    pub(crate) commbus: crate::commbus::CommBus,
-
     /// Process envelope storage (process_id -> envelope).
     pub(crate) process_envelopes: HashMap<ProcessId, Envelope>,
 
-    /// Tool catalog — metadata, validation, prompt generation.
-    pub(crate) tool_catalog: crate::tools::ToolCatalog,
+    /// Tool subsystem (catalog, access, health).
+    pub(crate) tools: ToolDomain,
 
-    /// Tool access policy — agent-scoped permissions.
-    pub(crate) tool_access: crate::tools::ToolAccessPolicy,
-
-    /// Tool health tracking — sliding-window metrics and circuit breaking.
-    pub(crate) tool_health: crate::tools::ToolHealthTracker,
-
-    /// Agent card registry for federation discovery.
-    pub(crate) agent_cards: agent_card::AgentCardRegistry,
-
-    /// Per-process CommBus subscriptions (subscription + event receiver).
-    /// Stored here because PipelineSession derives Clone and receivers aren't Clone.
-    pub(crate) process_subscriptions:
-        HashMap<ProcessId, Vec<(crate::commbus::Subscription, tokio::sync::mpsc::UnboundedReceiver<crate::commbus::Event>)>>,
+    /// Communication subsystem (bus, agent cards, subscriptions).
+    pub(crate) comm: CommDomain,
 }
 
 impl Kernel {
@@ -143,13 +155,17 @@ impl Kernel {
             interrupts: interrupts::InterruptService::new(),
             services: services::ServiceRegistry::new(),
             orchestrator: orchestrator::Orchestrator::new(),
-            commbus: crate::commbus::CommBus::new(),
             process_envelopes: HashMap::new(),
-            tool_catalog: crate::tools::ToolCatalog::new(),
-            tool_access: crate::tools::ToolAccessPolicy::new(),
-            tool_health: crate::tools::ToolHealthTracker::default(),
-            agent_cards: agent_card::AgentCardRegistry::new(),
-            process_subscriptions: HashMap::new(),
+            tools: ToolDomain {
+                catalog: crate::tools::ToolCatalog::new(),
+                access: crate::tools::ToolAccessPolicy::new(),
+                health: crate::tools::ToolHealthTracker::default(),
+            },
+            comm: CommDomain {
+                bus: crate::commbus::CommBus::new(),
+                agent_cards: agent_card::AgentCardRegistry::new(),
+                subscriptions: HashMap::new(),
+            },
         }
     }
 
@@ -175,13 +191,17 @@ impl Kernel {
             interrupts: interrupts::InterruptService::new(),
             services: services::ServiceRegistry::new(),
             orchestrator: orchestrator::Orchestrator::new(),
-            commbus: crate::commbus::CommBus::new(),
             process_envelopes: HashMap::new(),
-            tool_catalog: crate::tools::ToolCatalog::new(),
-            tool_access: crate::tools::ToolAccessPolicy::new(),
-            tool_health: crate::tools::ToolHealthTracker::default(),
-            agent_cards: agent_card::AgentCardRegistry::new(),
-            process_subscriptions: HashMap::new(),
+            tools: ToolDomain {
+                catalog: crate::tools::ToolCatalog::new(),
+                access: crate::tools::ToolAccessPolicy::new(),
+                health: crate::tools::ToolHealthTracker::default(),
+            },
+            comm: CommDomain {
+                bus: crate::commbus::CommBus::new(),
+                agent_cards: agent_card::AgentCardRegistry::new(),
+                subscriptions: HashMap::new(),
+            },
         }
     }
 
@@ -196,13 +216,17 @@ impl Kernel {
             interrupts: interrupts::InterruptService::new(),
             services: services::ServiceRegistry::new(),
             orchestrator: orchestrator::Orchestrator::new(),
-            commbus: crate::commbus::CommBus::new(),
             process_envelopes: HashMap::new(),
-            tool_catalog: crate::tools::ToolCatalog::new(),
-            tool_access: crate::tools::ToolAccessPolicy::new(),
-            tool_health: crate::tools::ToolHealthTracker::default(),
-            agent_cards: agent_card::AgentCardRegistry::new(),
-            process_subscriptions: HashMap::new(),
+            tools: ToolDomain {
+                catalog: crate::tools::ToolCatalog::new(),
+                access: crate::tools::ToolAccessPolicy::new(),
+                health: crate::tools::ToolHealthTracker::default(),
+            },
+            comm: CommDomain {
+                bus: crate::commbus::CommBus::new(),
+                agent_cards: agent_card::AgentCardRegistry::new(),
+                subscriptions: HashMap::new(),
+            },
         }
     }
 }
@@ -304,7 +328,7 @@ mod tests {
         kernel.create_process(pid.clone(), RequestId::must("req1"), UserId::must("user1"), SessionId::must("sess1"), SchedulingPriority::Normal, None).unwrap();
         kernel.record_usage(&pid, "user1", 3, 5, 1000, 500);
 
-        let pcb = kernel.get_process(&pid).unwrap();
+        let pcb = kernel.lifecycle.get(&pid).unwrap();
         assert_eq!(pcb.usage.llm_calls, 3);
         assert_eq!(pcb.usage.tool_calls, 5);
         assert_eq!(pcb.usage.tokens_in, 1000);
@@ -317,15 +341,15 @@ mod tests {
         let pid = ProcessId::must("p1");
 
         kernel.create_process(pid.clone(), RequestId::must("req1"), UserId::must("user1"), SessionId::must("sess1"), SchedulingPriority::Normal, None).unwrap();
-        assert!(kernel.get_process(&pid).is_some());
-        assert_eq!(kernel.process_count(), 1);
+        assert!(kernel.lifecycle.get(&pid).is_some());
+        assert_eq!(kernel.lifecycle.count(), 1);
 
-        kernel.start_process(&pid).unwrap();
+        kernel.lifecycle.start(&pid).unwrap();
         kernel.terminate_process(&pid).unwrap();
         kernel.cleanup_process(&pid).unwrap();
 
-        assert!(kernel.get_process(&pid).is_none());
-        assert_eq!(kernel.process_count(), 0);
+        assert!(kernel.lifecycle.get(&pid).is_none());
+        assert_eq!(kernel.lifecycle.count(), 0);
     }
 
     #[test]
@@ -339,7 +363,7 @@ mod tests {
         kernel.record_tool_call(&pid).unwrap();
         kernel.record_tool_call(&pid).unwrap();
 
-        let pcb = kernel.get_process(&pid).unwrap();
+        let pcb = kernel.lifecycle.get(&pid).unwrap();
         assert_eq!(pcb.usage.tool_calls, 3);
     }
 }

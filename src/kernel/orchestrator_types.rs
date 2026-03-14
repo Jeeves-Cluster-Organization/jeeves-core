@@ -48,40 +48,10 @@ pub struct StateField {
 // Instruction Types
 // =============================================================================
 
-/// InstructionKind indicates what the worker should do next.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "SCREAMING_SNAKE_CASE")]
-pub enum InstructionKind {
-    /// Execute specified agent
-    RunAgent,
-    /// Execute multiple agents in parallel (fan-out)
-    RunAgents,
-    /// Parallel group not yet complete — wait for more results
-    WaitParallel,
-    /// End execution
-    Terminate,
-    /// Wait for interrupt resolution
-    WaitInterrupt,
-}
-
-/// Instruction tells the worker what to do next.
-///
-/// `agents` carries the agent name(s) to execute:
-///   - RunAgent  → exactly 1 element
-///   - RunAgents → N elements (parallel fan-out)
-///   - Terminate / WaitInterrupt / WaitParallel → empty
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct Instruction {
-    pub kind: InstructionKind,
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub agents: Vec<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub terminal_reason: Option<TerminalReason>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub termination_message: Option<String>,
-    pub interrupt_pending: bool,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub interrupt: Option<FlowInterrupt>,
+/// Context attached by the kernel enrichment layer (post-orchestrator).
+/// Starts as Default (all None), populated in kernel_orchestration.rs get_next_instruction().
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct AgentDispatchContext {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub agent_context: Option<serde_json::Value>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -90,95 +60,61 @@ pub struct Instruction {
     pub allowed_tools: Option<Vec<String>>,
 }
 
+/// Instruction tells the worker what to do next.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(tag = "kind", rename_all = "SCREAMING_SNAKE_CASE")]
+pub enum Instruction {
+    RunAgent {
+        agent: String,
+        #[serde(flatten)]
+        context: AgentDispatchContext,
+    },
+    RunAgents {
+        agents: Vec<String>,
+        #[serde(flatten)]
+        context: AgentDispatchContext,
+    },
+    Terminate {
+        reason: TerminalReason,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        message: Option<String>,
+        #[serde(flatten)]
+        context: AgentDispatchContext,
+    },
+    WaitParallel,
+    WaitInterrupt {
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        interrupt: Option<FlowInterrupt>,
+    },
+}
+
 impl Instruction {
     /// Create a Terminate instruction.
     pub fn terminate(reason: TerminalReason, message: impl Into<String>) -> Self {
-        Self {
-            kind: InstructionKind::Terminate,
-            agents: vec![],
-            terminal_reason: Some(reason),
-            termination_message: Some(message.into()),
-            interrupt_pending: false,
-            interrupt: None,
-            agent_context: None,
-            output_schema: None,
-            allowed_tools: None,
-        }
+        Self::Terminate { reason, message: Some(message.into()), context: Default::default() }
     }
 
     /// Create a Terminate instruction with reason only (no message).
     pub fn terminate_completed() -> Self {
-        Self {
-            kind: InstructionKind::Terminate,
-            agents: vec![],
-            terminal_reason: Some(TerminalReason::Completed),
-            termination_message: None,
-            interrupt_pending: false,
-            interrupt: None,
-            agent_context: None,
-            output_schema: None,
-            allowed_tools: None,
-        }
+        Self::Terminate { reason: TerminalReason::Completed, message: None, context: Default::default() }
     }
 
     /// Create a RunAgent instruction for a single agent.
     pub fn run_agent(name: impl Into<String>) -> Self {
-        Self {
-            kind: InstructionKind::RunAgent,
-            agents: vec![name.into()],
-            terminal_reason: None,
-            termination_message: None,
-            interrupt_pending: false,
-            interrupt: None,
-            agent_context: None,
-            output_schema: None,
-            allowed_tools: None,
-        }
+        Self::RunAgent { agent: name.into(), context: Default::default() }
     }
 
     /// Create a RunAgents instruction for parallel fan-out.
     pub fn run_agents(names: Vec<String>) -> Self {
-        Self {
-            kind: InstructionKind::RunAgents,
-            agents: names,
-            terminal_reason: None,
-            termination_message: None,
-            interrupt_pending: false,
-            interrupt: None,
-            agent_context: None,
-            output_schema: None,
-            allowed_tools: None,
-        }
+        Self::RunAgents { agents: names, context: Default::default() }
     }
 
     /// Create a WaitParallel instruction.
-    pub fn wait_parallel() -> Self {
-        Self {
-            kind: InstructionKind::WaitParallel,
-            agents: vec![],
-            terminal_reason: None,
-            termination_message: None,
-            interrupt_pending: false,
-            interrupt: None,
-            agent_context: None,
-            output_schema: None,
-            allowed_tools: None,
-        }
-    }
+    pub fn wait_parallel() -> Self { Self::WaitParallel }
 
     /// Create a WaitInterrupt instruction.
     pub fn wait_interrupt(interrupt: FlowInterrupt) -> Self {
-        Self {
-            kind: InstructionKind::WaitInterrupt,
-            agents: vec![],
-            terminal_reason: None,
-            termination_message: None,
-            interrupt_pending: true,
-            interrupt: Some(interrupt),
-            agent_context: None,
-            output_schema: None,
-            allowed_tools: None,
-        }
+        Self::WaitInterrupt { interrupt: Some(interrupt) }
     }
 }
 
@@ -290,7 +226,7 @@ impl PipelineConfig {
 
         for stage in &self.stages {
             // Validate child_pipeline + has_llm mutual exclusion
-            if stage.child_pipeline.is_some() && stage.has_llm {
+            if stage.agent_config.child_pipeline.is_some() && stage.agent_config.has_llm {
                 return Err(Error::validation(format!(
                     "Stage '{}': child_pipeline and has_llm=true are mutually exclusive",
                     stage.name
@@ -410,6 +346,43 @@ impl PipelineConfig {
     }
 }
 
+/// Agent execution configuration — transparent to kernel, consumed by worker.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AgentConfig {
+    /// Prompt template key for this agent. None = deterministic (no LLM call).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub prompt_key: Option<String>,
+    /// Whether this agent makes LLM calls.
+    #[serde(default = "default_has_llm")]
+    pub has_llm: bool,
+    /// LLM temperature override for this stage.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub temperature: Option<f64>,
+    /// LLM max_tokens override for this stage.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub max_tokens: Option<i32>,
+    /// Model role (e.g. "fast", "reasoning") — resolved by LLM provider.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub model_role: Option<String>,
+    /// If set, this stage runs the named pipeline as a child (PipelineAgent).
+    /// Mutually exclusive with has_llm=true.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub child_pipeline: Option<String>,
+}
+
+impl Default for AgentConfig {
+    fn default() -> Self {
+        Self {
+            has_llm: true,
+            prompt_key: None,
+            temperature: None,
+            max_tokens: None,
+            model_role: None,
+            child_pipeline: None,
+        }
+    }
+}
+
 /// Pipeline stage with routing rules, fallbacks, and parallel config.
 ///
 /// Routing evaluation order (Temporal/K8s pattern):
@@ -417,7 +390,7 @@ impl PipelineConfig {
 /// 2. Evaluate routing rules (first match wins)
 /// 3. If no match AND default_next set → route to default_next
 /// 4. If no match AND no default_next → terminate (COMPLETED)
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct PipelineStage {
     pub name: String,
     pub agent: String,
@@ -440,28 +413,9 @@ pub struct PipelineStage {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub output_key: Option<String>,
 
-    // --- Agent execution fields (consumed by worker, transparent to kernel) ---
-
-    /// Prompt template key for this agent. None = deterministic (no LLM call).
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub prompt_key: Option<String>,
-    /// Whether this agent makes LLM calls. Derived from prompt_key if absent.
-    #[serde(default = "default_has_llm")]
-    pub has_llm: bool,
-    /// LLM temperature override for this stage.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub temperature: Option<f64>,
-    /// LLM max_tokens override for this stage.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub max_tokens: Option<i32>,
-    /// Model role (e.g. "fast", "reasoning") — resolved by LLM provider.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub model_role: Option<String>,
-
-    /// If set, this stage runs the named pipeline as a child (PipelineAgent).
-    /// Mutually exclusive with has_llm=true.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub child_pipeline: Option<String>,
+    /// Agent execution config — transparent to kernel, consumed by worker.
+    #[serde(flatten)]
+    pub agent_config: AgentConfig,
 }
 
 fn default_has_llm() -> bool {
@@ -527,12 +481,10 @@ mod tests {
             allowed_tools: None,
             node_kind: NodeKind::Agent,
             output_key: None,
-            prompt_key: None,
-            has_llm: false,
-            temperature: None,
-            max_tokens: None,
-            model_role: None,
-            child_pipeline: None,
+            agent_config: AgentConfig {
+                has_llm: false,
+                ..Default::default()
+            },
         }
     }
 
@@ -638,8 +590,8 @@ mod tests {
     #[test]
     fn test_validate_child_pipeline_and_has_llm_mutually_exclusive() {
         let mut stage = minimal_stage("sub");
-        stage.child_pipeline = Some("child".to_string());
-        stage.has_llm = true;
+        stage.agent_config.child_pipeline = Some("child".to_string());
+        stage.agent_config.has_llm = true;
         let config = minimal_config(vec![stage]);
         let err = config.validate().unwrap_err();
         assert!(err.to_string().contains("mutually exclusive"));
@@ -648,8 +600,8 @@ mod tests {
     #[test]
     fn test_validate_child_pipeline_without_llm_ok() {
         let mut stage = minimal_stage("sub");
-        stage.child_pipeline = Some("child".to_string());
-        stage.has_llm = false;
+        stage.agent_config.child_pipeline = Some("child".to_string());
+        stage.agent_config.has_llm = false;
         let config = minimal_config(vec![stage]);
         assert!(config.validate().is_ok());
     }

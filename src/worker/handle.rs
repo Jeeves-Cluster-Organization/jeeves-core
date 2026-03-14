@@ -112,6 +112,21 @@ pub struct KernelHandle {
     tx: mpsc::Sender<KernelCommand>,
 }
 
+/// Send a KernelCommand and await the oneshot response.
+/// Covers methods with the standard request-response pattern.
+macro_rules! kernel_request {
+    ($self:ident, $variant:ident { $($field:ident : $val:expr),* $(,)? }) => {{
+        let (resp_tx, resp_rx) = oneshot::channel();
+        $self.tx
+            .send(KernelCommand::$variant { $($field: $val,)* resp_tx })
+            .await
+            .map_err(|_| crate::types::Error::internal("Kernel actor unavailable"))?;
+        resp_rx
+            .await
+            .map_err(|_| crate::types::Error::internal("Kernel actor dropped response"))?
+    }};
+}
+
 impl KernelHandle {
     /// Create a new handle from a channel sender.
     pub fn new(tx: mpsc::Sender<KernelCommand>) -> Self {
@@ -126,35 +141,19 @@ impl KernelHandle {
         envelope: Envelope,
         force: bool,
     ) -> Result<SessionState> {
-        let (resp_tx, resp_rx) = oneshot::channel();
-        self.tx
-            .send(KernelCommand::InitializeSession {
-                process_id,
-                pipeline_config: Box::new(pipeline_config),
-                envelope: Box::new(envelope),
-                force,
-                resp_tx,
-            })
-            .await
-            .map_err(|_| crate::types::Error::internal("Kernel actor unavailable"))?;
-        resp_rx
-            .await
-            .map_err(|_| crate::types::Error::internal("Kernel actor dropped response"))?
+        kernel_request!(self, InitializeSession {
+            process_id: process_id,
+            pipeline_config: Box::new(pipeline_config),
+            envelope: Box::new(envelope),
+            force: force,
+        })
     }
 
     /// Get the next instruction for a process.
     pub async fn get_next_instruction(&self, process_id: &ProcessId) -> Result<Instruction> {
-        let (resp_tx, resp_rx) = oneshot::channel();
-        self.tx
-            .send(KernelCommand::GetNextInstruction {
-                process_id: process_id.clone(),
-                resp_tx,
-            })
-            .await
-            .map_err(|_| crate::types::Error::internal("Kernel actor unavailable"))?;
-        resp_rx
-            .await
-            .map_err(|_| crate::types::Error::internal("Kernel actor dropped response"))?
+        kernel_request!(self, GetNextInstruction {
+            process_id: process_id.clone(),
+        })
     }
 
     /// Report agent result (mutation only — caller fetches next instruction separately).
@@ -170,39 +169,23 @@ impl KernelHandle {
         error_message: &str,
         break_loop: bool,
     ) -> Result<()> {
-        let (resp_tx, resp_rx) = oneshot::channel();
-        self.tx
-            .send(KernelCommand::ProcessAgentResult {
-                process_id: process_id.clone(),
-                agent_name: agent_name.to_string(),
-                output,
-                metadata_updates,
-                metrics,
-                success,
-                error_message: error_message.to_string(),
-                break_loop,
-                resp_tx,
-            })
-            .await
-            .map_err(|_| crate::types::Error::internal("Kernel actor unavailable"))?;
-        resp_rx
-            .await
-            .map_err(|_| crate::types::Error::internal("Kernel actor dropped response"))?
+        kernel_request!(self, ProcessAgentResult {
+            process_id: process_id.clone(),
+            agent_name: agent_name.to_string(),
+            output: output,
+            metadata_updates: metadata_updates,
+            metrics: metrics,
+            success: success,
+            error_message: error_message.to_string(),
+            break_loop: break_loop,
+        })
     }
 
     /// Get orchestration session state.
     pub async fn get_session_state(&self, process_id: &ProcessId) -> Result<SessionState> {
-        let (resp_tx, resp_rx) = oneshot::channel();
-        self.tx
-            .send(KernelCommand::GetSessionState {
-                process_id: process_id.clone(),
-                resp_tx,
-            })
-            .await
-            .map_err(|_| crate::types::Error::internal("Kernel actor unavailable"))?;
-        resp_rx
-            .await
-            .map_err(|_| crate::types::Error::internal("Kernel actor dropped response"))?
+        kernel_request!(self, GetSessionState {
+            process_id: process_id.clone(),
+        })
     }
 
     /// Create a process.
@@ -214,36 +197,20 @@ impl KernelHandle {
         session_id: SessionId,
         priority: SchedulingPriority,
     ) -> Result<ProcessControlBlock> {
-        let (resp_tx, resp_rx) = oneshot::channel();
-        self.tx
-            .send(KernelCommand::CreateProcess {
-                process_id,
-                request_id,
-                user_id,
-                session_id,
-                priority,
-                resp_tx,
-            })
-            .await
-            .map_err(|_| crate::types::Error::internal("Kernel actor unavailable"))?;
-        resp_rx
-            .await
-            .map_err(|_| crate::types::Error::internal("Kernel actor dropped response"))?
+        kernel_request!(self, CreateProcess {
+            process_id: process_id,
+            request_id: request_id,
+            user_id: user_id,
+            session_id: session_id,
+            priority: priority,
+        })
     }
 
     /// Terminate a process.
     pub async fn terminate_process(&self, process_id: &ProcessId) -> Result<()> {
-        let (resp_tx, resp_rx) = oneshot::channel();
-        self.tx
-            .send(KernelCommand::TerminateProcess {
-                process_id: process_id.clone(),
-                resp_tx,
-            })
-            .await
-            .map_err(|_| crate::types::Error::internal("Kernel actor unavailable"))?;
-        resp_rx
-            .await
-            .map_err(|_| crate::types::Error::internal("Kernel actor dropped response"))?
+        kernel_request!(self, TerminateProcess {
+            process_id: process_id.clone(),
+        })
     }
 
     /// Resolve a pending interrupt for a process.
@@ -253,19 +220,11 @@ impl KernelHandle {
         interrupt_id: &str,
         response: crate::envelope::InterruptResponse,
     ) -> Result<()> {
-        let (resp_tx, resp_rx) = oneshot::channel();
-        self.tx
-            .send(KernelCommand::ResolveInterrupt {
-                process_id: process_id.clone(),
-                interrupt_id: interrupt_id.to_string(),
-                response,
-                resp_tx,
-            })
-            .await
-            .map_err(|_| crate::types::Error::internal("Kernel actor unavailable"))?;
-        resp_rx
-            .await
-            .map_err(|_| crate::types::Error::internal("Kernel actor dropped response"))?
+        kernel_request!(self, ResolveInterrupt {
+            process_id: process_id.clone(),
+            interrupt_id: interrupt_id.to_string(),
+            response: response,
+        })
     }
 
     // =========================================================================
@@ -274,14 +233,7 @@ impl KernelHandle {
 
     /// Publish an event to CommBus subscribers.
     pub async fn publish_event(&self, event: Event) -> Result<usize> {
-        let (resp_tx, resp_rx) = oneshot::channel();
-        self.tx
-            .send(KernelCommand::PublishEvent { event, resp_tx })
-            .await
-            .map_err(|_| crate::types::Error::internal("Kernel actor unavailable"))?;
-        resp_rx
-            .await
-            .map_err(|_| crate::types::Error::internal("Kernel actor dropped response"))?
+        kernel_request!(self, PublishEvent { event: event })
     }
 
     /// Subscribe to CommBus event types.
@@ -290,18 +242,10 @@ impl KernelHandle {
         subscriber_id: String,
         event_types: Vec<String>,
     ) -> Result<(Subscription, mpsc::UnboundedReceiver<Event>)> {
-        let (resp_tx, resp_rx) = oneshot::channel();
-        self.tx
-            .send(KernelCommand::Subscribe {
-                subscriber_id,
-                event_types,
-                resp_tx,
-            })
-            .await
-            .map_err(|_| crate::types::Error::internal("Kernel actor unavailable"))?;
-        resp_rx
-            .await
-            .map_err(|_| crate::types::Error::internal("Kernel actor dropped response"))?
+        kernel_request!(self, Subscribe {
+            subscriber_id: subscriber_id,
+            event_types: event_types,
+        })
     }
 
     /// Unsubscribe from CommBus.
@@ -322,14 +266,7 @@ impl KernelHandle {
 
     /// Execute a CommBus query.
     pub async fn commbus_query(&self, query: Query) -> Result<QueryResponse> {
-        let (resp_tx, resp_rx) = oneshot::channel();
-        self.tx
-            .send(KernelCommand::CommBusQuery { query, resp_tx })
-            .await
-            .map_err(|_| crate::types::Error::internal("Kernel actor unavailable"))?;
-        resp_rx
-            .await
-            .map_err(|_| crate::types::Error::internal("Kernel actor dropped response"))?
+        kernel_request!(self, CommBusQuery { query: query })
     }
 
     /// List registered agent cards (discovery).
