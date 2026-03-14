@@ -32,9 +32,29 @@ impl Kernel {
             }
         }
 
+        // Wire CommBus subscriptions from pipeline config (before pipeline_config is moved)
+        let subscription_types = pipeline_config.subscriptions.clone();
+
         let state = self.orchestrator
             .initialize_session(process_id.clone(), pipeline_config, &mut envelope, force)?;
-        self.process_envelopes.insert(process_id, envelope);
+        self.process_envelopes.insert(process_id.clone(), envelope);
+
+        // Subscribe to CommBus event types if configured
+        if !subscription_types.is_empty() {
+            let subscriber_id = format!("pipeline:{}", process_id);
+            match self.commbus.subscribe(subscriber_id, subscription_types) {
+                Ok((subscription, receiver)) => {
+                    self.process_subscriptions
+                        .entry(process_id)
+                        .or_default()
+                        .push((subscription, receiver));
+                }
+                Err(e) => {
+                    tracing::warn!(error = %e, "Failed to wire CommBus subscriptions");
+                }
+            }
+        }
+
         Ok(state)
     }
 
@@ -47,6 +67,17 @@ impl Kernel {
         &mut self,
         process_id: &ProcessId,
     ) -> Result<orchestrator::Instruction> {
+        // Phase 0: Drain CommBus subscription receivers into envelope.event_inbox
+        if let Some(subs) = self.process_subscriptions.get_mut(process_id) {
+            if let Some(envelope) = self.process_envelopes.get_mut(process_id) {
+                for (_subscription, receiver) in subs.iter_mut() {
+                    while let Ok(event) = receiver.try_recv() {
+                        envelope.event_inbox.push(event);
+                    }
+                }
+            }
+        }
+
         // Phase 1: Get instruction (needs &mut envelope)
         let envelope = self.process_envelopes.get_mut(process_id)
             .ok_or_else(|| Error::not_found(format!("Envelope not found for process: {}", process_id)))?;
@@ -54,51 +85,62 @@ impl Kernel {
         // &mut envelope borrow ends here (we don't use it below)
 
         // Phase 2: Enrich instruction with context for the worker
-        if instruction.kind == orchestrator::InstructionKind::RunAgent
-            || instruction.kind == orchestrator::InstructionKind::RunAgents
-        {
-            if let Some(envelope) = self.process_envelopes.get(process_id) {
-                // Build agent context from envelope
-                let mut prompt_context = serde_json::Map::new();
-                for (agent_name, output) in &envelope.outputs {
-                    for (key, value) in output {
-                        prompt_context.insert(format!("{}_{}", agent_name, key), value.clone());
+        match instruction.kind {
+            orchestrator::InstructionKind::RunAgent
+            | orchestrator::InstructionKind::RunAgents => {
+                if let Some(envelope) = self.process_envelopes.get(process_id) {
+                    // Build agent context from envelope
+                    let mut prompt_context = serde_json::Map::new();
+                    for (agent_name, output) in &envelope.outputs {
+                        for (key, value) in output {
+                            prompt_context.insert(format!("{}_{}", agent_name, key), value.clone());
+                        }
+                    }
+                    for (key, value) in &envelope.audit.metadata {
+                        prompt_context.insert(key.clone(), value.clone());
+                    }
+
+                    instruction.agent_context = Some(serde_json::json!({
+                        "envelope_id": envelope.identity.envelope_id.as_str(),
+                        "request_id": envelope.identity.request_id.as_str(),
+                        "user_id": envelope.identity.user_id.as_str(),
+                        "session_id": envelope.identity.session_id.as_str(),
+                        "raw_input": &envelope.raw_input,
+                        "outputs": &envelope.outputs,
+                        "state": &envelope.state,
+                        "metadata": &envelope.audit.metadata,
+                        "prompt_context": serde_json::Value::Object(prompt_context),
+                        "llm_call_count": envelope.bounds.llm_call_count,
+                        "agent_hop_count": envelope.bounds.agent_hop_count,
+                        "tokens_in": envelope.bounds.tokens_in,
+                        "tokens_out": envelope.bounds.tokens_out,
+                        "circuit_broken_tools": self.tool_health.get_circuit_broken_tools(),
+                        "pending_events": &envelope.event_inbox,
+                    }));
+                }
+
+                // Look up stage-level config
+                if let Some(agent_name) = instruction.agents.first() {
+                    let stage_name = self.process_envelopes.get(process_id)
+                        .map(|e| e.pipeline.current_stage.clone())
+                        .unwrap_or_default();
+                    instruction.output_schema = self.orchestrator.get_stage_output_schema(process_id, &stage_name);
+
+                    let allowed = self.tool_access.tools_for_agent(agent_name);
+                    if !allowed.is_empty() {
+                        instruction.allowed_tools = Some(allowed);
                     }
                 }
-                for (key, value) in &envelope.audit.metadata {
-                    prompt_context.insert(key.clone(), value.clone());
-                }
-
-                instruction.agent_context = Some(serde_json::json!({
-                    "envelope_id": envelope.identity.envelope_id.as_str(),
-                    "request_id": envelope.identity.request_id.as_str(),
-                    "user_id": envelope.identity.user_id.as_str(),
-                    "session_id": envelope.identity.session_id.as_str(),
-                    "raw_input": &envelope.raw_input,
-                    "outputs": &envelope.outputs,
-                    "state": &envelope.state,
-                    "metadata": &envelope.audit.metadata,
-                    "prompt_context": serde_json::Value::Object(prompt_context),
-                    "llm_call_count": envelope.bounds.llm_call_count,
-                    "agent_hop_count": envelope.bounds.agent_hop_count,
-                    "tokens_in": envelope.bounds.tokens_in,
-                    "tokens_out": envelope.bounds.tokens_out,
-                    "circuit_broken_tools": self.tool_health.get_circuit_broken_tools(),
-                }));
             }
-
-            // Look up stage-level config
-            if let Some(agent_name) = instruction.agents.first() {
-                let stage_name = self.process_envelopes.get(process_id)
-                    .map(|e| e.pipeline.current_stage.clone())
-                    .unwrap_or_default();
-                instruction.output_schema = self.orchestrator.get_stage_output_schema(process_id, &stage_name);
-
-                let allowed = self.tool_access.tools_for_agent(agent_name);
-                if !allowed.is_empty() {
-                    instruction.allowed_tools = Some(allowed);
+            orchestrator::InstructionKind::Terminate => {
+                // Attach final outputs so the worker can return them
+                if let Some(envelope) = self.process_envelopes.get(process_id) {
+                    instruction.agent_context = Some(serde_json::json!({
+                        "outputs": &envelope.outputs,
+                    }));
                 }
             }
+            _ => {}
         }
 
         Ok(instruction)
@@ -252,5 +294,237 @@ impl Kernel {
         let envelope = self.process_envelopes.get(process_id)
             .ok_or_else(|| Error::not_found(format!("Envelope not found for process: {}", process_id)))?;
         self.orchestrator.get_session_state(process_id, envelope)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::envelope::Envelope;
+    use crate::kernel::orchestrator::{
+        InstructionKind, NodeKind, PipelineConfig, PipelineStage, JoinStrategy,
+    };
+    use crate::kernel::{Kernel, SchedulingPriority};
+    use crate::types::{ProcessId, RequestId, UserId, SessionId};
+
+    fn test_stage(name: &str) -> PipelineStage {
+        PipelineStage {
+            name: name.to_string(),
+            agent: name.to_string(),
+            routing: vec![],
+            default_next: None,
+            error_next: None,
+            max_visits: None,
+            node_kind: NodeKind::Agent,
+            output_key: None,
+            join_strategy: JoinStrategy::WaitAll,
+            has_llm: false,
+            prompt_key: None,
+            temperature: None,
+            max_tokens: None,
+            model_role: None,
+            allowed_tools: None,
+            output_schema: None,
+            child_pipeline: None,
+        }
+    }
+
+    fn test_config(stages: Vec<PipelineStage>) -> PipelineConfig {
+        PipelineConfig {
+            name: "test".to_string(),
+            stages,
+            max_iterations: 10,
+            max_llm_calls: 10,
+            max_agent_hops: 10,
+            edge_limits: vec![],
+            step_limit: None,
+            state_schema: vec![],
+            subscriptions: vec![],
+            publishes: vec![],
+        }
+    }
+
+    fn setup_kernel_with_process(kernel: &mut Kernel, pid: &ProcessId) {
+        let _ = kernel.create_process(
+            pid.clone(),
+            RequestId::must("req-1"),
+            UserId::must("user-1"),
+            SessionId::must("sess-1"),
+            SchedulingPriority::Normal,
+            None,
+        );
+    }
+
+    // =========================================================================
+    // CommBus Subscription Wiring Tests
+    // =========================================================================
+
+    #[test]
+    fn test_initialize_orchestration_wires_subscriptions() {
+        let mut kernel = Kernel::new();
+        let pid = ProcessId::must("proc-sub-1");
+        setup_kernel_with_process(&mut kernel, &pid);
+
+        let mut config = test_config(vec![test_stage("agent_a")]);
+        config.subscriptions = vec!["npc.dialogue".to_string(), "game.event".to_string()];
+
+        let envelope = Envelope::new_minimal("user-1", "sess-1", "hello", None);
+
+        let result = kernel.initialize_orchestration(pid.clone(), config, envelope, false);
+        assert!(result.is_ok());
+
+        // Subscriptions should be stored
+        assert!(kernel.process_subscriptions.contains_key(&pid));
+        let subs = kernel.process_subscriptions.get(&pid).unwrap();
+        assert_eq!(subs.len(), 1); // One subscribe call with multiple event types
+    }
+
+    #[test]
+    fn test_no_subscriptions_when_config_empty() {
+        let mut kernel = Kernel::new();
+        let pid = ProcessId::must("proc-nosub");
+        setup_kernel_with_process(&mut kernel, &pid);
+
+        let config = test_config(vec![test_stage("agent_a")]);
+        let envelope = Envelope::new_minimal("user-1", "sess-1", "hello", None);
+
+        let _ = kernel.initialize_orchestration(pid.clone(), config, envelope, false);
+
+        // No subscriptions should be created
+        assert!(!kernel.process_subscriptions.contains_key(&pid));
+    }
+
+    #[test]
+    fn test_event_inbox_drain_on_get_next_instruction() {
+        let mut kernel = Kernel::new();
+        let pid = ProcessId::must("proc-drain-1");
+        setup_kernel_with_process(&mut kernel, &pid);
+
+        let mut config = test_config(vec![test_stage("agent_a")]);
+        config.subscriptions = vec!["test.event".to_string()];
+
+        let envelope = Envelope::new_minimal("user-1", "sess-1", "hello", None);
+        kernel.initialize_orchestration(pid.clone(), config, envelope, false).unwrap();
+
+        // Publish an event to the CommBus (will be delivered to our subscription)
+        let event = crate::commbus::Event {
+            event_type: "test.event".to_string(),
+            payload: b"{\"msg\":\"world\"}".to_vec(),
+            timestamp_ms: chrono::Utc::now().timestamp_millis(),
+            source: "external".to_string(),
+        };
+        kernel.commbus.publish(event).unwrap();
+
+        // get_next_instruction should drain events into envelope.event_inbox
+        let instruction = kernel.get_next_instruction(&pid).unwrap();
+        assert_eq!(instruction.kind, InstructionKind::RunAgent);
+
+        // Check that the event was drained into the envelope
+        let envelope = kernel.process_envelopes.get(&pid).unwrap();
+        assert_eq!(envelope.event_inbox.len(), 1);
+        assert_eq!(envelope.event_inbox[0].event_type, "test.event");
+        assert_eq!(envelope.event_inbox[0].source, "external");
+    }
+
+    #[test]
+    fn test_terminate_process_cleans_up_subscriptions() {
+        let mut kernel = Kernel::new();
+        let pid = ProcessId::must("proc-cleanup-1");
+        setup_kernel_with_process(&mut kernel, &pid);
+
+        let mut config = test_config(vec![test_stage("agent_a")]);
+        config.subscriptions = vec!["test.event".to_string()];
+
+        let envelope = Envelope::new_minimal("user-1", "sess-1", "hello", None);
+        kernel.initialize_orchestration(pid.clone(), config, envelope, false).unwrap();
+
+        assert!(kernel.process_subscriptions.contains_key(&pid));
+
+        // Terminate should clean up subscriptions
+        kernel.terminate_process(&pid).unwrap();
+        assert!(!kernel.process_subscriptions.contains_key(&pid));
+    }
+
+    #[test]
+    fn test_pending_events_in_agent_context() {
+        let mut kernel = Kernel::new();
+        let pid = ProcessId::must("proc-ctx-1");
+        setup_kernel_with_process(&mut kernel, &pid);
+
+        let mut config = test_config(vec![test_stage("agent_a")]);
+        config.subscriptions = vec!["npc.event".to_string()];
+
+        let envelope = Envelope::new_minimal("user-1", "sess-1", "hello", None);
+        kernel.initialize_orchestration(pid.clone(), config, envelope, false).unwrap();
+
+        // Publish two events
+        for i in 0..2 {
+            let event = crate::commbus::Event {
+                event_type: "npc.event".to_string(),
+                payload: format!("{{\"n\":{}}}", i).into_bytes(),
+                timestamp_ms: chrono::Utc::now().timestamp_millis(),
+                source: "game".to_string(),
+            };
+            kernel.commbus.publish(event).unwrap();
+        }
+
+        let instruction = kernel.get_next_instruction(&pid).unwrap();
+        // Agent context should include pending_events
+        let ctx = instruction.agent_context.unwrap();
+        let pending = ctx.get("pending_events").unwrap().as_array().unwrap();
+        assert_eq!(pending.len(), 2);
+    }
+
+    // =========================================================================
+    // AgentCard Tests
+    // =========================================================================
+
+    #[test]
+    fn test_agent_card_registration_and_listing() {
+        let mut kernel = Kernel::new();
+
+        let card = crate::kernel::agent_card::AgentCard {
+            name: "npc_dialogue".to_string(),
+            description: "Handles NPC dialogue".to_string(),
+            pipeline_name: Some("npc_pipeline".to_string()),
+            capabilities: vec!["dialogue".to_string()],
+            accepted_event_types: vec!["npc.speak".to_string()],
+            published_event_types: vec!["npc.response".to_string()],
+            input_schema: None,
+            output_schema: None,
+        };
+
+        kernel.agent_cards.register(card);
+
+        let all = kernel.agent_cards.list(None);
+        assert_eq!(all.len(), 1);
+        assert_eq!(all[0].name, "npc_dialogue");
+
+        // Filter by name substring
+        let filtered = kernel.agent_cards.list(Some("npc"));
+        assert_eq!(filtered.len(), 1);
+
+        let no_match = kernel.agent_cards.list(Some("zzz_nonexistent"));
+        assert_eq!(no_match.len(), 0);
+    }
+
+    #[test]
+    fn test_agent_card_get_by_name() {
+        let mut kernel = Kernel::new();
+
+        let card = crate::kernel::agent_card::AgentCard {
+            name: "search_agent".to_string(),
+            description: "Searches things".to_string(),
+            pipeline_name: None,
+            capabilities: vec![],
+            accepted_event_types: vec![],
+            published_event_types: vec![],
+            input_schema: None,
+            output_schema: None,
+        };
+
+        kernel.agent_cards.register(card);
+
+        assert!(kernel.agent_cards.get("search_agent").is_some());
+        assert!(kernel.agent_cards.get("nonexistent").is_none());
     }
 }

@@ -224,6 +224,14 @@ pub struct PipelineConfig {
     pub step_limit: Option<i32>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub state_schema: Vec<StateField>,
+
+    /// Event types this pipeline subscribes to via CommBus.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub subscriptions: Vec<String>,
+
+    /// Event types this pipeline publishes via CommBus.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub publishes: Vec<String>,
 }
 
 impl PipelineConfig {
@@ -281,6 +289,14 @@ impl PipelineConfig {
         }
 
         for stage in &self.stages {
+            // Validate child_pipeline + has_llm mutual exclusion
+            if stage.child_pipeline.is_some() && stage.has_llm {
+                return Err(Error::validation(format!(
+                    "Stage '{}': child_pipeline and has_llm=true are mutually exclusive",
+                    stage.name
+                )));
+            }
+
             // Validate node-kind constraints
             match stage.node_kind {
                 NodeKind::Agent => {
@@ -312,7 +328,7 @@ impl PipelineConfig {
                     )));
                 }
             }
-            // Validate routing targets reference existing stages
+            // Validate routing targets reference existing stages + expression depth
             for rule in &stage.routing {
                 if !stage_names.contains(rule.target.as_str()) {
                     return Err(Error::validation(format!(
@@ -320,6 +336,9 @@ impl PipelineConfig {
                         stage.name, rule.target, stage_names
                     )));
                 }
+                rule.expr.validate_depth().map_err(|e| Error::validation(format!(
+                    "Stage '{}' routing rule targeting '{}': {}", stage.name, rule.target, e
+                )))?;
             }
 
             // Validate default_next references existing stage
@@ -438,6 +457,11 @@ pub struct PipelineStage {
     /// Model role (e.g. "fast", "reasoning") — resolved by LLM provider.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub model_role: Option<String>,
+
+    /// If set, this stage runs the named pipeline as a child (PipelineAgent).
+    /// Mutually exclusive with has_llm=true.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub child_pipeline: Option<String>,
 }
 
 fn default_has_llm() -> bool {
@@ -508,6 +532,7 @@ mod tests {
             temperature: None,
             max_tokens: None,
             model_role: None,
+            child_pipeline: None,
         }
     }
 
@@ -521,6 +546,8 @@ mod tests {
             edge_limits: vec![],
             step_limit: None,
             state_schema: vec![],
+            subscriptions: vec![],
+            publishes: vec![],
         }
     }
 
@@ -605,6 +632,25 @@ mod tests {
 
         let fallback = minimal_stage("fallback");
         let config = minimal_config(vec![gate, fallback]);
+        assert!(config.validate().is_ok());
+    }
+
+    #[test]
+    fn test_validate_child_pipeline_and_has_llm_mutually_exclusive() {
+        let mut stage = minimal_stage("sub");
+        stage.child_pipeline = Some("child".to_string());
+        stage.has_llm = true;
+        let config = minimal_config(vec![stage]);
+        let err = config.validate().unwrap_err();
+        assert!(err.to_string().contains("mutually exclusive"));
+    }
+
+    #[test]
+    fn test_validate_child_pipeline_without_llm_ok() {
+        let mut stage = minimal_stage("sub");
+        stage.child_pipeline = Some("child".to_string());
+        stage.has_llm = false;
+        let config = minimal_config(vec![stage]);
         assert!(config.validate().is_ok());
     }
 }

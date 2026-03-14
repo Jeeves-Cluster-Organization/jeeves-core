@@ -90,37 +90,50 @@ pub struct StreamChunk {
 
 /// Events emitted during pipeline execution for SSE streaming.
 ///
+/// Every event carries a `pipeline` field identifying the originating pipeline.
+/// For composed pipelines, child events use dotted notation: `"parent.child"`.
+///
 /// `stage` is `Some(name)` when the event originates inside a known pipeline stage,
 /// `None` for events that are topology-independent (Done, InterruptPending) or
 /// emitted outside a stage boundary.
 #[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(tag = "type")]
+#[serde(tag = "type", rename_all = "snake_case")]
 pub enum PipelineEvent {
-    StageStarted { stage: String },
+    StageStarted {
+        stage: String,
+        pipeline: String,
+    },
     Delta {
         content: String,
         #[serde(skip_serializing_if = "Option::is_none")]
         stage: Option<String>,
+        pipeline: String,
     },
     ToolCallStart {
         id: String,
         name: String,
         #[serde(skip_serializing_if = "Option::is_none")]
         stage: Option<String>,
+        pipeline: String,
     },
     ToolResult {
         id: String,
         content: String,
         #[serde(skip_serializing_if = "Option::is_none")]
         stage: Option<String>,
+        pipeline: String,
     },
-    StageCompleted { stage: String },
+    StageCompleted {
+        stage: String,
+        pipeline: String,
+    },
     Done {
         process_id: String,
         terminated: bool,
         terminal_reason: Option<String>,
         #[serde(skip_serializing_if = "Option::is_none")]
         outputs: Option<serde_json::Value>,
+        pipeline: String,
     },
     InterruptPending {
         process_id: String,
@@ -128,11 +141,13 @@ pub enum PipelineEvent {
         kind: String,
         question: Option<String>,
         message: Option<String>,
+        pipeline: String,
     },
     Error {
         message: String,
         #[serde(skip_serializing_if = "Option::is_none")]
         stage: Option<String>,
+        pipeline: String,
     },
 }
 
@@ -168,10 +183,12 @@ pub trait LlmProvider: Send + Sync + std::fmt::Debug {
 /// as PipelineEvent::Delta through the event channel.
 ///
 /// `stage` tags every emitted Delta with the originating pipeline stage.
+/// `pipeline` identifies which pipeline produced the event.
 pub async fn collect_stream(
     stream: Pin<Box<dyn Stream<Item = Result<StreamChunk>> + Send>>,
     event_tx: Option<&mpsc::Sender<PipelineEvent>>,
     stage: Option<&str>,
+    pipeline: &str,
 ) -> Result<ChatResponse> {
     let mut content = String::new();
     let mut tool_calls: Vec<ToolCall> = Vec::new();
@@ -187,6 +204,7 @@ pub async fn collect_stream(
                     .send(PipelineEvent::Delta {
                         content: delta.clone(),
                         stage: stage.map(String::from),
+                        pipeline: pipeline.to_string(),
                     })
                     .await;
             }

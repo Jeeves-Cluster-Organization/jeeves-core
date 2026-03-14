@@ -416,7 +416,7 @@ async fn test_streaming_emits_stage_events() {
     handle.initialize_session(pid.clone(), config, envelope, false).await.unwrap();
 
     let (tx, mut rx) = tokio::sync::mpsc::channel(64);
-    let result = run_pipeline_loop(&handle, &pid, &agents, Some(tx)).await.unwrap();
+    let result = run_pipeline_loop(&handle, &pid, &agents, Some(tx), "test").await.unwrap();
 
     assert!(result.terminated);
 
@@ -473,7 +473,7 @@ async fn test_streaming_emits_tool_events() {
     handle.initialize_session(pid.clone(), config, envelope, false).await.unwrap();
 
     let (tx, mut rx) = tokio::sync::mpsc::channel(64);
-    run_pipeline_loop(&handle, &pid, &agents, Some(tx)).await.unwrap();
+    run_pipeline_loop(&handle, &pid, &agents, Some(tx), "test").await.unwrap();
 
     let mut events = Vec::new();
     while let Ok(event) = rx.try_recv() {
@@ -511,7 +511,7 @@ async fn test_streaming_emits_done() {
     handle.initialize_session(pid.clone(), config, envelope, false).await.unwrap();
 
     let (tx, mut rx) = tokio::sync::mpsc::channel(64);
-    run_pipeline_loop(&handle, &pid, &agents, Some(tx)).await.unwrap();
+    run_pipeline_loop(&handle, &pid, &agents, Some(tx), "test").await.unwrap();
 
     let mut events = Vec::new();
     while let Ok(event) = rx.try_recv() {

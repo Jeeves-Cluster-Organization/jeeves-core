@@ -4,7 +4,9 @@
 //! channel. The caller gets a oneshot back with the typed result. No
 //! serialization, no TCP, no codec.
 
+use crate::commbus::{Event, Query, QueryResponse, Subscription};
 use crate::envelope::Envelope;
+use crate::kernel::agent_card::AgentCard;
 use crate::kernel::orchestrator_types::{
     AgentExecutionMetrics, Instruction, PipelineConfig, SessionState,
 };
@@ -70,6 +72,37 @@ pub enum KernelCommand {
         interrupt_id: String,
         response: crate::envelope::InterruptResponse,
         resp_tx: oneshot::Sender<Result<()>>,
+    },
+
+    // =========================================================================
+    // CommBus Federation
+    // =========================================================================
+
+    /// Publish an event to CommBus subscribers.
+    PublishEvent {
+        event: Event,
+        resp_tx: oneshot::Sender<Result<usize>>,
+    },
+    /// Subscribe to CommBus event types.
+    Subscribe {
+        subscriber_id: String,
+        event_types: Vec<String>,
+        resp_tx: oneshot::Sender<Result<(Subscription, mpsc::UnboundedReceiver<Event>)>>,
+    },
+    /// Unsubscribe from CommBus.
+    Unsubscribe {
+        subscription: Subscription,
+        resp_tx: oneshot::Sender<()>,
+    },
+    /// Execute a CommBus query (request/response with timeout).
+    CommBusQuery {
+        query: Query,
+        resp_tx: oneshot::Sender<Result<QueryResponse>>,
+    },
+    /// List registered agent cards (discovery).
+    ListAgentCards {
+        filter: Option<String>,
+        resp_tx: oneshot::Sender<Vec<AgentCard>>,
     },
 }
 
@@ -233,6 +266,84 @@ impl KernelHandle {
         resp_rx
             .await
             .map_err(|_| crate::types::Error::internal("Kernel actor dropped response"))?
+    }
+
+    // =========================================================================
+    // CommBus Federation
+    // =========================================================================
+
+    /// Publish an event to CommBus subscribers.
+    pub async fn publish_event(&self, event: Event) -> Result<usize> {
+        let (resp_tx, resp_rx) = oneshot::channel();
+        self.tx
+            .send(KernelCommand::PublishEvent { event, resp_tx })
+            .await
+            .map_err(|_| crate::types::Error::internal("Kernel actor unavailable"))?;
+        resp_rx
+            .await
+            .map_err(|_| crate::types::Error::internal("Kernel actor dropped response"))?
+    }
+
+    /// Subscribe to CommBus event types.
+    pub async fn subscribe(
+        &self,
+        subscriber_id: String,
+        event_types: Vec<String>,
+    ) -> Result<(Subscription, mpsc::UnboundedReceiver<Event>)> {
+        let (resp_tx, resp_rx) = oneshot::channel();
+        self.tx
+            .send(KernelCommand::Subscribe {
+                subscriber_id,
+                event_types,
+                resp_tx,
+            })
+            .await
+            .map_err(|_| crate::types::Error::internal("Kernel actor unavailable"))?;
+        resp_rx
+            .await
+            .map_err(|_| crate::types::Error::internal("Kernel actor dropped response"))?
+    }
+
+    /// Unsubscribe from CommBus.
+    pub async fn unsubscribe(&self, subscription: Subscription) {
+        let (resp_tx, resp_rx) = oneshot::channel();
+        if self
+            .tx
+            .send(KernelCommand::Unsubscribe {
+                subscription,
+                resp_tx,
+            })
+            .await
+            .is_ok()
+        {
+            let _ = resp_rx.await;
+        }
+    }
+
+    /// Execute a CommBus query.
+    pub async fn commbus_query(&self, query: Query) -> Result<QueryResponse> {
+        let (resp_tx, resp_rx) = oneshot::channel();
+        self.tx
+            .send(KernelCommand::CommBusQuery { query, resp_tx })
+            .await
+            .map_err(|_| crate::types::Error::internal("Kernel actor unavailable"))?;
+        resp_rx
+            .await
+            .map_err(|_| crate::types::Error::internal("Kernel actor dropped response"))?
+    }
+
+    /// List registered agent cards (discovery).
+    pub async fn list_agent_cards(&self, filter: Option<String>) -> Vec<AgentCard> {
+        let (resp_tx, resp_rx) = oneshot::channel();
+        if self
+            .tx
+            .send(KernelCommand::ListAgentCards { filter, resp_tx })
+            .await
+            .is_err()
+        {
+            return vec![];
+        }
+        resp_rx.await.unwrap_or_default()
     }
 
     /// Get system status.

@@ -42,11 +42,12 @@ pub async fn run_pipeline(
     session_id: &str,
     agents: &AgentRegistry,
 ) -> Result<WorkerResult> {
+    let pipeline_name = pipeline_config.name.clone();
     let envelope = Envelope::new_minimal(user_id, session_id, raw_input, None);
     let _session = handle
         .initialize_session(process_id.clone(), pipeline_config, envelope, false)
         .await?;
-    run_pipeline_loop(handle, &process_id, agents, None).await
+    run_pipeline_loop(handle, &process_id, agents, None, &pipeline_name).await
 }
 
 /// Run a pipeline to completion with a pre-built Envelope (supports metadata).
@@ -57,10 +58,11 @@ pub async fn run_pipeline_with_envelope(
     envelope: Envelope,
     agents: &AgentRegistry,
 ) -> Result<WorkerResult> {
+    let pipeline_name = pipeline_config.name.clone();
     let _session = handle
         .initialize_session(process_id.clone(), pipeline_config, envelope, false)
         .await?;
-    run_pipeline_loop(handle, &process_id, agents, None).await
+    run_pipeline_loop(handle, &process_id, agents, None, &pipeline_name).await
 }
 
 /// Run a pipeline with streaming events. Returns a join handle and event receiver.
@@ -76,12 +78,13 @@ pub async fn run_pipeline_streaming(
     tokio::task::JoinHandle<Result<WorkerResult>>,
     mpsc::Receiver<PipelineEvent>,
 )> {
+    let pipeline_name = pipeline_config.name.clone();
     handle
         .initialize_session(process_id.clone(), pipeline_config, envelope, false)
         .await?;
     let (tx, rx) = mpsc::channel(64);
     let jh = tokio::spawn(async move {
-        run_pipeline_loop(&handle, &process_id, &agents, Some(tx)).await
+        run_pipeline_loop(&handle, &process_id, &agents, Some(tx), &pipeline_name).await
     });
     Ok((jh, rx))
 }
@@ -93,6 +96,7 @@ pub async fn run_pipeline_loop(
     process_id: &ProcessId,
     agents: &AgentRegistry,
     event_tx: Option<mpsc::Sender<PipelineEvent>>,
+    pipeline_name: &str,
 ) -> Result<WorkerResult> {
     loop {
         let instruction = handle.get_next_instruction(process_id).await?;
@@ -116,6 +120,7 @@ pub async fn run_pipeline_loop(
                                 .as_ref()
                                 .map(|r| format!("{:?}", r)),
                             outputs: Some(serde_json::to_value(&outputs).unwrap_or_default()),
+                            pipeline: pipeline_name.to_string(),
                         })
                         .await;
                 }
@@ -138,17 +143,19 @@ pub async fn run_pipeline_loop(
                     let _ = tx
                         .send(PipelineEvent::StageStarted {
                             stage: agent_name.clone(),
+                            pipeline: pipeline_name.to_string(),
                         })
                         .await;
                 }
 
-                let ctx = build_agent_context(&instruction, event_tx.clone(), Some(agent_name.clone()));
+                let ctx = build_agent_context(&instruction, event_tx.clone(), Some(agent_name.clone()), pipeline_name);
                 let output = execute_agent(agents, agent_name, &ctx).await;
 
                 if let Some(ref tx) = event_tx {
                     let _ = tx
                         .send(PipelineEvent::StageCompleted {
                             stage: agent_name.clone(),
+                            pipeline: pipeline_name.to_string(),
                         })
                         .await;
                 }
@@ -168,7 +175,7 @@ pub async fn run_pipeline_loop(
             }
 
             InstructionKind::RunAgents => {
-                execute_parallel(handle, process_id, &instruction, agents, event_tx.clone())
+                execute_parallel(handle, process_id, &instruction, agents, event_tx.clone(), pipeline_name)
                     .await?;
             }
 
@@ -186,6 +193,7 @@ pub async fn run_pipeline_loop(
                         kind: interrupt.as_ref().map(|i| format!("{:?}", i.kind)).unwrap_or_default(),
                         question: interrupt.as_ref().and_then(|i| i.question.clone()),
                         message: interrupt.as_ref().and_then(|i| i.message.clone()),
+                        pipeline: pipeline_name.to_string(),
                     }).await;
                     // Poll: kernel returns WaitInterrupt until resolved, then RunAgent/Terminate
                     loop {
@@ -216,11 +224,12 @@ async fn execute_parallel(
     instruction: &crate::kernel::orchestrator_types::Instruction,
     agents: &AgentRegistry,
     event_tx: Option<mpsc::Sender<PipelineEvent>>,
+    pipeline_name: &str,
 ) -> Result<()> {
     let mut join_handles = Vec::new();
 
     for agent_name in &instruction.agents {
-        let ctx = build_agent_context(instruction, event_tx.clone(), Some(agent_name.clone()));
+        let ctx = build_agent_context(instruction, event_tx.clone(), Some(agent_name.clone()), pipeline_name);
         let name = agent_name.clone();
         let agent_impl = agents.get(&name).cloned();
 
@@ -269,6 +278,7 @@ fn build_agent_context(
     instruction: &crate::kernel::orchestrator_types::Instruction,
     event_tx: Option<mpsc::Sender<PipelineEvent>>,
     stage_name: Option<String>,
+    pipeline_name: &str,
 ) -> AgentContext {
     let ctx_val = instruction.agent_context.as_ref();
 
@@ -293,6 +303,7 @@ fn build_agent_context(
         allowed_tools: instruction.allowed_tools.clone().unwrap_or_default(),
         event_tx,
         stage_name,
+        pipeline_name: pipeline_name.to_string(),
     }
 }
 
@@ -317,6 +328,7 @@ async fn execute_agent(
                         .send(PipelineEvent::Error {
                             message: output.error_message.clone(),
                             stage: ctx.stage_name.clone(),
+                            pipeline: ctx.pipeline_name.clone(),
                         })
                         .await;
                 }
@@ -329,6 +341,7 @@ async fn execute_agent(
                     .send(PipelineEvent::Error {
                         message: e.to_string(),
                         stage: ctx.stage_name.clone(),
+                        pipeline: ctx.pipeline_name.clone(),
                     })
                     .await;
             }

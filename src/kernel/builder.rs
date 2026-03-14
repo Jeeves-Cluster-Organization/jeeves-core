@@ -103,6 +103,8 @@ impl PipelineBuilder {
             edge_limits: self.edge_limits,
             step_limit: self.step_limit,
             state_schema: self.state_schema,
+            subscriptions: vec![],
+            publishes: vec![],
         };
         config.validate()?;
         Ok(config)
@@ -215,6 +217,13 @@ impl StageHandle {
         self
     }
 
+    /// Set child_pipeline for this stage (composition).
+    pub fn child_pipeline(mut self, name: &str) -> Self {
+        self.stage_mut().child_pipeline = Some(name.to_string());
+        self.stage_mut().has_llm = false; // mutually exclusive
+        self
+    }
+
     /// Return to the pipeline builder.
     pub fn done(self) -> PipelineBuilder {
         self.builder
@@ -244,6 +253,7 @@ impl Default for PipelineStage {
             temperature: None,
             max_tokens: None,
             model_role: None,
+            child_pipeline: None,
         }
     }
 }

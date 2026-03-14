@@ -10,6 +10,7 @@ use std::collections::HashMap;
 pub mod types;
 
 // Subsystem modules
+pub mod agent_card;
 pub mod cleanup;
 pub mod interrupts;
 pub mod lifecycle;
@@ -123,6 +124,14 @@ pub struct Kernel {
 
     /// Tool health tracking — sliding-window metrics and circuit breaking.
     pub(crate) tool_health: crate::tools::ToolHealthTracker,
+
+    /// Agent card registry for federation discovery.
+    pub(crate) agent_cards: agent_card::AgentCardRegistry,
+
+    /// Per-process CommBus subscriptions (subscription + event receiver).
+    /// Stored here because PipelineSession derives Clone and receivers aren't Clone.
+    pub(crate) process_subscriptions:
+        HashMap<ProcessId, Vec<(crate::commbus::Subscription, tokio::sync::mpsc::UnboundedReceiver<crate::commbus::Event>)>>,
 }
 
 impl Kernel {
@@ -139,6 +148,8 @@ impl Kernel {
             tool_catalog: crate::tools::ToolCatalog::new(),
             tool_access: crate::tools::ToolAccessPolicy::new(),
             tool_health: crate::tools::ToolHealthTracker::default(),
+            agent_cards: agent_card::AgentCardRegistry::new(),
+            process_subscriptions: HashMap::new(),
         }
     }
 
@@ -169,6 +180,8 @@ impl Kernel {
             tool_catalog: crate::tools::ToolCatalog::new(),
             tool_access: crate::tools::ToolAccessPolicy::new(),
             tool_health: crate::tools::ToolHealthTracker::default(),
+            agent_cards: agent_card::AgentCardRegistry::new(),
+            process_subscriptions: HashMap::new(),
         }
     }
 
@@ -188,6 +201,8 @@ impl Kernel {
             tool_catalog: crate::tools::ToolCatalog::new(),
             tool_access: crate::tools::ToolAccessPolicy::new(),
             tool_health: crate::tools::ToolHealthTracker::default(),
+            agent_cards: agent_card::AgentCardRegistry::new(),
+            process_subscriptions: HashMap::new(),
         }
     }
 }

@@ -11,7 +11,7 @@ use tokio::sync::mpsc;
 
 use tracing::instrument;
 
-use crate::kernel::orchestrator_types::{AgentExecutionMetrics, ToolCallResult};
+use crate::kernel::orchestrator_types::{AgentExecutionMetrics, PipelineConfig, ToolCallResult};
 use crate::worker::llm::{
     collect_stream, ChatMessage, ChatRequest, LlmProvider, PipelineEvent, ToolCall,
 };
@@ -38,11 +38,13 @@ pub struct AgentContext {
     pub event_tx: Option<mpsc::Sender<PipelineEvent>>,
     /// Pipeline stage name this agent is executing within (None for ad-hoc execution).
     pub stage_name: Option<String>,
+    /// Pipeline name for event attribution.
+    pub pipeline_name: String,
 }
 
 /// Agent trait — implementations provide custom agent behavior.
 #[async_trait]
-pub trait Agent: Send + Sync + std::fmt::Debug {
+pub trait Agent: Send + Sync + std::fmt::Debug + std::any::Any {
     async fn process(&self, ctx: &AgentContext) -> crate::types::Result<AgentOutput>;
 }
 
@@ -130,7 +132,7 @@ impl Agent for LlmAgent {
 
             // Use streaming path — collect_stream forwards deltas to event_tx if present
             let resp = match self.llm.chat_stream(&req).await {
-                Ok(stream) => match collect_stream(stream, ctx.event_tx.as_ref(), ctx.stage_name.as_deref()).await {
+                Ok(stream) => match collect_stream(stream, ctx.event_tx.as_ref(), ctx.stage_name.as_deref(), &ctx.pipeline_name).await {
                     Ok(resp) => resp,
                     Err(e) => return Ok(make_error_output(e, start, total_llm_calls + 1)),
                 },
@@ -157,12 +159,34 @@ impl Agent for LlmAgent {
                 total_tool_calls += 1;
                 tracing::debug!(tool_name = %tc.name, "tool_execute");
 
+                // Pre-execution ACL check: reject tool calls not in allowed_tools
+                if !ctx.allowed_tools.is_empty() && !ctx.allowed_tools.contains(&tc.name) {
+                    tracing::warn!(
+                        tool = %tc.name,
+                        allowed = ?ctx.allowed_tools,
+                        "tool_acl_blocked_pre_execution"
+                    );
+                    let error_msg = format!("Tool '{}' not in allowed_tools", tc.name);
+                    tool_results.push(ToolCallResult {
+                        name: tc.name.clone(),
+                        success: false,
+                        latency_ms: 0,
+                        error_type: Some(error_msg.clone()),
+                    });
+                    messages.push(ChatMessage::tool_result(
+                        &tc.id,
+                        serde_json::json!({"error": error_msg}).to_string(),
+                    ));
+                    continue;
+                }
+
                 if let Some(ref tx) = ctx.event_tx {
                     let _ = tx
                         .send(PipelineEvent::ToolCallStart {
                             id: tc.id.clone(),
                             name: tc.name.clone(),
                             stage: ctx.stage_name.clone(),
+                            pipeline: ctx.pipeline_name.clone(),
                         })
                         .await;
                 }
@@ -191,6 +215,7 @@ impl Agent for LlmAgent {
                             id: tc.id.clone(),
                             content: result.clone(),
                             stage: ctx.stage_name.clone(),
+                            pipeline: ctx.pipeline_name.clone(),
                         })
                         .await;
                 }
@@ -248,6 +273,7 @@ impl Agent for McpDelegatingAgent {
                     id: call_id.clone(),
                     name: self.tool_name.clone(),
                     stage: ctx.stage_name.clone(),
+                    pipeline: ctx.pipeline_name.clone(),
                 })
                 .await;
         }
@@ -268,6 +294,7 @@ impl Agent for McpDelegatingAgent {
                         .send(PipelineEvent::Error {
                             message: err_str.clone(),
                             stage: ctx.stage_name.clone(),
+                            pipeline: ctx.pipeline_name.clone(),
                         })
                         .await;
                 }
@@ -282,6 +309,7 @@ impl Agent for McpDelegatingAgent {
                     id: call_id.clone(),
                     content: result.to_string(),
                     stage: ctx.stage_name.clone(),
+                    pipeline: ctx.pipeline_name.clone(),
                 })
                 .await;
         }
@@ -327,6 +355,202 @@ impl Agent for DeterministicAgent {
             success: true,
             error_message: String::new(),
         })
+    }
+}
+
+/// Composition agent — runs a child pipeline as a stage in a parent pipeline.
+///
+/// Uses `OnceLock` to solve the chicken-and-egg: PipelineAgent is registered in
+/// the AgentRegistry, but needs an `Arc<AgentRegistry>` to run the child loop.
+/// Two-pass rebuild: build all agents → wrap in Arc → backfill via `set()`.
+#[derive(Debug)]
+pub struct PipelineAgent {
+    pub pipeline_name: String,
+    pub pipeline_config: PipelineConfig,
+    pub handle: crate::worker::handle::KernelHandle,
+    pub agents: std::sync::OnceLock<Arc<AgentRegistry>>,
+}
+
+#[async_trait]
+impl Agent for PipelineAgent {
+    async fn process(&self, ctx: &AgentContext) -> crate::types::Result<AgentOutput> {
+        let start = Instant::now();
+
+        let agents = self.agents.get().ok_or_else(|| {
+            crate::types::Error::internal("PipelineAgent: agent registry not initialized (OnceLock empty)")
+        })?;
+
+        // Create child process ID
+        let child_pid = crate::types::ProcessId::new();
+
+        // Create child envelope inheriting parent context
+        let child_envelope = crate::envelope::Envelope::new_minimal(
+            "child",
+            &format!("child_{}", child_pid.as_str()),
+            &ctx.raw_input,
+            Some(serde_json::json!({
+                "parent_outputs": ctx.outputs,
+                "parent_state": ctx.state,
+                "parent_metadata": ctx.metadata,
+            })),
+        );
+
+        // Determine child pipeline name for events (dotted notation)
+        let child_pipeline_name = format!("{}.{}", ctx.pipeline_name, self.pipeline_name);
+
+        // If streaming, set up a bridge task that forwards child events to parent
+        let (child_event_tx, child_event_rx) = if ctx.event_tx.is_some() {
+            let (tx, rx) = mpsc::channel::<PipelineEvent>(64);
+            (Some(tx), Some(rx))
+        } else {
+            (None, None)
+        };
+
+        // Spawn bridge task if streaming
+        let bridge_handle = if let (Some(parent_tx), Some(mut child_rx)) =
+            (ctx.event_tx.clone(), child_event_rx)
+        {
+            let child_name = child_pipeline_name.clone();
+            Some(tokio::spawn(async move {
+                while let Some(event) = child_rx.recv().await {
+                    // Filter out child Done events — parent emits its own
+                    if matches!(event, PipelineEvent::Done { .. }) {
+                        continue;
+                    }
+                    // Rewrite pipeline field to child name
+                    let rewritten = rewrite_event_pipeline(event, &child_name);
+                    if parent_tx.send(rewritten).await.is_err() {
+                        break; // Parent channel closed
+                    }
+                }
+            }))
+        } else {
+            None
+        };
+
+        // Initialize child session
+        self.handle
+            .initialize_session(
+                child_pid.clone(),
+                self.pipeline_config.clone(),
+                child_envelope,
+                false,
+            )
+            .await?;
+
+        // Run child pipeline loop
+        let child_result = crate::worker::run_pipeline_loop(
+            &self.handle,
+            &child_pid,
+            agents,
+            child_event_tx,
+            &child_pipeline_name,
+        )
+        .await;
+
+        // Wait for bridge to drain
+        if let Some(bh) = bridge_handle {
+            let _ = bh.await;
+        }
+
+        let duration = start.elapsed();
+
+        match child_result {
+            Ok(result) => {
+                // Build nested output: child outputs under stage output_key
+                let mut nested_output = serde_json::Map::new();
+                for (agent_name, agent_outputs) in &result.outputs {
+                    let agent_value = serde_json::Value::Object(
+                        agent_outputs.iter().map(|(k, v)| (k.clone(), v.clone())).collect(),
+                    );
+                    nested_output.insert(agent_name.clone(), agent_value);
+                }
+                nested_output.insert(
+                    "_terminal_reason".to_string(),
+                    serde_json::Value::String(
+                        result.terminal_reason.as_ref().map(|r| format!("{:?}", r)).unwrap_or_else(|| "Unknown".to_string()),
+                    ),
+                );
+
+                Ok(AgentOutput {
+                    output: serde_json::Value::Object(nested_output),
+                    metrics: AgentExecutionMetrics {
+                        llm_calls: 0, // child's own bounds track these
+                        tool_calls: 0,
+                        tokens_in: None,
+                        tokens_out: None,
+                        duration_ms: duration.as_millis() as i64,
+                        tool_results: vec![],
+                    },
+                    success: result.terminated,
+                    error_message: String::new(),
+                })
+            }
+            Err(e) => Ok(AgentOutput {
+                output: serde_json::json!({"error": e.to_string()}),
+                metrics: AgentExecutionMetrics {
+                    llm_calls: 0,
+                    tool_calls: 0,
+                    tokens_in: None,
+                    tokens_out: None,
+                    duration_ms: duration.as_millis() as i64,
+                    tool_results: vec![],
+                },
+                success: false,
+                error_message: e.to_string(),
+            }),
+        }
+    }
+}
+
+/// Rewrite a PipelineEvent's pipeline field to the given name.
+fn rewrite_event_pipeline(event: PipelineEvent, pipeline_name: &str) -> PipelineEvent {
+    match event {
+        PipelineEvent::StageStarted { stage, .. } => PipelineEvent::StageStarted {
+            stage,
+            pipeline: pipeline_name.to_string(),
+        },
+        PipelineEvent::Delta { content, stage, .. } => PipelineEvent::Delta {
+            content,
+            stage,
+            pipeline: pipeline_name.to_string(),
+        },
+        PipelineEvent::ToolCallStart { id, name, stage, .. } => PipelineEvent::ToolCallStart {
+            id,
+            name,
+            stage,
+            pipeline: pipeline_name.to_string(),
+        },
+        PipelineEvent::ToolResult { id, content, stage, .. } => PipelineEvent::ToolResult {
+            id,
+            content,
+            stage,
+            pipeline: pipeline_name.to_string(),
+        },
+        PipelineEvent::StageCompleted { stage, .. } => PipelineEvent::StageCompleted {
+            stage,
+            pipeline: pipeline_name.to_string(),
+        },
+        PipelineEvent::Done { process_id, terminated, terminal_reason, outputs, .. } => PipelineEvent::Done {
+            process_id,
+            terminated,
+            terminal_reason,
+            outputs,
+            pipeline: pipeline_name.to_string(),
+        },
+        PipelineEvent::InterruptPending { process_id, interrupt_id, kind, question, message, .. } => PipelineEvent::InterruptPending {
+            process_id,
+            interrupt_id,
+            kind,
+            question,
+            message,
+            pipeline: pipeline_name.to_string(),
+        },
+        PipelineEvent::Error { message, stage, .. } => PipelineEvent::Error {
+            message,
+            stage,
+            pipeline: pipeline_name.to_string(),
+        },
     }
 }
 

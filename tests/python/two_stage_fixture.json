@@ -1,0 +1,23 @@
+{
+  "name": "test_two_stage",
+  "stages": [
+    {
+      "name": "step_one",
+      "agent": "step_one",
+      "has_llm": false,
+      "routing": [],
+      "default_next": "step_two"
+    },
+    {
+      "name": "step_two",
+      "agent": "step_two",
+      "has_llm": false,
+      "routing": [],
+      "default_next": null
+    }
+  ],
+  "max_iterations": 10,
+  "max_llm_calls": 10,
+  "max_agent_hops": 10,
+  "edge_limits": []
+}

@@ -34,15 +34,14 @@ async fn run_kernel_actor(
                     tracing::info!("Kernel actor channel closed");
                     break;
                 };
-                dispatch(&mut kernel, cmd);
+                dispatch(&mut kernel, cmd).await;
             }
         }
     }
 }
 
-/// Dispatch a single command to the kernel. All kernel methods are sync
-/// (except execute_query, which we don't expose through this path).
-fn dispatch(kernel: &mut Kernel, cmd: KernelCommand) {
+/// Dispatch a single command to the kernel. Async for CommBusQuery fire-and-spawn.
+async fn dispatch(kernel: &mut Kernel, cmd: KernelCommand) {
     match cmd {
         KernelCommand::InitializeSession {
             process_id,
@@ -165,6 +164,85 @@ fn dispatch(kernel: &mut Kernel, cmd: KernelCommand) {
                 Err(crate::types::Error::not_found(format!("Interrupt {} not found", interrupt_id)))
             };
             let _ = resp_tx.send(result);
+        }
+
+        // =====================================================================
+        // CommBus Federation
+        // =====================================================================
+
+        KernelCommand::PublishEvent { event, resp_tx } => {
+            let result = kernel.commbus.publish(event);
+            let _ = resp_tx.send(result);
+        }
+
+        KernelCommand::Subscribe {
+            subscriber_id,
+            event_types,
+            resp_tx,
+        } => {
+            let result = kernel.commbus.subscribe(subscriber_id, event_types);
+            let _ = resp_tx.send(result);
+        }
+
+        KernelCommand::Unsubscribe {
+            subscription,
+            resp_tx,
+        } => {
+            kernel.commbus.unsubscribe(&subscription);
+            let _ = resp_tx.send(());
+        }
+
+        KernelCommand::CommBusQuery { query, resp_tx } => {
+            // Fire-and-spawn to prevent deadlock: get handler, then spawn
+            // a task to send query + await response outside the actor loop.
+            if let Some(handler) = kernel.commbus.get_query_handler(&query.query_type) {
+                tokio::spawn(async move {
+                    let (response_tx, response_rx) = tokio::sync::oneshot::channel();
+                    if handler.send((query.clone(), response_tx)).is_err() {
+                        let _ = resp_tx.send(Err(crate::types::Error::internal(
+                            format!("Failed to send query to handler: {}", query.query_type),
+                        )));
+                        return;
+                    }
+                    let timeout_ms = query.timeout_ms;
+                    match tokio::time::timeout(
+                        tokio::time::Duration::from_millis(timeout_ms),
+                        response_rx,
+                    )
+                    .await
+                    {
+                        Ok(Ok(response)) => {
+                            let _ = resp_tx.send(Ok(response));
+                        }
+                        Ok(Err(_)) => {
+                            let _ = resp_tx.send(Err(crate::types::Error::internal(
+                                "Query response channel closed",
+                            )));
+                        }
+                        Err(_) => {
+                            let _ = resp_tx.send(Err(crate::types::Error::timeout(format!(
+                                "Query timeout after {}ms",
+                                timeout_ms,
+                            ))));
+                        }
+                    }
+                });
+            } else {
+                let _ = resp_tx.send(Err(crate::types::Error::validation(format!(
+                    "No handler registered for query type: {}",
+                    query.query_type,
+                ))));
+            }
+        }
+
+        KernelCommand::ListAgentCards { filter, resp_tx } => {
+            let cards = kernel
+                .agent_cards
+                .list(filter.as_deref())
+                .into_iter()
+                .cloned()
+                .collect();
+            let _ = resp_tx.send(cards);
         }
     }
 }
