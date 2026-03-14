@@ -3,75 +3,141 @@
 All notable changes to jeeves-core will be documented in this file.
 
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
-This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
 ### Added
 
-- `src/worker/` module — single-process agent execution replacing Python infrastructure + IPC bridge
-  - `worker::actor` — kernel actor (single `&mut Kernel` behind mpsc channel)
-  - `worker::handle` — `KernelHandle` typed channel wrapper (Clone, Send+Sync)
-  - `worker::agent` — `Agent` trait, `LlmAgent`, `DeterministicAgent`, `AgentRegistry`
-  - `worker::llm` — `LlmProvider` trait, OpenAI-compatible HTTP client (reqwest), mock provider
-  - `worker::gateway` — axum HTTP gateway (chat, sessions, health, status)
-  - `worker::tools` — `ToolExecutor` trait, `ToolRegistry`
-  - `worker::prompts` — `PromptRegistry` with `{var}` template substitution
-- `PipelineStage` fields for agent execution: `prompt_key`, `has_llm`, `temperature`, `max_tokens`, `model_role`
-- Integration tests for kernel actor + agent task round-trip (5 tests)
-- CLI via clap: `jeeves-kernel run --http-addr --llm-model --llm-api-key --llm-base-url`
+- **A2A Composition** — `PipelineAgent` runs a child pipeline as a stage in a parent pipeline
+  - `child_pipeline` field on `PipelineStage` (mutually exclusive with `has_llm`)
+  - OnceLock-based two-pass registry rebuild for circular dependency resolution
+  - Streaming event bridge with dotted pipeline name attribution (`parent.child`)
+  - Nested output extraction under parent stage's output_key
+- **CommBus Federation** — cross-pipeline communication
+  - 5 new `KernelCommand` variants: `PublishEvent`, `Subscribe`, `Unsubscribe`, `CommBusQuery`, `ListAgentCards`
+  - Async actor dispatch with fire-and-spawn pattern for queries (deadlock prevention)
+  - Subscription wiring at session init from `PipelineConfig.subscriptions`
+  - Event inbox drain at `get_next_instruction()` into `envelope.event_inbox`
+  - Automatic cleanup on process termination
+  - `register_command_handler()`, `unsubscribe()`, `get_query_handler()`, `cleanup_disconnected()` on CommBus
+- **AgentCard** — federation discovery registry (`src/kernel/agent_card.rs`)
+- `pipeline: String` field on all `PipelineEvent` variants (required, not optional)
+- `pipeline_name` field on `AgentContext`
+- `event_inbox` on `Envelope` for CommBus event accumulation
+- `subscriptions` and `publishes` fields on `PipelineConfig`
+- `Any` supertrait on `Agent` trait (enables downcasting for OnceLock backfill)
+- 21 new tests for federation and composition
+
+### Changed
+
+- `dispatch()` in actor.rs is now async (required for fire-and-spawn CommBusQuery)
+
+---
+
+## 2026-03-13
+
+### Added
+
+- **Streaming pipeline events** — `PipelineEvent` variants carry stage context
+  - `StageStarted`, `StageCompleted`, `ToolCallStart`, `ToolResult` events
+  - Observable tool execution with per-call events
+- Metadata parameter on PyO3 `PipelineRunner.run()` / `.stream()`
+
+### Fixed
+
+- Kernel output propagation — agent outputs correctly merged into envelope
+- Event serde — PipelineEvent serialization matches Python consumer expectations
+- PyO3 test coverage for buffered and streaming modes
+
+---
+
+## 2026-03-12
+
+### Added
+
+- **PyO3 binding layer** — kernel as importable Python library (`from jeeves_core import PipelineRunner, tool`)
+  - `PipelineRunner.from_json()` — load pipeline config from JSON file
+  - `PipelineRunner.run()` — buffered execution, returns dict
+  - `PipelineRunner.stream()` — streaming via `PyEventIterator`
+  - `@tool` decorator for registering Python functions as kernel tools
+  - `ToolBridge` — Python↔Rust tool dispatch
+  - Agent auto-creation from pipeline.json stages (LlmAgent, McpDelegatingAgent, DeterministicAgent)
+- **MCP stdio server** — replaces HTTP gateway
+  - `src/main.rs` — JSON-RPC on stdin/stdout, tracing to stderr
+  - `JEEVES_MCP_SERVERS` env var for upstream MCP server auto-connect (proxy pattern)
+  - `mcp-stdio` feature flag (requires clap)
+- `McpDelegatingAgent` — agent that delegates to a named tool
+- `AgentConfig` for config-driven agent registration
 
 ### Removed
 
-- **Entire Python layer** (`python/` — ~30,800 LOC): kernel_client, pipeline_worker, gateway, LLM providers, bootstrap, protocols, runtime, orchestrator, capability_wiring
-- **IPC layer** (`src/ipc/` — ~3,449 LOC): TCP server, msgpack codec, router, all 6 handler modules
-- `tests/ipc_integration.rs` (887 LOC), `benches/ipc_throughput.rs` (75 LOC)
-- `codegen/generate_python_types.py`
-- Python dependencies: msgpack, httpx, pydantic, fastapi, litellm, etc.
-- maturin build system
+- **HTTP gateway** (`src/worker/gateway.rs`) — replaced by PyO3 + MCP stdio
+- `http-server` feature flag and axum runtime dependency
+
+---
+
+## 2026-03-10
+
+### Added
+
+- **DX improvements** — PipelineBuilder DSL, discovery, client helpers
+  - `PipelineBuilder` with fluent API (`src/kernel/builder.rs`)
+  - God-file splits for orchestrator types and routing
+- MCP client (`McpToolExecutor`) with HTTP and stdio transports
+- Tool health tracking with sliding-window circuit breaking
+- Execution tracking on envelope (stage numbers, timing)
+- Interrupt lifecycle wiring (resolve + resume flow)
+
+---
+
+## 2026-03-08
+
+### Added
+
+- **Single-process Rust-only kernel** — eliminates Python + IPC
+  - `worker::actor` — kernel actor (single `&mut Kernel` behind mpsc channel)
+  - `worker::handle` — `KernelHandle` typed channel wrapper (Clone, Send+Sync)
+  - `worker::agent` — `Agent` trait, `LlmAgent`, `DeterministicAgent`, `AgentRegistry`
+  - `worker::llm` — `LlmProvider` trait, OpenAI-compatible HTTP client, mock provider
+  - `worker::tools` — `ToolExecutor` trait, `ToolRegistry`
+  - `worker::prompts` — `PromptRegistry` with `{var}` template substitution
+- `PipelineStage` fields: `prompt_key`, `has_llm`, `temperature`, `max_tokens`, `model_role`
+- Integration tests for kernel actor + agent task round-trip
+
+### Removed
+
+- **Entire Python layer** (~30,800 LOC): kernel_client, pipeline_worker, gateway, LLM providers
+- **IPC layer** (~3,449 LOC): TCP server, msgpack codec, router, all handler modules
+- Python dependencies, maturin build system (later re-added for PyO3)
 
 ### Changed
 
 - Architecture: multi-process (Python + TCP+msgpack IPC + Rust) → single-process (Rust only)
-- Consumer contract: Python library imports → HTTP API + Rust crate API
-- Default listen address: `127.0.0.1:50051` (IPC) → `0.0.0.0:8080` (HTTP)
-- Env var: `AIRFRAME_KERNEL_ADDRESS` → `JEEVES_HTTP_ADDR`
-- Dockerfile: multi-stage maturin+Python → pure Rust build
 
 ---
 
-## Previous [Unreleased]
+## 2026-02-28
 
 ### Added
 
-**Kernel (Rust):**
-- Connection backpressure via semaphore (`max_connections` in IPC config)
-- Per-frame read/write timeouts (configurable, prevents slowloris)
-- Input validation helpers (`validation.rs`) for non-negative integer parsing
-- Bounded envelope collection with configurable max capacity and eviction
-- User usage cleanup in `CleanupService`
-- Envelope cleanup in `CleanupService`
-- Lifecycle events include `session_id` in all payloads
-- Criterion benchmarks for IPC codec throughput
-- Property-based fuzz tests for IPC codec via proptest
-- 13 unit tests for envelope module
+- **Graph primitives** — `NodeKind` (Agent, Gate, Fork), state merge, break semantics
+- Parallel execution via Fork topology with `JoinStrategy` (WaitAll, WaitFirst)
+- `state_schema` on `PipelineConfig` for typed state merge
+- `output_key` on `PipelineStage`
+- `max_visits` per-stage visit limit
 
-### Changed
+---
 
-**Kernel (Rust):**
-- Frame size limit reduced from 50 MB to 5 MB (configurable)
-- `encode_msgpack()` replaces 6 `unwrap_or_default()` calls — encoding failures surface as errors
+## 2026-02-15
 
-### Removed
+### Added
 
-**Kernel (Rust):**
-- `envelope/export.rs` and `envelope/import.rs` (unimplemented stubs, zero callers)
+- Envelope→AgentContext migration, typed LLM boundaries
+- Pipeline validation pushed to Rust kernel (from Python)
+- Terminal classification in Rust (TerminalReason enum)
+- Tool ACL enforcement at kernel level
 
-### Fixed
-
-**Kernel (Rust):**
-- Integer overflow protection on `RecordUsage` and `CheckRateLimit` handlers
-- `as i32` casts replaced with checked conversions
+---
 
 ## [0.1.0] - Initial release
 
@@ -83,5 +149,4 @@ Rust micro-kernel for AI agent orchestration:
 - Envelope execution state container with pipeline stage management
 - Multi-agent orchestration (session init, instruction dispatch, result reporting)
 - Background cleanup service (zombie processes, stale sessions, resolved interrupts)
-- Panic recovery for fault isolation
-- OpenTelemetry tracing + Prometheus metrics
+- Tracing via `tracing` crate (compact or JSON output)

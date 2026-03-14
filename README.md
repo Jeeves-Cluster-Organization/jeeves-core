@@ -1,31 +1,20 @@
 # Jeeves Core
 
-Rust micro-kernel for AI agent orchestration. Single-process runtime with embedded HTTP gateway.
-
-The kernel provides process lifecycle, pipeline orchestration (routing, bounds, termination), interrupt handling, resource quotas, and an HTTP API. Agent execution runs as concurrent tokio tasks within the same process.
+Rust micro-kernel for AI agent orchestration. Consumable as a Rust library, PyO3 Python module, or MCP stdio server.
 
 ## Quick Start
 
 ```bash
 # Build and test
-cargo build
-cargo test                          # 252 tests
-cargo clippy -- -D warnings         # lint-clean
+cargo test                              # 302 tests (lib + integration)
+cargo clippy --all-features             # lint
 
-# Run the kernel with HTTP gateway
-cp .env.example .env                # edit for your env
-cargo run -- run                    # HTTP on 0.0.0.0:8080
+# PyO3 Python module
+pip install -e .                        # build via maturin
+python -c "from jeeves_core import PipelineRunner"
 
-# Or specify options directly
-cargo run -- run --http-addr 0.0.0.0:9000 --llm-model gpt-4o
-```
-
-If you have [just](https://github.com/casey/just) installed:
-
-```bash
-just check     # cargo check + clippy + test
-just run       # start the kernel
-just fmt       # cargo fmt
+# MCP stdio server (tool proxy)
+cargo run --features mcp-stdio
 ```
 
 ## Repository Structure
@@ -33,105 +22,143 @@ just fmt       # cargo fmt
 ```
 jeeves-core/
 ├── src/
-│   ├── kernel/           # Orchestration engine (routing, bounds, process lifecycle)
-│   ├── worker/           # Agent execution, LLM providers, HTTP gateway
-│   │   ├── actor.rs      # Kernel actor (mpsc channel, typed dispatch)
-│   │   ├── handle.rs     # KernelHandle (typed channel wrapper)
-│   │   ├── agent.rs      # Agent trait, LlmAgent, DeterministicAgent
-│   │   ├── llm/          # LLM provider trait + OpenAI-compatible client
-│   │   ├── gateway.rs    # HTTP gateway (axum)
-│   │   ├── tools.rs      # Tool executor trait + registry
-│   │   └── prompts.rs    # Prompt template loading + rendering
-│   ├── envelope/         # Envelope types, enums (TerminalReason), bounds
-│   ├── commbus/          # Message bus (events, commands, queries)
-│   └── main.rs           # CLI entry point (clap)
-├── tests/                # Rust integration tests
-├── benches/              # Rust benchmarks
-└── docs/                 # Deployment, API reference
+│   ├── kernel/               # Orchestration engine
+│   │   ├── orchestrator.rs   # Pipeline sessions, routing, bounds
+│   │   ├── orchestrator_types.rs  # PipelineConfig, PipelineStage, Instruction
+│   │   ├── routing.rs        # RoutingExpr evaluation (13 ops, 5 scopes)
+│   │   ├── builder.rs        # PipelineBuilder DSL
+│   │   ├── agent_card.rs     # AgentCard registry (federation discovery)
+│   │   ├── lifecycle.rs      # Process state machine
+│   │   ├── resources.rs      # Quota enforcement
+│   │   ├── interrupts.rs     # Human-in-the-loop
+│   │   ├── rate_limiter.rs   # Per-user sliding window
+│   │   ├── cleanup.rs        # Background GC
+│   │   └── services.rs       # Service registry
+│   ├── worker/               # Agent execution
+│   │   ├── actor.rs          # Kernel actor (mpsc channel, typed dispatch)
+│   │   ├── handle.rs         # KernelHandle (typed channel wrapper, Clone)
+│   │   ├── agent.rs          # Agent trait, LlmAgent, DeterministicAgent, PipelineAgent
+│   │   ├── llm/              # LlmProvider trait, OpenAI HTTP client, streaming
+│   │   ├── mcp.rs            # MCP tool executor (HTTP + stdio transports)
+│   │   ├── mcp_server.rs     # MCP stdio server (behind mcp-stdio feature)
+│   │   ├── tools.rs          # ToolExecutor trait + ToolRegistry
+│   │   └── prompts.rs        # Prompt template loading + {var} substitution
+│   ├── python/               # PyO3 bindings (behind py-bindings feature)
+│   │   ├── runner.rs         # PipelineRunner facade
+│   │   ├── tool_bridge.rs    # Python→Rust tool bridge
+│   │   └── event_iter.rs     # Streaming event iterator
+│   ├── envelope/             # Envelope types, bounds, TerminalReason
+│   ├── commbus/              # Message bus (events, commands, queries)
+│   ├── types/                # IDs, errors, config
+│   └── main.rs               # MCP stdio binary (behind mcp-stdio feature)
+└── tests/                    # Integration tests
 ```
 
-## HTTP API
+## Consumer Patterns
 
-| Method | Path | Purpose |
-|--------|------|---------|
-| `POST` | `/api/v1/chat/messages` | Run a pipeline with input, return response |
-| `POST` | `/api/v1/pipelines/run` | Alias for chat/messages |
-| `GET` | `/api/v1/sessions/{id}` | Get orchestration session state |
-| `GET` | `/api/v1/status` | System status (process counts, health) |
-| `GET` | `/health` | Liveness probe (always 200) |
-| `GET` | `/ready` | Readiness probe |
+### PyO3 (primary)
 
-## Kernel Modules
+Capabilities import the kernel as a Python library — no HTTP, no subprocess.
 
-| Module | Description |
-|--------|-------------|
-| `kernel::lifecycle` | Process state machine and scheduling |
-| `kernel::resources` | Quota enforcement and usage tracking |
-| `kernel::interrupts` | Human-in-the-loop interrupt handling |
-| `kernel::rate_limiter` | Per-user rate limiting (sliding window) |
-| `kernel::orchestrator` | Pipeline orchestration (session management, routing) |
-| `kernel::cleanup` | Background garbage collection |
-| `kernel::recovery` | Panic recovery for fault isolation |
-| `commbus` | Message bus (events, commands, queries) |
-| `envelope` | State container for pipeline execution |
+```python
+from jeeves_core import PipelineRunner, tool
 
-## Worker Modules
+@tool(name="search", description="Search the web")
+def search(params):
+    return {"results": [...]}
 
-| Module | Description |
-|--------|-------------|
-| `worker::actor` | Kernel actor — single `&mut Kernel` behind mpsc channel |
-| `worker::handle` | `KernelHandle` — typed channel wrapper (Clone, Send+Sync) |
-| `worker::agent` | `Agent` trait, `LlmAgent`, `DeterministicAgent`, `AgentRegistry` |
-| `worker::llm` | `LlmProvider` trait, OpenAI-compatible HTTP client, mock provider |
-| `worker::gateway` | Axum HTTP gateway with CORS |
-| `worker::tools` | `ToolExecutor` trait + `ToolRegistry` |
-| `worker::prompts` | Template loading and `{var}` substitution |
+runner = PipelineRunner.from_json("pipeline.json", prompts_dir="prompts/")
+runner.register_tool(search)
+
+result = runner.run("hello", user_id="user1")           # Buffered
+for event in runner.stream("hello", user_id="user1"):   # Streaming
+    if event["type"] == "delta": print(event["content"], end="")
+```
+
+### Rust crate
+
+```rust
+use jeeves_core::kernel::Kernel;
+use jeeves_core::worker::agent::{Agent, AgentContext, AgentOutput};
+use jeeves_core::worker::handle::KernelHandle;
+use jeeves_core::worker::actor::spawn_kernel;
+```
+
+### MCP stdio server
+
+Binary that proxies upstream MCP servers as tools via JSON-RPC on stdin/stdout.
+
+```bash
+JEEVES_MCP_SERVERS='[{"name":"fs","transport":"stdio","command":"npx","args":["-y","@anthropic-ai/mcp-filesystem"]}]' \
+  cargo run --features mcp-stdio
+```
+
+## Feature Flags
+
+| Feature | Dependencies | Purpose |
+|---------|-------------|---------|
+| `mcp-stdio` | clap | MCP stdio server binary (`jeeves-kernel`) |
+| `py-bindings` | pyo3, inventory | Python importable module (`from jeeves_core import ...`) |
+| `test-harness` | — | Test utilities for integration tests |
+
+Default: none. `cargo test` uses rlib only. `pip install -e .` activates `py-bindings`.
 
 ## Architecture
 
 ```
-HTTP clients (frontends, capabilities)
-       | HTTP (axum)
-       v
-┌─────────────────────────────────────────┐
-│  Single process                         │
-│                                         │
-│  Kernel actor ← mpsc ← KernelHandle    │
-│  (tokio task)   (typed)  (Clone)        │
-│       │                    ↑            │
-│       ▼                    │            │
-│  Agent tasks (concurrent tokio tasks)   │
-│       │                                 │
-│       ▼                                 │
-│  LLM calls (reqwest, concurrent)        │
-└─────────────────────────────────────────┘
+Python capabilities (PyO3)        MCP clients (stdio)
+       │ direct fn call                │ JSON-RPC
+       ▼                               ▼
+┌──────────────────────────────────────────────┐
+│  Kernel actor ← mpsc ← KernelHandle         │
+│  (tokio task)   (typed)  (Clone, Send+Sync)  │
+│       │                    ↑                 │
+│       ▼                    │                 │
+│  Agent tasks (concurrent tokio tasks)        │
+│  ├── LlmAgent (OpenAI HTTP)                  │
+│  ├── McpDelegatingAgent (tool dispatch)      │
+│  ├── PipelineAgent (child pipeline)          │
+│  └── DeterministicAgent (passthrough)        │
+│       │                                      │
+│  CommBus (pub/sub, commands, queries)        │
+└──────────────────────────────────────────────┘
 ```
 
-## Consumer Contract
+## Pipeline Composition (A2A)
 
-Capabilities interact via HTTP API:
+A parent pipeline can run a child pipeline as a stage via `PipelineAgent`:
 
-```bash
-# Run a pipeline
-curl -X POST http://localhost:8080/api/v1/chat/messages \
-  -H 'Content-Type: application/json' \
-  -d '{"message": "hello", "user_id": "u1", "pipeline_config": {...}}'
-
-# Check health
-curl http://localhost:8080/health
+```json
+{
+  "name": "orchestrator",
+  "stages": [
+    {"name": "classify", "agent": "classify", "has_llm": true, "default_next": "run_assistant"},
+    {"name": "run_assistant", "agent": "assistant", "child_pipeline": "assistant", "default_next": "respond"},
+    {"name": "respond", "agent": "respond", "has_llm": true}
+  ]
+}
 ```
 
-For capabilities compiled into the binary, use the Rust crate API:
+Child outputs nest under the parent stage's output_key. Streaming events carry dotted pipeline names (`orchestrator.assistant`).
 
-```rust
-use jeeves_core::worker::agent::{Agent, AgentContext, AgentOutput};
-use jeeves_core::worker::handle::KernelHandle;
-use jeeves_core::kernel::orchestrator_types::PipelineConfig;
+## CommBus Federation
+
+Pipelines can subscribe to cross-pipeline events via `PipelineConfig.subscriptions`:
+
+```json
+{
+  "name": "npc_dialogue",
+  "subscriptions": ["game.event", "world.update"],
+  "publishes": ["npc.response"]
+}
 ```
+
+Events accumulate in `envelope.event_inbox` between agent executions.
 
 ## Prerequisites
 
 - Rust 1.75+
+- Python 3.10+ (for PyO3 bindings)
 
 ## License
 
