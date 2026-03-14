@@ -1,6 +1,6 @@
 # Jeeves-Core: Comprehensive Architectural Audit & Comparative Analysis
 
-**Date**: 2026-03-13 (Iteration 20 — PyO3 bindings, MCP stdio server, stage-aware events, metadata)
+**Date**: 2026-03-14 (Iteration 22 — A2A composition, CommBus federation, PyO3 integration tests)
 **Scope**: Full codebase audit of jeeves-core (single-process Rust kernel + worker) with comparative analysis against 17 OSS agentic frameworks.
 
 ---
@@ -21,11 +21,11 @@
 
 ## 1. Executive Summary
 
-Jeeves-Core is a **single-process Rust runtime** for AI agent orchestration, consumed as either a **PyO3-importable Python library** or an **MCP stdio server binary**. It is a Rust library/binary (~17,200 lines, `#[deny(unsafe_code)]` except PyO3 FFI) with MCP client (HTTP + stdio transports with 30s timeout), MCP stdio server (JSON-RPC 2.0), PyO3 bindings (`from jeeves_core import PipelineRunner, tool`), LLM provider with SSE streaming (reqwest + OpenAI-compatible), ReAct-style tool execution loops with circuit breaking, 8-event stage-aware streaming, definition-time pipeline validation, interrupt resolution (streaming poll + buffered early-return), execution tracking, concurrent agent execution via tokio tasks, fluent PipelineBuilder API, pipeline test harness, Python `@tool` decorator with `PyToolExecutor` bridge, auto-agent creation from pipeline config, and metadata passthrough.
+Jeeves-Core is a **single-process Rust runtime** for AI agent orchestration, consumed as either a **PyO3-importable Python library** or an **MCP stdio server binary**. It is a Rust library/binary (~17,900 lines, `#[deny(unsafe_code)]` except PyO3 FFI) with MCP client (HTTP + stdio transports with 30s timeout), MCP stdio server (JSON-RPC 2.0), PyO3 bindings (`from jeeves_core import PipelineRunner, tool`), LLM provider with SSE streaming (reqwest + OpenAI-compatible), ReAct-style tool execution loops with circuit breaking, 8-event pipeline-attributed streaming, definition-time pipeline validation, interrupt resolution (streaming poll + buffered early-return), execution tracking, concurrent agent execution via tokio tasks, fluent PipelineBuilder API, pipeline test harness, Python `@tool` decorator with `PyToolExecutor` bridge, auto-agent creation from pipeline config, **PipelineAgent for A2A composition**, **CommBus federation with kernel-mediated pub/sub**, **AgentCardRegistry for discovery**, metadata passthrough, pre-execution tool ACL enforcement, and **27 pytest integration tests**.
 
-**Architectural thesis**: A single-process Rust kernel with typed channel dispatch (`KernelHandle` → mpsc → Kernel actor`) provides enforcement guarantees, memory safety, and operational simplicity. **Consumption pivot (iterations 17-20)**: HTTP gateway replaced by two embeddable interfaces — PyO3 bindings for Python-first teams and MCP stdio server for tool-server integration.
+**Architectural thesis**: A single-process Rust kernel with typed channel dispatch (`KernelHandle` → mpsc → Kernel actor`) provides enforcement guarantees, memory safety, and operational simplicity. **Consumption pivot (iterations 17-20)**: HTTP gateway replaced by two embeddable interfaces — PyO3 bindings for Python-first teams and MCP stdio server for tool-server integration. **Composition layer (iterations 21-22)**: PipelineAgent enables A2A pipeline nesting, CommBus federation wires event pub/sub between pipelines, AgentCardRegistry provides discovery metadata.
 
-**Overall maturity: 4.8/5** (was 4.9 — score adjusted due to gateway/A2A/client deletion offset by PyO3/MCP server gains) — Iterations 17-20 are an **architectural pivot** from "HTTP server with REST API" to "embeddable library with protocol interfaces". HTTP gateway (351L), JeevesClient (357L), gateway types/errors (160L), and discovery endpoints (4 routes) are deleted. In their place: PyO3 bindings (776L) providing `PipelineRunner.run()`/`.stream()` with GIL-released execution, MCP stdio server (360L) implementing `initialize`/`tools/list`/`tools/call`, Python `@tool` decorator + `PyToolExecutor` bridge (140L), auto-agent creation from pipeline config, metadata passthrough, stage-aware events, and observable McpDelegatingAgent. All 283 tests passing.
+**Overall maturity: 4.9/5** (UP from 4.8 — A2A composition, CommBus federation, PyO3 tests, pre-execution ACL, output propagation fixes) — Iterations 21-22 add **hierarchical pipeline composition** (PipelineAgent runs child pipelines as stages in parent), **CommBus federation** (kernel-mediated event pub/sub with subscription wiring, query handlers, command routing), **AgentCardRegistry** for agent discovery metadata, **pre-execution tool ACL enforcement** (was post-hoc), and **27 pytest integration tests** covering PipelineRunner, EventIterator, @tool, metadata, streaming, multi-stage, and error paths. All PipelineEvent variants now carry `pipeline: String` field for composed pipeline attribution. All 305 Rust tests + 27 Python tests passing.
 
 **What changed in iterations 17-20** (4 commits, +1,085/-1,082 net lines):
 
@@ -70,6 +70,63 @@ Jeeves-Core is a **single-process Rust runtime** for AI agent orchestration, con
 - `build_agent_context()` takes `stage_name` parameter — pipeline loop passes stage name
 - `execute_agent()` emits `PipelineEvent::Error` on agent failure when streaming
 - `Done` event now includes `outputs: Option<Value>` — terminal outputs visible in stream
+
+**What changed in iterations 21-22** (2 commits, +1,720/-71 net lines):
+
+**Commit 21: Kernel output propagation, event serde, hardening + PyO3 tests** (`c943c3a`, +475/-41 lines):
+- **PyO3 integration tests** (288L): `tests/python/test_pyo3_bindings.py` — 27 pytest tests across 6 test classes:
+  - `TestToolDecorator` (5 tests): `_tool_name`, `_tool_description`, `_tool_parameters` attributes, callable preservation
+  - `TestPipelineRunnerConstruction` (4 tests): `from_json()`, bad path, invalid JSON, context manager protocol
+  - `TestPipelineRunnerRun` (7 tests): return type, required keys, completion, tool context, user_id, session_id, metadata
+  - `TestMultiStagePipeline` (2 tests): two-stage completion, both stages produce output
+  - `TestPipelineRunnerStream` (7 tests): iterator protocol, event count, type field, stage events, done event, outputs, tool stage attribution
+  - `TestErrorHandling` (2 tests): undecorated tool raises AttributeError, unknown pipeline raises KeyError
+- Test fixtures: `pipeline_fixture.json` (16L), `two_stage_fixture.json` (23L), 3 prompt files
+- **Kernel output propagation fix**: `process_agent_result()` now correctly propagates outputs to envelope
+- **PipelineEvent serde**: `#[serde(tag = "type", rename_all = "snake_case")]` for correct JSON serialization
+- **Routing expression depth validation**: `validate_depth()` with max depth 32 — prevents stack overflow DoS
+- **Pre-execution tool ACL enforcement**: `LlmAgent` tool loop now checks `allowed_tools` BEFORE executing, emits `tool_acl_blocked_pre_execution` warning, returns error to LLM instead of executing unauthorized tool
+
+**Commit 22: A2A composition (PipelineAgent) + federation (CommBus wiring)** (`bb18e9d`, +1,245/-30 lines):
+- **PipelineAgent** (140L in `agent.rs`): 4th agent type — runs child pipeline as stage in parent pipeline
+  - `OnceLock<Arc<AgentRegistry>>` solves chicken-and-egg: agent registered before registry wrapped in Arc
+  - Two-pass build: `merge_agents_from_config()` creates PipelineAgent → `backfill_pipeline_agents()` sets OnceLock
+  - Child process: creates child ProcessId, child Envelope inheriting parent context
+  - Event bridge: spawns tokio task forwarding child PipelineEvents to parent channel, rewrites `pipeline` field to dotted notation (`parent.child`), filters out child Done events
+  - Child pipeline runs `run_pipeline_loop()` with own kernel session
+  - Output: nested map of child agent outputs + `_terminal_reason`
+- **PipelineConfig gains federation fields**: `subscriptions: Vec<String>`, `publishes: Vec<String>` — event types for CommBus wiring
+- **AgentCardRegistry** (`agent_card.rs`, 86L): discovery metadata for agents/pipelines
+  - `AgentCard`: name, description, pipeline_name, capabilities, accepted/published event types, input/output schemas
+  - `AgentCardRegistry`: register, list (with filter), get by name
+  - Kernel owns `agent_cards: AgentCardRegistry`
+  - 1 unit test: register + list + filter + get
+- **CommBus federation wiring** (+202L in `commbus/mod.rs`):
+  - Now 830L total with full pub/sub, command routing, query/response patterns
+  - `get_query_handler()` for fire-and-spawn deadlock avoidance
+  - `register_command_handler()` for fire-and-forget
+  - `cleanup_disconnected()` prunes dead subscribers
+  - 16 unit tests: pub/sub fan-out, multi-type subscribe, command routing, query/response with timeout, error responses, unsubscribe, cleanup
+- **KernelHandle federation commands** (+111L in `handle.rs`): 5 new command variants
+  - `PublishEvent` → fan-out to CommBus subscribers
+  - `Subscribe` / `Unsubscribe` → CommBus subscription management
+  - `CommBusQuery` → request/response with fire-and-spawn (deadlock-safe)
+  - `ListAgentCards` → agent discovery
+- **Kernel actor dispatch** (+86L in `actor.rs`): handlers for all 5 new commands
+  - `CommBusQuery` uses fire-and-spawn pattern: gets handler reference, spawns task to send query + await response (prevents actor loop deadlock)
+- **Kernel orchestration CommBus wiring** (+266L in `kernel_orchestration.rs`):
+  - `initialize_orchestration()` auto-subscribes process to `PipelineConfig.subscriptions` event types
+  - `terminate_process()` cleans up CommBus subscriptions
+  - `get_next_instruction()` drains pending CommBus events into `agent_context.pending_events`
+  - 4 new tests: subscription wiring, cleanup on terminate, pending events in agent context, agent card registration/listing
+- **PipelineEvent gains `pipeline: String`**: ALL 8 event variants now carry pipeline name field
+  - Enables composed pipeline event attribution: parent events tagged `"pipeline"`, child events tagged `"parent.child"`
+  - `rewrite_event_pipeline()` function rewrites pipeline field for child-to-parent event bridge
+- **PipelineStage gains `child_pipeline: Option<String>`**: mutually exclusive with `has_llm: true`
+  - Validation: `child_pipeline + has_llm=true` rejected at definition time
+  - 2 new validation tests: mutual exclusion, valid child_pipeline config
+- **Auto-agent creation handles `child_pipeline`**: `merge_agents_from_config()` creates PipelineAgent when `child_pipeline` is set
+- **13 KernelCommand variants** (was 8): +PublishEvent, +Subscribe, +Unsubscribe, +CommBusQuery, +ListAgentCards
 
 **What changed in iteration 15** (1 commit, +2,425/-1,237 lines):
 
@@ -181,7 +238,7 @@ Python (PyO3)                    MCP client (stdin/stdout)
 └──────────────────────────────────────────────┘
 ```
 
-### 2.2 Rust Kernel (~9,300 LOC, split into focused files)
+### 2.2 Rust Kernel (~10,600 LOC, split into focused files)
 
 #### Process Lifecycle
 Unix-inspired state machine: `New -> Ready -> Running -> Waiting/Blocked -> Terminated -> Zombie`
@@ -265,32 +322,38 @@ Fluent builder API for `PipelineConfig`:
 
 ### 2.3 Worker Module (~2,600 LOC, with MCP server & stage-aware events)
 
-#### KernelHandle (`handle.rs`, 265L)
-Typed channel wrapper. **8 command variants** (was 7):
-- `InitializeSession` — auto-creates PCB if needed
-- `GetNextInstruction` — returns next `Instruction` (now includes `WaitInterrupt` with interrupt details)
+#### KernelHandle (`handle.rs`, 376L — was 265L)
+Typed channel wrapper. **13 command variants** (was 8):
+- `InitializeSession` — auto-creates PCB, wires CommBus subscriptions from PipelineConfig
+- `GetNextInstruction` — returns next `Instruction` (includes pending CommBus events in agent_context)
 - `ProcessAgentResult` — reports agent output with explicit `agent_name` + tool health metrics
 - `GetSessionState` — query orchestration state
 - `CreateProcess` — lifecycle management
-- `TerminateProcess` — lifecycle management
+- `TerminateProcess` — lifecycle management, cleans up CommBus subscriptions
 - `GetSystemStatus` — system-wide metrics
-- `ResolveInterrupt` (NEW) — resolve pending interrupt with response data
+- `ResolveInterrupt` — resolve pending interrupt with response data
+- `PublishEvent` (NEW) — fan-out to CommBus subscribers
+- `Subscribe` (NEW) — subscribe to CommBus event types
+- `Unsubscribe` (NEW) — unsubscribe from CommBus
+- `CommBusQuery` (NEW) — request/response with fire-and-spawn (deadlock-safe)
+- `ListAgentCards` (NEW) — agent/pipeline discovery
 
-#### Kernel Actor (`actor.rs`, 170L)
-Single `&mut Kernel` behind mpsc channel. `dispatch()` pattern-matches on `KernelCommand`. New `ResolveInterrupt` dispatch: calls `kernel.resolve_interrupt()` → `kernel.resume_process()`.
+#### Kernel Actor (`actor.rs`, 248L — was 170L)
+Single `&mut Kernel` behind mpsc channel. `dispatch()` pattern-matches on `KernelCommand`. CommBus federation handlers use fire-and-spawn for `CommBusQuery` to prevent actor loop deadlock: gets handler reference from `kernel.commbus.get_query_handler()`, spawns async task to send query + await response outside the actor loop. `ListAgentCards` dispatches to `kernel.agent_cards.list()`.
 
-#### Agent Execution (`agent.rs`, 449L — was 401L)
+#### Agent Execution (`agent.rs`, 672L — was 449L)
 ```rust
 #[async_trait]
-pub trait Agent: Send + Sync + Debug {
+pub trait Agent: Send + Sync + Debug + Any {
     async fn process(&self, ctx: &AgentContext) -> Result<AgentOutput>;
 }
 ```
 
-**3 agent implementations**:
-1. **LlmAgent** — ReAct tool loop with streaming, instrumented with tracing
-2. **McpDelegatingAgent** — Forwards to MCP/Python tool, returns output as agent output (NOW OBSERVABLE)
+**4 agent implementations** (was 3):
+1. **LlmAgent** — ReAct tool loop with streaming, instrumented with tracing, **pre-execution tool ACL enforcement**
+2. **McpDelegatingAgent** — Forwards to MCP/Python tool, returns output as agent output (observable)
 3. **DeterministicAgent** — No-LLM passthrough
+4. **PipelineAgent** (NEW) — Runs child pipeline as stage in parent pipeline (A2A composition)
 
 **LlmAgent with instrumented ReAct tool loop**:
 - `#[instrument(skip(self, ctx), fields(prompt_key))]` — tracing on process()
@@ -313,7 +376,24 @@ pub struct McpDelegatingAgent {
 - Error path: emits `PipelineEvent::Error` with `stage` context on tool failure
 - Zero LLM calls — pure delegation pattern
 
-**AgentContext** (stage-aware):
+**PipelineAgent** (NEW — A2A composition):
+```rust
+pub struct PipelineAgent {
+    pub pipeline_name: String,
+    pub pipeline_config: PipelineConfig,
+    pub handle: KernelHandle,
+    pub agents: OnceLock<Arc<AgentRegistry>>,
+}
+```
+- Runs a child pipeline as a stage in a parent pipeline
+- `OnceLock<Arc<AgentRegistry>>` solves chicken-and-egg: PipelineAgent created before AgentRegistry is wrapped in Arc
+- Two-pass build: `merge_agents_from_config()` → `backfill_pipeline_agents()` sets OnceLock
+- Creates child ProcessId + child Envelope (inherits parent_outputs, parent_state, parent_metadata)
+- Event bridge: spawns tokio task forwarding child events to parent channel with `pipeline` field rewritten to dotted notation (`"parent.child"`), filters out child Done events
+- Output: nested map of child agent outputs + `_terminal_reason` marker
+- Error path: returns `AgentOutput { success: false }` on child pipeline failure
+
+**AgentContext** (stage-aware, pipeline-attributed):
 ```rust
 pub struct AgentContext {
     pub raw_input: String,
@@ -322,9 +402,48 @@ pub struct AgentContext {
     pub metadata: HashMap<String, Value>,
     pub allowed_tools: Vec<String>,
     pub event_tx: Option<mpsc::Sender<PipelineEvent>>,
-    pub stage_name: Option<String>,  // NEW: pipeline stage context
+    pub stage_name: Option<String>,  // pipeline stage context
+    pub pipeline_name: String,       // NEW: pipeline attribution for events
 }
 ```
+
+#### AgentCardRegistry (`kernel/agent_card.rs`, 86L, NEW)
+```rust
+pub struct AgentCard {
+    pub name: String,
+    pub description: String,
+    pub pipeline_name: Option<String>,
+    pub capabilities: Vec<String>,
+    pub accepted_event_types: Vec<String>,
+    pub published_event_types: Vec<String>,
+    pub input_schema: Option<Value>,
+    pub output_schema: Option<Value>,
+}
+```
+- Discovery metadata for agents and pipelines, registered with kernel
+- `AgentCardRegistry`: `register()`, `list(filter)` (name/capability substring match), `get(name)`
+- Queried via `KernelHandle::list_agent_cards()` for federation discovery
+- 1 unit test: register + list + filter + get
+
+#### CommBus Federation (`commbus/mod.rs`, 830L — was 628L)
+```rust
+pub struct CommBus {
+    subscribers: HashMap<String, Vec<Subscriber>>,
+    command_handlers: HashMap<String, UnboundedSender<Command>>,
+    query_handlers: HashMap<String, QueryHandlerSender>,
+    stats: BusStats,
+}
+```
+- Kernel-mediated inter-process communication for pub/sub, commands, and queries
+- **Events**: Fan-out pub/sub (`publish()` → all subscribers for event type)
+- **Commands**: Fire-and-forget to single handler (`send_command()`)
+- **Queries**: Request/response with timeout (`query()` with oneshot response channel)
+- **Subscription management**: `subscribe()` returns `(Subscription, UnboundedReceiver<Event>)`
+- **Pipeline wiring**: `initialize_orchestration()` auto-subscribes process to `PipelineConfig.subscriptions`
+- **Event draining**: `get_next_instruction()` drains pending events into `agent_context.pending_events`
+- **Cleanup**: `terminate_process()` unsubscribes, `cleanup_disconnected()` prunes dead subscribers
+- **Deadlock safety**: `get_query_handler()` returns sender clone for fire-and-spawn pattern in actor loop
+- 16 unit tests: pub/sub fan-out, multi-type subscribe, command routing, query/response with timeout, error responses, unsubscribe, cleanup
 
 #### MCP Client (`mcp.rs`, 430L, NEW)
 ```rust
@@ -350,7 +469,7 @@ pub struct McpToolExecutor {
 **7 unit tests**: JSON-RPC serialization, response parsing, tool definition parsing (full + minimal), tool result parsing.
 **1 integration test**: Mock HTTP server with 2 tools, full round-trip through ToolRegistry.
 
-#### Pipeline Loop (`mod.rs`, 344L — was 305L)
+#### Pipeline Loop (`mod.rs`, 369L — was 344L)
 `run_pipeline_loop()` — instruction dispatch loop:
 - `RunAgent` → execute single agent, report result
 - `RunAgents` → `execute_parallel()` (tokio::spawn per agent, collect results)
@@ -402,17 +521,22 @@ pub struct McpStdioServer {
 #### LLM Providers (`llm/`, ~540L)
 `LlmProvider` trait with `chat()` and `chat_stream()`.
 
-**PipelineEvent enum** (8 variants, NOW STAGE-AWARE):
-- `StageStarted { stage }`
-- `Delta { content, stage: Option<String> }` (STAGE-AWARE)
-- `ToolCallStart { id, name, stage: Option<String> }` (STAGE-AWARE)
-- `ToolResult { id, content, stage: Option<String> }` (STAGE-AWARE)
-- `StageCompleted { stage }`
-- `Done { process_id, terminated, terminal_reason, outputs: Option<Value> }` (OUTPUTS ADDED)
-- `Error { message, stage: Option<String> }` (STAGE-AWARE)
-- `InterruptPending { process_id, interrupt_id, kind, question, message }`
+**PipelineEvent enum** (8 variants, STAGE-AWARE + PIPELINE-ATTRIBUTED):
 
-`collect_stream()` now takes `stage: Option<&str>` parameter — tags every Delta with originating pipeline stage.
+Every variant carries `pipeline: String` for composed pipeline attribution (`"parent.child"` dotted notation).
+Serialized with `#[serde(tag = "type", rename_all = "snake_case")]` for correct JSON.
+
+- `StageStarted { stage, pipeline }`
+- `Delta { content, stage: Option<String>, pipeline }`
+- `ToolCallStart { id, name, stage: Option<String>, pipeline }`
+- `ToolResult { id, content, stage: Option<String>, pipeline }`
+- `StageCompleted { stage, pipeline }`
+- `Done { process_id, terminated, terminal_reason, outputs: Option<Value>, pipeline }`
+- `Error { message, stage: Option<String>, pipeline }`
+- `InterruptPending { process_id, interrupt_id, kind, question, message, pipeline }`
+
+`collect_stream()` takes `stage: Option<&str>` and `pipeline: &str` — tags every Delta with originating stage and pipeline.
+`rewrite_event_pipeline()` rewrites pipeline field for child-to-parent event bridge in PipelineAgent.
 
 ### 2.3a PyO3 Binding Layer (`python/`, 776L, NEW)
 
@@ -424,7 +548,7 @@ from jeeves_core import PipelineRunner, tool
 - `@tool(name, description, parameters)` decorator factory → `_ToolDecorator` pyclass
 - Sets `_tool_name`, `_tool_description`, `_tool_parameters` attributes on wrapped function
 
-#### PipelineRunner (`python/runner.rs`, 577L)
+#### PipelineRunner (`python/runner.rs`, 634L — was 577L)
 ```python
 runner = PipelineRunner.from_json("pipeline.json", "prompts/")
 runner.register_tool(my_tool)
@@ -443,9 +567,12 @@ for event in runner.stream("Hello"):
 
 **Auto-agent creation**: `merge_agents_from_config()` inspects pipeline stage config:
 - `NodeKind::Gate` → `DeterministicAgent`
+- `child_pipeline: Some(name)` → `PipelineAgent` (with OnceLock for AgentRegistry)
 - `has_llm: true` → `LlmAgent` (prompt_key defaults to agent name)
 - `has_llm: false` + matching tool → `McpDelegatingAgent`
 - `has_llm: false` + no tool → `DeterministicAgent`
+
+**Two-pass PipelineAgent build**: `backfill_pipeline_agents()` iterates AgentRegistry after `Arc` wrapping, downcasts to `PipelineAgent`, sets `OnceLock<Arc<AgentRegistry>>` via `set()`.
 
 **GIL management**: `py.allow_threads()` releases GIL during pipeline execution. `block_in_place()` handles nested calls (Python tool called from within pipeline → re-enters tokio runtime safely).
 
@@ -574,6 +701,13 @@ pub struct McpServerConfig {
 | Client SDK | None → JeevesClient | **DELETED → PyO3 PipelineRunner replaces** |
 | Metadata passthrough | None | **Envelope.new_minimal() with metadata parameter** |
 | Observable MCP agents | Silent delegation | **ToolCallStart/ToolResult/Error events emitted** |
+| A2A composition | None | **PipelineAgent runs child pipelines as stages** |
+| CommBus federation | Unwired | **Pub/sub + commands + queries, kernel-mediated, subscription auto-wiring** |
+| Agent discovery | Deleted | **AgentCardRegistry (capabilities, schemas, event types)** |
+| Pre-execution ACLs | Post-hoc | **Pre-execution check in LlmAgent tool loop** |
+| PyO3 tests | None | **27 pytest tests (6 classes, fixtures, multi-stage)** |
+| Pipeline event serde | Untagged | **`#[serde(tag = "type", rename_all = "snake_case")]`** |
+| Routing depth limit | Unbounded | **`validate_depth()` max 32** |
 
 ---
 
@@ -603,7 +737,11 @@ pub struct McpServerConfig {
 
 11. **MCP stdio server** (NEW, replaces HTTP gateway) — JSON-RPC 2.0 server exposing ToolRegistry via `tools/list` + `tools/call`. Upstream MCP proxy pattern. Enables integration with any MCP client (Claude, VS Code, etc.). Both MCP client AND server in one framework.
 
-12. **Stage-aware streaming events** (NEW) — All PipelineEvent variants carry `stage: Option<String>` context. Consumers can correlate events to pipeline stages. `Done` event includes terminal outputs. No other framework provides stage-level event attribution in streaming.
+12. **Pipeline-attributed streaming events** (UPGRADED from stage-aware) — All PipelineEvent variants carry both `stage: Option<String>` and `pipeline: String`. For composed pipelines, child events use dotted notation (`"parent.child"`). Enables hierarchical event attribution across composed pipeline trees. No other framework provides pipeline+stage-level event attribution.
+
+13. **PipelineAgent for A2A composition** (NEW) — Stage in parent pipeline runs entire child pipeline via `PipelineAgent`. Child events bridged to parent channel with `pipeline` field rewritten. OnceLock-based two-pass initialization solves circular dependency. Enables recursive pipeline composition.
+
+14. **CommBus kernel-mediated federation** (NEW) — Pub/sub + command routing + query/response with timeout, all kernel-mediated. Pipeline subscriptions auto-wired from config. Pending events drained into agent context. Fire-and-spawn query handling prevents actor deadlock. No other framework provides kernel-enforced inter-pipeline communication.
 
 ### 3.2 Comparison Matrix
 
@@ -621,13 +759,14 @@ pub struct McpServerConfig {
 | **Tool loop** | **ReAct + circuit break** | Yes | Yes | Yes | Yes | Yes | ReAct | N/A | N/A | Yes | Yes | Yes | Yes | Yes | Yes | None | Yes |
 | **Tool health** | **Circuit breaking** | None | None | None | None | None | None | None | None | None | None | None | None | None | None | None | None |
 | **Interrupt/HITL** | **7 kinds, wired** | Breakpoints | None | Human proxy | None | None | None | Pause | Signals | None | None | None | None | None | None | None | None |
+| **A2A composition** | **PipelineAgent** | None | None | Nested | None | None | None | Subflows | Child workflows | None | None | None | Loop/Sub | Handoffs | None | None | None |
 | **MCP support** | **Client+Server** | Client | None | None | None | None | None | None | None | Client | Client | Client | Client | Client | Client | None | None |
 | **Streaming** | **8 events (stage-aware)** | Yes | None | Yes | Yes | None | None | None | None | Yes | Yes | Yes | Yes | Yes | Yes | None | Yes |
 | **Gateway** | **MCP stdio** | HTTP | HTTP | HTTP | HTTP | N/A | N/A | N/A | gRPC | HTTP | N/A | N/A | HTTP | N/A | N/A | N/A | HTTP |
-| **Testing infra** | **283 tests + harness** | None | None | None | None | None | Eval | None | None | None | pytest | None | Eval | None | None | None | None |
+| **Testing infra** | **305 + 27py + harness** | None | None | None | None | None | Eval | None | None | None | pytest | None | Eval | None | None | None | None |
 | **Builder/DX** | **PipelineBuilder+PyO3** | Python API | YAML | Python | C# API | Pipeline API | Decorators | Decorators | Go API | Graph API | Decorators | Decorators | YAML/Code | Decorators | Decorators | Macros | C# API |
 | **Client SDK** | **PyO3 (Python)** | Python | Python | Python | Multi-lang | Python | Python | Python | Multi-lang | TS | Python | Python | Python | Python | Python | Rust | Multi-lang |
-| **Discovery/A2A** | **MCP tools/list** | None | None | None | None | None | None | None | None | None | None | None | A2A | None | None | None | None |
+| **Discovery/A2A** | **AgentCards + PipelineAgent** | None | None | None | None | None | None | None | None | None | None | None | A2A | None | None | None | None |
 | **Persistent memory** | None | Checkpoint | None | None | None | None | None | Artifacts | Durable | None | None | Memory | None | None | None | None | None |
 
 ### 3.3 Framework-by-Framework Comparison
@@ -732,9 +871,9 @@ pub struct McpServerConfig {
 | Agno | 3.0 | 3.0 | 2.5 | 3.5 | 4.0 | 3.0 |
 | Strands Agents | 3.0 | 3.0 | 2.5 | 3.0 | 3.5 | 3.5 |
 | Rig | 2.5 | 3.0 | 2.0 | 1.5 | 2.5 | 2.0 |
-| **Jeeves-Core** | **4.8** | **5.0** | **4.5** | 1.5 | 4.5 | 4.2 |
+| **Jeeves-Core** | **4.9** | **5.0** | **4.8** | 1.5 | 4.5 | 4.5 |
 
-DX score rises to 4.5 (PyO3 `PipelineRunner`, `@tool` decorator, auto-agent creation, stage-aware events). Protocol rises to 4.2 (bidirectional MCP: client + server). Overall adjusts to 4.8 — PyO3 bindings and MCP stdio server are strong additions, offset by HTTP gateway deletion and documentation staleness.
+Graph score rises to 4.8 (PipelineAgent composition, CommBus event wiring). Protocol rises to 4.5 (bidirectional MCP + CommBus federation + AgentCards). Overall rises to 4.9 — A2A composition, CommBus federation, pre-execution ACLs, PyO3 tests, and routing depth validation close the remaining critical gaps.
 
 ---
 
@@ -758,7 +897,7 @@ DX score rises to 4.5 (PyO3 `PipelineRunner`, `@tool` decorator, auto-agent crea
 
 **S9: Definition-Time Validation (4.0/5)** — `PipelineConfig::validate()` with semantic checks. 15 unit tests.
 
-**S10: Testing (4.3/5)** (DOWN from 4.5 — gateway/client tests deleted) — 283 tests (262 unit + 21 integration), all passing. PipelineTestHarness enables integration testing. MCP integration test with mock HTTP server. Builder tests cover routing, gate/fork, validation. MCP server tests (6). No PyO3 integration tests yet.
+**S10: Testing (4.5/5)** (UP from 4.3 — PyO3 tests added) — 305 Rust tests (284 unit + 21 integration) + 27 Python tests, all passing. PipelineTestHarness enables integration testing. MCP integration test with mock HTTP server. Builder tests cover routing, gate/fork, validation. MCP server tests (6). **PyO3 pytest suite** (27 tests): @tool decorator, PipelineRunner construction/run/stream, multi-stage pipelines, error handling, metadata threading, event attribution. CommBus tests (16). AgentCard tests (2).
 
 **S11: Observability (4.0/5)** — `TraceLayer` on gateway. `#[instrument]` on agent execution. `tracing::debug!` in tool loop and routing rule evaluation. Kernel OTEL preserved.
 
@@ -766,15 +905,21 @@ DX score rises to 4.5 (PyO3 `PipelineRunner`, `@tool` decorator, auto-agent crea
 
 **S13: Interrupt System (4.5/5)** — 7 typed interrupt kinds, fully wired: gateway endpoint → kernel command → orchestrator check → pipeline poll (streaming) or early return (buffered). `InterruptPending` SSE event. Complete HITL flow.
 
-**S14: MCP Integration (4.8/5)** (UP from 4.5) — **Both client AND server**. Client: HTTP + stdio transports with 30s timeout, per-tool-name registration, env auto-connect. Server: MCP stdio (360L), JSON-RPC 2.0, `initialize`/`tools/list`/`tools/call`, upstream proxy pattern. `McpDelegatingAgent` bridges tools as agents. Full bidirectional MCP support is unique among frameworks.
+**S14: MCP + A2A Integration (5.0/5)** (UP from 4.8) — **MCP client AND server + A2A composition**. Client: HTTP + stdio transports with 30s timeout, per-tool-name registration, env auto-connect. Server: MCP stdio (360L), JSON-RPC 2.0, `initialize`/`tools/list`/`tools/call`, upstream proxy pattern. `McpDelegatingAgent` bridges tools as agents. **PipelineAgent** runs child pipelines as stages with event bridging. **AgentCardRegistry** for discovery. **CommBus federation** for inter-pipeline events. Full bidirectional MCP + A2A composition is unique among frameworks.
 
 **S15: PyO3 Bindings (4.5/5)** (NEW, replaces Gateway Hardening) — `from jeeves_core import PipelineRunner, tool`. GIL-released pipeline execution. `@tool` decorator bridges Python callables. Auto-agent creation from pipeline config. Metadata passthrough. Context manager. Nested call safety (`block_in_place`). EventIterator with GIL-released blocking.
 
 **S16: Developer Experience (4.5/5)** (UP from 4.2) — PipelineBuilder reduces pipeline authoring to ~5 lines. `@tool` decorator for zero-boilerplate Python tools. Auto-agent creation eliminates manual agent registration. PyO3 `PipelineRunner` provides Pythonic consumption. Stage-aware events for debugging. JSON-safe prompt templates.
 
-**S17: Stage-Aware Observability (4.0/5)** (REPLACES Discovery & A2A) — All streaming events carry `stage: Option<String>` context. Delta, ToolCallStart, ToolResult, Error events are attributable to pipeline stages. `McpDelegatingAgent` now emits full event lifecycle (was silent). `Done` includes terminal outputs. Enables per-stage monitoring dashboards.
+**S17: Pipeline-Attributed Observability (4.5/5)** (UP from 4.0) — All streaming events carry both `stage: Option<String>` AND `pipeline: String`. Composed pipelines use dotted notation (`"parent.child"`). Enables hierarchical per-pipeline, per-stage monitoring dashboards. Event bridge in PipelineAgent rewrites pipeline field transparently.
 
-**S18: Architecture Flexibility (4.5/5)** (REPLACES Config-Driven Deployment) — Two consumption modes from same Rust core: PyO3 module (Python-first) and MCP stdio binary (tool-server). Feature-gated compilation (`py-bindings`, `mcp-stdio`). Upstream MCP proxy pattern. Auto-agent creation from pipeline config eliminates boilerplate.
+**S18: Architecture Flexibility (4.5/5)** — Two consumption modes from same Rust core: PyO3 module (Python-first) and MCP stdio binary (tool-server). Feature-gated compilation (`py-bindings`, `mcp-stdio`). Upstream MCP proxy pattern. Auto-agent creation from pipeline config eliminates boilerplate.
+
+**S19: A2A Composition (4.5/5)** (NEW) — PipelineAgent enables hierarchical pipeline nesting. Parent stage runs entire child pipeline, inheriting parent context, bridging events, collecting nested outputs. OnceLock-based two-pass initialization solves circular AgentRegistry dependency. Combined with CommBus federation for event-driven inter-pipeline coordination.
+
+**S20: CommBus Federation (4.0/5)** (NEW) — Kernel-mediated pub/sub, command routing, query/response with timeout. Pipeline subscriptions auto-wired from config. Pending events drained into agent context. Fire-and-spawn pattern prevents actor deadlock on queries. 16 unit tests.
+
+**S21: Pre-Execution Tool ACLs (4.5/5)** (UPGRADED from post-hoc) — LlmAgent tool loop now checks `allowed_tools` BEFORE executing tool calls. Unauthorized tools rejected with error message returned to LLM. Was post-hoc enforcement in `process_agent_result()` — now prevents execution entirely.
 
 ---
 
@@ -788,17 +933,17 @@ DX score rises to 4.5 (PyO3 `PipelineRunner`, `@tool` decorator, auto-agent crea
 
 **W4: Memory & Persistence (2.0/5)** — No persistent memory. No checkpoint/replay.
 
-**W5: A2A Support (1.5/5)** (DOWN from 2.5) — Discovery endpoints deleted with HTTP gateway. No A2A surface. MCP `tools/list` provides minimal discovery but not A2A-compatible.
+**W5: A2A Support (3.5/5)** (UP from 1.5) — PipelineAgent enables hierarchical composition. AgentCardRegistry provides discovery metadata. CommBus federation enables event-driven coordination. No full A2A protocol (Google-style agent cards with HTTP endpoints). No cross-network federation — CommBus is in-process only.
 
 **W6: HTTP Gateway (0/5)** (NEW) — HTTP gateway deleted. No REST API. No webhook-driven integration. Teams requiring HTTP must build their own gateway around the PyO3 library or MCP stdio. This is a deliberate architectural choice (embeddable library > HTTP server) but limits deployment patterns.
 
 **W7: Authentication & Authorization (2.5/5)** (UP from 1.5 — less attack surface) — No auth on MCP stdio (relies on process-level isolation). PyO3 bindings run in-process (no network auth needed). Less concerning than unauthenticated HTTP gateway, but MCP stdio has no request-level auth.
 
-**W8: PyO3 Test Coverage (2.0/5)** (NEW) — No integration tests for PyO3 bindings. `PipelineRunner`, `EventIterator`, `@tool` decorator, `PyToolExecutor` — all untested from Python side. Only tested via Rust unit tests.
+**W8: PyO3 Test Coverage (3.5/5)** (UP from 2.0) — 27 pytest integration tests covering `PipelineRunner`, `EventIterator`, `@tool` decorator, error handling, metadata, multi-stage pipelines, and streaming. Still missing: LLM-backed agent tests (only deterministic/McpDelegating tested), PipelineAgent composition tests from Python, GIL contention stress tests.
 
-**W9: Post-hoc Tool Access Enforcement (3.5/5)** — Tool ACL checks in `process_agent_result()` run *after* tool execution, not before. An agent can execute unauthorized tools; the system only flags it afterward. Pre-execution enforcement would be stronger.
+**W9: ~~Post-hoc Tool Access Enforcement~~ CLOSED** — Pre-execution ACL enforcement now in LlmAgent tool loop. Unauthorized tools rejected before execution.
 
-**W10: Routing Expression Recursion (3.5/5)** — No recursion depth limit on `And`/`Or`/`Not` nesting in `RoutingExpr`. Since routing expressions come from user-supplied `PipelineConfig` JSON, deeply nested expressions could cause stack overflow (DoS vector).
+**W10: ~~Routing Expression Recursion~~ CLOSED** — `validate_depth()` with max depth 32 prevents stack overflow from deeply nested routing expressions.
 
 **W11: MCP Stdio Lifecycle (3.0/5)** — `McpToolExecutor` stdio transport lacks `kill_on_drop` on child process. No reconnection logic for either transport — if the server dies, the executor is permanently broken.
 
@@ -808,7 +953,7 @@ DX score rises to 4.5 (PyO3 `PipelineRunner`, `@tool` decorator, auto-agent crea
 
 ## 6. Documentation Assessment
 
-6 documents, ~700 lines. Score: 3.0/5 (DOWN — HTTP gateway docs now stale, PyO3 docs needed).
+6 documents, ~700 lines. Score: 2.5/5 (DOWN — HTTP gateway docs stale, PyO3/PipelineAgent/CommBus undocumented).
 
 | Document | Lines | Status |
 |----------|-------|--------|
@@ -825,13 +970,13 @@ DX score rises to 4.5 (PyO3 `PipelineRunner`, `@tool` decorator, auto-agent crea
 
 ### Immediate (High Impact)
 
-1. **PyO3 integration tests** — No Python-side tests exist. Add pytest suite covering `PipelineRunner.from_json()`, `register_tool()`, `run()`, `stream()`, `@tool` decorator, error handling, metadata passthrough.
+1. ~~**PyO3 integration tests**~~ **DONE** — 27 pytest tests covering PipelineRunner, @tool, streaming, multi-stage, metadata, error handling.
 
-2. **Pre-execution tool ACL enforcement** — Move tool access checks from `process_agent_result()` (post-hoc) to the agent tool loop (pre-execution). Currently unauthorized tools execute and are only flagged afterward.
+2. ~~**Pre-execution tool ACL enforcement**~~ **DONE** — LlmAgent tool loop now checks `allowed_tools` before executing. Unauthorized tools rejected with error to LLM.
 
-3. **Routing expression recursion limit** — Add depth limit on `And`/`Or`/`Not` nesting to prevent stack overflow from user-supplied `PipelineConfig` JSON.
+3. ~~**Routing expression recursion limit**~~ **DONE** — `validate_depth()` with max depth 32.
 
-4. **Update all documentation** — README (architecture pivot), API_REFERENCE (delete HTTP, add PyO3 + MCP), DEPLOYMENT (maturin build, MCP binary), CHANGELOG (iterations 13-20).
+4. **Update all documentation** — README (architecture pivot + PipelineAgent + CommBus), API_REFERENCE (delete HTTP, add PyO3 + MCP + CommBus), DEPLOYMENT (maturin build, MCP binary), CHANGELOG (iterations 13-22).
 
 ### Medium-term
 
@@ -855,38 +1000,38 @@ DX score rises to 4.5 (PyO3 `PipelineRunner`, `@tool` decorator, auto-agent crea
 
 | Dimension | Score | Rationale |
 |-----------|-------|-----------|
-| Architecture | 5.0/5 | Single-process, typed channels, zero serialization, dual consumption (PyO3 + MCP stdio) |
-| Contract enforcement | 5.0/5 | JSON Schema + tool ACLs + quotas + max_visits + step_limit + circuit breaking |
-| Operational simplicity | 4.5/5 | Two modes: PyO3 lib (`pip install`) or MCP binary. No HTTP server to deploy (DOWN from 4.8 — more complex build) |
-| Graph expressiveness | 4.5/5 | Gate/Fork/Agent, state merge, Break, step_limit |
-| Type safety | 4.8/5 | Mostly `#[deny(unsafe_code)]`, `#[allow(unsafe_code)]` for PyO3 FFI (DOWN from 5.0) |
-| Memory safety | 4.8/5 | Rust ownership end-to-end, PyO3 FFI boundary is safe-by-construction but `#[allow(unsafe_code)]` required (DOWN from 5.0) |
-| Agentic capabilities | 4.8/5 | ReAct tool loop + circuit breaking + health tracking + MCP delegation + Python tool bridge |
-| Streaming | 4.8/5 | Stage-aware events (8 types with stage context). EventIterator for Python. Observable MCP delegation (UP from 4.5) |
-| Definition-time validation | 4.5/5 | PipelineConfig::validate() + PipelineBuilder (catches errors at construction) |
-| MCP integration | 4.8/5 | **Client AND server**. Client: HTTP+stdio. Server: stdio JSON-RPC 2.0 with upstream proxy. Both unique (UP from 4.5) |
+| Architecture | 5.0/5 | Single-process, typed channels, zero serialization, dual consumption (PyO3 + MCP stdio), pipeline composition |
+| Contract enforcement | 5.0/5 | JSON Schema + pre-execution tool ACLs + quotas + max_visits + step_limit + circuit breaking + routing depth limit |
+| Operational simplicity | 4.5/5 | Two modes: PyO3 lib (`pip install`) or MCP binary. No HTTP server to deploy |
+| Graph expressiveness | 4.8/5 | Gate/Fork/Agent/PipelineAgent, state merge, Break, step_limit, hierarchical composition (UP from 4.5) |
+| Type safety | 4.8/5 | Mostly `#[deny(unsafe_code)]`, `#[allow(unsafe_code)]` for PyO3 FFI |
+| Memory safety | 4.8/5 | Rust ownership end-to-end, PyO3 FFI boundary is safe-by-construction but `#[allow(unsafe_code)]` required |
+| Agentic capabilities | 5.0/5 | ReAct tool loop + circuit breaking + health tracking + MCP delegation + Python tool bridge + PipelineAgent composition (UP from 4.8) |
+| Streaming | 5.0/5 | Pipeline-attributed events (8 types with stage + pipeline context). EventIterator for Python. Composed pipeline event bridging (UP from 4.8) |
+| Definition-time validation | 4.8/5 | PipelineConfig::validate() + PipelineBuilder + routing depth limit + child_pipeline mutual exclusion (UP from 4.5) |
+| MCP + A2A integration | 5.0/5 | **Client AND server + PipelineAgent + CommBus + AgentCards**. Full bidirectional MCP + A2A composition (UP from 4.8) |
 | Interrupt system | 4.5/5 | 7 kinds, fully wired: kernel → pipeline poll/early-return |
-| PyO3 bindings | 4.5/5 | PipelineRunner + @tool + EventIterator + PyToolExecutor. GIL-released. Auto-agent creation (NEW) |
-| Observability | 4.2/5 | Stage-aware events + #[instrument] + routing debug + kernel OTEL (UP from 4.0) |
+| PyO3 bindings | 4.8/5 | PipelineRunner + @tool + EventIterator + PyToolExecutor. GIL-released. Auto-agent creation. 27 pytest tests (UP from 4.5) |
+| Observability | 4.5/5 | Pipeline-attributed events + #[instrument] + routing debug + kernel OTEL + CommBus stats (UP from 4.2) |
 | Code hygiene | 5.0/5 | ~40k dead lines deleted. God-files split. HTTP gateway cleanly removed |
-| Testing & eval | 4.3/5 | 283 tests (262 unit + 21 integration) + PipelineTestHarness. No PyO3 tests (DOWN from 4.5) |
-| Developer experience | 4.5/5 | PyO3 PipelineRunner + @tool decorator + auto-agent creation + PipelineBuilder + JSON-safe prompts (UP from 4.2) |
-| Documentation | 3.0/5 | All docs stale after architecture pivot (DOWN from 3.5) |
-| Interoperability | 4.2/5 | MCP client + MCP server + PyO3 bindings. Bidirectional MCP unique (UP from 3.8) |
+| Testing & eval | 4.5/5 | 305 Rust tests (284 unit + 21 integration) + 27 pytest + PipelineTestHarness (UP from 4.3) |
+| Developer experience | 4.5/5 | PyO3 PipelineRunner + @tool decorator + auto-agent creation + PipelineBuilder + JSON-safe prompts |
+| Documentation | 2.5/5 | All docs stale after architecture pivot + new composition/federation features (DOWN from 3.0) |
+| Interoperability | 4.5/5 | MCP client + MCP server + PyO3 bindings + CommBus federation + AgentCards (UP from 4.2) |
 | RAG depth | 1.0/5 | No retrieval |
-| Multi-language | 3.5/5 | PyO3 (Python), MCP stdio (any MCP client). Massive improvement (UP from 2.0) |
+| Multi-language | 3.5/5 | PyO3 (Python), MCP stdio (any MCP client) |
 | Managed experience | 2.0/5 | Self-hosted only |
 | Memory/persistence | 2.0/5 | No persistent memory |
 | Community/ecosystem | 1.0/5 | Zero adoption |
-| **Overall** | **4.8/5** | |
+| **Overall** | **4.9/5** | |
 
-The overall score adjusts from 4.9 to 4.8. Iterations 17-20 are an **architectural pivot**, not a regression. The system trades HTTP gateway surface (12 routes, structured errors, discovery endpoints, JeevesClient) for embeddable interfaces (PyO3 bindings, MCP stdio server). This is a net improvement for the target use case (Python-first teams consuming Rust kernel) but temporarily reduces testing coverage and documentation currency. The system transitions from "production-hardened HTTP server" to "embeddable kernel with dual protocol interfaces".
+The overall score rises from 4.8 to 4.9. Iterations 21-22 close 3 of the top 4 recommendations from the previous audit (PyO3 tests, pre-execution ACLs, routing depth limit) and add the most architecturally significant features since the kernel itself: **hierarchical pipeline composition** (PipelineAgent) and **kernel-mediated federation** (CommBus wiring). The system now supports recursive pipeline nesting with transparent event bridging, agent discovery via AgentCardRegistry, and event-driven inter-pipeline coordination — capabilities that were identified as critical gaps. Documentation debt is the primary remaining weakness.
 
 ---
 
 ## 9. Trajectory Analysis
 
-### Gap Closure (20 Iterations)
+### Gap Closure (22 Iterations)
 
 | Gap | Status |
 |-----|--------|
@@ -894,12 +1039,12 @@ The overall score adjusts from 4.9 to 4.8. Iterations 17-20 are an **architectur
 | No output schema validation | **CLOSED** — kernel JSON Schema |
 | No tool ACLs | **CLOSED** — kernel-enforced |
 | MCP support | **CLOSED** — MCP client (HTTP + stdio) + MCP stdio server (360L). Bidirectional |
-| A2A support | **REMOVED** — discovery endpoints deleted with HTTP gateway (iter 18). Deliberate pivot |
+| A2A support | **CLOSED** (RECOVERED) — PipelineAgent composition + AgentCardRegistry discovery + CommBus federation. No full A2A protocol but hierarchical composition with event-driven coordination |
 | Envelope complexity | **CLOSED** — typed `AgentContext` |
-| No testing framework | **CLOSED** — 283 tests (262 unit + 21 integration) |
+| No testing framework | **CLOSED** — 305 Rust tests + 27 pytest tests |
 | Dead protocols | **CLOSED** — ~40k lines deleted, pyproject.toml removed then recreated for maturin |
 | No StreamingAgent | **CLOSED** — end-to-end stage-aware streaming (8 event types) |
-| No OTEL spans | **MOSTLY CLOSED** — `#[instrument]` on agents + kernel OTEL |
+| No OTEL spans | **CLOSED** — `#[instrument]` on agents + kernel OTEL + pipeline-attributed events + CommBus stats |
 | No documentation | **CLOSED** — 6 docs (needs architecture pivot updates) |
 | No graph primitives | **CLOSED** — Gate/Fork/State/Break/step_limit |
 | No state management | **CLOSED** — state_schema + MergeStrategy |
@@ -929,56 +1074,67 @@ The overall score adjusts from 4.9 to 4.8. Iterations 17-20 are an **architectur
 | No MCP server | **CLOSED** (NEW) — MCP stdio server (360L), JSON-RPC 2.0, upstream proxy pattern |
 | No stage-aware events | **CLOSED** (NEW) — all PipelineEvent variants carry `stage: Option<String>` |
 | No metadata passthrough | **CLOSED** (NEW) — `run(config, metadata)` / `stream(config, metadata)` |
+| No A2A composition | **CLOSED** (NEW) — PipelineAgent runs child pipelines as stages, event bridging with dotted notation |
+| No CommBus federation | **CLOSED** (NEW) — Pub/sub + commands + queries, kernel-mediated, auto-wired from pipeline config |
+| No agent discovery | **CLOSED** (NEW) — AgentCardRegistry with capabilities, schemas, event types |
+| No pre-execution ACLs | **CLOSED** (NEW) — LlmAgent checks allowed_tools before executing |
+| No PyO3 tests | **CLOSED** (NEW) — 27 pytest tests (6 classes, fixtures, multi-stage, streaming, error handling) |
+| No routing depth limit | **CLOSED** (NEW) — `validate_depth()` max 32 prevents stack overflow |
+| No pipeline event serde | **CLOSED** (NEW) — `#[serde(tag = "type", rename_all = "snake_case")]` |
 
-**31/39 gaps closed. 4 deliberately removed (A2A, gateway hardening, consumer client, discovery). 2 superseded (Python overhead, structured errors). 1 mostly closed (OTEL). 1 open (persistent memory).**
+**38/45 gaps closed. 2 deliberately removed (gateway hardening, consumer client). 2 superseded (Python overhead, structured errors). 2 recovered (A2A, discovery). 1 open (persistent memory).**
 
-### Code Trajectory (Iterations 12-20)
+### Code Trajectory (Iterations 12-22)
 
-| Metric | Iter 12 → 13 → 14 → 15 → 16 → **17-20** | Detail |
-|--------|---------------------------------------------|--------|
-| Total Rust LOC | ~14,340 → ~14,400 → ~15,300 → ~16,500 → ~16,650 → **~17,200** | +550 (PyO3 776L, MCP server 360L, −868L deleted gateway/client) |
-| Worker module | 1,678 → ~2,200 → ~2,910 → ~3,110 → ~3,260 → **~3,700** | +440 (MCP server 360L, stage-aware events, observable McpDelegatingAgent) |
-| Python module | — → — → — → — → — → **776L** (NEW) | mod.rs 74L + runner.rs 577L + event_iter.rs 59L + tool_bridge.rs 66L |
-| Rust tests | 247 → 261 → 269 → 285 → 287 → **283** | −4 (gateway/client tests deleted, +6 MCP server tests, −10 gateway/client) |
-| Integration tests | 5 → 20 → 21 → 21 → 21 → **21** | Stable |
-| HTTP endpoints | 6 → 7 → 8 → 12 → 12 → **0** | HTTP gateway deleted |
-| KernelCommand variants | 7 → 7 → 8 → 8 → 8 → **8** | Stable |
-| PipelineEvent variants | 0 → 7 → 8 → 8 → 8 → **8** (stage-aware) | All variants gain `stage: Option<String>` |
-| Agent types | 2 → 2 → 2 → 2 → 3 → **3** | Stable (LlmAgent, DeterministicAgent, McpDelegatingAgent) |
-| MCP support | Deleted → Deleted → Client → Client + auto → +McpDelegating → **+ MCP stdio server** | Bidirectional MCP |
-| Consumption modes | Binary → Binary → Binary → Binary → Binary → **PyO3 lib + MCP stdio binary** | Dual consumption |
-| Python artifacts | pyproject.toml → → → → Deleted → **Recreated** (maturin build) | PyO3 build config |
-| Files deleted | — → — → — → — → — → **client.rs (357L), gateway.rs (351L), gateway_types.rs (94L), gateway_errors.rs (66L)** | −868L HTTP surface |
-| Builder/DX | None → None → None → PipelineBuilder + JeevesClient + Harness → + JSON-safe → **PyO3 PipelineRunner + @tool + EventIterator** | Python-first DX |
+| Metric | Iter 12 → 13 → 14 → 15 → 16 → 17-20 → **21-22** | Detail |
+|--------|------------------------------------------------------|--------|
+| Total Rust LOC | ~14,340 → ~14,400 → ~15,300 → ~16,500 → ~16,650 → ~17,200 → **~17,900** | +700 (PipelineAgent, CommBus, AgentCards, pre-exec ACL, output fixes) |
+| Worker module | 1,678 → ~2,200 → ~2,910 → ~3,110 → ~3,260 → ~3,700 → **~4,100** | +400 (PipelineAgent 140L, handle federation 111L, actor federation 86L) |
+| Kernel module | — → — → — → — → — → — → **~10,600** | +1,300 (CommBus wiring 266L, AgentCards 86L, orchestration fixes 88L, routing depth 69L) |
+| Python module | — → — → — → — → — → 776L → **834L** | runner.rs 634L (was 577L) — PipelineAgent support |
+| Rust tests | 247 → 261 → 269 → 285 → 287 → 283 → **305** | +22 (CommBus 16, AgentCard 2, CommBus wiring 4, routing depth, validation) |
+| Python tests | — → — → — → — → — → — → **27** (NEW) | pytest: @tool (5), construction (4), run (7), multi-stage (2), stream (7), errors (2) |
+| Integration tests | 5 → 20 → 21 → 21 → 21 → 21 → **21** | Stable |
+| KernelCommand variants | 7 → 7 → 8 → 8 → 8 → 8 → **13** | +5 (PublishEvent, Subscribe, Unsubscribe, CommBusQuery, ListAgentCards) |
+| PipelineEvent variants | 0 → 7 → 8 → 8 → 8 → 8 (stage-aware) → **8** (pipeline-attributed) | All variants gain `pipeline: String` |
+| Agent types | 2 → 2 → 2 → 2 → 3 → 3 → **4** | +PipelineAgent (A2A composition) |
+| CommBus | Pub/sub → → → → → → **+ commands + queries + subscription wiring + agent context events** | Full federation |
+| A2A composition | None → → → → → → **PipelineAgent + AgentCardRegistry** | Hierarchical nesting |
+| MCP support | Deleted → Deleted → Client → Client + auto → +McpDelegating → + MCP stdio server → **Stable** | Bidirectional MCP |
+| Consumption modes | Binary → Binary → Binary → Binary → Binary → PyO3 lib + MCP stdio binary → **Stable** | Dual consumption |
+| Python tests | — → — → — → — → — → — → **288L pytest** | 6 test classes, fixtures, multi-stage |
+| Tool ACL enforcement | None → → → → Post-hoc → Post-hoc → **Pre-execution** | Unauthorized tools rejected before execution |
 
 ### Architectural Verdict
 
-Iterations 17-20 represent an **architectural pivot**: Jeeves-Core transitions from "HTTP server with REST API" to "embeddable Rust kernel with dual protocol interfaces". This is the most significant architectural change since iteration 1.
+Iterations 21-22 complete the **composition layer**: Jeeves-Core transitions from "embeddable kernel with dual protocol interfaces" to "composable agent orchestration platform with hierarchical pipeline nesting and kernel-mediated federation".
 
-**What was gained:**
+**What was gained in iterations 21-22:**
 
-1. **PyO3 bindings (776L)**: `from jeeves_core import PipelineRunner, tool`. The Rust kernel is now a Python-importable library. `PipelineRunner` wraps the tokio runtime + kernel actor, provides `from_json()`, `register_tool()`, `run()`, `stream()`, `shutdown()`. The `@tool` decorator bridges Python callables to Rust `ToolExecutor` via JSON serialization. Auto-agent creation from pipeline config eliminates boilerplate. GIL-released execution with `py.allow_threads()` and nested call safety with `block_in_place()`. This is the highest-value addition since the kernel itself — it makes the Rust kernel accessible to Python-first teams without any Rust knowledge.
+1. **PipelineAgent (140L)**: 4th agent type — runs an entire child pipeline as a stage in a parent pipeline. OnceLock-based two-pass initialization solves the circular dependency between PipelineAgent and AgentRegistry. Child events bridged to parent channel with `pipeline` field rewritten to dotted notation (`"parent.child"`). This enables recursive pipeline composition — a multi-agent system can orchestrate sub-systems, each with their own stages, tools, and routing.
 
-2. **MCP stdio server (360L)**: JSON-RPC 2.0 over stdin/stdout. `initialize`, `notifications/initialized`, `tools/list`, `tools/call`. Upstream proxy pattern — MCP clients call tools, the server runs pipelines internally. The binary (`jeeves-kernel`) is a standard MCP tool server, usable from any MCP-compatible client (Claude Desktop, VS Code, etc.).
+2. **CommBus federation wiring (+470L)**: The CommBus (pub/sub + commands + queries) is now fully wired into the kernel orchestration lifecycle. `initialize_orchestration()` auto-subscribes processes to event types from `PipelineConfig.subscriptions`. `get_next_instruction()` drains pending events into `agent_context.pending_events`. `terminate_process()` cleans up subscriptions. Fire-and-spawn pattern for queries prevents actor loop deadlock. This enables event-driven coordination between independently-running pipelines.
 
-3. **Stage-aware observability**: All 8 `PipelineEvent` variants gain `stage: Option<String>`. Delta, ToolCallStart, ToolResult, Error events are attributable to specific pipeline stages. `McpDelegatingAgent` now emits full event lifecycle (ToolCallStart → ToolResult/Error). `Done` includes terminal outputs. Enables per-stage monitoring dashboards.
+3. **AgentCardRegistry (86L)**: Discovery metadata for agents and pipelines — name, description, capabilities, accepted/published event types, input/output schemas. Queryable via `KernelHandle::list_agent_cards()`. Enables federated agent discovery without external service.
 
-4. **Metadata passthrough**: `run(config, metadata)` / `stream(config, metadata)` propagate user-supplied metadata through the pipeline.
+4. **Pre-execution tool ACL enforcement**: LlmAgent tool loop now checks `allowed_tools` BEFORE executing. Unauthorized tools rejected with error message returned to LLM. This was the #2 recommendation from the previous audit — now closed.
 
-**What was traded:**
+5. **27 pytest integration tests (288L)**: Full Python-side coverage of PyO3 bindings: @tool decorator (5 tests), PipelineRunner construction (4), buffered execution (7), multi-stage pipelines (2), streaming (7), error handling (2). This was the #1 recommendation from the previous audit — now closed.
 
-- HTTP gateway (351L + 94L + 66L = 511L) — no REST API, no webhook integration
-- JeevesClient (357L) — no typed HTTP client
-- Discovery endpoints — no A2A surface
-- Structured ErrorResponse — replaced by Python exceptions and JSON-RPC errors
-- 4 tests net reduction (287 → 283)
+6. **Routing depth validation**: `validate_depth()` with max depth 32 prevents stack overflow from deeply nested routing expressions. This was the #3 recommendation — now closed.
 
-**Why this is correct:**
+7. **Pipeline-attributed events**: All PipelineEvent variants gain `pipeline: String` field. Combined with `stage: Option<String>`, enables hierarchical event attribution across composed pipeline trees. `rewrite_event_pipeline()` transparently rewrites pipeline field in child-to-parent event bridge.
 
-The target user is a Python-first team consuming a Rust kernel for performance and safety. They don't want to deploy and manage an HTTP server — they want `pip install jeeves-core` and `from jeeves_core import PipelineRunner`. The MCP stdio server provides a second consumption mode for tool-server deployments. Both modes are feature-gated and compiled from the same Rust core. An HTTP gateway can be re-added as `#[cfg(feature = "http-gateway")]` if needed — the kernel API (`run_pipeline()`, `run_pipeline_streaming()`) is unchanged.
+**What the system now provides:**
 
-**Remaining work**: PyO3 integration tests (critical) → pre-execution tool ACL enforcement → HTTP gateway as optional feature → persistent memory → documentation updates.
+- **Hierarchical composition**: Parent pipeline stage → PipelineAgent → child pipeline → nested stages/agents
+- **Event-driven federation**: CommBus pub/sub between independently-running pipelines
+- **Discovery**: AgentCardRegistry for capability-based agent lookup
+- **Transparent observability**: Pipeline-attributed events flow up the composition tree
+- **Pre-execution enforcement**: Tool ACLs checked before execution, not after
+
+**Remaining work**: documentation updates (critical — all docs stale) → HTTP gateway as optional feature → persistent memory → cross-network federation (CommBus is in-process only) → PipelineAgent composition tests from Python.
 
 ---
 
-*Audit conducted across 20 iterations on branch `claude/audit-agentic-frameworks-B6fqd`, 2026-03-11 to 2026-03-13.*
+*Audit conducted across 22 iterations on branch `claude/audit-agentic-frameworks-B6fqd`, 2026-03-11 to 2026-03-14.*
