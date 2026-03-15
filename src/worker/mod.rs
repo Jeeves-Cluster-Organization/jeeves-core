@@ -15,6 +15,8 @@ pub mod tools;
 
 use std::sync::Arc;
 
+use tracing::{instrument, Instrument};
+
 use crate::envelope::Envelope;
 use crate::kernel::orchestrator_types::{AgentDispatchContext, Instruction, PipelineConfig};
 use crate::types::{ProcessId, Result};
@@ -89,14 +91,17 @@ pub async fn run_pipeline_streaming(
         .initialize_session(process_id.clone(), pipeline_config, envelope, false)
         .await?;
     let (tx, rx) = mpsc::channel(64);
+    let process_id_for_span = process_id.clone();
+    let pipeline_name_for_span = pipeline_name.clone();
     let task = tokio::spawn(async move {
         run_pipeline_loop(&handle, &process_id, &agents, Some(tx), &pipeline_name).await
-    });
+    }.instrument(tracing::info_span!("pipeline_stream", process_id = %process_id_for_span, pipeline = %pipeline_name_for_span)));
     Ok((task, rx))
 }
 
 /// Run the pipeline loop for an already-initialized session.
 /// Pass `event_tx = Some(tx)` for streaming events, `None` for buffered mode.
+#[instrument(skip(handle, agents, event_tx), fields(process_id = %process_id, pipeline = %pipeline_name))]
 pub async fn run_pipeline_loop(
     handle: &KernelHandle,
     process_id: &ProcessId,
@@ -229,6 +234,7 @@ async fn execute_parallel(
         let agent_name = agent_name.clone();
         let agent_impl = agents.get(&agent_name).cloned();
 
+        let agent_name_for_span = agent_name.clone();
         join_handles.push(tokio::spawn(async move {
             let output: AgentOutput = if let Some(a) = agent_impl {
                 a.process(&ctx).await.unwrap_or_else(|e| AgentOutput {
@@ -246,7 +252,7 @@ async fn execute_parallel(
                 })
             };
             (agent_name, output)
-        }));
+        }.instrument(tracing::debug_span!("parallel_agent", agent = %agent_name_for_span))));
     }
 
     for task in join_handles {
@@ -306,6 +312,7 @@ fn build_agent_context(
 
 /// Execute a single agent. Falls back to DeterministicAgent if not registered.
 /// Emits PipelineEvent::Error on agent failure when streaming.
+#[instrument(skip(agents, ctx), fields(agent = %agent_name))]
 async fn execute_agent(
     agents: &AgentRegistry,
     agent_name: &str,

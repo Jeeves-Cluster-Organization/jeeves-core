@@ -1,0 +1,230 @@
+//! GenAI-backed LLM provider — 8+ providers via the genai crate.
+//!
+//! Supports OpenAI, Anthropic, Gemini, Ollama, Groq, DeepSeek, Cohere, xAI
+//! through a single interface. The model name prefix determines the provider
+//! (e.g. `gpt-4o` → OpenAI, `claude-3-5-sonnet` → Anthropic).
+//! API keys are read from environment variables automatically.
+
+use async_trait::async_trait;
+use futures::stream::Stream;
+use futures::StreamExt;
+use genai::chat::{
+    ChatMessage as GenaiMessage, ChatOptions, ChatRequest as GenaiRequest,
+    ChatStreamEvent, Tool as GenaiTool,
+};
+use std::pin::Pin;
+
+use super::{ChatRequest, ChatResponse, LlmProvider, StreamChunk, TokenUsage, ToolCall};
+use crate::types::{Error, Result};
+
+/// Multi-provider LLM adapter via [genai](https://crates.io/crates/genai).
+///
+/// API keys are auto-discovered from environment variables based on model prefix:
+/// `OPENAI_API_KEY`, `ANTHROPIC_API_KEY`, `GEMINI_API_KEY`, etc.
+#[derive(Debug, Clone)]
+pub struct GenaiProvider {
+    client: genai::Client,
+    default_model: String,
+}
+
+impl GenaiProvider {
+    /// Create a provider with default client (reads API keys from env).
+    pub fn new(default_model: impl Into<String>) -> Self {
+        Self {
+            client: genai::Client::default(),
+            default_model: default_model.into(),
+        }
+    }
+
+    /// Create a provider with a pre-configured genai Client.
+    pub fn with_client(client: genai::Client, default_model: impl Into<String>) -> Self {
+        Self {
+            client,
+            default_model: default_model.into(),
+        }
+    }
+
+    fn resolve_model(&self, req: &ChatRequest) -> String {
+        req.model.clone().unwrap_or_else(|| self.default_model.clone())
+    }
+
+    fn build_options(&self, req: &ChatRequest) -> ChatOptions {
+        let mut opts = ChatOptions::default()
+            .with_capture_usage(true)
+            .with_capture_content(true)
+            .with_capture_tool_calls(true);
+        if let Some(temp) = req.temperature {
+            opts = opts.with_temperature(temp);
+        }
+        if let Some(max) = req.max_tokens {
+            #[allow(clippy::cast_sign_loss)]
+            {
+                opts = opts.with_max_tokens(max as u32);
+            }
+        }
+        opts
+    }
+
+    fn build_request(&self, req: &ChatRequest) -> GenaiRequest {
+        let mut system_msg = None;
+        let mut messages = Vec::new();
+
+        for msg in &req.messages {
+            match msg.role.as_str() {
+                "system" => {
+                    system_msg = Some(msg.content.clone());
+                }
+                "user" => {
+                    messages.push(GenaiMessage::user(msg.content.clone()));
+                }
+                "assistant" => {
+                    if let Some(ref tcs) = msg.tool_calls {
+                        let genai_tcs: Vec<genai::chat::ToolCall> = tcs
+                            .iter()
+                            .map(|tc| genai::chat::ToolCall {
+                                call_id: tc.id.clone(),
+                                fn_name: tc.name.clone(),
+                                fn_arguments: tc.arguments.clone(),
+                                thought_signatures: None,
+                            })
+                            .collect();
+                        // Build assistant message with tool calls + optional text
+                        let thought_sigs: Vec<String> = Vec::new();
+                        let mut m = GenaiMessage::assistant_tool_calls_with_thoughts(genai_tcs, thought_sigs);
+                        if !msg.content.is_empty() {
+                            m.content.prepend(genai::chat::ContentPart::from_text(msg.content.clone()));
+                        }
+                        messages.push(m);
+                    } else {
+                        messages.push(GenaiMessage::assistant(msg.content.clone()));
+                    }
+                }
+                "tool" => {
+                    let call_id = msg.tool_call_id.clone().unwrap_or_default();
+                    let tool_resp = genai::chat::ToolResponse::new(call_id, msg.content.clone());
+                    messages.push(tool_resp.into());
+                }
+                _ => {
+                    messages.push(GenaiMessage::user(msg.content.clone()));
+                }
+            }
+        }
+
+        let mut genai_req = GenaiRequest::from_messages(messages);
+        if let Some(sys) = system_msg {
+            genai_req = genai_req.with_system(sys);
+        }
+
+        // Convert tool definitions
+        if let Some(ref tools) = req.tools {
+            let genai_tools: Vec<GenaiTool> = tools
+                .iter()
+                .filter_map(|t| {
+                    let func = t.get("function")?;
+                    let name = func.get("name")?.as_str()?;
+                    let mut tool = GenaiTool::new(name);
+                    if let Some(desc) = func.get("description").and_then(|d| d.as_str()) {
+                        tool = tool.with_description(desc);
+                    }
+                    if let Some(params) = func.get("parameters") {
+                        tool = tool.with_schema(params.clone());
+                    }
+                    Some(tool)
+                })
+                .collect();
+            if !genai_tools.is_empty() {
+                genai_req = genai_req.with_tools(genai_tools);
+            }
+        }
+
+        genai_req
+    }
+}
+
+fn convert_usage(usage: &genai::chat::Usage) -> TokenUsage {
+    TokenUsage {
+        prompt_tokens: usage.prompt_tokens.unwrap_or(0),
+        completion_tokens: usage.completion_tokens.unwrap_or(0),
+        total_tokens: usage.total_tokens.unwrap_or(0),
+    }
+}
+
+fn convert_tool_call(tc: genai::chat::ToolCall) -> ToolCall {
+    ToolCall {
+        id: tc.call_id,
+        name: tc.fn_name,
+        arguments: tc.fn_arguments,
+    }
+}
+
+#[async_trait]
+impl LlmProvider for GenaiProvider {
+    async fn chat(&self, req: &ChatRequest) -> Result<ChatResponse> {
+        let model = self.resolve_model(req);
+        let options = self.build_options(req);
+        let genai_req = self.build_request(req);
+
+        let resp = self
+            .client
+            .exec_chat(&model, genai_req, Some(&options))
+            .await
+            .map_err(|e| Error::internal(format!("LLM error: {e}")))?;
+
+        let usage = convert_usage(&resp.usage);
+        let tool_calls: Vec<ToolCall> = resp.content.tool_calls()
+            .into_iter()
+            .cloned()
+            .map(convert_tool_call)
+            .collect();
+        let content = resp.content.into_first_text();
+
+        Ok(ChatResponse {
+            content,
+            tool_calls,
+            usage,
+            model: resp.model_iden.model_name.to_string(),
+        })
+    }
+
+    async fn chat_stream(
+        &self,
+        req: &ChatRequest,
+    ) -> Result<Pin<Box<dyn Stream<Item = Result<StreamChunk>> + Send>>> {
+        let model = self.resolve_model(req);
+        let options = self.build_options(req);
+        let genai_req = self.build_request(req);
+
+        let stream_resp = self
+            .client
+            .exec_chat_stream(&model, genai_req, Some(&options))
+            .await
+            .map_err(|e| Error::internal(format!("LLM stream error: {e}")))?;
+
+        let mapped = stream_resp.stream.filter_map(|event| async {
+            match event {
+                Ok(ChatStreamEvent::Chunk(chunk)) => Some(Ok(StreamChunk {
+                    delta_content: Some(chunk.content),
+                    tool_calls: vec![],
+                    usage: None,
+                })),
+                Ok(ChatStreamEvent::ToolCallChunk(tc_chunk)) => Some(Ok(StreamChunk {
+                    delta_content: None,
+                    tool_calls: vec![convert_tool_call(tc_chunk.tool_call)],
+                    usage: None,
+                })),
+                Ok(ChatStreamEvent::End(end)) => {
+                    let usage = end.captured_usage.as_ref().map(convert_usage);
+                    Some(Ok(StreamChunk {
+                        delta_content: None,
+                        tool_calls: vec![],
+                        usage,
+                    }))
+                }
+                Ok(_) => None, // Start, ReasoningChunk, ThoughtSignatureChunk
+                Err(e) => Some(Err(Error::internal(format!("LLM stream error: {e}")))),
+            }
+        });
+
+        Ok(Box::pin(mapped))
+    }
+}

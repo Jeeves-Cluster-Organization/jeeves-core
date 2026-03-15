@@ -68,6 +68,7 @@ jsonschema = "0.28"
 
 # JSON Schema generation (pipeline config discoverability)
 schemars = "0.8"
+genai = "0.5"
 
 
 [dev-dependencies]

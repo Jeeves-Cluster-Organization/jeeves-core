@@ -51,7 +51,6 @@ impl LlmProvider for MockLlmProvider {
         let chunk = StreamChunk {
             delta_content: resp.content,
             tool_calls: resp.tool_calls,
-            done: true,
             usage: Some(resp.usage),
         };
         Ok(Box::pin(futures::stream::once(async { Ok(chunk) })))
@@ -95,7 +94,6 @@ impl LlmProvider for SequentialMockLlmProvider {
         let chunk = StreamChunk {
             delta_content: resp.content,
             tool_calls: resp.tool_calls,
-            done: true,
             usage: Some(resp.usage),
         };
         Ok(Box::pin(futures::stream::once(async { Ok(chunk) })))

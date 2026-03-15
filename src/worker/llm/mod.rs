@@ -1,7 +1,7 @@
-//! LLM provider abstraction — HTTP-based LLM calls + streaming.
+//! LLM provider abstraction — multi-provider calls + streaming via genai.
 
+pub mod genai_provider;
 pub mod mock;
-pub mod openai;
 
 use async_trait::async_trait;
 use futures::stream::{Stream, StreamExt};
@@ -46,7 +46,7 @@ impl ChatMessage {
 pub struct ToolCall {
     pub id: String,
     pub name: String,
-    pub arguments: String,
+    pub arguments: serde_json::Value,
 }
 
 /// Request to the LLM.
@@ -66,9 +66,9 @@ pub struct ChatRequest {
 /// Token usage from the API response.
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct TokenUsage {
-    pub prompt_tokens: i64,
-    pub completion_tokens: i64,
-    pub total_tokens: i64,
+    pub prompt_tokens: i32,
+    pub completion_tokens: i32,
+    pub total_tokens: i32,
 }
 
 /// Response from the LLM.
@@ -85,7 +85,6 @@ pub struct ChatResponse {
 pub struct StreamChunk {
     pub delta_content: Option<String>,
     pub tool_calls: Vec<ToolCall>,
-    pub done: bool,
     pub usage: Option<TokenUsage>,
 }
 
@@ -225,13 +224,20 @@ pub async fn collect_stream(
 }
 
 /// Merge streaming tool call deltas into accumulated tool calls.
-/// OpenAI streams tool calls incrementally: first chunk has id+name, subsequent chunks
-/// append to arguments. Deltas are identified by index in the tool_calls array.
+/// With genai, tool calls arrive complete (genai accumulates internally).
+/// This handles both complete tool calls and legacy delta merging.
 fn merge_tool_call_deltas(accumulated: &mut Vec<ToolCall>, deltas: &[ToolCall]) {
     for delta in deltas {
-        // Use id as the lookup key — if we already have this id, append arguments
         if let Some(existing) = accumulated.iter_mut().find(|tc| tc.id == delta.id && !delta.id.is_empty()) {
-            existing.arguments.push_str(&delta.arguments);
+            // Merge: concatenate string arguments, replace object arguments
+            match (&existing.arguments, &delta.arguments) {
+                (serde_json::Value::String(a), serde_json::Value::String(b)) => {
+                    existing.arguments = serde_json::Value::String(format!("{a}{b}"));
+                }
+                _ => {
+                    existing.arguments = delta.arguments.clone();
+                }
+            }
             if existing.name.is_empty() && !delta.name.is_empty() {
                 existing.name.clone_from(&delta.name);
             }

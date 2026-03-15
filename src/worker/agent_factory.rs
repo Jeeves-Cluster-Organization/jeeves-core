@@ -176,3 +176,182 @@ fn backfill_pipeline_agents(agents: &Arc<AgentRegistry>) {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::kernel::orchestrator_types::{AgentConfig, PipelineStage};
+    use crate::kernel::Kernel;
+    use crate::worker::actor::spawn_kernel;
+    use crate::worker::llm::mock::MockLlmProvider;
+    use crate::worker::tools::{ToolExecutor, ToolInfo, ToolRegistryBuilder};
+    use std::any::Any;
+    use tokio_util::sync::CancellationToken;
+
+    fn test_stage(name: &str, has_llm: bool, node_kind: NodeKind) -> PipelineStage {
+        PipelineStage {
+            name: name.to_string(),
+            agent: name.to_string(),
+            node_kind,
+            agent_config: AgentConfig {
+                has_llm,
+                ..Default::default()
+            },
+            ..Default::default()
+        }
+    }
+
+    fn test_config(name: &str, stages: Vec<PipelineStage>) -> PipelineConfig {
+        PipelineConfig::test_default(name, stages)
+    }
+
+    fn spawn_test_kernel() -> (KernelHandle, CancellationToken) {
+        let cancel = CancellationToken::new();
+        let handle = spawn_kernel(Kernel::new(), cancel.clone());
+        (handle, cancel)
+    }
+
+    #[derive(Debug)]
+    struct DummyToolExecutor;
+
+    #[async_trait::async_trait]
+    impl ToolExecutor for DummyToolExecutor {
+        async fn execute(&self, name: &str, _params: serde_json::Value) -> crate::types::Result<serde_json::Value> {
+            Ok(serde_json::json!({"tool": name}))
+        }
+        fn list_tools(&self) -> Vec<ToolInfo> {
+            vec![ToolInfo {
+                name: "my_tool".to_string(),
+                description: "test".to_string(),
+                parameters: serde_json::json!({"type": "object"}),
+            }]
+        }
+    }
+
+    #[tokio::test]
+    async fn gate_creates_deterministic() {
+        let (handle, cancel) = spawn_test_kernel();
+        let tools = ToolRegistryBuilder::new().build();
+        let llm = Arc::new(MockLlmProvider::default());
+        let prompts = Arc::new(PromptRegistry::empty());
+
+        let agents = AgentFactoryBuilder::new(llm, prompts, tools, handle)
+            .add_pipeline(test_config("p", vec![test_stage("gate1", false, NodeKind::Gate)]))
+            .build();
+
+        let agent = agents.get("gate1").expect("gate1 should exist");
+        assert!((agent.as_ref() as &dyn Any).downcast_ref::<DeterministicAgent>().is_some());
+        cancel.cancel();
+    }
+
+    #[tokio::test]
+    async fn has_llm_creates_llm_agent() {
+        let (handle, cancel) = spawn_test_kernel();
+        let tools = ToolRegistryBuilder::new().build();
+        let llm = Arc::new(MockLlmProvider::default());
+        let prompts = Arc::new(PromptRegistry::empty());
+
+        let agents = AgentFactoryBuilder::new(llm, prompts, tools, handle)
+            .add_pipeline(test_config("p", vec![test_stage("llm1", true, NodeKind::Agent)]))
+            .build();
+
+        let agent = agents.get("llm1").expect("llm1 should exist");
+        assert!((agent.as_ref() as &dyn Any).downcast_ref::<LlmAgent>().is_some());
+        cancel.cancel();
+    }
+
+    #[tokio::test]
+    async fn tool_match_creates_mcp_agent() {
+        let (handle, cancel) = spawn_test_kernel();
+        let tools = ToolRegistryBuilder::new()
+            .add_executor(Arc::new(DummyToolExecutor))
+            .build();
+        let llm = Arc::new(MockLlmProvider::default());
+        let prompts = Arc::new(PromptRegistry::empty());
+
+        let agents = AgentFactoryBuilder::new(llm, prompts, tools, handle)
+            .add_pipeline(test_config("p", vec![test_stage("my_tool", false, NodeKind::Agent)]))
+            .build();
+
+        let agent = agents.get("my_tool").expect("my_tool should exist");
+        assert!((agent.as_ref() as &dyn Any).downcast_ref::<McpDelegatingAgent>().is_some());
+        cancel.cancel();
+    }
+
+    #[tokio::test]
+    async fn no_tool_creates_deterministic() {
+        let (handle, cancel) = spawn_test_kernel();
+        let tools = ToolRegistryBuilder::new().build();
+        let llm = Arc::new(MockLlmProvider::default());
+        let prompts = Arc::new(PromptRegistry::empty());
+
+        let agents = AgentFactoryBuilder::new(llm, prompts, tools, handle)
+            .add_pipeline(test_config("p", vec![test_stage("unknown", false, NodeKind::Agent)]))
+            .build();
+
+        let agent = agents.get("unknown").expect("unknown should exist");
+        assert!((agent.as_ref() as &dyn Any).downcast_ref::<DeterministicAgent>().is_some());
+        cancel.cancel();
+    }
+
+    #[tokio::test]
+    async fn first_win_skips_duplicate() {
+        let (handle, cancel) = spawn_test_kernel();
+        let tools = ToolRegistryBuilder::new().build();
+        let llm = Arc::new(MockLlmProvider::default());
+        let prompts = Arc::new(PromptRegistry::empty());
+
+        let stage1 = test_stage("agent1", true, NodeKind::Agent);
+        let stage2 = test_stage("agent1", false, NodeKind::Gate); // same name, different config
+
+        let agents = AgentFactoryBuilder::new(llm, prompts, tools, handle)
+            .add_pipeline(test_config("p", vec![stage1, stage2]))
+            .build();
+
+        // First registration wins — should be LlmAgent, not DeterministicAgent
+        let agent = agents.get("agent1").expect("agent1 should exist");
+        assert!((agent.as_ref() as &dyn Any).downcast_ref::<LlmAgent>().is_some());
+        cancel.cancel();
+    }
+
+    #[tokio::test]
+    async fn multiple_pipelines_merged() {
+        let (handle, cancel) = spawn_test_kernel();
+        let tools = ToolRegistryBuilder::new().build();
+        let llm = Arc::new(MockLlmProvider::default());
+        let prompts = Arc::new(PromptRegistry::empty());
+
+        let agents = AgentFactoryBuilder::new(llm, prompts, tools, handle)
+            .add_pipeline(test_config("p1", vec![test_stage("a", true, NodeKind::Agent)]))
+            .add_pipeline(test_config("p2", vec![test_stage("b", false, NodeKind::Gate)]))
+            .build();
+
+        assert!(agents.get("a").is_some(), "agent from p1");
+        assert!(agents.get("b").is_some(), "agent from p2");
+        cancel.cancel();
+    }
+
+    #[tokio::test]
+    async fn allowed_tools_filters_registry() {
+        let (handle, cancel) = spawn_test_kernel();
+        let tools = ToolRegistryBuilder::new()
+            .add_executor(Arc::new(DummyToolExecutor))
+            .build();
+        let llm = Arc::new(MockLlmProvider::default());
+        let prompts = Arc::new(PromptRegistry::empty());
+
+        let mut stage = test_stage("filtered", true, NodeKind::Agent);
+        stage.allowed_tools = Some(vec!["nonexistent_tool".to_string()]);
+
+        let agents = AgentFactoryBuilder::new(llm, prompts, tools, handle)
+            .add_pipeline(test_config("p", vec![stage]))
+            .build();
+
+        let agent = agents.get("filtered").expect("filtered should exist");
+        let llm_agent = (agent.as_ref() as &dyn Any).downcast_ref::<LlmAgent>()
+            .expect("should be LlmAgent");
+        // The filtered registry should NOT contain "my_tool" since allowed_tools only has "nonexistent_tool"
+        assert!(llm_agent.tools.get("my_tool").is_none(), "my_tool should be filtered out");
+        cancel.cancel();
+    }
+}

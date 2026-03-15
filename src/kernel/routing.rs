@@ -12,9 +12,13 @@ use std::collections::HashMap;
 // =============================================================================
 
 /// Routing rule: expression tree + target stage.
+///
+/// Evaluated in order within a stage's routing list; first match wins.
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
 pub struct RoutingRule {
+    /// Boolean expression tree that determines whether this rule matches.
     pub expr: RoutingExpr,
+    /// Target stage name to route to when `expr` evaluates to true.
     pub target: String,
 }
 

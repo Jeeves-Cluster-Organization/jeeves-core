@@ -3,6 +3,8 @@
 //! Replaces the IPC server's `run_kernel_actor` + `router.rs` + all handler
 //! modules. Typed match on KernelCommand, calls kernel methods directly.
 
+use tracing::Instrument;
+
 use crate::kernel::orchestrator_types::Instruction;
 use crate::kernel::{Kernel, SchedulingPriority};
 use crate::worker::handle::{KernelCommand, KernelHandle};
@@ -12,7 +14,7 @@ use tokio_util::sync::CancellationToken;
 /// Spawn the kernel actor as a tokio task. Returns a cloneable handle.
 pub fn spawn_kernel(kernel: Kernel, cancel: CancellationToken) -> KernelHandle {
     let (tx, rx) = mpsc::channel(256);
-    tokio::spawn(run_kernel_actor(kernel, rx, cancel));
+    tokio::spawn(run_kernel_actor(kernel, rx, cancel).instrument(tracing::Span::current()));
     KernelHandle::new(tx)
 }
 
@@ -41,6 +43,7 @@ async fn run_kernel_actor(
 }
 
 /// Dispatch a single command to the kernel. Async for CommBusQuery fire-and-spawn.
+#[tracing::instrument(skip(kernel, cmd))]
 async fn dispatch(kernel: &mut Kernel, cmd: KernelCommand) {
     match cmd {
         KernelCommand::InitializeSession {
@@ -226,7 +229,7 @@ async fn dispatch(kernel: &mut Kernel, cmd: KernelCommand) {
                             ))));
                         }
                     }
-                });
+                }.instrument(tracing::debug_span!("commbus_query")));
             } else {
                 let _ = resp_tx.send(Err(crate::types::Error::validation(format!(
                     "No handler registered for query type: {}",
