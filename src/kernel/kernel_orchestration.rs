@@ -70,11 +70,17 @@ impl Kernel {
         process_id: &ProcessId,
     ) -> Result<orchestrator::Instruction> {
         // Phase 0: Drain CommBus subscription receivers into envelope.event_inbox
+        const MAX_EVENT_INBOX: usize = 1024;
         if let Some(subs) = self.comm.subscriptions.get_mut(process_id) {
             if let Some(envelope) = self.process_envelopes.get_mut(process_id) {
                 for (_subscription, receiver) in subs.iter_mut() {
                     while let Ok(event) = receiver.try_recv() {
-                        envelope.event_inbox.push(event);
+                        if envelope.event_inbox.len() < MAX_EVENT_INBOX {
+                            envelope.event_inbox.push(event);
+                        } else {
+                            tracing::warn!(process_id = %process_id, "event_inbox full, dropping events");
+                            break;
+                        }
                     }
                 }
             }

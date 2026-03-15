@@ -94,12 +94,15 @@ impl Command {
 // Subscriber Management
 // =============================================================================
 
+/// Bounded channel capacity for all CommBus channels.
+pub const CHANNEL_CAPACITY: usize = 256;
+
 /// Subscriber handle for receiving events.
 #[derive(Debug)]
 pub struct Subscriber {
     pub id: String,
     pub event_types: Vec<String>,
-    pub tx: mpsc::UnboundedSender<Event>,
+    pub tx: mpsc::Sender<Event>,
 }
 
 /// Subscription receipt for managing subscriptions.
@@ -114,7 +117,7 @@ pub struct Subscription {
 // =============================================================================
 
 /// Sender type for query handler channels (query + response oneshot).
-pub type QueryHandlerSender = mpsc::UnboundedSender<(Query, oneshot::Sender<QueryResponse>)>;
+pub type QueryHandlerSender = mpsc::Sender<(Query, oneshot::Sender<QueryResponse>)>;
 
 // =============================================================================
 // Statistics

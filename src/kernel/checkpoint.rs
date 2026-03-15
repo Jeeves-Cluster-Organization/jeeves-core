@@ -100,6 +100,20 @@ impl Kernel {
         snapshot: CheckpointSnapshot,
         pipeline_config: PipelineConfig,
     ) -> Result<ProcessId> {
+        // Validate snapshot integrity
+        if snapshot.version != CheckpointSnapshot::VERSION {
+            return Err(Error::validation(format!(
+                "Checkpoint version mismatch: expected {}, got {}",
+                CheckpointSnapshot::VERSION, snapshot.version
+            )));
+        }
+        if snapshot.envelope.event_inbox.len() > 1024 {
+            return Err(Error::validation(format!(
+                "Checkpoint event_inbox too large: {} (max 1024)",
+                snapshot.envelope.event_inbox.len()
+            )));
+        }
+
         let pid = snapshot.process_id.clone();
 
         // Restore envelope

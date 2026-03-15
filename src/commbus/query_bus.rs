@@ -26,7 +26,7 @@ impl CommBus {
         let (response_tx, response_rx) = oneshot::channel();
 
         // Send query to handler
-        handler.send((query.clone(), response_tx)).map_err(|_| {
+        handler.try_send((query.clone(), response_tx)).map_err(|_| {
             Error::internal(format!(
                 "Failed to send query to handler: {}",
                 query.query_type
@@ -66,8 +66,8 @@ impl CommBus {
     pub fn register_query_handler(
         &mut self,
         query_type: String,
-    ) -> Result<mpsc::UnboundedReceiver<(Query, oneshot::Sender<QueryResponse>)>> {
-        let (tx, rx) = mpsc::unbounded_channel();
+    ) -> Result<mpsc::Receiver<(Query, oneshot::Sender<QueryResponse>)>> {
+        let (tx, rx) = mpsc::channel(super::types::CHANNEL_CAPACITY);
 
         if self.query_handlers.contains_key(&query_type) {
             return Err(Error::validation(format!(

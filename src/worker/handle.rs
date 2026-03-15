@@ -87,7 +87,7 @@ pub enum KernelCommand {
     Subscribe {
         subscriber_id: String,
         event_types: Vec<String>,
-        resp_tx: oneshot::Sender<Result<(Subscription, mpsc::UnboundedReceiver<Event>)>>,
+        resp_tx: oneshot::Sender<Result<(Subscription, mpsc::Receiver<Event>)>>,
     },
     /// Unsubscribe from CommBus.
     Unsubscribe {
@@ -257,7 +257,7 @@ impl KernelHandle {
         &self,
         subscriber_id: String,
         event_types: Vec<String>,
-    ) -> Result<(Subscription, mpsc::UnboundedReceiver<Event>)> {
+    ) -> Result<(Subscription, mpsc::Receiver<Event>)> {
         kernel_request!(self, Subscribe {
             subscriber_id: subscriber_id,
             event_types: event_types,

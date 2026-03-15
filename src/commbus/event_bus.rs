@@ -21,7 +21,7 @@ impl CommBus {
         for subscriber in interested {
             // Fire-and-forget send to subscriber
             // If channel is closed, subscriber has disconnected (we'll clean them up later)
-            if subscriber.tx.send(event.clone()).is_ok() {
+            if subscriber.tx.try_send(event.clone()).is_ok() {
                 delivered += 1;
             }
         }
@@ -45,8 +45,8 @@ impl CommBus {
         &mut self,
         subscriber_id: String,
         event_types: Vec<String>,
-    ) -> Result<(Subscription, mpsc::UnboundedReceiver<Event>)> {
-        let (tx, rx) = mpsc::unbounded_channel();
+    ) -> Result<(Subscription, mpsc::Receiver<Event>)> {
+        let (tx, rx) = mpsc::channel(super::types::CHANNEL_CAPACITY);
 
         let subscriber = Subscriber {
             id: subscriber_id.clone(),

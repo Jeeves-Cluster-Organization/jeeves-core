@@ -37,7 +37,7 @@ mod kernel_events;
 mod kernel_orchestration;
 
 // Re-export key types
-pub use cleanup::{CleanupConfig, CleanupService, CleanupStats};
+pub use cleanup::{CleanupConfig, CleanupStats};
 pub use interrupts::{InterruptConfig, InterruptService, InterruptStatus, KernelInterrupt};
 pub use lifecycle::LifecycleManager;
 pub use rate_limiter::{RateLimitConfig, RateLimiter};
@@ -111,7 +111,7 @@ pub struct CommDomain {
     pub(crate) agent_cards: agent_card::AgentCardRegistry,
     /// Per-process CommBus subscriptions (subscription + event receiver).
     pub(crate) subscriptions:
-        HashMap<ProcessId, Vec<(crate::commbus::Subscription, tokio::sync::mpsc::UnboundedReceiver<crate::commbus::Event>)>>,
+        HashMap<ProcessId, Vec<(crate::commbus::Subscription, tokio::sync::mpsc::Receiver<crate::commbus::Event>)>>,
 }
 
 /// Kernel - the main orchestrator.

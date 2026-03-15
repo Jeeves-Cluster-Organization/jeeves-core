@@ -7,7 +7,7 @@ use super::Kernel;
 impl Kernel {
     /// Subscribe to envelope snapshot events (call before spawning actor).
     /// Returns receiver that yields every envelope mutation event.
-    pub fn subscribe_snapshots(&mut self) -> Result<tokio::sync::mpsc::UnboundedReceiver<crate::commbus::Event>> {
+    pub fn subscribe_snapshots(&mut self) -> Result<tokio::sync::mpsc::Receiver<crate::commbus::Event>> {
         let sub_id = format!("snap_{}", &uuid::Uuid::new_v4().simple().to_string()[..8]);
         let (_sub, rx) = self.comm.bus.subscribe(sub_id, vec!["envelope.snapshot".to_string()])?;
         Ok(rx)

@@ -41,7 +41,7 @@ pub struct CommBus {
     pub(crate) subscribers: HashMap<String, Vec<Subscriber>>,
 
     /// Command handlers: command_type -> handler channel
-    pub(crate) command_handlers: HashMap<String, mpsc::UnboundedSender<Command>>,
+    pub(crate) command_handlers: HashMap<String, mpsc::Sender<Command>>,
 
     /// Query handlers: query_type -> handler channel
     pub(crate) query_handlers: HashMap<String, QueryHandlerSender>,
