@@ -181,12 +181,43 @@ impl Kernel {
                     }
                 }
             }
-            orchestrator::Instruction::Terminate { context, .. } => {
+            orchestrator::Instruction::Terminate { context, reason, .. } => {
                 // Attach final outputs so the worker can return them
                 if let Some(envelope) = self.process_envelopes.get(process_id) {
                     context.agent_context = Some(serde_json::json!({
                         "outputs": &envelope.outputs,
                     }));
+                }
+
+                // Publish completion events for each type in pipeline.publishes
+                // Scope block: collect owned data, drop immutable borrows before &mut self
+                let to_publish: Option<(Vec<String>, Vec<u8>)> = {
+                    let publishes = self.orchestrator.get_pipeline_publishes(process_id);
+                    match publishes {
+                        Some(p) if !p.is_empty() => {
+                            let types = p.to_vec();
+                            let outputs_json = self.process_envelopes.get(process_id)
+                                .map(|e| serde_json::to_value(&e.outputs).unwrap_or_default());
+                            let payload = serde_json::json!({
+                                "process_id": process_id.as_str(),
+                                "terminal_reason": format!("{:?}", reason),
+                                "outputs": outputs_json,
+                            });
+                            Some((types, serde_json::to_vec(&payload).unwrap_or_default()))
+                        }
+                        _ => None,
+                    }
+                };
+                if let Some((types, payload_bytes)) = to_publish {
+                    for event_type in types {
+                        let event = crate::commbus::Event {
+                            event_type,
+                            payload: payload_bytes.clone(),
+                            timestamp_ms: chrono::Utc::now().timestamp_millis(),
+                            source: format!("pipeline:{}", process_id),
+                        };
+                        let _ = self.publish_event(event);
+                    }
                 }
             }
             _ => {}
@@ -801,6 +832,84 @@ mod tests {
         let ctx = context.agent_context.as_ref().unwrap();
         let pending = ctx.get("pending_events").unwrap().as_array().unwrap();
         assert_eq!(pending.len(), 2);
+    }
+
+    // =========================================================================
+    // Pipeline Publishes Tests
+    // =========================================================================
+
+    #[test]
+    fn test_pipeline_publishes_on_terminate() {
+        let mut kernel = Kernel::new();
+        let pid = ProcessId::must("proc-pub-1");
+        setup_kernel_with_process(&mut kernel, &pid);
+
+        // Subscribe to the event type before pipeline init
+        let (_sub, mut rx) = kernel.comm.bus
+            .subscribe("test_listener".to_string(), vec!["test.completed".to_string()])
+            .unwrap();
+
+        let mut config = test_config(vec![test_stage("agent_a")]);
+        config.publishes = vec!["test.completed".to_string()];
+
+        let envelope = Envelope::new_minimal("user-1", "sess-1", "hello", None);
+        kernel.initialize_orchestration(pid.clone(), config, envelope, false).unwrap();
+
+        // First instruction: RunAgent
+        let instr = kernel.get_next_instruction(&pid).unwrap();
+        assert!(matches!(instr, Instruction::RunAgent { .. }));
+
+        // Report agent result to advance to termination
+        kernel.process_agent_result(
+            &pid, "agent_a",
+            serde_json::json!({"result": "done"}),
+            None,
+            crate::kernel::orchestrator_types::AgentExecutionMetrics::default(),
+            true, "", false,
+        ).unwrap();
+
+        // Next instruction: Terminate (should publish completion event)
+        let instr = kernel.get_next_instruction(&pid).unwrap();
+        assert!(matches!(instr, Instruction::Terminate { .. }));
+
+        // Verify the completion event was published
+        let event = rx.try_recv().expect("should have received completion event");
+        assert_eq!(event.event_type, "test.completed");
+        assert!(event.source.contains("proc-pub-1"));
+
+        let payload: serde_json::Value = serde_json::from_slice(&event.payload).unwrap();
+        assert_eq!(payload["process_id"], "proc-pub-1");
+        assert!(payload["terminal_reason"].as_str().unwrap().contains("Completed"));
+    }
+
+    #[test]
+    fn test_no_publish_when_publishes_empty() {
+        let mut kernel = Kernel::new();
+        let pid = ProcessId::must("proc-nopub");
+        setup_kernel_with_process(&mut kernel, &pid);
+
+        // Subscribe to all events
+        let (_sub, mut rx) = kernel.comm.bus
+            .subscribe("test_listener".to_string(), vec!["test.completed".to_string()])
+            .unwrap();
+
+        // No publishes configured
+        let config = test_config(vec![test_stage("agent_a")]);
+        let envelope = Envelope::new_minimal("user-1", "sess-1", "hello", None);
+        kernel.initialize_orchestration(pid.clone(), config, envelope, false).unwrap();
+
+        let _instr = kernel.get_next_instruction(&pid).unwrap();
+        kernel.process_agent_result(
+            &pid, "agent_a",
+            serde_json::json!({"result": "done"}),
+            None,
+            crate::kernel::orchestrator_types::AgentExecutionMetrics::default(),
+            true, "", false,
+        ).unwrap();
+        let _instr = kernel.get_next_instruction(&pid).unwrap();
+
+        // No completion event should be published (only envelope.snapshot events exist)
+        assert!(rx.try_recv().is_err(), "should not receive completion event when publishes is empty");
     }
 
     // =========================================================================
