@@ -235,7 +235,7 @@ impl StageHandle {
 // =============================================================================
 
 // PipelineStage Default is derived — all fields have matching defaults.
-// AgentConfig::default() sets has_llm=true, matching serde `default_has_llm()`.
+// AgentConfig::default() sets has_llm=false, matching serde `default_has_llm()`.
 
 // =============================================================================
 // RoutingExpr convenience constructors
@@ -333,7 +333,7 @@ mod tests {
         assert!(!config.stages[0].agent_config.has_llm);
         assert_eq!(config.stages[0].default_next.as_deref(), Some("respond"));
         assert_eq!(config.stages[1].name, "respond");
-        assert!(config.stages[1].agent_config.has_llm); // default
+        assert!(!config.stages[1].agent_config.has_llm); // default is false (opt-in)
         assert_eq!(config.max_iterations, 10);
         assert_eq!(config.max_llm_calls, 5);
         assert_eq!(config.max_agent_hops, 5);
@@ -457,7 +457,7 @@ mod tests {
     #[test]
     fn test_pipeline_stage_default_matches_serde() {
         let stage = PipelineStage::default();
-        assert!(stage.agent_config.has_llm);  // matches default_has_llm()
+        assert!(!stage.agent_config.has_llm);  // matches default_has_llm() = false
         assert_eq!(stage.node_kind, NodeKind::Agent);
         assert_eq!(stage.join_strategy, JoinStrategy::WaitAll);
         assert!(stage.routing.is_empty());

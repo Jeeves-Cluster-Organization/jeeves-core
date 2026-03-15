@@ -89,7 +89,8 @@ impl CleanupService {
         self.stop_tx = Some(stop_tx);
 
         tokio::spawn(async move {
-            let mut ticker = interval(TokioDuration::from_secs(config.interval_seconds));
+            let interval_secs = config.interval_seconds.max(10); // minimum 10 seconds
+            let mut ticker = interval(TokioDuration::from_secs(interval_secs));
 
             loop {
                 tokio::select! {

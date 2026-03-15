@@ -2,8 +2,6 @@
 
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
-
 use crate::envelope::InterruptKind;
 use crate::types::{ProcessId, RequestId, SessionId, UserId};
 
@@ -264,7 +262,7 @@ pub struct ProcessControlBlock {
     pub pending_interrupt: Option<InterruptKind>,
 
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub interrupt_data: Option<HashMap<String, serde_json::Value>>,
+    pub block_reason: Option<String>,
 
     // Parent/child relationships
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -289,7 +287,7 @@ impl ProcessControlBlock {
             completed_at: None,
             last_scheduled_at: None,
             pending_interrupt: None,
-            interrupt_data: None,
+            block_reason: None,
             parent_pid: None,
             child_pids: Vec::new(),
         }
@@ -316,15 +314,7 @@ impl ProcessControlBlock {
     /// Transition to BLOCKED state.
     pub(crate) fn block(&mut self, reason: String) {
         self.state = ProcessState::Blocked;
-        if self.interrupt_data.is_none() {
-            self.interrupt_data = Some(HashMap::new());
-        }
-        if let Some(ref mut data) = self.interrupt_data {
-            data.insert(
-                "block_reason".to_string(),
-                serde_json::Value::String(reason),
-            );
-        }
+        self.block_reason = Some(reason);
     }
 
     /// Transition to WAITING state.

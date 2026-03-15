@@ -146,6 +146,16 @@ pub struct Pipeline {
 
     #[serde(default)]
     pub parallel_mode: bool,
+
+    /// Completed stage snapshots (audit trail, write-only).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub completed_stage_snapshots: Vec<HashMap<String, serde_json::Value>>,
+    /// Current stage number (1-indexed position in stage_order).
+    #[serde(default)]
+    pub current_stage_number: i32,
+    /// Total number of stages in the pipeline.
+    #[serde(default)]
+    pub max_stages: i32,
 }
 
 /// Represents a completed termination with reason and optional message.
@@ -191,25 +201,20 @@ impl Bounds {
 /// Human-in-the-loop interrupt state.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct InterruptState {
-    pub interrupt_pending: bool,
-
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub interrupt: Option<FlowInterrupt>,
 }
 
-/// Multi-stage execution tracking.
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-pub struct Execution {
-    pub completed_stages: Vec<HashMap<String, serde_json::Value>>,
-    pub current_stage_number: i32,
-    pub max_stages: i32,
+impl InterruptState {
+    pub fn is_pending(&self) -> bool {
+        self.interrupt.is_some()
+    }
 }
 
-/// Audit trail: history, errors, timing, metadata.
+/// Audit trail: history, timing, metadata.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct Audit {
     pub processing_history: Vec<ProcessingRecord>,
-    pub errors: Vec<HashMap<String, serde_json::Value>>,
     pub created_at: DateTime<Utc>,
 
     #[serde(default, skip_serializing_if = "Option::is_none")]
