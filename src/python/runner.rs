@@ -16,7 +16,7 @@ use crate::types::ProcessId;
 use crate::worker::actor::spawn_kernel;
 use crate::worker::agent::AgentRegistry;
 use crate::worker::handle::KernelHandle;
-use crate::worker::llm::openai::OpenAiProvider;
+use crate::worker::llm::genai_provider::GenaiProvider;
 use crate::worker::llm::LlmProvider;
 use crate::worker::prompts::PromptRegistry;
 use crate::worker::tools::{ToolExecutor, ToolInfo, ToolRegistry};
@@ -62,17 +62,15 @@ impl PyPipelineRunner {
     /// Args:
     ///     pipeline_path: Path to the pipeline JSON config file.
     ///     prompts_dir: Directory containing prompt template .txt files.
-    ///     openai_api_key: OpenAI API key (optional, falls back to OPENAI_API_KEY env).
-    ///     openai_model: OpenAI model name (optional, defaults to gpt-4o-mini).
-    ///     openai_base_url: OpenAI base URL override (optional).
+    ///     model: LLM model name (optional, defaults to gpt-4o-mini).
+    ///            Model prefix determines provider: gpt-* → OpenAI, claude-* → Anthropic, etc.
+    ///            API keys are read from env vars: OPENAI_API_KEY, ANTHROPIC_API_KEY, etc.
     #[staticmethod]
-    #[pyo3(signature = (pipeline_path, prompts_dir="prompts/", openai_api_key=None, openai_model=None, openai_base_url=None))]
+    #[pyo3(signature = (pipeline_path, prompts_dir="prompts/", model=None))]
     fn from_json(
         pipeline_path: &str,
         prompts_dir: &str,
-        openai_api_key: Option<&str>,
-        openai_model: Option<&str>,
-        openai_base_url: Option<&str>,
+        model: Option<&str>,
     ) -> PyResult<Self> {
         // Read and parse pipeline config
         let config_str = std::fs::read_to_string(pipeline_path).map_err(|e| {
@@ -112,23 +110,12 @@ impl PyPipelineRunner {
         // Load prompts
         let prompts = Arc::new(PromptRegistry::from_dir(prompts_dir));
 
-        // Build LLM provider
-        let api_key = openai_api_key
-            .map(String::from)
-            .or_else(|| std::env::var("OPENAI_API_KEY").ok())
-            .unwrap_or_default();
-        let model = openai_model
+        // Build LLM provider (genai reads API keys from env automatically)
+        let model_name = model
             .map(String::from)
             .or_else(|| std::env::var("OPENAI_MODEL").ok())
             .unwrap_or_else(|| "gpt-4o-mini".to_string());
-        let mut provider = OpenAiProvider::new(api_key, model);
-        if let Some(base_url) = openai_base_url
-            .map(String::from)
-            .or_else(|| std::env::var("OPENAI_BASE_URL").ok())
-        {
-            provider = provider.with_base_url(base_url);
-        }
-        let llm: Arc<dyn LlmProvider> = Arc::new(provider);
+        let llm: Arc<dyn LlmProvider> = Arc::new(GenaiProvider::new(model_name));
 
         // Initialize empty registries
         let tools = Arc::new(ToolRegistry::new());

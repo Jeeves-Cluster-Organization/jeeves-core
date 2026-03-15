@@ -70,7 +70,7 @@ fn make_tool_call_response(calls: Vec<(&str, &str, &str)>) -> ChatResponse {
             .map(|(id, name, args)| ToolCall {
                 id: id.to_string(),
                 name: name.to_string(),
-                arguments: args.to_string(),
+                arguments: serde_json::from_str(args).unwrap_or(serde_json::json!({})),
             })
             .collect(),
         usage: TokenUsage { prompt_tokens: 15, completion_tokens: 10, total_tokens: 25 },

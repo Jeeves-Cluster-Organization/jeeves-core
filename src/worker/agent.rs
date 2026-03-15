@@ -29,16 +29,23 @@ pub struct AgentOutput {
 }
 
 /// Context provided to an agent for execution.
+///
+/// Built by the worker loop from the current envelope state and pipeline stage config.
 #[derive(Debug, Clone)]
 pub struct AgentContext {
+    /// Original user input for this pipeline run.
     pub raw_input: String,
+    /// Accumulated outputs from prior stages, keyed by `output_key` then field name.
     pub outputs: HashMap<String, HashMap<String, serde_json::Value>>,
+    /// Pipeline state fields (persisted across loop-backs via `state_schema`).
     pub state: HashMap<String, serde_json::Value>,
+    /// Envelope metadata (user_id, session_id, custom fields).
     pub metadata: HashMap<String, serde_json::Value>,
+    /// Channel for streaming `PipelineEvent`s to the consumer (None = buffered mode).
     pub event_tx: Option<mpsc::Sender<PipelineEvent>>,
     /// Pipeline stage name this agent is executing within (None for ad-hoc execution).
     pub stage_name: Option<String>,
-    /// Pipeline name for event attribution.
+    /// Pipeline name for event attribution (dotted notation for child pipelines).
     pub pipeline_name: Arc<str>,
     /// Maximum estimated tokens allowed in LLM context (chars/4 heuristic).
     pub max_context_tokens: Option<i64>,
@@ -49,6 +56,11 @@ pub struct AgentContext {
 /// Agent trait — implementations provide custom agent behavior.
 #[async_trait]
 pub trait Agent: Send + Sync + std::fmt::Debug + std::any::Any {
+    /// Execute the agent's logic given the pipeline context.
+    ///
+    /// Returns `AgentOutput` containing the output value, execution metrics,
+    /// and success/failure status. Errors in the Result indicate infrastructure
+    /// failures; agent-level failures use `AgentOutput.success = false`.
     async fn process(&self, ctx: &AgentContext) -> crate::types::Result<AgentOutput>;
 }
 
@@ -190,8 +202,8 @@ impl Agent for LlmAgent {
             };
 
             total_llm_calls += 1;
-            total_tokens_in += resp.usage.prompt_tokens;
-            total_tokens_out += resp.usage.completion_tokens;
+            total_tokens_in += resp.usage.prompt_tokens as i64;
+            total_tokens_out += resp.usage.completion_tokens as i64;
 
             if resp.tool_calls.is_empty() {
                 // No tool calls — this is the final response
@@ -220,8 +232,7 @@ impl Agent for LlmAgent {
                         .await;
                 }
 
-                let params: serde_json::Value =
-                    serde_json::from_str(&tc.arguments).unwrap_or(serde_json::json!({}));
+                let params = tc.arguments.clone();
                 let tool_start = Instant::now();
                 let (result, tool_success, tool_error) = match self.tools.execute(&tc.name, params).await {
                     Ok(v) => (v.to_string(), true, None),
@@ -791,7 +802,7 @@ mod tests {
             tool_calls: vec![ToolCall {
                 id: "call_1".to_string(),
                 name: "echo".to_string(),
-                arguments: "{}".to_string(),
+                arguments: serde_json::json!({}),
             }],
             usage: TokenUsage { prompt_tokens: 10, completion_tokens: 5, total_tokens: 15 },
             model: "mock".to_string(),

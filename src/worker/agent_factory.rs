@@ -180,7 +180,7 @@ fn backfill_pipeline_agents(agents: &Arc<AgentRegistry>) {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::kernel::orchestrator_types::{AgentConfig, ContextOverflow, PipelineStage};
+    use crate::kernel::orchestrator_types::{AgentConfig, PipelineStage};
     use crate::kernel::Kernel;
     use crate::worker::actor::spawn_kernel;
     use crate::worker::llm::mock::MockLlmProvider;

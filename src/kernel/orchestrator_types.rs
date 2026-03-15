@@ -172,24 +172,29 @@ pub struct AgentExecutionMetrics {
 /// layer via routing rules on each stage.
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
 pub struct PipelineConfig {
+    /// Unique pipeline name (used for event attribution and child pipeline references).
     pub name: String,
+    /// Ordered list of pipeline stages. First stage is the entry point.
     pub stages: Vec<PipelineStage>,
+    /// Global iteration bound. Terminates with `MaxIterationsExceeded` when reached.
     pub max_iterations: i32,
+    /// Global LLM call bound across all stages. Terminates with `MaxLlmCallsExceeded`.
     pub max_llm_calls: i32,
+    /// Global agent hop bound (transitions between stages). Terminates with `MaxAgentHopsExceeded`.
     pub max_agent_hops: i32,
+    /// Per-edge transition limits (e.g. max 3 trips from stage A→B).
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub edge_limits: Vec<EdgeLimit>,
     /// Maximum routing steps per `get_next_instruction` call (default: 100).
     /// Prevents infinite Gate/Fork chains from blocking the orchestration loop.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub step_limit: Option<i32>,
+    /// Typed state fields with merge strategies for loop-back accumulation.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub state_schema: Vec<StateField>,
-
     /// Event types this pipeline subscribes to via CommBus.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub subscriptions: Vec<String>,
-
     /// Event types this pipeline publishes via CommBus.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub publishes: Vec<String>,
@@ -450,27 +455,37 @@ impl Default for AgentConfig {
 /// 4. If no match AND no default_next → terminate (COMPLETED)
 #[derive(Debug, Clone, Default, Serialize, Deserialize, JsonSchema)]
 pub struct PipelineStage {
+    /// Stage identifier (must be unique within the pipeline).
     pub name: String,
+    /// Agent name to dispatch (ignored for Gate nodes).
     pub agent: String,
+    /// Expression-based routing rules evaluated in order (first match wins).
     #[serde(default)]
     pub routing: Vec<RoutingRule>,
+    /// Fallback target when no routing rule matches.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub default_next: Option<String>,
+    /// Target stage when the agent fails (checked before routing rules).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub error_next: Option<String>,
+    /// Per-stage visit limit. Terminates with `MaxStageVisitsExceeded` when reached.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub max_visits: Option<i32>,
+    /// How to join parallel branches from a Fork (WaitAll or WaitFirst).
     #[serde(default)]
     pub join_strategy: JoinStrategy,
+    /// JSON Schema for validating agent output before writing to state.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub output_schema: Option<serde_json::Value>,
+    /// Tool whitelist — only these tools are available to this stage's agent.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub allowed_tools: Option<Vec<String>>,
+    /// Node kind: Agent (run agent + route), Gate (route only), Fork (parallel fan-out).
     #[serde(default)]
     pub node_kind: NodeKind,
+    /// State field key for this stage's output (defaults to stage name).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub output_key: Option<String>,
-
     /// Maximum estimated tokens allowed in LLM context for this stage.
     /// Uses chars/4 heuristic. When exceeded, applies context_overflow strategy.
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -478,7 +493,6 @@ pub struct PipelineStage {
     /// Strategy when context exceeds max_context_tokens.
     #[serde(default)]
     pub context_overflow: ContextOverflow,
-
     /// Agent execution config — transparent to kernel, consumed by worker.
     #[serde(flatten)]
     pub agent_config: AgentConfig,

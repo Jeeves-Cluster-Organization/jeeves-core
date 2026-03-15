@@ -82,7 +82,7 @@ for event in runner.stream("hello", user_id="user1"):   # Streaming
 
 ```rust
 use jeeves_core::prelude::*;
-use jeeves_core::worker::llm::openai::OpenAiProvider;
+use jeeves_core::worker::llm::genai_provider::GenaiProvider;
 
 let tools = ToolRegistryBuilder::new().add_executor(my_tools).build();
 let agents = AgentFactoryBuilder::new(llm, prompts, tools, handle)
