@@ -1,7 +1,8 @@
 # Jeeves Core: Framework Audit for Agentic Orchestration
 
-**Date:** 2026-03-15
+**Date:** 2026-03-15 (updated)
 **Scope:** Evaluate jeeves-core as an agentic orchestration framework vs. OSS alternatives
+**Codebase:** 54 Rust files, ~17,985 LOC
 
 ---
 
@@ -25,13 +26,20 @@ A **Rust microkernel for multi-agent AI orchestration** (v0.0.2). It provides:
 |-----------|------|---------|
 | Kernel | `src/kernel/mod.rs` | Orchestration engine, owns all subsystems |
 | Orchestrator | `src/kernel/orchestrator.rs` | Pipeline state machine, instruction generation |
+| Orch Helpers | `src/kernel/orchestrator_helpers.rs` | Decomposed orchestration logic |
+| Orch Queries | `src/kernel/orchestrator_queries.rs` | Query handling |
+| Orch Session | `src/kernel/orchestrator_session.rs` | Session management |
+| Orch Types | `src/kernel/orchestrator_types.rs` | Orchestration type definitions |
 | Routing | `src/kernel/routing.rs` | 13 operators + 5 field scopes |
 | Lifecycle | `src/kernel/lifecycle.rs` | Process state transitions |
+| Builder | `src/kernel/builder.rs` | PipelineBuilder DSL |
+| Agent Card | `src/kernel/agent_card.rs` | Agent discovery registry |
+| Cleanup | `src/kernel/cleanup.rs` | Background cleanup service |
 | Envelope | `src/envelope/mod.rs` | Mutable state container per process |
-| Agent trait | `src/worker/agent.rs` | Pluggable agent implementations |
-| LlmAgent | `src/worker/agent.rs` | ReAct tool loop with streaming |
-| CommBus | `src/commbus/mod.rs` | Inter-process messaging |
-| MCP | `src/worker/mcp.rs` | Tool executor (HTTP + stdio) |
+| Agent trait | `src/worker/agent.rs` | Pluggable agent implementations (LlmAgent, McpDelegatingAgent, PipelineAgent) |
+| CommBus | `src/commbus/mod.rs` | Inter-process messaging + federation |
+| MCP Client | `src/worker/mcp.rs` | Tool executor (HTTP + stdio) with auth hardening |
+| MCP Server | `src/worker/mcp_server.rs` | MCP stdio server binary |
 | Rate Limiter | `src/kernel/rate_limiter.rs` | Per-user sliding window |
 | Tool ACL | `src/tools/access.rs` | Agent-scoped tool permissions |
 
@@ -40,8 +48,9 @@ A **Rust microkernel for multi-agent AI orchestration** (v0.0.2). It provides:
 - **Agent trait** — implement `async fn process(&self, ctx: &AgentContext) -> Result<AgentOutput>`
 - **ToolExecutor trait** — pluggable tool backends (MCP, custom)
 - **LlmProvider trait** — pluggable LLM backends (OpenAI built-in)
-- **CommBus** — custom event/command/query handlers
+- **CommBus** — custom event/command/query handlers + 5 `KernelCommand` variants for federation
 - **PipelineConfig** — declarative JSON pipeline definitions
+- **PipelineAgent** — A2A composition: nest pipelines as stages within pipelines
 
 ---
 
@@ -52,25 +61,28 @@ A **Rust microkernel for multi-agent AI orchestration** (v0.0.2). It provides:
 | Dimension | Rating | Notes |
 |-----------|--------|-------|
 | Safety | 5/5 | Zero `unsafe` in core (denied at crate root), strict clippy |
-| Testing | 4/5 | 325+ tests, 75% coverage enforced via CI |
+| Testing | 4/5 | 301 tests across 31 modules, 75% coverage enforced via CI |
 | CI/CD | 5/5 | Format + clippy + tests + coverage + security audit |
 | Error Handling | 4/5 | Typed `Result<T, Error>` with gRPC-compatible error codes |
 | Documentation | 3/5 | Good module-level docs, gaps in API docs and examples |
 | Performance | 3/5 | Sound architecture but no benchmarks (criterion available, unused) |
-| Maintainability | 4/5 | Clear module separation, actor pattern, typed IDs |
+| Maintainability | 4/5 | God-file decomposition complete, clear module separation, actor pattern, typed IDs |
 
 ### Strengths
 
 - **Zero unsafe code** in business logic (`#![deny(unsafe_code)]`)
-- **325+ tests** covering orchestration, routing, bounds, tool execution, streaming
+- **301 tests across 31 modules** covering orchestration, routing, bounds, tool execution, streaming
 - **CI enforces**: formatting, clippy, 75% coverage minimum, dependency security audit
 - **RUSTFLAGS="-Dwarnings"** — all warnings are errors
 - Pre-commit hooks for fmt + clippy
+- **God-file decomposition** — monolithic orchestrator split into 8 focused modules (helpers, queries, session, types, builder, agent_card, cleanup, kernel_orchestration)
+- **A2A composition** — `PipelineAgent` enables nested pipeline-as-stage patterns
+- **MCP auth hardening** — stdio client `Drop` kills child process, 30s read timeout, atomic request IDs, mutex-guarded I/O
 
 ### Concerns
 
-- **466 `.unwrap()`/`.expect()` calls** in non-test code (linted as warn, not deny) — panic risk in production
-- **Actor/worker layer untested** — `actor.rs`, `agent.rs`, `handle.rs`, `llm/mod.rs` have 0 direct tests
+- **386 `.unwrap()`/`.expect()` calls** in non-test code (down from 466, 17% reduction) — still a panic risk in production. Linted as warn, not deny. Largest concentrations: `orchestrator.rs` (128), `lifecycle.rs` (66), `kernel/mod.rs` (20)
+- **Actor/worker layer untested** — `actor.rs` (248 LOC), `agent.rs` (672 LOC), `handle.rs` (313 LOC), `llm/mod.rs` (255 LOC) have 0 direct tests
 - **No benchmarks** — criterion dependency exists but unused; scalability unproven
 - **v0.0.2** — pre-1.0, API not stabilized
 
@@ -78,12 +90,27 @@ A **Rust microkernel for multi-agent AI orchestration** (v0.0.2). It provides:
 
 | Area | Tests | Quality |
 |------|-------|---------|
-| Orchestration/routing | 175+ | Excellent |
-| Tool execution/MCP | 40+ | Good |
-| Resource/bounds enforcement | 55+ | Excellent |
+| Orchestration/routing | 175+ | Excellent (includes 15 orchestrator, 21 routing, 10 helpers, 7 session, 11 types) |
+| Tool execution/MCP | 40+ | Good (9 MCP client + 6 MCP server + 8 tools tests) |
+| Resource/bounds enforcement | 55+ | Excellent (rate limiter, quotas, interrupts) |
 | Streaming/events | 15+ | Good |
-| Kernel actor/agent dispatch | 0 | **Gap** |
-| LLM provider abstraction | 0 | **Gap** |
+| CommBus | 20+ | Good |
+| Builder/Config | 10+ | Good |
+| Kernel actor/agent dispatch | 0 | **Gap** (actor.rs, agent.rs, handle.rs) |
+| LLM provider abstraction | 5 | Minimal (openai.rs only; llm/mod.rs untested) |
+
+### Changes Since Initial Assessment
+
+| Metric | Previous | Current | Delta |
+|--------|----------|---------|-------|
+| `.unwrap()`/`.expect()` calls | 466 | 386 | -80 (17% reduction) |
+| Test functions | ~325 | 301 | Recount (consistent methodology) |
+| Test modules | — | 31 | Now tracked |
+| MCP client tests | few | 9 | New lifecycle + auth tests |
+| MCP server tests | — | 6 | New module |
+| Orchestrator modules | 1 (monolith) | 8 (decomposed) | God-file split complete |
+| Agent variants | LlmAgent | LlmAgent, McpDelegatingAgent, DeterministicAgent, PipelineAgent | 3 new |
+| CommBus | pub/sub | pub/sub + federation (5 KernelCommand variants) | A2A wiring |
 
 ---
 
@@ -156,7 +183,9 @@ A **Rust microkernel for multi-agent AI orchestration** (v0.0.2). It provides:
 2. **Microkernel architecture** — single-actor with typed channels provides strong concurrency guarantees without locks.
 3. **Multi-consumption** — same core accessible from Rust, Python (PyO3), and MCP stdio.
 4. **Resource isolation** — Unix-like process model with quotas is unique among competitors.
-5. **MCP native** — both client and server, unlike most competitors that only support client-side.
+5. **MCP native** — both client and server with auth hardening, unlike most competitors that only support client-side.
+6. **Zero unsafe code** — strongest memory safety guarantee of any framework in this space.
+7. **A2A composition** — `PipelineAgent` allows pipelines as stages within other pipelines, with CommBus federation for inter-pipeline communication.
 
 ### Where It Falls Short
 
@@ -166,6 +195,7 @@ A **Rust microkernel for multi-agent AI orchestration** (v0.0.2). It provides:
 4. **Documentation** — missing API docs, usage examples, migration guides.
 5. **Provider diversity** — only OpenAI-compatible; no Anthropic, Gemini, or local model support built-in.
 6. **No benchmarks** — the Rust performance advantage is theoretical, not proven.
+7. **386 unwrap/expect calls** — reduced from 466 but still poses panic risk in production paths.
 
 ---
 
@@ -206,7 +236,7 @@ A **Rust microkernel for multi-agent AI orchestration** (v0.0.2). It provides:
 3. **Observability story** — tracing is not enough for production
 4. **Provider expansion** — Anthropic, Gemini, local models
 5. **Community growth** — contributors, docs, examples, integrations
-6. **Unwrap cleanup** — 466 panic-risk calls should be resolved before production trust
+6. **Unwrap cleanup** — 386 panic-risk calls (down from 466) should be resolved before production trust
 
 ---
 
