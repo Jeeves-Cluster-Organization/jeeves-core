@@ -434,16 +434,46 @@ impl Orchestrator {
             .and_then(|i| i.response.as_ref())
             .and_then(|r| serde_json::to_value(r).ok());
 
-        // Evaluate routing (error_next → rules → default_next → terminate)
-        let next_target = evaluate_routing(
-            &pipeline_stage,
-            &envelope.outputs,
-            &agent_name,
-            agent_failed,
-            &envelope.audit.metadata,
-            interrupt_response.as_ref(),
-            &envelope.state,
-        );
+        // Evaluate routing
+        let next_target = if pipeline_stage.node_kind == NodeKind::Router {
+            // Router: agent picks target from declared set
+            if agent_failed {
+                // Agent failure: use error_next if set
+                pipeline_stage.error_next.clone()
+            } else {
+                let chosen = envelope.outputs.get(&agent_name)
+                    .and_then(|out| out.get("chosen_target"))
+                    .and_then(|v| v.as_str())
+                    .map(|s| s.to_string());
+
+                match chosen {
+                    Some(ref target) if pipeline_stage.router_targets.iter()
+                        .any(|rt| rt.target == *target) =>
+                    {
+                        Some(target.clone())
+                    }
+                    Some(ref invalid) => {
+                        tracing::warn!(stage = %current_stage, target = %invalid, "router_invalid_target");
+                        pipeline_stage.error_next.clone().or_else(|| pipeline_stage.default_next.clone())
+                    }
+                    None => {
+                        tracing::warn!(stage = %current_stage, "router_no_chosen_target");
+                        pipeline_stage.default_next.clone()
+                    }
+                }
+            }
+        } else {
+            // Standard routing (error_next → rules → default_next → terminate)
+            evaluate_routing(
+                &pipeline_stage,
+                &envelope.outputs,
+                &agent_name,
+                agent_failed,
+                &envelope.audit.metadata,
+                interrupt_response.as_ref(),
+                &envelope.state,
+            )
+        };
 
         self.apply_routing_result(process_id, &current_stage, next_target, envelope)
     }
@@ -1373,6 +1403,7 @@ mod tests {
             allowed_tools: None,
             node_kind: NodeKind::Fork,
             output_key: None,
+            router_targets: vec![],
             max_context_tokens: None,
             context_overflow: ContextOverflow::default(),
             agent_config: AgentConfig::default(),
@@ -1985,6 +2016,7 @@ mod tests {
             allowed_tools: None,
             node_kind: NodeKind::Gate,
             output_key: None,
+            router_targets: vec![],
             max_context_tokens: None,
             context_overflow: ContextOverflow::default(),
             agent_config: AgentConfig::default(),
@@ -2437,5 +2469,119 @@ mod tests {
             panic!("Expected RunAgent, got {:?}", instr);
         };
         assert_eq!(agent, "final_agent");
+    }
+
+    // =========================================================================
+    // Router tests
+    // =========================================================================
+
+    fn router_target(target: &str, desc: &str) -> RouterTarget {
+        RouterTarget { target: target.to_string(), description: desc.to_string(), when: None }
+    }
+
+    fn router_stage_test(name: &str, targets: Vec<RouterTarget>, default_next: Option<&str>) -> PipelineStage {
+        PipelineStage {
+            name: name.to_string(),
+            agent: name.to_string(),
+            node_kind: NodeKind::Router,
+            router_targets: targets,
+            default_next: default_next.map(|s| s.to_string()),
+            agent_config: AgentConfig { has_llm: true, ..Default::default() },
+            ..Default::default()
+        }
+    }
+
+    #[test]
+    fn test_router_dispatches_run_agent() {
+        let mut orch = Orchestrator::new();
+        let pipeline = PipelineConfig::test_default("router_test", vec![
+            router_stage_test("router", vec![router_target("a", "Go A"), router_target("b", "Go B")], None),
+            stage("a", "a", vec![], None),
+            stage("b", "b", vec![], None),
+        ]);
+        let mut envelope = create_test_envelope();
+        orch.initialize_session(ProcessId::must("p1"), pipeline, &mut envelope, false).unwrap();
+
+        let instr = orch.get_next_instruction(&ProcessId::must("p1"), &mut envelope).unwrap();
+        // Router dispatches RunAgent, not skipped like Gate
+        let Instruction::RunAgent { ref agent, .. } = instr else {
+            panic!("Expected RunAgent, got {:?}", instr);
+        };
+        assert_eq!(agent, "router");
+    }
+
+    #[test]
+    fn test_router_routes_on_chosen_target() {
+        let mut orch = Orchestrator::new();
+        let pipeline = PipelineConfig::test_default("router_test", vec![
+            router_stage_test("router", vec![router_target("a", "Go A"), router_target("b", "Go B")], None),
+            stage("a", "a", vec![], None),
+            stage("b", "b", vec![], None),
+        ]);
+        let mut envelope = create_test_envelope();
+        orch.initialize_session(ProcessId::must("p1"), pipeline, &mut envelope, false).unwrap();
+
+        // Agent outputs chosen_target = "b"
+        let mut output = HashMap::new();
+        output.insert("chosen_target".to_string(), serde_json::json!("b"));
+        envelope.outputs.insert("router".to_string(), output);
+
+        orch.report_agent_result(&ProcessId::must("p1"), "router", AgentExecutionMetrics::default(), &mut envelope, false, false).unwrap();
+        assert_eq!(envelope.pipeline.current_stage, "b");
+    }
+
+    #[test]
+    fn test_router_invalid_target_uses_default_next() {
+        let mut orch = Orchestrator::new();
+        let pipeline = PipelineConfig::test_default("router_test", vec![
+            router_stage_test("router", vec![router_target("a", "Go A")], Some("fallback")),
+            stage("a", "a", vec![], None),
+            stage("fallback", "fallback", vec![], None),
+        ]);
+        let mut envelope = create_test_envelope();
+        orch.initialize_session(ProcessId::must("p1"), pipeline, &mut envelope, false).unwrap();
+
+        // Agent outputs invalid target
+        let mut output = HashMap::new();
+        output.insert("chosen_target".to_string(), serde_json::json!("nonexistent"));
+        envelope.outputs.insert("router".to_string(), output);
+
+        orch.report_agent_result(&ProcessId::must("p1"), "router", AgentExecutionMetrics::default(), &mut envelope, false, false).unwrap();
+        assert_eq!(envelope.pipeline.current_stage, "fallback");
+    }
+
+    #[test]
+    fn test_router_missing_chosen_target_uses_default_next() {
+        let mut orch = Orchestrator::new();
+        let pipeline = PipelineConfig::test_default("router_test", vec![
+            router_stage_test("router", vec![router_target("a", "Go A")], Some("fallback")),
+            stage("a", "a", vec![], None),
+            stage("fallback", "fallback", vec![], None),
+        ]);
+        let mut envelope = create_test_envelope();
+        orch.initialize_session(ProcessId::must("p1"), pipeline, &mut envelope, false).unwrap();
+
+        // Agent outputs no chosen_target
+        envelope.outputs.insert("router".to_string(), HashMap::new());
+
+        orch.report_agent_result(&ProcessId::must("p1"), "router", AgentExecutionMetrics::default(), &mut envelope, false, false).unwrap();
+        assert_eq!(envelope.pipeline.current_stage, "fallback");
+    }
+
+    #[test]
+    fn test_router_no_chosen_target_no_default_terminates() {
+        let mut orch = Orchestrator::new();
+        let pipeline = PipelineConfig::test_default("router_test", vec![
+            router_stage_test("router", vec![router_target("a", "Go A")], None),
+            stage("a", "a", vec![], None),
+        ]);
+        let mut envelope = create_test_envelope();
+        orch.initialize_session(ProcessId::must("p1"), pipeline, &mut envelope, false).unwrap();
+
+        // Agent outputs no chosen_target, no default_next → terminate
+        envelope.outputs.insert("router".to_string(), HashMap::new());
+
+        orch.report_agent_result(&ProcessId::must("p1"), "router", AgentExecutionMetrics::default(), &mut envelope, false, false).unwrap();
+        assert_eq!(envelope.bounds.terminal_reason(), Some(TerminalReason::Completed));
     }
 }

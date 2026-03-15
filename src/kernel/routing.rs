@@ -641,6 +641,7 @@ mod tests {
             allowed_tools: None,
             node_kind: crate::kernel::orchestrator_types::NodeKind::default(),
             output_key: None,
+            router_targets: vec![],
             max_context_tokens: None,
             context_overflow: ContextOverflow::default(),
             agent_config: crate::kernel::orchestrator_types::AgentConfig::default(),
