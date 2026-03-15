@@ -70,6 +70,21 @@ Python/MCP Client
 | **Maturity** | Early (pre-1.0) | Stable 1.0 (38M monthly PyPI downloads) | Growing (44.6K GitHub stars) | Transitioning to unified framework | Evolving | GA (Google Cloud NEXT 2025) |
 | **License** | (Check Cargo.toml) | MIT | MIT | MIT | MIT | Apache 2.0 |
 
+### 3.1b Additional Frameworks Worth Noting
+
+| Dimension | **Pydantic AI** | **Llama Stack** | **MS Agent Framework (AutoGen+SK merge)** |
+|---|---|---|---|
+| **Architecture** | Type-hint state machine (pydantic_graph) | Unified API over pluggable providers | Graph-based Workflow API (merges AutoGen + Semantic Kernel) |
+| **Language** | Python | Python, Node.js | Python, C#, Java |
+| **Strengths** | Durable execution, streamed structured outputs, type-safe tool I/O | Meta-backed, multi-provider standardization, LlamaFirewall | Enterprise-grade (Entra ID, Azure RBAC, Azure Monitor), A2A + MCP native |
+| **State Mgmt** | Durable execution (survives API failures/restarts) | Session-based, provider-dependent | Session + checkpointing + Dapr/Orleans for long-running processes |
+| **MCP Support** | First-class (client + server) | Adopting OpenAI-compatible APIs | Yes (A2A + MCP as core pillars) |
+| **Observability** | Pydantic Logfire (OpenTelemetry-based) | Telemetry API (pluggable) | OpenTelemetry + Azure Monitor |
+| **Maturity** | 15.1K GitHub stars, fast-rising | Stable but thin orchestration layer | RC (March 2026), GA target Q1-Q2 2026 |
+| **License** | MIT | MIT (framework); Meta Community License (models) | MIT |
+
+**Key insight:** Pydantic AI is the strongest dark-horse competitor — it has **durable execution** (a critical gap in jeeves-core), type-safe structured outputs, and MCP client+server (matching jeeves-core). MS Agent Framework is the enterprise incumbent play but not yet GA.
+
 ### 3.2 Where Jeeves-Core Wins
 
 1. **Performance** — Rust + tokio async gives 10-100x lower overhead than Python frameworks for the orchestration layer itself. No GIL contention. Zero-copy where possible.
