@@ -12,6 +12,7 @@ use genai::chat::{
     ChatMessage as GenaiMessage, ChatOptions, ChatRequest as GenaiRequest,
     ChatStreamEvent, Tool as GenaiTool,
 };
+use std::collections::HashMap;
 use std::pin::Pin;
 
 use super::{ChatRequest, ChatResponse, LlmProvider, StreamChunk, TokenUsage, ToolCall};
@@ -21,18 +22,32 @@ use crate::types::{Error, Result};
 ///
 /// API keys are auto-discovered from environment variables based on model prefix:
 /// `OPENAI_API_KEY`, `ANTHROPIC_API_KEY`, `GEMINI_API_KEY`, etc.
+///
+/// Model roles (e.g. `"fast"`, `"reasoning"`) are resolved via `MODEL_*` env vars:
+/// `MODEL_FAST=gpt-4o-mini`, `MODEL_REASONING=claude-3-5-sonnet`, etc.
 #[derive(Debug, Clone)]
 pub struct GenaiProvider {
     client: genai::Client,
     default_model: String,
+    model_roles: HashMap<String, String>,
 }
 
 impl GenaiProvider {
-    /// Create a provider with default client (reads API keys from env).
+    /// Create a provider with default client (reads API keys and model roles from env).
+    ///
+    /// Model roles are read from `MODEL_*` env vars (case-insensitive):
+    /// `MODEL_FAST=gpt-4o-mini` makes `model_role: "fast"` resolve to `gpt-4o-mini`.
     pub fn new(default_model: impl Into<String>) -> Self {
+        let mut model_roles = HashMap::new();
+        for (key, value) in std::env::vars() {
+            if let Some(role) = key.strip_prefix("MODEL_") {
+                model_roles.insert(role.to_lowercase(), value);
+            }
+        }
         Self {
             client: genai::Client::default(),
             default_model: default_model.into(),
+            model_roles,
         }
     }
 
@@ -41,11 +56,23 @@ impl GenaiProvider {
         Self {
             client,
             default_model: default_model.into(),
+            model_roles: HashMap::new(),
         }
     }
 
+    /// Add a model role mapping (e.g. `"fast"` → `"gpt-4o-mini"`).
+    pub fn with_model_role(mut self, role: impl Into<String>, model: impl Into<String>) -> Self {
+        self.model_roles.insert(role.into().to_lowercase(), model.into());
+        self
+    }
+
     fn resolve_model(&self, req: &ChatRequest) -> String {
-        req.model.clone().unwrap_or_else(|| self.default_model.clone())
+        match &req.model {
+            Some(role) => self.model_roles.get(&role.to_lowercase())
+                .cloned()
+                .unwrap_or_else(|| role.clone()),
+            None => self.default_model.clone(),
+        }
     }
 
     fn build_options(&self, req: &ChatRequest) -> ChatOptions {

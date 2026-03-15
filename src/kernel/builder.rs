@@ -12,7 +12,8 @@
 use crate::types::Result;
 
 use super::orchestrator_types::{
-    EdgeLimit, JoinStrategy, MergeStrategy, NodeKind, PipelineConfig, PipelineStage, StateField,
+    EdgeLimit, JoinStrategy, MergeStrategy, NodeKind, PipelineConfig, PipelineStage, RouterTarget,
+    StateField,
 };
 use super::routing::{FieldRef, RoutingExpr, RoutingRule};
 
@@ -154,6 +155,32 @@ impl StageHandle {
     /// Set this stage as a Fork (parallel fan-out).
     pub fn fork(mut self) -> Self {
         self.stage_mut().node_kind = NodeKind::Fork;
+        self
+    }
+
+    /// Set this stage as a Router (agent picks target from declared set).
+    pub fn router(mut self) -> Self {
+        self.stage_mut().node_kind = NodeKind::Router;
+        self
+    }
+
+    /// Add a router target (unconditional).
+    pub fn router_target(mut self, target: &str, description: &str) -> Self {
+        self.stage_mut().router_targets.push(RouterTarget {
+            target: target.to_string(),
+            description: description.to_string(),
+            when: None,
+        });
+        self
+    }
+
+    /// Add a router target with a guard condition.
+    pub fn router_target_when(mut self, target: &str, description: &str, when: RoutingExpr) -> Self {
+        self.stage_mut().router_targets.push(RouterTarget {
+            target: target.to_string(),
+            description: description.to_string(),
+            when: Some(when),
+        });
         self
     }
 

@@ -9,7 +9,8 @@ use crate::types::{Error, ProcessId, RequestId, Result, SessionId, UserId};
 
 use super::merge_state_field;
 use super::orchestrator;
-use super::orchestrator_types::ContextOverflow;
+use super::orchestrator_types::{ContextOverflow, NodeKind};
+use super::routing::evaluate_expr;
 use super::{Kernel, ProcessState, RemainingBudget, ResourceQuota, SchedulingPriority, SystemStatus};
 
 impl Kernel {
@@ -99,6 +100,61 @@ impl Kernel {
                     .map(|e| e.pipeline.current_stage.clone())
                     .unwrap_or_default();
                 context.output_schema = self.orchestrator.get_stage_output_schema(process_id, &stage_name);
+
+                // Router enrichment: evaluate when-conditions, filter targets, override output_schema
+                if let Some(stage_config) = self.orchestrator.get_stage_config(process_id, &stage_name) {
+                    if stage_config.node_kind == NodeKind::Router {
+                        let envelope = self.process_envelopes.get(process_id);
+                        let empty_outputs = HashMap::new();
+                        let empty_meta = HashMap::new();
+                        let empty_state = HashMap::new();
+
+                        let (outputs, metadata, state) = envelope
+                            .map(|e| (&e.outputs, &e.audit.metadata, &e.state))
+                            .unwrap_or((&empty_outputs, &empty_meta, &empty_state));
+
+                        let available: Vec<_> = stage_config.router_targets.iter()
+                            .filter(|rt| {
+                                rt.when.as_ref().map_or(true, |expr| {
+                                    evaluate_expr(expr, outputs, &stage_config.agent, metadata, None, state)
+                                })
+                            })
+                            .collect();
+
+                        // Auto-generate output_schema with enum of available target names
+                        let target_names: Vec<&str> = available.iter().map(|t| t.target.as_str()).collect();
+                        context.output_schema = Some(serde_json::json!({
+                            "type": "object",
+                            "properties": {
+                                "chosen_target": {
+                                    "type": "string",
+                                    "enum": target_names,
+                                    "description": "The target to route to"
+                                }
+                            },
+                            "required": ["chosen_target"],
+                            "additionalProperties": false
+                        }));
+
+                        // Inject available_targets into metadata for prompt template vars
+                        let targets_json: Vec<serde_json::Value> = available.iter()
+                            .map(|rt| serde_json::json!({
+                                "name": rt.target,
+                                "description": rt.description,
+                            }))
+                            .collect();
+
+                        if let Some(ref mut ctx_val) = context.agent_context {
+                            if let Some(obj) = ctx_val.as_object_mut() {
+                                if let Some(meta) = obj.get_mut("metadata") {
+                                    if let Some(meta_obj) = meta.as_object_mut() {
+                                        meta_obj.insert("available_targets".to_string(), serde_json::json!(targets_json));
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
 
                 let allowed = self.tools.access.tools_for_agent(agent);
                 if !allowed.is_empty() {
@@ -586,6 +642,7 @@ mod tests {
             max_visits: None,
             node_kind: NodeKind::Agent,
             output_key: None,
+            router_targets: vec![],
             max_context_tokens: None,
             context_overflow: ContextOverflow::default(),
             join_strategy: JoinStrategy::WaitAll,
