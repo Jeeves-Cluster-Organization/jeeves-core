@@ -47,6 +47,10 @@ pub enum Error {
     #[error("timeout: {0}")]
     Timeout(String),
 
+    /// Policy violation (e.g., ACL rejection).
+    #[error("policy violation: {0}")]
+    PolicyViolation(String),
+
     /// Serialization/deserialization errors.
     #[error("serialization error: {0}")]
     Serialization(#[from] serde_json::Error),
@@ -66,6 +70,7 @@ impl Error {
             Error::StateTransition(_) => "FAILED_PRECONDITION",
             Error::Cancelled(_) => "CANCELLED",
             Error::Timeout(_) => "TIMEOUT",
+            Error::PolicyViolation(_) => "PERMISSION_DENIED",
             Error::Internal { .. } | Error::Serialization(_) | Error::Io(_) => "INTERNAL",
         }
     }
@@ -113,5 +118,9 @@ impl Error {
 
     pub fn timeout(msg: impl Into<String>) -> Self {
         Self::Timeout(msg.into())
+    }
+
+    pub fn policy_violation(msg: impl Into<String>) -> Self {
+        Self::PolicyViolation(msg.into())
     }
 }

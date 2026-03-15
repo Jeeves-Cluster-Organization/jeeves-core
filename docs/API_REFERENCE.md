@@ -61,6 +61,27 @@ for event in runner.stream("hello", user_id="user1"):
         case "interrupt":       # {"process_id": "...", "interrupt_id": "...", "kind": "...", "pipeline": "..."}
 ```
 
+#### `runner.describe_pipeline(pipeline_name=None)`
+
+Return the full pipeline config as a Python dict (stages, routing, bounds, state_schema).
+
+#### `runner.list_tools()`
+
+Return all registered tools: `[{"name": str, "description": str, "parameters": dict}, ...]`
+
+#### `PipelineRunner.get_schema()` (static method)
+
+Return JSON Schema for PipelineConfig. Use for editor validation of pipeline.json files.
+
+#### `runner.checkpoint(process_id)`
+
+Capture a serializable snapshot of pipeline state at the current instruction boundary.
+Returns a dict with: version, timestamp, process_id, envelope, pcb, session_state, edge_traversals, stage_visits.
+
+#### `runner.resume_from_checkpoint(snapshot_json, pipeline_name=None)`
+
+Restore a pipeline from a JSON checkpoint string. Returns the restored process_id.
+
 ---
 
 ## Pipeline Config
@@ -103,6 +124,8 @@ Pipeline configuration is a JSON document or Rust `PipelineConfig` struct.
 | `allowed_tools` | array | null | Tool whitelist for this stage |
 | `output_schema` | object | null | JSON Schema for output validation |
 | `child_pipeline` | string | null | Run named pipeline as child (composition) |
+| `max_context_tokens` | int | null | Max estimated tokens in LLM context (chars/4 heuristic) |
+| `context_overflow` | string | `"Fail"` | Strategy: `"Fail"` or `"TruncateOldest"` |
 
 ### Example
 
@@ -130,6 +153,25 @@ Pipeline configuration is a JSON document or Rust `PipelineConfig` struct.
   "edge_limits": []
 }
 ```
+
+### State Schema (Accumulation)
+
+`state_schema` controls how stage outputs merge into `envelope.state`:
+
+| Strategy | Behavior |
+|----------|----------|
+| `Replace` | Overwrite (default) |
+| `Append` | Append to array (creates if missing) |
+| `MergeDict` | Shallow-merge object keys |
+
+```json
+"state_schema": [
+  {"key": "retrieved_docs", "merge": "Append"},
+  {"key": "context", "merge": "MergeDict"}
+]
+```
+
+Use `Append` for multi-hop RAG (accumulate docs across loops). Use `MergeDict` for parallel Fork outputs.
 
 ---
 
@@ -179,7 +221,7 @@ Routing rules are expression trees evaluated in order (first match wins).
 
 ## TerminalReason
 
-`Completed`, `BreakRequested`, `MaxIterationsExceeded`, `MaxLlmCallsExceeded`, `MaxAgentHopsExceeded`, `UserCancelled`, `ToolFailedFatally`, `LlmFailedFatally`, `PolicyViolation`, `MaxStageVisitsExceeded`
+`Completed`, `BreakRequested`, `MaxIterationsExceeded`, `MaxLlmCallsExceeded`, `MaxAgentHopsExceeded`, `UserCancelled`, `ToolFailedFatally`, `LlmFailedFatally`, `PolicyViolation`, `MaxStageVisitsExceeded`, `EdgeLimitExceeded`
 
 ---
 
@@ -200,6 +242,10 @@ Routing rules are expression trees evaluated in order (first match wins).
 | `PipelineEvent` | `worker::llm` | Streaming event variants |
 | `CommBus` | `commbus` | Message bus |
 | `AgentCard` | `kernel::agent_card` | Federation discovery |
+| `ToolRegistryBuilder` | `worker::tools` | Composable tool registry builder |
+| `AgentFactoryBuilder` | `worker::agent_factory` | Agent auto-creation from pipeline config |
+| `AclToolExecutor` | `worker::tools` | Composable ACL wrapper for ToolExecutor |
+| `CheckpointSnapshot` | `kernel::checkpoint` | Serializable pipeline state snapshot |
 
 ### Agent Auto-Creation
 
@@ -212,3 +258,66 @@ When using `PipelineRunner.from_json()`, agents are auto-created from stage conf
 | `has_llm: true` | `LlmAgent` |
 | `has_llm: false` + matching tool | `McpDelegatingAgent` |
 | `has_llm: false` + no tool | `DeterministicAgent` |
+
+---
+
+## Consumer Patterns
+
+### Rust
+
+```rust
+use jeeves_core::prelude::*;
+
+let tools = ToolRegistryBuilder::new()
+    .add_executor(Arc::new(MyTools::new()))
+    .build();
+let agents = AgentFactoryBuilder::new(llm, prompts, tools.clone(), handle.clone())
+    .add_pipeline(config.clone())
+    .build();
+let result = run_pipeline_with_envelope(&handle, pid, config, envelope, &agents).await?;
+```
+
+### Python
+
+```python
+runner = PipelineRunner.from_json("pipeline.json", prompts_dir="prompts/",
+    openai_api_key=os.getenv("OPENAI_API_KEY"))
+runner.register_tool(my_tool)
+
+print(runner.list_tools())           # Introspect tools
+print(runner.describe_pipeline())    # Introspect pipeline
+
+result = runner.run("hello", user_id="user1")
+snapshot = runner.checkpoint(result["process_id"])
+```
+
+### pipeline.json (with new features)
+
+```json
+{
+  "$schema": "../jeeves-core/schema/pipeline.schema.json",
+  "name": "my_pipeline",
+  "max_iterations": 10, "max_llm_calls": 20, "max_agent_hops": 15,
+  "state_schema": [{"key": "docs", "merge": "Append"}],
+  "stages": [{
+    "name": "search", "agent": "search", "has_llm": true,
+    "max_context_tokens": 16000, "context_overflow": "TruncateOldest",
+    "allowed_tools": ["web_search"], "default_next": "answer"
+  }]
+}
+```
+
+---
+
+## Test References
+
+| Test File | What's Tested |
+|-----------|--------------|
+| `src/kernel/mod.rs` | MergeStrategy (Replace, Append, MergeDict) |
+| `src/worker/tools.rs` | ToolRegistryBuilder, AclToolExecutor |
+| `src/kernel/checkpoint.rs` | Checkpoint round-trip serialization |
+| `src/worker/agent.rs` | Context overflow (Fail, TruncateOldest) |
+| `src/kernel/orchestrator.rs` | step_limit, EdgeLimitExceeded, routing |
+| `tests/worker_integration.rs` | Full pipeline integration tests |
+
+Use the `test-harness` feature flag for test utilities in consumer integration tests.

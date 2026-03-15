@@ -7,15 +7,33 @@
 //!   jeeves-kernel                          # Run MCP stdio server
 //!   JEEVES_MCP_SERVERS='[...]' jeeves-kernel  # Connect upstream MCP servers as tools
 
+use clap::Parser;
 use jeeves_core::worker::mcp_server::McpStdioServer;
 use jeeves_core::worker::tools::{ToolExecutor, ToolRegistry};
 use std::sync::Arc;
 
+/// Jeeves kernel — MCP stdio server and pipeline utilities.
+#[derive(Parser, Debug)]
+#[command(name = "jeeves-kernel", version)]
+struct Args {
+    /// Emit JSON Schema for PipelineConfig and exit
+    #[arg(long)]
+    emit_schema: bool,
+}
+
 #[tokio::main]
 async fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
+    let args = Args::parse();
+
+    if args.emit_schema {
+        let schema = jeeves_core::kernel::orchestrator_types::pipeline_config_json_schema();
+        println!("{}", serde_json::to_string_pretty(&schema)?);
+        return Ok(());
+    }
+
     // Init tracing to stderr (default for tracing-subscriber fmt layer)
     let config = jeeves_core::Config::from_env();
-    jeeves_core::observability::init_tracing_from_config(&config.observability);
+    jeeves_core::init_tracing_from_config(&config.observability);
 
     // Build tool registry
     let mut tool_registry = ToolRegistry::new();

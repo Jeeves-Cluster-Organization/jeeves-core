@@ -26,6 +26,9 @@ pub mod resources;
 pub mod routing;
 pub mod services;
 
+// Checkpoint/resume
+pub mod checkpoint;
+
 // Builder
 pub mod builder;
 
@@ -90,12 +93,9 @@ fn merge_state_field(
     }
 }
 
-/// Tool subsystem — catalog, access policy, health tracking.
+/// Tool subsystem — access policy and health tracking.
 #[derive(Debug)]
 pub struct ToolDomain {
-    /// Tool catalog — metadata, validation, prompt generation.
-    #[allow(dead_code)]
-    pub(crate) catalog: crate::tools::ToolCatalog,
     /// Tool access policy — agent-scoped permissions.
     pub(crate) access: crate::tools::ToolAccessPolicy,
     /// Tool health tracking — sliding-window metrics and circuit breaking.
@@ -162,7 +162,6 @@ impl Kernel {
             orchestrator: orchestrator::Orchestrator::new(),
             process_envelopes: HashMap::new(),
             tools: ToolDomain {
-                catalog: crate::tools::ToolCatalog::new(),
                 access: crate::tools::ToolAccessPolicy::new(),
                 health: crate::tools::ToolHealthTracker::default(),
             },
@@ -198,7 +197,6 @@ impl Kernel {
             orchestrator: orchestrator::Orchestrator::new(),
             process_envelopes: HashMap::new(),
             tools: ToolDomain {
-                catalog: crate::tools::ToolCatalog::new(),
                 access: crate::tools::ToolAccessPolicy::new(),
                 health: crate::tools::ToolHealthTracker::default(),
             },
@@ -223,7 +221,6 @@ impl Kernel {
             orchestrator: orchestrator::Orchestrator::new(),
             process_envelopes: HashMap::new(),
             tools: ToolDomain {
-                catalog: crate::tools::ToolCatalog::new(),
                 access: crate::tools::ToolAccessPolicy::new(),
                 health: crate::tools::ToolHealthTracker::default(),
             },
@@ -370,5 +367,74 @@ mod tests {
 
         let pcb = kernel.lifecycle.get(&pid).unwrap();
         assert_eq!(pcb.usage.tool_calls, 3);
+    }
+}
+
+#[cfg(test)]
+mod merge_tests {
+    use super::merge_state_field;
+    use crate::kernel::orchestrator_types::MergeStrategy;
+    use serde_json::json;
+    use std::collections::HashMap;
+
+    #[test]
+    fn replace_overwrites_existing() {
+        let mut state = HashMap::new();
+        state.insert("key".to_string(), json!("old"));
+        merge_state_field(&mut state, "key", json!("new"), MergeStrategy::Replace);
+        assert_eq!(state["key"], json!("new"));
+    }
+
+    #[test]
+    fn replace_creates_new() {
+        let mut state = HashMap::new();
+        merge_state_field(&mut state, "key", json!("value"), MergeStrategy::Replace);
+        assert_eq!(state["key"], json!("value"));
+    }
+
+    #[test]
+    fn append_creates_array() {
+        let mut state = HashMap::new();
+        merge_state_field(&mut state, "docs", json!({"a": 1}), MergeStrategy::Append);
+        assert_eq!(state["docs"], json!([{"a": 1}]));
+    }
+
+    #[test]
+    fn append_to_existing_array() {
+        let mut state = HashMap::new();
+        state.insert("docs".to_string(), json!([{"a": 1}]));
+        merge_state_field(&mut state, "docs", json!({"b": 2}), MergeStrategy::Append);
+        assert_eq!(state["docs"], json!([{"a": 1}, {"b": 2}]));
+    }
+
+    #[test]
+    fn append_converts_non_array() {
+        let mut state = HashMap::new();
+        state.insert("docs".to_string(), json!("scalar"));
+        merge_state_field(&mut state, "docs", json!("new"), MergeStrategy::Append);
+        assert_eq!(state["docs"], json!(["scalar", "new"]));
+    }
+
+    #[test]
+    fn merge_dict_shallow_merges() {
+        let mut state = HashMap::new();
+        state.insert("ctx".to_string(), json!({"a": 1, "b": 2}));
+        merge_state_field(&mut state, "ctx", json!({"b": 3, "c": 4}), MergeStrategy::MergeDict);
+        assert_eq!(state["ctx"], json!({"a": 1, "b": 3, "c": 4}));
+    }
+
+    #[test]
+    fn merge_dict_creates_new() {
+        let mut state = HashMap::new();
+        merge_state_field(&mut state, "ctx", json!({"a": 1}), MergeStrategy::MergeDict);
+        assert_eq!(state["ctx"], json!({"a": 1}));
+    }
+
+    #[test]
+    fn merge_dict_non_object_falls_back_to_replace() {
+        let mut state = HashMap::new();
+        state.insert("ctx".to_string(), json!({"a": 1}));
+        merge_state_field(&mut state, "ctx", json!("not_an_object"), MergeStrategy::MergeDict);
+        assert_eq!(state["ctx"], json!("not_an_object"));
     }
 }

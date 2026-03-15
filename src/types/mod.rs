@@ -9,6 +9,6 @@ pub mod config;
 mod errors;
 mod ids;
 
-pub use config::{AgentConfig, CleanupConfig, Config, McpServerConfig, ObservabilityConfig, RateLimitConfig};
+pub use config::{AgentDefinition, CleanupConfig, Config, McpServerConfig, ObservabilityConfig, RateLimitConfig};
 pub use errors::{Error, Result};
 pub use ids::{EnvelopeId, ProcessId, RequestId, SessionId, UserId};

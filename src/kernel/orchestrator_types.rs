@@ -4,6 +4,7 @@
 
 use crate::envelope::{FlowInterrupt, TerminalReason};
 use crate::types::{Error, ProcessId, Result};
+use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
 
@@ -14,7 +15,7 @@ use super::routing::RoutingRule;
 // =============================================================================
 
 /// Node kind in the pipeline graph.
-#[derive(Debug, Clone, Copy, Serialize, Deserialize, Default, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, Default, PartialEq, Eq, JsonSchema)]
 pub enum NodeKind {
     /// Standard agent execution node
     #[default]
@@ -26,7 +27,7 @@ pub enum NodeKind {
 }
 
 /// Merge strategy for state fields.
-#[derive(Debug, Clone, Copy, Serialize, Deserialize, Default, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, Default, PartialEq, Eq, JsonSchema)]
 pub enum MergeStrategy {
     /// Overwrite the existing value
     #[default]
@@ -37,8 +38,18 @@ pub enum MergeStrategy {
     MergeDict,
 }
 
+/// Strategy when LLM context exceeds max_context_tokens.
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, Default, PartialEq, Eq, JsonSchema)]
+pub enum ContextOverflow {
+    /// Terminate with error (safest default)
+    #[default]
+    Fail,
+    /// Drop oldest non-system messages until under limit
+    TruncateOldest,
+}
+
 /// Schema entry for a state field.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
 pub struct StateField {
     pub key: String,
     pub merge: MergeStrategy,
@@ -58,9 +69,14 @@ pub struct AgentDispatchContext {
     pub output_schema: Option<serde_json::Value>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub allowed_tools: Option<Vec<String>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub max_context_tokens: Option<i64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub context_overflow: Option<ContextOverflow>,
 }
 
 /// Instruction tells the worker what to do next.
+#[must_use]
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "SCREAMING_SNAKE_CASE")]
 pub enum Instruction {
@@ -148,14 +164,17 @@ pub struct AgentExecutionMetrics {
 /// The kernel is a pure evaluator — it iterates routing rules, first match wins.
 /// All pipeline shape (linear, branching, cycles) is defined by the capability
 /// layer via routing rules on each stage.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
 pub struct PipelineConfig {
     pub name: String,
     pub stages: Vec<PipelineStage>,
     pub max_iterations: i32,
     pub max_llm_calls: i32,
     pub max_agent_hops: i32,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub edge_limits: Vec<EdgeLimit>,
+    /// Maximum routing steps per `get_next_instruction` call (default: 100).
+    /// Prevents infinite Gate/Fork chains from blocking the orchestration loop.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub step_limit: Option<i32>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
@@ -200,6 +219,13 @@ impl PipelineConfig {
             return Err(Error::validation(format!(
                 "max_agent_hops must be > 0, got {}", self.max_agent_hops
             )));
+        }
+        if let Some(sl) = self.step_limit {
+            if sl <= 0 {
+                return Err(Error::validation(format!(
+                    "step_limit must be > 0, got {}", sl
+                )));
+            }
         }
 
         // Validate stage names: non-empty and unique
@@ -306,6 +332,15 @@ impl PipelineConfig {
                     )));
                 }
             }
+            // Validate max_context_tokens is positive
+            if let Some(mct) = stage.max_context_tokens {
+                if mct <= 0 {
+                    return Err(Error::validation(format!(
+                        "Stage '{}' has max_context_tokens {} which must be positive",
+                        stage.name, mct
+                    )));
+                }
+            }
         }
 
         // Validate edge limits reference existing stages
@@ -328,17 +363,13 @@ impl PipelineConfig {
             }
         }
 
-        // Validate Fork stages: routing targets must exist
-        for stage in &self.stages {
-            if stage.node_kind == NodeKind::Fork {
-                for rule in &stage.routing {
-                    if !stage_names.contains(rule.target.as_str()) {
-                        return Err(Error::validation(format!(
-                            "Fork stage '{}' routing target '{}' not found in pipeline",
-                            stage.name, rule.target
-                        )));
-                    }
-                }
+        // Validate state_schema: no duplicate keys
+        let mut state_keys: HashSet<&str> = HashSet::new();
+        for field in &self.state_schema {
+            if !state_keys.insert(field.key.as_str()) {
+                return Err(Error::validation(format!(
+                    "Duplicate state_schema key '{}'", field.key
+                )));
             }
         }
 
@@ -364,7 +395,7 @@ impl PipelineConfig {
 }
 
 /// Agent execution configuration — transparent to kernel, consumed by worker.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
 pub struct AgentConfig {
     /// Prompt template key for this agent. None = deterministic (no LLM call).
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -411,7 +442,7 @@ impl Default for AgentConfig {
 /// 2. Evaluate routing rules (first match wins)
 /// 3. If no match AND default_next set → route to default_next
 /// 4. If no match AND no default_next → terminate (COMPLETED)
-#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize, JsonSchema)]
 pub struct PipelineStage {
     pub name: String,
     pub agent: String,
@@ -434,6 +465,14 @@ pub struct PipelineStage {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub output_key: Option<String>,
 
+    /// Maximum estimated tokens allowed in LLM context for this stage.
+    /// Uses chars/4 heuristic. When exceeded, applies context_overflow strategy.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub max_context_tokens: Option<i64>,
+    /// Strategy when context exceeds max_context_tokens.
+    #[serde(default)]
+    pub context_overflow: ContextOverflow,
+
     /// Agent execution config — transparent to kernel, consumed by worker.
     #[serde(flatten)]
     pub agent_config: AgentConfig,
@@ -448,7 +487,7 @@ fn default_max_tool_rounds() -> u32 {
 }
 
 /// Join strategy for parallel execution groups.
-#[derive(Debug, Clone, Copy, Serialize, Deserialize, Default, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, Default, PartialEq, Eq, JsonSchema)]
 pub enum JoinStrategy {
     /// Wait for all agents to complete
     #[default]
@@ -458,7 +497,7 @@ pub enum JoinStrategy {
 }
 
 /// Per-edge transition limit.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
 pub struct EdgeLimit {
     pub from_stage: String,
     pub to_stage: String,
@@ -469,7 +508,7 @@ pub struct EdgeLimit {
 ///
 /// Replaces string concatenation `"from->to"` to eliminate collision risk
 /// (e.g., stage names containing "->").
-#[derive(Debug, Clone, Hash, Eq, PartialEq)]
+#[derive(Debug, Clone, Hash, Eq, PartialEq, Serialize, Deserialize)]
 pub struct EdgeKey {
     pub from_stage: String,
     pub to_stage: String,
@@ -488,7 +527,7 @@ impl std::fmt::Display for EdgeKey {
 }
 
 /// State for an active parallel execution group.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ParallelGroupState {
     pub group_name: String,
     pub stages: Vec<String>,
@@ -499,6 +538,7 @@ pub struct ParallelGroupState {
 }
 
 /// SessionState is the external representation of session state.
+#[must_use]
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SessionState {
     pub process_id: ProcessId,
@@ -509,6 +549,17 @@ pub struct SessionState {
     pub terminated: bool,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub terminal_reason: Option<TerminalReason>,
+}
+
+/// Generate JSON Schema for PipelineConfig.
+///
+/// Used for editor validation of pipeline.json files and API documentation.
+/// The schema respects all serde attributes (tag, default, flatten, etc.).
+pub fn pipeline_config_json_schema() -> serde_json::Value {
+    // schema_for! produces a concrete struct; to_value only fails on
+    // types with non-string map keys, which RootSchema does not have.
+    #[allow(clippy::expect_used)]
+    serde_json::to_value(schemars::schema_for!(PipelineConfig)).expect("schema serialization")
 }
 
 #[cfg(test)]
@@ -528,6 +579,8 @@ mod tests {
             allowed_tools: None,
             node_kind: NodeKind::Agent,
             output_key: None,
+            max_context_tokens: None,
+            context_overflow: ContextOverflow::default(),
             agent_config: AgentConfig {
                 has_llm: false,
                 ..Default::default()
@@ -640,5 +693,37 @@ mod tests {
         stage.agent_config.has_llm = false;
         let config = minimal_config(vec![stage]);
         assert!(config.validate().is_ok());
+    }
+
+    #[test]
+    fn test_pipeline_config_json_schema() {
+        let schema = pipeline_config_json_schema();
+        // Schema should be a valid JSON object with standard JSON Schema fields
+        assert!(schema.is_object());
+        let obj = schema.as_object().unwrap();
+        // Should have a type or $ref at the top level
+        assert!(
+            obj.contains_key("type") || obj.contains_key("$ref") || obj.contains_key("definitions"),
+            "Schema top-level keys: {:?}",
+            obj.keys().collect::<Vec<_>>()
+        );
+    }
+
+    #[test]
+    #[ignore] // Side-effect: writes schema/pipeline.schema.json; run with --ignored
+    fn generate_pipeline_schema_file() {
+        let schema = pipeline_config_json_schema();
+        let pretty = serde_json::to_string_pretty(&schema).expect("serialize schema");
+
+        // Write to schema/ directory relative to crate root
+        let crate_dir = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+        let schema_dir = crate_dir.join("schema");
+        std::fs::create_dir_all(&schema_dir).expect("create schema dir");
+        let path = schema_dir.join("pipeline.schema.json");
+        std::fs::write(&path, pretty).expect("write schema file");
+
+        // Verify the file is valid JSON
+        let content = std::fs::read_to_string(&path).expect("read schema file");
+        let _: serde_json::Value = serde_json::from_str(&content).expect("valid JSON");
     }
 }

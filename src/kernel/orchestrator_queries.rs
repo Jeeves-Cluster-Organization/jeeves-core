@@ -4,9 +4,19 @@ use crate::envelope::Envelope;
 use crate::types::{Error, ProcessId, Result};
 
 use super::orchestrator::Orchestrator;
-use super::orchestrator_types::{SessionState, StateField};
+use super::orchestrator_types::{PipelineStage, SessionState, StateField};
 
 impl Orchestrator {
+    /// Get a reference to a pipeline session by process ID.
+    pub fn get_session(&self, process_id: &ProcessId) -> Option<&super::orchestrator::PipelineSession> {
+        self.pipelines.get(process_id)
+    }
+
+    /// Get a mutable reference to a pipeline session by process ID.
+    pub fn get_session_mut(&mut self, process_id: &ProcessId) -> Option<&mut super::orchestrator::PipelineSession> {
+        self.pipelines.get_mut(process_id)
+    }
+
     /// Get session state for external queries.
     ///
     /// Envelope is passed in by the Kernel (which owns it).
@@ -60,6 +70,15 @@ impl Orchestrator {
             })
     }
 
+    /// Get the full stage config for a stage by name.
+    pub fn get_stage_config(&self, process_id: &ProcessId, stage_name: &str) -> Option<&PipelineStage> {
+        self.pipelines.get(process_id)
+            .and_then(|session| {
+                session.pipeline_config.stages.iter()
+                    .find(|s| s.name == stage_name)
+            })
+    }
+
     /// Get pipeline session count.
     pub fn get_session_count(&self) -> usize {
         self.pipelines.len()
@@ -78,7 +97,7 @@ mod tests {
         let pipeline = create_test_pipeline();
         let mut envelope = create_test_envelope();
 
-        orch.initialize_session(ProcessId::must("proc1"), pipeline, &mut envelope, false)
+        let _state = orch.initialize_session(ProcessId::must("proc1"), pipeline, &mut envelope, false)
             .unwrap();
 
         let state = orch.get_session_state(&ProcessId::must("proc1"), &envelope).unwrap();
@@ -105,7 +124,7 @@ mod tests {
 
         let pipeline = create_test_pipeline();
         let mut envelope = create_test_envelope();
-        orch.initialize_session(ProcessId::must("proc1"), pipeline, &mut envelope, false).unwrap();
+        let _state = orch.initialize_session(ProcessId::must("proc1"), pipeline, &mut envelope, false).unwrap();
         assert_eq!(orch.get_session_count(), 1);
     }
 }

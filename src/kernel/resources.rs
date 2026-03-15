@@ -2,6 +2,7 @@
 //!
 //! Tracks resource usage across processes and enforces quotas.
 
+use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
 
 use super::types::{ProcessControlBlock, ResourceUsage};
@@ -10,7 +11,7 @@ use crate::types::{Error, Result};
 /// Resource tracker - tracks usage across all processes.
 ///
 /// NOT a separate actor - owned by Kernel and called via &mut self.
-#[derive(Debug, Default)]
+#[derive(Debug, Default, Serialize, Deserialize)]
 pub struct ResourceTracker {
     /// Per-user usage aggregation (optional, for multi-tenant quotas)
     user_usage: HashMap<String, ResourceUsage>,

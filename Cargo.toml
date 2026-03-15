@@ -49,7 +49,12 @@ thiserror = "2.0"
 
 # Observability
 tracing = "0.1"
-tracing-subscriber = { version = "0.3", features = ["env-filter", "json"] }
+tracing-subscriber = { version = "0.3", features = ["env-filter", "json", "registry"] }
+
+# OpenTelemetry (optional — behind otel feature)
+opentelemetry = { version = "0.28", optional = true }
+opentelemetry_sdk = { version = "0.28", features = ["trace"], optional = true }
+tracing-opentelemetry = { version = "0.29", optional = true }
 
 # Time handling
 chrono = { version = "0.4", features = ["serde"] }
@@ -60,6 +65,9 @@ uuid = { version = "1.11", features = ["v4", "serde"] }
 
 # JSON Schema validation (output_schema enforcement)
 jsonschema = "0.28"
+
+# JSON Schema generation (pipeline config discoverability)
+schemars = "0.8"
 
 
 [dev-dependencies]
@@ -81,6 +89,7 @@ default = []
 mcp-stdio = ["dep:clap"]
 py-bindings = ["dep:pyo3", "dep:inventory", "pyo3/extension-module"]
 test-harness = []
+otel = ["dep:opentelemetry", "dep:opentelemetry_sdk", "dep:tracing-opentelemetry"]
 
 [profile.release]
 opt-level = 3

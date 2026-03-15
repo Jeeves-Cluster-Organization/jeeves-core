@@ -10,11 +10,11 @@ use std::sync::Arc;
 use tokio_util::sync::CancellationToken;
 
 use crate::envelope::Envelope;
-use crate::kernel::orchestrator_types::{NodeKind, PipelineConfig};
+use crate::kernel::orchestrator_types::PipelineConfig;
 use crate::kernel::Kernel;
 use crate::types::ProcessId;
 use crate::worker::actor::spawn_kernel;
-use crate::worker::agent::{AgentRegistry, DeterministicAgent, LlmAgent, McpDelegatingAgent, PipelineAgent};
+use crate::worker::agent::AgentRegistry;
 use crate::worker::handle::KernelHandle;
 use crate::worker::llm::openai::OpenAiProvider;
 use crate::worker::llm::LlmProvider;
@@ -137,16 +137,14 @@ impl PyPipelineRunner {
         pipeline_configs.insert(pipeline_name.clone(), pipeline_config);
 
         // Build agents from pipeline config (no tools registered yet)
-        // Safe indexing: pipeline_name was just inserted above.
-        let agents = Arc::new(build_agents_from_config(
-            &pipeline_configs[&pipeline_name],
-            &tools,
-            &llm,
-            &prompts,
-            &pipeline_configs,
-            &handle,
-        ));
-        backfill_pipeline_agents(&agents);
+        let agents = crate::worker::agent_factory::AgentFactoryBuilder::new(
+            llm.clone(),
+            prompts.clone(),
+            tools.clone(),
+            handle.clone(),
+        )
+        .add_pipelines(pipeline_configs.values().cloned())
+        .build();
 
         Ok(Self {
             rt,
@@ -361,6 +359,115 @@ impl PyPipelineRunner {
         Ok(py_dict.into())
     }
 
+    /// Capture a checkpoint of a running pipeline process.
+    ///
+    /// Returns the checkpoint as a JSON-serializable dict.
+    ///
+    /// Args:
+    ///     process_id: The process ID to checkpoint.
+    #[pyo3(signature = (process_id))]
+    fn checkpoint(&self, py: Python<'_>, process_id: &str) -> PyResult<PyObject> {
+        let pid = ProcessId::must(process_id);
+        let handle = self.handle.clone();
+
+        let snapshot = py
+            .allow_threads(|| self.rt.block_on(handle.checkpoint(pid)))
+            .map_err(|e| {
+                pyo3::exceptions::PyRuntimeError::new_err(format!(
+                    "Failed to checkpoint: {e}"
+                ))
+            })?;
+
+        let json_str = serde_json::to_string(&snapshot)
+            .map_err(|e| pyo3::exceptions::PyValueError::new_err(e.to_string()))?;
+        let json_mod = py.import_bound("json")?;
+        let py_dict = json_mod.call_method1("loads", (json_str,))?;
+        Ok(py_dict.into())
+    }
+
+    /// Resume a pipeline process from a checkpoint snapshot.
+    ///
+    /// Returns the restored process ID.
+    ///
+    /// Args:
+    ///     snapshot_json: JSON string of the checkpoint snapshot.
+    ///     pipeline_name: Optional pipeline name (defaults to the first registered).
+    #[pyo3(signature = (snapshot_json, pipeline_name=None))]
+    fn resume_from_checkpoint(
+        &self,
+        py: Python<'_>,
+        snapshot_json: &str,
+        pipeline_name: Option<&str>,
+    ) -> PyResult<String> {
+        let snapshot: crate::kernel::checkpoint::CheckpointSnapshot =
+            serde_json::from_str(snapshot_json).map_err(|e| {
+                pyo3::exceptions::PyValueError::new_err(format!(
+                    "Failed to parse checkpoint snapshot: {e}"
+                ))
+            })?;
+
+        let config = self.get_pipeline_config(pipeline_name)?;
+        let handle = self.handle.clone();
+
+        let pid = py
+            .allow_threads(|| self.rt.block_on(handle.resume_from_checkpoint(snapshot, config)))
+            .map_err(|e| {
+                pyo3::exceptions::PyRuntimeError::new_err(format!(
+                    "Failed to resume from checkpoint: {e}"
+                ))
+            })?;
+
+        Ok(pid.to_string())
+    }
+
+    /// Describe a pipeline's structure (stages, routing, bounds, state_schema).
+    ///
+    /// Returns the full PipelineConfig as a Python dict.
+    /// If pipeline_name is None, uses the default pipeline.
+    #[pyo3(signature = (pipeline_name=None))]
+    fn describe_pipeline(&self, py: Python<'_>, pipeline_name: Option<&str>) -> PyResult<PyObject> {
+        let name = pipeline_name.unwrap_or(&self.default_pipeline);
+        let config = self.pipeline_configs.get(name)
+            .ok_or_else(|| pyo3::exceptions::PyKeyError::new_err(
+                format!("Pipeline '{}' not found. Available: {:?}", name, self.pipeline_configs.keys().collect::<Vec<_>>())
+            ))?;
+        let json_str = serde_json::to_string(config)
+            .map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(e.to_string()))?;
+        let json_mod = py.import_bound("json")?;
+        Ok(json_mod.call_method1("loads", (json_str,))?.into())
+    }
+
+    /// List all registered tools with name, description, and parameter schema.
+    ///
+    /// Returns a list of dicts: [{"name": str, "description": str, "parameters": dict}, ...]
+    fn list_tools(&self, py: Python<'_>) -> PyResult<PyObject> {
+        let tools: Vec<serde_json::Value> = self.tools.list_all_tools()
+            .into_iter()
+            .map(|t| serde_json::json!({
+                "name": t.name,
+                "description": t.description,
+                "parameters": t.parameters,
+            }))
+            .collect();
+        let json_str = serde_json::to_string(&tools)
+            .map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(e.to_string()))?;
+        let json_mod = py.import_bound("json")?;
+        Ok(json_mod.call_method1("loads", (json_str,))?.into())
+    }
+
+    /// Get JSON Schema for PipelineConfig (for editor validation).
+    ///
+    /// This is a static method — no runner instance needed.
+    /// Returns a dict conforming to JSON Schema spec.
+    #[staticmethod]
+    fn get_schema(py: Python<'_>) -> PyResult<PyObject> {
+        let schema = crate::kernel::orchestrator_types::pipeline_config_json_schema();
+        let json_str = serde_json::to_string(&schema)
+            .map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(e.to_string()))?;
+        let json_mod = py.import_bound("json")?;
+        Ok(json_mod.call_method1("loads", (json_str,))?.into())
+    }
+
     /// Shut down the kernel actor and tokio runtime.
     fn shutdown(&self) {
         self.cancel.cancel();
@@ -434,155 +541,33 @@ impl PyPipelineRunner {
 
     /// Rebuild tool and agent registries from current tool_executors + pipeline configs.
     ///
-    /// Two-pass rebuild for PipelineAgent OnceLock backfill:
-    /// Pass 1: Build all agents (PipelineAgent instances get empty OnceLock)
-    /// Pass 2: Wrap registry in Arc, backfill each PipelineAgent.agents.set(arc.clone())
+    /// Delegates to AgentFactoryBuilder which handles:
+    /// - Decision tree (Gate→Deterministic, child_pipeline→PipelineAgent, etc.)
+    /// - Per-stage ACL via AclToolExecutor::wrap_registry()
+    /// - PipelineAgent OnceLock backfill
     fn rebuild_registries(&mut self) {
-        let mut tool_registry = ToolRegistry::new();
+        // Build tool registry from accumulated executors
+        let mut builder = crate::worker::tools::ToolRegistryBuilder::new();
         for (name, executor) in &self.tool_executors {
-            tool_registry.register(name.clone(), executor.clone());
+            builder = builder.add_tool(name.clone(), executor.clone());
         }
-        let tools = Arc::new(tool_registry);
+        let tools = builder.build();
 
-        // Pass 1: Build agents from ALL registered pipeline configs
-        let mut agent_registry = AgentRegistry::new();
-        for config in self.pipeline_configs.values() {
-            merge_agents_from_config(
-                &mut agent_registry,
-                config,
-                &tools,
-                &self.llm,
-                &self.prompts,
-                &self.pipeline_configs,
-                &self.handle,
-            );
-        }
-
-        // Pass 2: Wrap in Arc, then backfill PipelineAgent OnceLocks
-        let agents = Arc::new(agent_registry);
-        backfill_pipeline_agents(&agents);
+        // Build agent registry via shared factory
+        let agents = crate::worker::agent_factory::AgentFactoryBuilder::new(
+            self.llm.clone(),
+            self.prompts.clone(),
+            tools.clone(),
+            self.handle.clone(),
+        )
+        .add_pipelines(self.pipeline_configs.values().cloned())
+        .build();
 
         self.tools = tools;
         self.agents = agents;
     }
 }
 
-/// Build an AgentRegistry from a single pipeline config.
-fn build_agents_from_config(
-    config: &PipelineConfig,
-    tools: &Arc<ToolRegistry>,
-    llm: &Arc<dyn LlmProvider>,
-    prompts: &Arc<PromptRegistry>,
-    pipeline_configs: &HashMap<String, PipelineConfig>,
-    handle: &KernelHandle,
-) -> AgentRegistry {
-    let mut registry = AgentRegistry::new();
-    merge_agents_from_config(&mut registry, config, tools, llm, prompts, pipeline_configs, handle);
-    registry
-}
-
-/// Merge agents from a pipeline config into an existing registry.
-///
-/// Auto-creates agents based on pipeline stage configuration:
-/// - Gate nodes → DeterministicAgent
-/// - child_pipeline = Some(name) → PipelineAgent (composition)
-/// - has_llm=true → LlmAgent (prompt_key defaults to agent name)
-/// - has_llm=false + matching tool → McpDelegatingAgent
-/// - has_llm=false + no tool → DeterministicAgent
-fn merge_agents_from_config(
-    registry: &mut AgentRegistry,
-    config: &PipelineConfig,
-    tools: &Arc<ToolRegistry>,
-    llm: &Arc<dyn LlmProvider>,
-    prompts: &Arc<PromptRegistry>,
-    pipeline_configs: &HashMap<String, PipelineConfig>,
-    handle: &KernelHandle,
-) {
-    use crate::worker::agent::Agent;
-
-    for stage in &config.stages {
-        let agent_name = &stage.agent;
-        if agent_name.is_empty() {
-            continue;
-        }
-        // Skip if already registered (first registration wins)
-        if registry.get(agent_name).is_some() {
-            continue;
-        }
-
-        let agent: Arc<dyn Agent> = match stage.node_kind {
-            NodeKind::Gate => Arc::new(DeterministicAgent),
-            _ if stage.agent_config.child_pipeline.is_some() => {
-                match (stage.agent_config.child_pipeline.as_ref(), stage.agent_config.child_pipeline.as_deref().and_then(|n| pipeline_configs.get(n))) {
-                    (Some(child_name), Some(child_config)) => {
-                        Arc::new(PipelineAgent {
-                            pipeline_name: child_name.clone(),
-                            pipeline_config: child_config.clone(),
-                            handle: handle.clone(),
-                            agents: std::sync::OnceLock::new(),
-                        })
-                    }
-                    (Some(child_name), None) => {
-                        tracing::warn!(
-                            agent = %agent_name,
-                            child_pipeline = %child_name,
-                            "child_pipeline not found, falling back to DeterministicAgent"
-                        );
-                        Arc::new(DeterministicAgent)
-                    }
-                    _ => Arc::new(DeterministicAgent),
-                }
-            }
-            _ if stage.agent_config.has_llm => {
-                let prompt_key = stage
-                    .agent_config
-                    .prompt_key
-                    .clone()
-                    .unwrap_or_else(|| agent_name.clone());
-                Arc::new(LlmAgent {
-                    llm: llm.clone(),
-                    prompts: prompts.clone(),
-                    tools: tools.clone(),
-                    prompt_key,
-                    temperature: stage.agent_config.temperature,
-                    max_tokens: stage.agent_config.max_tokens,
-                    model: stage.agent_config.model_role.clone(),
-                    max_tool_rounds: stage.agent_config.max_tool_rounds,
-                })
-            }
-            _ => {
-                // has_llm=false: check if a matching tool exists
-                if tools.get(agent_name).is_some() {
-                    Arc::new(McpDelegatingAgent {
-                        tool_name: agent_name.clone(),
-                        tools: tools.clone(),
-                    })
-                } else {
-                    Arc::new(DeterministicAgent)
-                }
-            }
-        };
-
-        registry.register(agent_name.clone(), agent);
-    }
-}
-
-/// Backfill PipelineAgent OnceLocks with the shared AgentRegistry.
-///
-/// After wrapping the AgentRegistry in Arc, iterate all agents and set the
-/// OnceLock on any PipelineAgent instances. This completes the two-pass build.
-fn backfill_pipeline_agents(agents: &Arc<AgentRegistry>) {
-    use crate::worker::agent::Agent;
-    for name in agents.list_names() {
-        if let Some(agent) = agents.get(&name) {
-            // Downcast to PipelineAgent to set the OnceLock
-            let agent_ref: &dyn Agent = agent.as_ref();
-            if let Some(pa) = (agent_ref as &dyn std::any::Any).downcast_ref::<PipelineAgent>() {
-                let _ = pa.agents.set(agents.clone());
-            }
-        }
-    }
-}
 
 /// Convert an optional Python object to a serde_json::Value.
 /// Returns None if the input is None or Python None.

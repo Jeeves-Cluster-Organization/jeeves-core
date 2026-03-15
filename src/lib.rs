@@ -44,6 +44,31 @@ pub mod types;
 pub mod worker;
 
 // Internal utilities
-pub mod observability;
+pub(crate) mod observability;
+
+// Re-export observability functions needed by the MCP stdio binary
+pub use observability::{init_tracing, init_tracing_from_config};
+#[cfg(feature = "otel")]
+pub use observability::otel_tracing_layer;
 
 pub use types::{Config, Error, Result};
+
+/// Prelude — re-exports consumer-facing types for convenient imports.
+///
+/// ```ignore
+/// use jeeves_core::prelude::*;
+/// ```
+pub mod prelude {
+    pub use crate::envelope::Envelope;
+    pub use crate::kernel::orchestrator_types::PipelineConfig;
+    pub use crate::kernel::Kernel;
+    pub use crate::types::ProcessId;
+    pub use crate::worker::actor::spawn_kernel;
+    pub use crate::worker::agent::AgentRegistry;
+    pub use crate::worker::agent_factory::AgentFactoryBuilder;
+    pub use crate::worker::handle::KernelHandle;
+    pub use crate::worker::llm::{LlmProvider, PipelineEvent};
+    pub use crate::worker::prompts::PromptRegistry;
+    pub use crate::worker::tools::{ToolExecutor, ToolInfo, ToolRegistry, ToolRegistryBuilder};
+    pub use crate::worker::{run_pipeline_streaming, run_pipeline_with_envelope, WorkerResult};
+}

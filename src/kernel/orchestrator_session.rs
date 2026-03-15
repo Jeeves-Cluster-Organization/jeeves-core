@@ -150,7 +150,7 @@ mod tests {
         let pipeline = create_test_pipeline();
         let mut envelope = create_test_envelope();
 
-        orch.initialize_session(ProcessId::must("proc1"), pipeline.clone(), &mut envelope, false)
+        let _state = orch.initialize_session(ProcessId::must("proc1"), pipeline.clone(), &mut envelope, false)
             .unwrap();
 
         let mut envelope2 = create_test_envelope();
@@ -167,7 +167,7 @@ mod tests {
         let pipeline = create_test_pipeline();
         let mut envelope = create_test_envelope();
 
-        orch.initialize_session(ProcessId::must("proc1"), pipeline.clone(), &mut envelope, false)
+        let _state = orch.initialize_session(ProcessId::must("proc1"), pipeline.clone(), &mut envelope, false)
             .unwrap();
 
         let mut envelope2 = create_test_envelope();
@@ -183,7 +183,7 @@ mod tests {
         let pid = ProcessId::must("p1");
         let pipeline = create_test_pipeline();
         let mut envelope = create_test_envelope();
-        orch.initialize_session(pid.clone(), pipeline, &mut envelope, false).unwrap();
+        let _state = orch.initialize_session(pid.clone(), pipeline, &mut envelope, false).unwrap();
 
         assert!(orch.has_session(&pid));
     }
@@ -200,7 +200,7 @@ mod tests {
         let pipeline = create_test_pipeline();
         let mut envelope = create_test_envelope();
 
-        orch.initialize_session(ProcessId::must("proc1"), pipeline, &mut envelope, false)
+        let _state = orch.initialize_session(ProcessId::must("proc1"), pipeline, &mut envelope, false)
             .unwrap();
 
         assert_eq!(orch.get_session_count(), 1);
@@ -222,10 +222,10 @@ mod tests {
         let pipeline = create_test_pipeline();
 
         let mut env1 = create_test_envelope();
-        orch.initialize_session(pid_old.clone(), pipeline.clone(), &mut env1, false).unwrap();
+        let _state = orch.initialize_session(pid_old.clone(), pipeline.clone(), &mut env1, false).unwrap();
 
         let mut env2 = create_test_envelope();
-        orch.initialize_session(pid_young.clone(), pipeline, &mut env2, false).unwrap();
+        let _state = orch.initialize_session(pid_young.clone(), pipeline, &mut env2, false).unwrap();
 
         // Manually set the old session's last_activity_at to the past
         if let Some(session) = orch.pipelines.get_mut(&pid_old) {

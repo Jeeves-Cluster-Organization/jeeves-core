@@ -104,6 +104,22 @@ pub enum KernelCommand {
         filter: Option<String>,
         resp_tx: oneshot::Sender<Vec<AgentCard>>,
     },
+
+    // =========================================================================
+    // Checkpoint/Resume
+    // =========================================================================
+
+    /// Capture a checkpoint of a running process.
+    Checkpoint {
+        process_id: ProcessId,
+        resp_tx: oneshot::Sender<Result<crate::kernel::checkpoint::CheckpointSnapshot>>,
+    },
+    /// Resume a process from a checkpoint snapshot.
+    ResumeFromCheckpoint {
+        snapshot: Box<crate::kernel::checkpoint::CheckpointSnapshot>,
+        pipeline_config: Box<PipelineConfig>,
+        resp_tx: oneshot::Sender<Result<ProcessId>>,
+    },
 }
 
 /// Typed handle to the kernel actor. Clone-able, Send + Sync.
@@ -281,6 +297,32 @@ impl KernelHandle {
             return vec![];
         }
         resp_rx.await.unwrap_or_default()
+    }
+
+    // =========================================================================
+    // Checkpoint/Resume
+    // =========================================================================
+
+    /// Capture a checkpoint of a running process.
+    pub async fn checkpoint(
+        &self,
+        process_id: ProcessId,
+    ) -> Result<crate::kernel::checkpoint::CheckpointSnapshot> {
+        kernel_request!(self, Checkpoint {
+            process_id: process_id,
+        })
+    }
+
+    /// Resume a process from a checkpoint snapshot.
+    pub async fn resume_from_checkpoint(
+        &self,
+        snapshot: crate::kernel::checkpoint::CheckpointSnapshot,
+        pipeline_config: PipelineConfig,
+    ) -> Result<ProcessId> {
+        kernel_request!(self, ResumeFromCheckpoint {
+            snapshot: Box::new(snapshot),
+            pipeline_config: Box::new(pipeline_config),
+        })
     }
 
     /// Get system status.

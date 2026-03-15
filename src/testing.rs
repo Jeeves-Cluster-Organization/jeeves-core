@@ -62,7 +62,7 @@ impl PipelineTestHarness {
         let pipeline_name = self.config.name.clone();
         let envelope = Envelope::new_minimal("test_user", "test_session", input, None);
 
-        handle
+        let _state = handle
             .initialize_session(pid.clone(), self.config, envelope, false)
             .await?;
 

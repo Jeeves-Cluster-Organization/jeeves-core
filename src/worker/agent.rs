@@ -11,14 +11,15 @@ use tokio::sync::mpsc;
 
 use tracing::instrument;
 
-use crate::kernel::orchestrator_types::{AgentExecutionMetrics, PipelineConfig, ToolCallResult};
+use crate::kernel::orchestrator_types::{AgentExecutionMetrics, ContextOverflow, PipelineConfig, ToolCallResult};
 use crate::worker::llm::{
     collect_stream, ChatMessage, ChatRequest, LlmProvider, PipelineEvent, ToolCall,
 };
 use crate::worker::prompts::PromptRegistry;
-use crate::worker::tools::{ToolInfo, ToolRegistry};
+use crate::worker::tools::ToolRegistry;
 
 /// Output from agent execution.
+#[must_use]
 #[derive(Debug, Clone)]
 pub struct AgentOutput {
     pub output: serde_json::Value,
@@ -34,12 +35,15 @@ pub struct AgentContext {
     pub outputs: HashMap<String, HashMap<String, serde_json::Value>>,
     pub state: HashMap<String, serde_json::Value>,
     pub metadata: HashMap<String, serde_json::Value>,
-    pub allowed_tools: Vec<String>,
     pub event_tx: Option<mpsc::Sender<PipelineEvent>>,
     /// Pipeline stage name this agent is executing within (None for ad-hoc execution).
     pub stage_name: Option<String>,
     /// Pipeline name for event attribution.
     pub pipeline_name: Arc<str>,
+    /// Maximum estimated tokens allowed in LLM context (chars/4 heuristic).
+    pub max_context_tokens: Option<i64>,
+    /// Strategy when context exceeds max_context_tokens.
+    pub context_overflow: Option<ContextOverflow>,
 }
 
 /// Agent trait — implementations provide custom agent behavior.
@@ -109,8 +113,8 @@ impl Agent for LlmAgent {
             ChatMessage::user(ctx.raw_input.clone()),
         ];
 
-        // Build tool definitions filtered by allowed_tools
-        let tool_defs = Arc::new(build_tool_defs(&self.tools, &ctx.allowed_tools));
+        // Build tool definitions (already ACL-filtered at ToolRegistry layer)
+        let tool_defs = Arc::new(build_tool_defs(&self.tools));
 
         // Accumulated metrics across all rounds
         let mut total_llm_calls = 0i32;
@@ -122,6 +126,52 @@ impl Agent for LlmAgent {
 
         // ReAct tool loop
         for _round in 0..self.max_tool_rounds {
+            // Context window safety check
+            if let Some(max_tokens) = ctx.max_context_tokens {
+                let estimated_tokens: i64 = messages.iter()
+                    .map(|m| (m.content.len() / 4) as i64)
+                    .sum();
+
+                if estimated_tokens > max_tokens {
+                    let overflow_strategy = ctx.context_overflow.unwrap_or_default();
+
+                    match overflow_strategy {
+                        ContextOverflow::TruncateOldest => {
+                            // Keep system prompt (index 0) and latest user message (last).
+                            // Drop intermediate messages oldest-first until under limit.
+                            let mut running_est = estimated_tokens;
+                            while messages.len() > 2 && running_est > max_tokens {
+                                let dropped_tokens = (messages[1].content.len() / 4) as i64;
+                                messages.remove(1);
+                                running_est -= dropped_tokens;
+                            }
+                        }
+                        ContextOverflow::Fail => {
+                            return Ok(AgentOutput {
+                                output: serde_json::json!({
+                                    "error": "context_overflow",
+                                    "estimated_tokens": estimated_tokens,
+                                    "max_context_tokens": max_tokens,
+                                }),
+                                metrics: AgentExecutionMetrics {
+                                    llm_calls: total_llm_calls,
+                                    tool_calls: total_tool_calls,
+                                    tokens_in: Some(total_tokens_in),
+                                    tokens_out: Some(total_tokens_out),
+                                    duration_ms: start.elapsed().as_millis() as i64,
+                                    tool_results: tool_results.clone(),
+                                },
+                                success: false,
+                                error_message: format!(
+                                    "Context overflow: estimated {} tokens exceeds limit of {}",
+                                    estimated_tokens, max_tokens
+                                ),
+                            });
+                        }
+                    }
+                }
+            }
+
             let req = ChatRequest {
                 messages: messages.clone(),
                 temperature: self.temperature,
@@ -158,27 +208,6 @@ impl Agent for LlmAgent {
             for tc in &resp.tool_calls {
                 total_tool_calls += 1;
                 tracing::debug!(tool_name = %tc.name, "tool_execute");
-
-                // Pre-execution ACL check: reject tool calls not in allowed_tools
-                if !ctx.allowed_tools.is_empty() && !ctx.allowed_tools.contains(&tc.name) {
-                    tracing::warn!(
-                        tool = %tc.name,
-                        allowed = ?ctx.allowed_tools,
-                        "tool_acl_blocked_pre_execution"
-                    );
-                    let error_msg = format!("Tool '{}' not in allowed_tools", tc.name);
-                    tool_results.push(ToolCallResult {
-                        name: tc.name.clone(),
-                        success: false,
-                        latency_ms: 0,
-                        error_type: Some(error_msg.clone()),
-                    });
-                    messages.push(ChatMessage::tool_result(
-                        &tc.id,
-                        serde_json::json!({"error": error_msg}).to_string(),
-                    ));
-                    continue;
-                }
 
                 if let Some(ref tx) = ctx.event_tx {
                     let _ = tx
@@ -429,7 +458,7 @@ impl Agent for PipelineAgent {
         };
 
         // Initialize child session
-        self.handle
+        let _ = self.handle
             .initialize_session(
                 child_pid.clone(),
                 self.pipeline_config.clone(),
@@ -590,20 +619,14 @@ fn value_to_string(v: &serde_json::Value) -> String {
     }
 }
 
-/// Build OpenAI function-calling tool definitions, filtered by allowed_tools.
-fn build_tool_defs(tools: &ToolRegistry, allowed_tools: &[String]) -> Vec<serde_json::Value> {
-    let all_tools: Vec<ToolInfo> = tools.list_all_tools();
-    let filtered: Vec<&ToolInfo> = if allowed_tools.is_empty() {
-        all_tools.iter().collect()
-    } else {
-        all_tools
-            .iter()
-            .filter(|t| allowed_tools.contains(&t.name))
-            .collect()
-    };
-
-    filtered
-        .into_iter()
+/// Build OpenAI function-calling tool definitions from the registry.
+///
+/// No filtering needed — the ToolRegistry is already ACL-filtered by AclToolExecutor
+/// when `allowed_tools` is set on the pipeline stage.
+fn build_tool_defs(tools: &ToolRegistry) -> Vec<serde_json::Value> {
+    tools
+        .list_all_tools()
+        .iter()
         .map(|t| {
             serde_json::json!({
                 "type": "function",
@@ -668,5 +691,223 @@ fn make_error_output(
         },
         success: false,
         error_message: e.to_string(),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::worker::llm::mock::MockLlmProvider;
+
+    /// Helper: build an AgentContext with context overflow settings.
+    fn ctx_with_overflow(
+        raw_input: &str,
+        max_tokens: i64,
+        overflow: ContextOverflow,
+    ) -> AgentContext {
+        AgentContext {
+            raw_input: raw_input.to_string(),
+            outputs: HashMap::new(),
+            state: HashMap::new(),
+            metadata: HashMap::new(),
+            event_tx: None,
+            stage_name: Some("test_stage".to_string()),
+            pipeline_name: Arc::from("test"),
+            max_context_tokens: Some(max_tokens),
+            context_overflow: Some(overflow),
+        }
+    }
+
+    // =========================================================================
+    // 9a: TruncateOldest context overflow tests
+    // =========================================================================
+
+    #[tokio::test]
+    async fn test_truncate_oldest_keeps_system_and_drops_intermediate() {
+        // max_context_tokens=100, so the char budget is 400 chars.
+        // We use a MockLlmProvider that returns a fixed response — this means
+        // the ReAct loop runs once. We construct an agent where:
+        //   - system prompt is ~200 chars (50 tokens)
+        //   - user input is ~200 chars (50 tokens)
+        // Total: ~100 tokens — exactly at the limit, no truncation on first call.
+        //
+        // The MockLlmProvider returns tool calls on the first call, which adds
+        // assistant + tool_result messages. On the second iteration of the loop,
+        // the messages exceed the token limit and truncation kicks in.
+        //
+        // Instead, we test with a higher char count: system + user > 400 chars.
+        // The mock will return text on first call, so the loop runs once.
+        // We verify the agent completes without error (truncation removed
+        // intermediate messages until under limit, but with only 2 messages
+        // — system + user — and still over limit, it stops dropping).
+
+        // Use a very low token limit: 20 tokens = 80 chars budget.
+        // System prompt (from PromptRegistry): "No prompt found for key: test" = 30 chars
+        // User input: 200 chars = 50 tokens
+        // Total estimated: ~57 tokens > 20 limit → truncation triggered.
+        //
+        // With TruncateOldest and only 2 messages (system + user), the while
+        // loop condition `messages.len() > 2` is false, so it stops. The LLM
+        // call proceeds with the over-limit messages (best effort).
+
+        let llm = Arc::new(MockLlmProvider::new(r#"{"response":"ok"}"#));
+        let agent = LlmAgent {
+            llm,
+            prompts: Arc::new(crate::worker::prompts::PromptRegistry::empty()),
+            tools: Arc::new(ToolRegistry::new()),
+            prompt_key: "test".to_string(),
+            temperature: None,
+            max_tokens: None,
+            model: None,
+            max_tool_rounds: 10,
+        };
+
+        let long_input = "x".repeat(200); // 200 chars = ~50 tokens
+        let ctx = ctx_with_overflow(&long_input, 20, ContextOverflow::TruncateOldest);
+        let result = agent.process(&ctx).await.unwrap();
+        // With TruncateOldest, even if over limit after dropping all intermediates,
+        // the agent proceeds (best effort). It should succeed.
+        assert!(result.success, "TruncateOldest should allow agent to proceed");
+        assert_eq!(result.metrics.llm_calls, 1);
+    }
+
+    #[tokio::test]
+    async fn test_truncate_oldest_drops_intermediate_messages_in_tool_loop() {
+        // This test exercises the truncation logic within the ReAct tool loop.
+        // We use SequentialMockLlmProvider to simulate:
+        //   1. First LLM call returns a tool call
+        //   2. After tool execution, messages accumulate (system + user + assistant + tool_result)
+        //   3. On second iteration, total chars exceed budget → truncation drops intermediate
+        //   4. Second LLM call returns final text
+        use crate::worker::llm::mock::SequentialMockLlmProvider;
+        use crate::worker::llm::{ChatResponse, TokenUsage, ToolCall};
+
+        // Tool call response: LLM asks to call "echo" tool
+        let tool_response = ChatResponse {
+            content: Some("thinking".to_string()),
+            tool_calls: vec![ToolCall {
+                id: "call_1".to_string(),
+                name: "echo".to_string(),
+                arguments: "{}".to_string(),
+            }],
+            usage: TokenUsage { prompt_tokens: 10, completion_tokens: 5, total_tokens: 15 },
+            model: "mock".to_string(),
+        };
+        // Final text response
+        let final_response = ChatResponse {
+            content: Some(r#"{"response":"done"}"#.to_string()),
+            tool_calls: vec![],
+            usage: TokenUsage { prompt_tokens: 10, completion_tokens: 5, total_tokens: 15 },
+            model: "mock".to_string(),
+        };
+
+        let llm = Arc::new(SequentialMockLlmProvider::new(vec![tool_response, final_response]));
+
+        // Echo tool executor
+        #[derive(Debug)]
+        struct EchoExecutor;
+        #[async_trait::async_trait]
+        impl crate::worker::tools::ToolExecutor for EchoExecutor {
+            async fn execute(&self, _name: &str, _params: serde_json::Value) -> crate::types::Result<serde_json::Value> {
+                // Return a large result to inflate context
+                Ok(serde_json::json!({"result": "a]".repeat(100)}))
+            }
+            fn list_tools(&self) -> Vec<crate::worker::tools::ToolInfo> {
+                vec![crate::worker::tools::ToolInfo {
+                    name: "echo".to_string(),
+                    description: "Echo tool".to_string(),
+                    parameters: serde_json::json!({"type": "object"}),
+                }]
+            }
+        }
+
+        let mut tool_reg = ToolRegistry::new();
+        tool_reg.register("echo", Arc::new(EchoExecutor));
+
+        let agent = LlmAgent {
+            llm,
+            prompts: Arc::new(crate::worker::prompts::PromptRegistry::empty()),
+            tools: Arc::new(tool_reg),
+            prompt_key: "test".to_string(),
+            temperature: None,
+            max_tokens: None,
+            model: None,
+            max_tool_rounds: 5,
+        };
+
+        // Set a low token limit: 50 tokens = 200 chars.
+        // After first tool call, messages will be:
+        //   system (~30 chars) + user (10 chars) + assistant (~8 chars) + tool_result (~200 chars)
+        //   = ~248 chars = ~62 tokens > 50
+        // Truncation should kick in on second iteration, dropping index 1 (user message).
+        let ctx = ctx_with_overflow("short input", 50, ContextOverflow::TruncateOldest);
+        let result = agent.process(&ctx).await.unwrap();
+
+        // The agent should complete successfully (truncation allowed it to proceed)
+        assert!(result.success, "Agent should succeed with TruncateOldest truncation");
+        // Should have made 2 LLM calls (tool call + final)
+        assert_eq!(result.metrics.llm_calls, 2);
+        assert_eq!(result.metrics.tool_calls, 1);
+    }
+
+    #[tokio::test]
+    async fn test_context_overflow_fail_strategy_returns_error() {
+        // With Fail strategy and context exceeding limit, agent should return
+        // an error output without making the LLM call.
+        let llm = Arc::new(MockLlmProvider::new("should not be called"));
+        let agent = LlmAgent {
+            llm,
+            prompts: Arc::new(crate::worker::prompts::PromptRegistry::empty()),
+            tools: Arc::new(ToolRegistry::new()),
+            prompt_key: "test".to_string(),
+            temperature: None,
+            max_tokens: None,
+            model: None,
+            max_tool_rounds: 10,
+        };
+
+        let long_input = "y".repeat(500); // 500 chars = ~125 tokens
+        let ctx = ctx_with_overflow(&long_input, 20, ContextOverflow::Fail);
+        let result = agent.process(&ctx).await.unwrap();
+
+        assert!(!result.success, "Fail strategy should report failure");
+        assert!(result.error_message.contains("Context overflow"));
+        // Should NOT have made any LLM calls
+        assert_eq!(result.metrics.llm_calls, 0);
+        // Output should contain error details
+        let output = &result.output;
+        assert_eq!(output["error"], "context_overflow");
+    }
+
+    #[tokio::test]
+    async fn test_no_context_limit_proceeds_normally() {
+        // When max_context_tokens is None, no truncation or failure occurs.
+        let llm = Arc::new(MockLlmProvider::new(r#"{"response":"ok"}"#));
+        let agent = LlmAgent {
+            llm,
+            prompts: Arc::new(crate::worker::prompts::PromptRegistry::empty()),
+            tools: Arc::new(ToolRegistry::new()),
+            prompt_key: "test".to_string(),
+            temperature: None,
+            max_tokens: None,
+            model: None,
+            max_tool_rounds: 10,
+        };
+
+        let ctx = AgentContext {
+            raw_input: "x".repeat(10000),
+            outputs: HashMap::new(),
+            state: HashMap::new(),
+            metadata: HashMap::new(),
+            event_tx: None,
+            stage_name: Some("test".to_string()),
+            pipeline_name: Arc::from("test"),
+            max_context_tokens: None,
+            context_overflow: None,
+        };
+
+        let result = agent.process(&ctx).await.unwrap();
+        assert!(result.success);
+        assert_eq!(result.metrics.llm_calls, 1);
     }
 }

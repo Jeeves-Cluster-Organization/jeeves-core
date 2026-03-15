@@ -239,6 +239,22 @@ impl LifecycleManager {
             .ok_or_else(|| Error::not_found(format!("unknown pid: {}", pid)))
     }
 
+    /// Restore a process from a checkpoint PCB.
+    ///
+    /// Inserts the PCB directly, bypassing normal state transitions.
+    /// Used by checkpoint/resume to reconstitute process state.
+    pub fn restore_process(&mut self, pcb: ProcessControlBlock) -> Result<()> {
+        let pid = pcb.pid.clone();
+        if self.processes.contains_key(&pid) {
+            return Err(Error::validation(format!(
+                "Cannot restore process {}: already exists",
+                pid
+            )));
+        }
+        self.processes.insert(pid, pcb);
+        Ok(())
+    }
+
     /// Get process by PID.
     pub fn get(&self, pid: &ProcessId) -> Option<&ProcessControlBlock> {
         self.processes.get(pid)
