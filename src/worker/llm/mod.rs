@@ -247,15 +247,3 @@ fn merge_tool_call_deltas(accumulated: &mut Vec<ToolCall>, deltas: &[ToolCall]) 
     }
 }
 
-/// Resolve a model role (e.g. "fast", "reasoning") to a concrete model name.
-pub fn resolve_model(
-    model_role: Option<&str>,
-    default_model: &str,
-) -> String {
-    match model_role {
-        Some("fast") => "gpt-4o-mini".to_string(),
-        Some("reasoning") => "o3-mini".to_string(),
-        Some(explicit) => explicit.to_string(),
-        None => default_model.to_string(),
-    }
-}
