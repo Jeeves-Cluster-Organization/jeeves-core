@@ -279,7 +279,7 @@ pub fn resolve_field(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::kernel::orchestrator_types::{JoinStrategy, PipelineStage};
+    use crate::kernel::orchestrator_types::{ContextOverflow, JoinStrategy, PipelineStage};
     use serde_json::Value;
 
     // ── Test helpers ─────────────────────────────────────────────────────
@@ -638,7 +638,7 @@ mod tests {
             node_kind: crate::kernel::orchestrator_types::NodeKind::default(),
             output_key: None,
             max_context_tokens: None,
-            context_overflow: crate::kernel::orchestrator_types::ContextOverflow::default(),
+            context_overflow: ContextOverflow::default(),
             agent_config: crate::kernel::orchestrator_types::AgentConfig::default(),
         };
         let (outputs, metadata) = empty_ctx();
