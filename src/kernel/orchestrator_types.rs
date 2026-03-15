@@ -155,6 +155,7 @@ pub struct PipelineConfig {
     pub max_iterations: i32,
     pub max_llm_calls: i32,
     pub max_agent_hops: i32,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub edge_limits: Vec<EdgeLimit>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub step_limit: Option<i32>,
