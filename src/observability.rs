@@ -45,6 +45,30 @@ fn init_tracing_with(default_level: &str, json_from_config: bool) {
     });
 }
 
+/// OpenTelemetry tracing layer for production observability.
+///
+/// Bridges all existing `#[instrument]` and `tracing::info!` calls to
+/// OpenTelemetry spans, exportable to Jaeger, Datadog, Grafana Tempo, etc.
+///
+/// # Usage
+/// ```ignore
+/// use tracing_subscriber::prelude::*;
+///
+/// tracing_subscriber::registry()
+///     .with(tracing_subscriber::fmt::layer())
+///     .with(jeeves_core::observability::otel_tracing_layer())
+///     .init();
+/// ```
+#[cfg(feature = "otel")]
+pub fn otel_tracing_layer<S>() -> tracing_opentelemetry::OpenTelemetryLayer<S, opentelemetry_sdk::trace::Tracer>
+where
+    S: tracing::Subscriber + for<'span> tracing_subscriber::registry::LookupSpan<'span>,
+{
+    let provider = opentelemetry_sdk::trace::SdkTracerProvider::builder().build();
+    let tracer = opentelemetry::trace::TracerProvider::tracer(&provider, "jeeves-core");
+    tracing_opentelemetry::layer().with_tracer(tracer)
+}
+
 #[cfg(test)]
 mod tests {
     use super::init_tracing;

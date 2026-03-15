@@ -558,6 +558,8 @@ mod tests {
             (TerminalReason::ToolFailedFatally, "\"TOOL_FAILED_FATALLY\""),
             (TerminalReason::LlmFailedFatally, "\"LLM_FAILED_FATALLY\""),
             (TerminalReason::PolicyViolation, "\"POLICY_VIOLATION\""),
+            (TerminalReason::BreakRequested, "\"BREAK_REQUESTED\""),
+            (TerminalReason::EdgeLimitExceeded, "\"EDGE_LIMIT_EXCEEDED\""),
         ];
 
         for (variant, expected_json) in cases {

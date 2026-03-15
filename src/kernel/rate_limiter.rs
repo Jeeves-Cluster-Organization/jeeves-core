@@ -3,12 +3,13 @@
 //! Simple sliding window rate limiter for API calls.
 
 use chrono::{DateTime, Duration, Utc};
+use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, VecDeque};
 
 use crate::types::{Error, Result};
 
 /// Rate limit window configuration.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct RateLimitConfig {
     pub requests_per_minute: u32,
     pub requests_per_hour: u32,
@@ -26,7 +27,7 @@ impl Default for RateLimitConfig {
 }
 
 /// Sliding window for tracking requests.
-#[derive(Debug)]
+#[derive(Debug, Serialize, Deserialize)]
 struct SlidingWindow {
     hour_timestamps: VecDeque<DateTime<Utc>>,
     minute_timestamps: VecDeque<DateTime<Utc>>,
@@ -112,7 +113,7 @@ impl SlidingWindow {
 /// Rate limiter - enforces request rate limits per user.
 ///
 /// NOT a separate actor - owned by Kernel and called via &mut self.
-#[derive(Debug)]
+#[derive(Debug, Serialize, Deserialize)]
 pub struct RateLimiter {
     default_config: RateLimitConfig,
     user_windows: HashMap<String, SlidingWindow>,

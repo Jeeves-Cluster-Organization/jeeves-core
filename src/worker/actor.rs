@@ -244,5 +244,19 @@ async fn dispatch(kernel: &mut Kernel, cmd: KernelCommand) {
                 .collect();
             let _ = resp_tx.send(cards);
         }
+
+        // =====================================================================
+        // Checkpoint/Resume
+        // =====================================================================
+
+        KernelCommand::Checkpoint { process_id, resp_tx } => {
+            let result = kernel.checkpoint(&process_id);
+            let _ = resp_tx.send(result);
+        }
+
+        KernelCommand::ResumeFromCheckpoint { snapshot, pipeline_config, resp_tx } => {
+            let result = kernel.resume_from_checkpoint(*snapshot, *pipeline_config);
+            let _ = resp_tx.send(result);
+        }
     }
 }

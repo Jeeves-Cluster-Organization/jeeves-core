@@ -4,9 +4,19 @@ use crate::envelope::Envelope;
 use crate::types::{Error, ProcessId, Result};
 
 use super::orchestrator::Orchestrator;
-use super::orchestrator_types::{SessionState, StateField};
+use super::orchestrator_types::{PipelineStage, SessionState, StateField};
 
 impl Orchestrator {
+    /// Get a reference to a pipeline session by process ID.
+    pub fn get_session(&self, process_id: &ProcessId) -> Option<&super::orchestrator::PipelineSession> {
+        self.pipelines.get(process_id)
+    }
+
+    /// Get a mutable reference to a pipeline session by process ID.
+    pub fn get_session_mut(&mut self, process_id: &ProcessId) -> Option<&mut super::orchestrator::PipelineSession> {
+        self.pipelines.get_mut(process_id)
+    }
+
     /// Get session state for external queries.
     ///
     /// Envelope is passed in by the Kernel (which owns it).
@@ -57,6 +67,15 @@ impl Orchestrator {
                 session.pipeline_config.stages.iter()
                     .find(|s| s.name == stage_name)
                     .map(|s| s.output_key.clone().unwrap_or_else(|| s.name.clone()))
+            })
+    }
+
+    /// Get the full stage config for a stage by name.
+    pub fn get_stage_config(&self, process_id: &ProcessId, stage_name: &str) -> Option<&PipelineStage> {
+        self.pipelines.get(process_id)
+            .and_then(|session| {
+                session.pipeline_config.stages.iter()
+                    .find(|s| s.name == stage_name)
             })
     }
 

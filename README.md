@@ -6,7 +6,7 @@ Rust micro-kernel for AI agent orchestration. Consumable as a Rust library, PyO3
 
 ```bash
 # Build and test
-cargo test                              # 315 tests (lib + integration)
+cargo test                              # 348 tests (lib + integration)
 cargo clippy --all-features             # lint
 
 # PyO3 Python module
@@ -33,11 +33,13 @@ jeeves-core/
 │   │   ├── interrupts.rs     # Human-in-the-loop
 │   │   ├── rate_limiter.rs   # Per-user sliding window
 │   │   ├── cleanup.rs        # Background GC
-│   │   └── services.rs       # Service registry
+│   │   ├── services.rs       # Service registry
+│   │   └── checkpoint.rs    # Checkpoint/resume durability
 │   ├── worker/               # Agent execution
 │   │   ├── actor.rs          # Kernel actor (mpsc channel, typed dispatch)
 │   │   ├── handle.rs         # KernelHandle (typed channel wrapper, Clone)
 │   │   ├── agent.rs          # Agent trait, LlmAgent, DeterministicAgent, PipelineAgent
+│   │   ├── agent_factory.rs  # AgentFactoryBuilder (agent auto-creation)
 │   │   ├── llm/              # LlmProvider trait, OpenAI HTTP client, streaming
 │   │   ├── mcp.rs            # MCP tool executor (HTTP + stdio transports)
 │   │   ├── mcp_server.rs     # MCP stdio server (behind mcp-stdio feature)
@@ -51,6 +53,7 @@ jeeves-core/
 │   ├── commbus/              # Message bus (events, commands, queries)
 │   ├── types/                # IDs, errors, config
 │   └── main.rs               # MCP stdio binary (behind mcp-stdio feature)
+├── schema/                   # Generated JSON Schema for pipeline.json
 └── tests/                    # Integration tests
 ```
 
@@ -78,10 +81,12 @@ for event in runner.stream("hello", user_id="user1"):   # Streaming
 ### Rust crate
 
 ```rust
-use jeeves_core::kernel::Kernel;
-use jeeves_core::worker::agent::{Agent, AgentContext, AgentOutput};
-use jeeves_core::worker::handle::KernelHandle;
-use jeeves_core::worker::actor::spawn_kernel;
+use jeeves_core::prelude::*;
+use jeeves_core::worker::llm::openai::OpenAiProvider;
+
+let tools = ToolRegistryBuilder::new().add_executor(my_tools).build();
+let agents = AgentFactoryBuilder::new(llm, prompts, tools, handle)
+    .add_pipeline(config).build();
 ```
 
 ### MCP stdio server
@@ -104,8 +109,19 @@ JEEVES_MCP_SERVERS='[{"name":"api","transport":"http","url":"http://localhost:30
 | `mcp-stdio` | clap | MCP stdio server binary (`jeeves-kernel`) |
 | `py-bindings` | pyo3, inventory | Python importable module (`from jeeves_core import ...`) |
 | `test-harness` | — | Test utilities for integration tests |
+| `otel` | opentelemetry, tracing-opentelemetry | OpenTelemetry observability bridge |
 
 Default: none. `cargo test` uses rlib only. `pip install -e .` activates `py-bindings`.
+
+## JSON Schema Validation
+
+Pipeline configs can be validated in editors via generated JSON Schema:
+
+```bash
+cargo run --features mcp-stdio -- --emit-schema > schema/pipeline.schema.json
+```
+
+Add `"$schema": "./schema/pipeline.schema.json"` to pipeline.json for VS Code auto-validation.
 
 ## Architecture
 

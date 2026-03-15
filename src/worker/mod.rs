@@ -4,6 +4,7 @@
 
 pub mod actor;
 pub mod agent;
+pub mod agent_factory;
 pub mod handle;
 pub mod llm;
 pub mod mcp;
@@ -24,6 +25,7 @@ use llm::PipelineEvent;
 use tokio::sync::mpsc;
 
 /// Result of running a pipeline to completion.
+#[must_use]
 #[derive(Debug)]
 pub struct WorkerResult {
     pub process_id: ProcessId,
@@ -83,7 +85,7 @@ pub async fn run_pipeline_streaming(
     mpsc::Receiver<PipelineEvent>,
 )> {
     let pipeline_name = pipeline_config.name.clone();
-    handle
+    let _ = handle
         .initialize_session(process_id.clone(), pipeline_config, envelope, false)
         .await?;
     let (tx, rx) = mpsc::channel(64);
@@ -294,10 +296,11 @@ fn build_agent_context(
             .and_then(|c| c.get("metadata"))
             .and_then(|v| serde_json::from_value(v.clone()).ok())
             .unwrap_or_default(),
-        allowed_tools: context.allowed_tools.clone().unwrap_or_default(),
         event_tx,
         stage_name,
         pipeline_name,
+        max_context_tokens: context.max_context_tokens,
+        context_overflow: context.context_overflow,
     }
 }
 

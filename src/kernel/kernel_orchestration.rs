@@ -9,6 +9,7 @@ use crate::types::{Error, ProcessId, RequestId, Result, SessionId, UserId};
 
 use super::merge_state_field;
 use super::orchestrator;
+use super::orchestrator_types::ContextOverflow;
 use super::{Kernel, ProcessState, RemainingBudget, ResourceQuota, SchedulingPriority, SystemStatus};
 
 impl Kernel {
@@ -87,37 +88,13 @@ impl Kernel {
         // Phase 2: Enrich instruction with context for the worker
         match &mut instruction {
             orchestrator::Instruction::RunAgent { agent, context }=> {
-                if let Some(envelope) = self.process_envelopes.get(process_id) {
-                    let mut template_vars = serde_json::Map::new();
-                    for (agent_name, output) in &envelope.outputs {
-                        for (key, value) in output {
-                            template_vars.insert(format!("{}_{}", agent_name, key), value.clone());
-                        }
-                    }
-                    for (key, value) in &envelope.audit.metadata {
-                        template_vars.insert(key.clone(), value.clone());
-                    }
-
-                    context.agent_context = Some(serde_json::json!({
-                        "envelope_id": envelope.identity.envelope_id.as_str(),
-                        "request_id": envelope.identity.request_id.as_str(),
-                        "user_id": envelope.identity.user_id.as_str(),
-                        "session_id": envelope.identity.session_id.as_str(),
-                        "raw_input": &envelope.raw_input,
-                        "outputs": &envelope.outputs,
-                        "state": &envelope.state,
-                        "metadata": &envelope.audit.metadata,
-                        "template_vars": serde_json::Value::Object(template_vars),
-                        "llm_call_count": envelope.bounds.llm_call_count,
-                        "agent_hop_count": envelope.bounds.agent_hop_count,
-                        "tokens_in": envelope.bounds.tokens_in,
-                        "tokens_out": envelope.bounds.tokens_out,
-                        "circuit_broken_tools": self.tools.health.get_circuit_broken_tools(),
-                        "pending_events": &envelope.event_inbox,
-                    }));
+                let enrichment = self.build_enrichment_context(process_id);
+                if let Some((agent_context, max_ctx, overflow)) = enrichment {
+                    context.agent_context = Some(agent_context);
+                    context.max_context_tokens = max_ctx;
+                    context.context_overflow = overflow;
                 }
 
-                // Look up stage-level config
                 let stage_name = self.process_envelopes.get(process_id)
                     .map(|e| e.pipeline.current_stage.clone())
                     .unwrap_or_default();
@@ -129,37 +106,13 @@ impl Kernel {
                 }
             }
             orchestrator::Instruction::RunAgents { agents, context } => {
-                if let Some(envelope) = self.process_envelopes.get(process_id) {
-                    let mut template_vars = serde_json::Map::new();
-                    for (agent_name, output) in &envelope.outputs {
-                        for (key, value) in output {
-                            template_vars.insert(format!("{}_{}", agent_name, key), value.clone());
-                        }
-                    }
-                    for (key, value) in &envelope.audit.metadata {
-                        template_vars.insert(key.clone(), value.clone());
-                    }
-
-                    context.agent_context = Some(serde_json::json!({
-                        "envelope_id": envelope.identity.envelope_id.as_str(),
-                        "request_id": envelope.identity.request_id.as_str(),
-                        "user_id": envelope.identity.user_id.as_str(),
-                        "session_id": envelope.identity.session_id.as_str(),
-                        "raw_input": &envelope.raw_input,
-                        "outputs": &envelope.outputs,
-                        "state": &envelope.state,
-                        "metadata": &envelope.audit.metadata,
-                        "template_vars": serde_json::Value::Object(template_vars),
-                        "llm_call_count": envelope.bounds.llm_call_count,
-                        "agent_hop_count": envelope.bounds.agent_hop_count,
-                        "tokens_in": envelope.bounds.tokens_in,
-                        "tokens_out": envelope.bounds.tokens_out,
-                        "circuit_broken_tools": self.tools.health.get_circuit_broken_tools(),
-                        "pending_events": &envelope.event_inbox,
-                    }));
+                let enrichment = self.build_enrichment_context(process_id);
+                if let Some((agent_context, max_ctx, overflow)) = enrichment {
+                    context.agent_context = Some(agent_context);
+                    context.max_context_tokens = max_ctx;
+                    context.context_overflow = overflow;
                 }
 
-                // Look up stage-level config from first agent
                 if let Some(agent_name) = agents.first() {
                     let stage_name = self.process_envelopes.get(process_id)
                         .map(|e| e.pipeline.current_stage.clone())
@@ -253,6 +206,7 @@ impl Kernel {
             envelope.outputs.insert(agent_name.to_string(), agent_output);
 
             // State merge: write to state[output_key] per state_schema
+            let mut state_matched = false;
             for field in &state_schema {
                 if field.key == output_key {
                     let output_value = serde_json::Value::Object(
@@ -261,8 +215,12 @@ impl Kernel {
                             .unwrap_or_default()
                     );
                     merge_state_field(&mut envelope.state, &field.key, output_value, field.merge);
+                    state_matched = true;
                     break;
                 }
+            }
+            if !state_schema.is_empty() && !state_matched {
+                tracing::debug!(output_key = %output_key, "output_key has no matching state_schema entry");
             }
 
             // Merge metadata updates from agent hooks
@@ -339,6 +297,64 @@ impl Kernel {
         let envelope = self.process_envelopes.get(process_id)
             .ok_or_else(|| Error::not_found(format!("Envelope not found for process: {}", process_id)))?;
         self.orchestrator.get_session_state(process_id, envelope)
+    }
+
+    // =============================================================================
+    // Enrichment (private helpers)
+    // =============================================================================
+
+    /// Build the enrichment context for agent dispatch instructions.
+    ///
+    /// Reads the envelope, builds template_vars, constructs the agent_context JSON,
+    /// reads stage config for max_context_tokens/context_overflow, and returns all three.
+    fn build_enrichment_context(
+        &self,
+        process_id: &ProcessId,
+    ) -> Option<(serde_json::Value, Option<i64>, Option<ContextOverflow>)> {
+        let envelope = self.process_envelopes.get(process_id)?;
+
+        let mut template_vars = serde_json::Map::new();
+        for (agent_name, output) in &envelope.outputs {
+            for (key, value) in output {
+                template_vars.insert(format!("{}_{}", agent_name, key), value.clone());
+            }
+        }
+        for (key, value) in &envelope.audit.metadata {
+            template_vars.insert(key.clone(), value.clone());
+        }
+
+        let agent_context = serde_json::json!({
+            "envelope_id": envelope.identity.envelope_id.as_str(),
+            "request_id": envelope.identity.request_id.as_str(),
+            "user_id": envelope.identity.user_id.as_str(),
+            "session_id": envelope.identity.session_id.as_str(),
+            "raw_input": &envelope.raw_input,
+            "outputs": &envelope.outputs,
+            "state": &envelope.state,
+            "metadata": &envelope.audit.metadata,
+            "template_vars": serde_json::Value::Object(template_vars),
+            "llm_call_count": envelope.bounds.llm_call_count,
+            "agent_hop_count": envelope.bounds.agent_hop_count,
+            "tokens_in": envelope.bounds.tokens_in,
+            "tokens_out": envelope.bounds.tokens_out,
+            "circuit_broken_tools": self.tools.health.get_circuit_broken_tools(),
+            "pending_events": &envelope.event_inbox,
+        });
+
+        let stage_name = envelope.pipeline.current_stage.clone();
+        let (max_context_tokens, context_overflow) = self.orchestrator
+            .get_stage_config(process_id, &stage_name)
+            .map(|sc| {
+                let overflow = if sc.max_context_tokens.is_some() {
+                    Some(sc.context_overflow)
+                } else {
+                    None
+                };
+                (sc.max_context_tokens, overflow)
+            })
+            .unwrap_or((None, None));
+
+        Some((agent_context, max_context_tokens, context_overflow))
     }
 
     // =============================================================================
@@ -556,6 +572,7 @@ mod tests {
     use crate::kernel::orchestrator::{
         Instruction, NodeKind, PipelineConfig, PipelineStage, JoinStrategy,
     };
+    use crate::kernel::orchestrator_types::ContextOverflow;
     use crate::kernel::{Kernel, SchedulingPriority};
     use crate::types::{ProcessId, RequestId, UserId, SessionId};
 
@@ -569,6 +586,8 @@ mod tests {
             max_visits: None,
             node_kind: NodeKind::Agent,
             output_key: None,
+            max_context_tokens: None,
+            context_overflow: ContextOverflow::default(),
             join_strategy: JoinStrategy::WaitAll,
             allowed_tools: None,
             output_schema: None,

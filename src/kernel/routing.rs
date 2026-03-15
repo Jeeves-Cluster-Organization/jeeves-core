@@ -3,6 +3,7 @@
 //! Pure functions that evaluate routing expression trees against agent outputs
 //! and metadata. Borrow-checker friendly — no mutable state required.
 
+use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
@@ -11,7 +12,7 @@ use std::collections::HashMap;
 // =============================================================================
 
 /// Routing rule: expression tree + target stage.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
 pub struct RoutingRule {
     pub expr: RoutingExpr,
     pub target: String,
@@ -24,7 +25,7 @@ pub const MAX_ROUTING_EXPR_DEPTH: usize = 16;
 ///
 /// Serde: internally tagged with "op" field.
 /// JSON example: `{"op": "Eq", "field": {"scope": "Current", "key": "intent"}, "value": "greet"}`
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
 #[serde(tag = "op")]
 pub enum RoutingExpr {
     /// Equality: field == value
@@ -59,7 +60,7 @@ pub enum RoutingExpr {
 ///
 /// Serde: internally tagged with "scope" field.
 /// JSON example: `{"scope": "Agent", "agent": "understand", "key": "topic"}`
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
 #[serde(tag = "scope")]
 pub enum FieldRef {
     /// output[current_agent][key]
@@ -636,6 +637,8 @@ mod tests {
             allowed_tools: None,
             node_kind: crate::kernel::orchestrator_types::NodeKind::default(),
             output_key: None,
+            max_context_tokens: None,
+            context_overflow: crate::kernel::orchestrator_types::ContextOverflow::default(),
             agent_config: crate::kernel::orchestrator_types::AgentConfig::default(),
         };
         let (outputs, metadata) = empty_ctx();

@@ -199,7 +199,7 @@ pub struct CreateInterruptParams {
 /// InterruptService manages interrupt lifecycle.
 ///
 /// Single-actor implementation for creating, querying, and resolving interrupts.
-#[derive(Debug)]
+#[derive(Debug, Serialize, Deserialize)]
 pub struct InterruptService {
     /// Configuration per interrupt kind
     configs: HashMap<InterruptKind, InterruptConfig>,
