@@ -9,7 +9,7 @@ use std::sync::Arc;
 use std::time::Instant;
 use tokio::sync::mpsc;
 
-use tracing::instrument;
+use tracing::{instrument, Instrument};
 
 use crate::kernel::orchestrator_types::{AgentExecutionMetrics, ContextOverflow, PipelineConfig, ToolCallResult};
 use crate::worker::llm::{
@@ -293,6 +293,7 @@ pub struct McpDelegatingAgent {
 
 #[async_trait]
 impl Agent for McpDelegatingAgent {
+    #[instrument(skip(self, ctx), fields(tool = %self.tool_name))]
     async fn process(&self, ctx: &AgentContext) -> crate::types::Result<AgentOutput> {
         let call_id = format!("mcp_{}", self.tool_name);
 
@@ -402,6 +403,7 @@ pub struct PipelineAgent {
 
 #[async_trait]
 impl Agent for PipelineAgent {
+    #[instrument(skip(self, ctx), fields(pipeline = %self.pipeline_name))]
     async fn process(&self, ctx: &AgentContext) -> crate::types::Result<AgentOutput> {
         let start = Instant::now();
 
@@ -440,6 +442,7 @@ impl Agent for PipelineAgent {
             (ctx.event_tx.clone(), child_event_rx)
         {
             let child_pipeline: Arc<str> = Arc::from(child_pipeline_name.as_str());
+            let child_pipeline_for_span = child_pipeline.clone();
             Some(tokio::spawn(async move {
                 while let Some(event) = child_rx.recv().await {
                     // Filter out child Done events — parent emits its own
@@ -452,7 +455,7 @@ impl Agent for PipelineAgent {
                         break; // Parent channel closed
                     }
                 }
-            }))
+            }.instrument(tracing::debug_span!("event_bridge", pipeline = %child_pipeline_for_span))))
         } else {
             None
         };

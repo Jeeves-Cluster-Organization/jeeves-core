@@ -4,6 +4,7 @@ use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::sync::Arc;
+use tracing::instrument;
 
 /// Metadata about a tool.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -45,6 +46,7 @@ impl ToolRegistry {
     }
 
     /// Execute a tool by name.
+    #[instrument(skip(self, params), fields(tool = %name))]
     pub async fn execute(
         &self,
         name: &str,

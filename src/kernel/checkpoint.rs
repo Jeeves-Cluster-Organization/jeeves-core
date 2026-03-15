@@ -7,6 +7,7 @@
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
+use tracing::instrument;
 
 use crate::envelope::Envelope;
 use crate::kernel::orchestrator_types::{EdgeKey, ParallelGroupState, PipelineConfig, SessionState};
@@ -55,6 +56,7 @@ impl CheckpointSnapshot {
 
 impl Kernel {
     /// Capture a checkpoint of a running process at the current instruction boundary.
+    #[instrument(skip(self), fields(process_id = %process_id))]
     pub fn checkpoint(&self, process_id: &ProcessId) -> Result<CheckpointSnapshot> {
         let envelope = self.process_envelopes.get(process_id)
             .ok_or_else(|| Error::not_found(format!("Envelope not found: {}", process_id)))?;
@@ -92,6 +94,7 @@ impl Kernel {
     ///
     /// Creates a new process with restored state. The pipeline_config must match
     /// the one used when the checkpoint was taken.
+    #[instrument(skip(self, snapshot, pipeline_config))]
     pub fn resume_from_checkpoint(
         &mut self,
         snapshot: CheckpointSnapshot,
