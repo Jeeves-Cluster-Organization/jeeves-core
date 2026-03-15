@@ -30,10 +30,12 @@ async fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
                 let transport = match mcp_cfg.transport.as_str() {
                     "http" => jeeves_core::worker::mcp::McpTransport::Http {
                         url: mcp_cfg.url.clone().unwrap_or_default(),
+                        headers: mcp_cfg.headers.clone(),
                     },
                     "stdio" => jeeves_core::worker::mcp::McpTransport::Stdio {
                         command: mcp_cfg.command.clone().unwrap_or_default(),
                         args: mcp_cfg.args.clone().unwrap_or_default(),
+                        env: mcp_cfg.env.clone(),
                     },
                     other => {
                         tracing::warn!(transport = other, name = %mcp_cfg.name, "Unknown MCP transport, skipping");

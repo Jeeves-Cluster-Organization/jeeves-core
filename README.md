@@ -6,7 +6,7 @@ Rust micro-kernel for AI agent orchestration. Consumable as a Rust library, PyO3
 
 ```bash
 # Build and test
-cargo test                              # 302 tests (lib + integration)
+cargo test                              # 315 tests (lib + integration)
 cargo clippy --all-features             # lint
 
 # PyO3 Python module
@@ -89,7 +89,11 @@ use jeeves_core::worker::actor::spawn_kernel;
 Binary that proxies upstream MCP servers as tools via JSON-RPC on stdin/stdout.
 
 ```bash
-JEEVES_MCP_SERVERS='[{"name":"fs","transport":"stdio","command":"npx","args":["-y","@anthropic-ai/mcp-filesystem"]}]' \
+JEEVES_MCP_SERVERS='[{"name":"fs","transport":"stdio","command":"npx","args":["-y","@anthropic-ai/mcp-filesystem"],"env":{"FS_ROOT":"/data"}}]' \
+  cargo run --features mcp-stdio
+
+# HTTP with auth headers
+JEEVES_MCP_SERVERS='[{"name":"api","transport":"http","url":"http://localhost:3000","headers":{"Authorization":"Bearer sk-test"}}]' \
   cargo run --features mcp-stdio
 ```
 

@@ -36,8 +36,8 @@ Run with upstream MCP servers:
 
 ```bash
 JEEVES_MCP_SERVERS='[
-  {"name": "fs", "transport": "stdio", "command": "npx", "args": ["-y", "@anthropic-ai/mcp-filesystem"]},
-  {"name": "api", "transport": "http", "url": "http://localhost:8081/mcp"}
+  {"name": "fs", "transport": "stdio", "command": "npx", "args": ["-y", "@anthropic-ai/mcp-filesystem"], "env": {"FS_ROOT": "/data"}},
+  {"name": "api", "transport": "http", "url": "http://localhost:8081/mcp", "headers": {"Authorization": "Bearer sk-test"}}
 ]' ./target/release/jeeves-kernel
 ```
 
@@ -91,6 +91,18 @@ The server reads JSON-RPC from stdin and writes to stdout. Tracing goes to stder
 | Env Var | Description |
 |---------|-------------|
 | `JEEVES_MCP_SERVERS` | JSON array of upstream MCP server configs |
+
+**MCP server config fields:**
+
+| Field | Transport | Description |
+|-------|-----------|-------------|
+| `name` | both | Server identifier |
+| `transport` | both | `"http"` or `"stdio"` |
+| `url` | http | Server URL |
+| `headers` | http | HTTP headers (e.g., `{"Authorization": "Bearer ..."}`) |
+| `command` | stdio | Child process command |
+| `args` | stdio | Command arguments |
+| `env` | stdio | Environment variables for child process |
 
 ## Build from Source
 

@@ -1,7 +1,7 @@
 //! Pipeline test harness for integration testing.
 //!
 //! Provides a simple API to run pipelines with mock agents
-//! without wiring up the full HTTP gateway.
+//! without wiring up the full kernel actor.
 //!
 //! ```ignore
 //! let result = PipelineTestHarness::new(config)
