@@ -1,6 +1,6 @@
 # Jeeves-Core v0.0.2 — Architectural Audit
 
-**Date**: 2026-03-15 (Iteration 26)
+**Date**: 2026-03-15 (Iteration 27 — weakness audit correction)
 **Codebase**: ~17,890 lines Rust, `#[deny(unsafe_code)]` except PyO3 FFI. 290 Rust tests + 27 pytest. Single-process kernel consumed via PyO3 or MCP stdio.
 
 ---
@@ -16,7 +16,7 @@ MCP:    jeeves-kernel (JSON-RPC 2.0 over stdin/stdout)
 
 Core loop: `KernelHandle` → mpsc → single `&mut Kernel` actor → typed `Instruction` enum → worker spawns tokio agent tasks → results reported back.
 
-**Score: 4.9/5** — all critical gaps closed. Remaining: no persistent memory, no HTTP gateway, in-process-only CommBus.
+**Score: 4.9/5** — all critical gaps closed. One real bug: MCP stdio child processes orphan on drop (missing `impl Drop`). Two partial gaps: CommBus queries not exposed via MCP for cross-network federation; MCP HTTP transport missing `headers` config field.
 
 ---
 
@@ -223,17 +223,29 @@ Auto-agent creation from stage config: Gate→Deterministic, `child_pipeline`→
 
 ## 5. Weaknesses
 
+### Real bug
+
+| # | Area | Detail |
+|---|------|--------|
+| W1 | MCP stdio child orphan | `McpToolExecutor` stdio transport holds `_child: Child` but has no `impl Drop`. Comment says "start_kill() on drop" but the impl doesn't exist. Child processes orphan when executor is dropped. Fix: `impl Drop for StdioClient { fn drop(&mut self) { let _ = self.child.start_kill(); } }`. No reconnection on crash either. |
+
+### Partial gaps
+
 | # | Area | Score | Detail |
 |---|------|-------|--------|
-| W1 | Community | 1.0 | Zero adoption, no tutorials |
-| W2 | Multi-language | 3.5 | PyO3 + MCP. No TS/Go SDK |
-| W3 | Managed experience | 2.0 | Self-hosted only |
-| W4 | Persistence | 2.0 | No persistent memory, no checkpoint/replay |
-| W5 | A2A protocol | 3.5 | PipelineAgent + CommBus but in-process only. No cross-network federation |
-| W6 | HTTP gateway | 0 | Deliberately deleted. Teams needing REST must wrap PyO3 |
-| W7 | Auth | 2.5 | MCP stdio has no request-level auth. Relies on process isolation |
-| W8 | MCP lifecycle | 3.0 | No `kill_on_drop` on stdio child, no reconnection |
-| W9 | GIL contention | 3.5 | `Python::with_gil()` per tool call. High-concurrency Python tools may bottleneck |
+| W2 | Cross-network federation | 2.5 | CommBus primitives (pub/sub, commands, queries) exist in-process. MCP is already the network boundary. Missing: expose CommBus queries as MCP tools for cross-process federation. Straightforward extension. |
+| W3 | MCP HTTP auth | 2.5 | Stdio transport: process isolation is correct auth. HTTP transport: `McpServerConfig` missing `headers: Option<HashMap<String, String>>` and `env: Option<HashMap<String, String>>` for bearer tokens / API keys. |
+
+### Not weaknesses (removed from previous audit)
+
+| Previously listed | Why removed |
+|-------------------|-------------|
+| Community (1.0) | Marketing, not code. 4 deployed consumers. |
+| Multi-language (3.5) | MCP stdio = JSON-RPC 2.0. Any language can consume today. |
+| Managed experience (2.0) | Library, not service. FastAPI wrapper is ~50 LOC. Kernel has rate limiter + quotas + cleanup built in. |
+| Persistence (2.0) | Envelope is fully serializable. `get_session_state()` + `initialize_session(force=true)` = checkpoint/replay. Capability-layer concern, not kernel gap. |
+| HTTP gateway (0) | Correct architecture. HTTP belongs above kernel. Deletion removed complexity, added nothing. |
+| GIL contention (3.5) | Overstated. Single `with_gil()` per tool call, `allow_threads()` for all async/network. Tools are sequential by design. Real impact ~1.5/5. |
 
 ---
 
@@ -265,43 +277,35 @@ Deleted: `COVERAGE_REPORT.md` (stale), `Dockerfile` (HTTP pattern gone).
 
 ### Next
 
-5. **HTTP gateway** — optional `#[cfg(feature = "http-gateway")]` for REST API
-6. **Persistent state** — Redis/SQL-backed state across requests
-7. **Async Python tools** — `PyToolExecutor` currently sync-only
-8. **MCP lifecycle** — `kill_on_drop`, reconnection, stderr capture
-9. **Checkpoint/replay** — crash recovery
-10. **Evaluation framework** — leverage kernel metrics + PipelineTestHarness
+5. **MCP stdio child cleanup** (bug) — `impl Drop for StdioClient` with `child.start_kill()`. Add reconnection on transport failure.
+6. **MCP HTTP auth** — add `headers: Option<HashMap<String, String>>` to `McpServerConfig` for bearer tokens.
+7. **CommBus over MCP** — expose CommBus query/subscribe as MCP tools for cross-process federation.
+8. **Async Python tools** — `PyToolExecutor` currently sync-only. Support `async def` via `pyo3-asyncio`.
+9. **Evaluation framework** — leverage kernel metrics + PipelineTestHarness for pipeline quality.
 
 ---
 
 ## 8. Maturity
 
-| Dimension | Score |
-|-----------|-------|
-| Architecture | 5.0 |
-| Contract enforcement | 5.0 |
-| Operational simplicity | 4.5 |
-| Graph expressiveness | 4.8 |
-| Type safety | 4.8 |
-| Memory safety | 4.8 |
-| Agentic capabilities | 5.0 |
-| Streaming | 5.0 |
-| Validation | 4.8 |
-| MCP + A2A | 5.0 |
-| Interrupts | 4.5 |
-| PyO3 | 4.8 |
-| Observability | 4.5 |
-| Code hygiene | 5.0 |
-| Testing | 4.5 |
-| DX | 4.5 |
-| Documentation | 4.5 |
-| Interoperability | 4.5 |
-| RAG | 1.0 |
-| Multi-language | 3.5 |
-| Managed experience | 2.0 |
-| Persistence | 2.0 |
-| Community | 1.0 |
-| **Overall** | **4.9** |
+| Dimension | Score | Note |
+|-----------|-------|------|
+| Architecture | 5.0 | Single-process, typed channels, domain-grouped, focused file splits |
+| Contract enforcement | 5.0 | JSON Schema + pre-exec ACLs + quotas + circuit breaking |
+| Graph expressiveness | 4.8 | Gate/Fork/Agent, state merge, PipelineAgent composition |
+| Type safety | 4.8 | `#[deny(unsafe_code)]`, tagged enums; `#[allow]` for PyO3 FFI only |
+| Memory safety | 4.8 | Rust ownership; PyO3 FFI boundary safe-by-construction |
+| Agentic capabilities | 5.0 | ReAct + circuit breaking + health tracking + 4 agent types |
+| Streaming | 5.0 | 8 events, stage+pipeline attributed, composed pipeline bridging |
+| Validation | 4.8 | `PipelineConfig::validate()` with 28 tests |
+| MCP | 4.5 | Client+Server bidirectional. Bug: stdio child orphans on drop (W1) |
+| Interrupts | 4.5 | 7 kinds, wired end-to-end |
+| PyO3 | 4.8 | GIL-released, auto-agents, 27 pytest |
+| Code hygiene | 5.0 | God-files split, delegation deleted, domain grouping |
+| Testing | 4.5 | 290 Rust + 27 pytest + harness |
+| DX | 4.5 | PipelineBuilder, @tool, auto-agents |
+| Documentation | 4.5 | All 6 docs current |
+| Interoperability | 4.5 | PyO3 + MCP stdio (any language via JSON-RPC) |
+| **Overall** | **4.9** | One bug (W1), two partial gaps (W2, W3) |
 
 ---
 
@@ -361,8 +365,8 @@ Test count: 301 → 290 due to consolidation during refactor (shared test_helper
 
 v0.0.2 is a structural polish release. No new features. Two god-files (orchestrator, CommBus) decomposed into focused modules. Envelope gains semantic sub-structs. Test helpers shared across modules. The codebase is now at the point where every file has a single clear purpose. Net +87 lines despite splitting — the new files add test coverage and type definitions that were previously inline.
 
-All 4 top recommendations remain DONE. Remaining work: HTTP gateway (optional feature) → persistent memory → cross-network CommBus → async Python tools.
+All 4 top recommendations remain DONE. One real bug to fix (MCP stdio child orphan). Two partial gaps to close (MCP HTTP auth headers, CommBus over MCP for cross-network).
 
 ---
 
-*Audit: 26 iterations, 2026-03-11 to 2026-03-15. Branch: `claude/audit-agentic-frameworks-B6fqd`.*
+*Audit: 27 iterations, 2026-03-11 to 2026-03-15. Branch: `claude/audit-agentic-frameworks-B6fqd`.*
