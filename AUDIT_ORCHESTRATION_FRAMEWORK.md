@@ -73,17 +73,17 @@ The **Envelope** is a mutable state container that flows through the pipeline, a
 
 ### 3.1 Framework Overview Matrix
 
-| Framework | Language | Core Abstraction | Multi-Agent | LLM Providers | Maturity |
-|-----------|----------|-----------------|-------------|----------------|----------|
-| **Jeeves Core** | Rust (PyO3) | Kernel + Envelope state machine | Fork/Join, nested pipelines, CommBus | OpenAI-compat only | Pre-alpha (v0.0.2) |
-| **LangGraph** | Python/JS | Directed graph (nodes + edges) | Supervisor, swarm, hierarchical | Any via LangChain | Production (v0.2+) |
-| **CrewAI** | Python | Crew of role-based agents | Sequential, hierarchical, consensual | OpenAI, Anthropic, local | Stable (v0.80+) |
-| **AutoGen** | Python | Multi-agent conversation | Conversation-based, group chat | OpenAI, Anthropic, local | Stable (v0.4+) |
-| **Semantic Kernel** | C#/Python/Java | Kernel + plugins + planner | Multi-agent via Agents framework | OpenAI, Azure, Hugging Face | Production |
-| **LlamaIndex Workflows** | Python | Event-driven steps | Step composition, agent handoffs | Any via LlamaIndex | Stable |
-| **OpenAI Agents SDK** | Python | Agent + handoffs | Handoff-based delegation | OpenAI only | GA (2025+) |
-| **Google ADK** | Python | Agent + tools + flows | Multi-agent, A2A protocol | Gemini, any via LiteLLM | GA (2025+) |
-| **Claude Agent SDK** | Python/TS | Agent + tool_use loop | Multi-agent via sub-agents | Claude only | GA |
+| Framework | Language | Core Abstraction | Multi-Agent | LLM Providers | Maturity | GitHub Stars |
+|-----------|----------|-----------------|-------------|----------------|----------|-------------|
+| **Jeeves Core** | Rust (PyO3) | Kernel + Envelope state machine | Fork/Join, nested pipelines, CommBus | OpenAI-compat only | Pre-alpha (v0.0.2) | New |
+| **LangGraph** | Python/JS | Directed graph (nodes + edges) | Supervisor, swarm, hierarchical | Any via LangChain | Production (GA 1.0, Oct 2025) | ~24.6k |
+| **CrewAI** | Python | Crew of role-based agents | Sequential, hierarchical, consensual | Fully model-agnostic | Stable (v1.10+) | ~45k |
+| **AutoGen/AG2** | Python | Multi-agent conversation | GroupChat, nested chat | Fully model-agnostic | **Maintenance mode** (deprecated) | Declining |
+| **MS Agent Framework** | C#/Python/Java | Graph + enterprise (SK + AutoGen merger) | Sequential, concurrent, handoff, group chat | Multi-provider (Azure-leaning) | RC (Feb 2026, GA Q1 2026) | ~27k (SK) |
+| **LlamaIndex Workflows** | Python/TS | Event-driven steps | AgentWorkflow, handoffs | Any via LlamaIndex | Stable (Workflows 1.0, Feb 2026) | ~48k (parent) |
+| **OpenAI Agents SDK** | Python/TS | Lightweight agent + handoffs | Handoff-based delegation | **Provider-agnostic** (100+ LLMs) | GA | Active |
+| **Google ADK** | Python/TS/Go/Java | Hierarchical agent tree | Hierarchical, sequential, parallel, A2A | Gemini-optimized, multi-provider | GA (v1.26, bi-weekly releases) | ~15-18k |
+| **Claude Agent SDK** | Python/TS | Agent harness (Claude Code infra) | Sub-agents, TeammateTool swarm | **Claude-only** | Pre-1.0 (v0.2.x) | Growing |
 
 ### 3.2 Detailed Comparison by Dimension
 
@@ -128,12 +128,13 @@ The **Envelope** is a mutable state container that flows through the pipeline, a
 | Framework | Pre-built Tools | Vector Stores | Prompt Mgmt | Community (GitHub Stars) |
 |-----------|----------------|---------------|-------------|-------------------------|
 | **Jeeves Core** | MCP server discovery only | None | File-based keys | Small / new |
-| **LangGraph** | 100+ via LangChain | 50+ stores | LangSmith hub | ~8k+ (LangGraph) |
-| **CrewAI** | Built-in web search, file, etc. | RAG via tools | YAML config | ~25k+ |
-| **AutoGen** | Code execution, web, etc. | Via extensions | Prompt templates | ~40k+ |
-| **Semantic Kernel** | Azure ecosystem | Azure AI Search | Handlebars templates | ~25k+ |
+| **LangGraph** | 100+ via LangChain | 50+ stores | LangSmith hub | ~24.6k |
+| **CrewAI** | Built-in tools, native MCP (v1.10+) | RAG via tools | YAML config | ~45k |
+| **MS Agent Framework** | Azure ecosystem, @ai_function | Azure AI Search | Middleware-based | ~27k (SK) |
+| **LlamaIndex Workflows** | LlamaIndex tools, MCP, ACP | Best-in-class RAG | Via LlamaIndex | ~48k (parent) |
+| **Google ADK** | AgentOps, Arize, HuggingFace, n8n | Via Vertex AI | Agent Config | ~15-18k |
 
-**Winner: LangGraph / AutoGen** — Mature ecosystems with extensive integrations. Jeeves Core would require building most integrations from scratch.
+**Winner: LangGraph / CrewAI** — Mature ecosystems with extensive integrations. Jeeves Core would require building most integrations from scratch. Note: AutoGen is now in maintenance mode — Microsoft has merged it with Semantic Kernel into Microsoft Agent Framework (RC Feb 2026).
 
 #### Performance & Deployment
 
@@ -231,7 +232,23 @@ Jeeves Core's per-user rate limiting, process isolation, and resource quotas mak
 
 ---
 
-## 7. Technical Summary Card
+## 7. Key Market Trends (March 2026)
+
+1. **AutoGen is effectively deprecated.** Microsoft merged AutoGen + Semantic Kernel into **Microsoft Agent Framework** (RC Feb 2026, GA targeting end of Q1 2026). AutoGen is maintenance-mode only. This is the biggest structural shift in the landscape.
+
+2. **Protocol convergence on MCP + A2A.** Model Context Protocol and Agent-to-Agent protocol are becoming table stakes. CrewAI (v1.10), Google ADK, LlamaIndex, and OpenAI Agents SDK all ship native MCP support. Google ADK's A2A enables cross-framework agent discovery.
+
+3. **OpenAI Agents SDK is now provider-agnostic.** Despite the name, it supports 100+ LLMs — a major shift from the Swarm era. This reduces its lock-in concern.
+
+4. **Google ADK is the dark horse.** Newest but fastest-growing, broadest language support (Python, TS, Go, Java), and unique cross-framework interop via A2A protocol.
+
+5. **LangGraph remains the power tool** for complex stateful orchestration (checkpointing, time-travel debugging), but pays for it in verbosity. CrewAI wins on speed-to-prototype (~40% faster by benchmarks) and community size (~45k stars).
+
+6. **Market context.** The global AI agent market reached $7.84B in 2025 and is projected to hit $52.62B by 2030. Gartner predicts 40% of enterprise apps will feature AI agents by end of 2026.
+
+---
+
+## 8. Technical Summary Card
 
 ```
 Name:           Jeeves Core
