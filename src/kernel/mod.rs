@@ -15,6 +15,11 @@ pub mod cleanup;
 pub mod interrupts;
 pub mod lifecycle;
 pub mod orchestrator;
+mod orchestrator_session;   // impl Orchestrator — session lifecycle
+mod orchestrator_queries;   // impl Orchestrator — read-only queries
+mod orchestrator_helpers;   // Free functions — routing helpers
+#[cfg(test)]
+pub(crate) mod test_helpers; // Shared test utilities for orchestrator tests
 pub mod orchestrator_types;
 pub mod rate_limiter;
 pub mod resources;

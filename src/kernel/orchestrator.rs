@@ -22,6 +22,9 @@ use tracing::instrument;
 pub use super::orchestrator_types::*;
 pub use super::routing::{evaluate_expr, evaluate_routing, FieldRef, RoutingExpr, RoutingRule};
 
+// Use helpers from split module
+use super::orchestrator_helpers::{get_agent_for_stage, build_stage_snapshot, check_edge_limit, is_parallel_join_met};
+
 // =============================================================================
 // Orchestration Session
 // =============================================================================
@@ -37,7 +40,7 @@ pub struct PipelineSession {
     pub pipeline_config: PipelineConfig,
     // NOTE: No envelope field — kernel owns it via `process_envelopes`
     // NOTE: No terminated/terminal_reason — lives exclusively in envelope.bounds
-    pub edge_traversals: HashMap<String, i32>, // "from->to" -> count
+    pub(crate) edge_traversals: HashMap<EdgeKey, i32>,
     pub stage_visits: HashMap<String, i32>,    // stage_name -> visit count
     pub active_parallel: Option<ParallelGroupState>,
     pub created_at: DateTime<Utc>,
@@ -54,7 +57,7 @@ pub struct PipelineSession {
 /// `process_envelopes`, passes them in, and re-stores the results.
 #[derive(Debug)]
 pub struct Orchestrator {
-    pipelines: HashMap<ProcessId, PipelineSession>,
+    pub(crate) pipelines: HashMap<ProcessId, PipelineSession>,
 }
 
 impl Orchestrator {
@@ -63,66 +66,6 @@ impl Orchestrator {
         Self {
             pipelines: HashMap::new(),
         }
-    }
-
-    // =============================================================================
-    // Session Management
-    // =============================================================================
-
-    /// Initialize a new pipeline session.
-    ///
-    /// Takes a mutable envelope reference to set pipeline bounds (kernel owns the envelope).
-    /// If force is false and a session already exists, returns an error.
-    /// If force is true, replaces any existing session.
-    #[instrument(skip(self, pipeline_config, envelope), fields(process_id = %process_id))]
-    pub fn initialize_session(
-        &mut self,
-        process_id: ProcessId,
-        pipeline_config: PipelineConfig,
-        envelope: &mut Envelope,
-        force: bool,
-    ) -> Result<SessionState> {
-        // Check for duplicate processID
-        if self.pipelines.contains_key(&process_id) && !force {
-            return Err(Error::validation(format!(
-                "Session already exists for process: {} (use force=true to replace)",
-                process_id
-            )));
-        }
-
-        // Validate pipeline config
-        pipeline_config.validate()?;
-
-        // Initialize envelope with pipeline bounds
-        envelope.pipeline.max_iterations = pipeline_config.max_iterations;
-        envelope.bounds.max_llm_calls = pipeline_config.max_llm_calls;
-        envelope.bounds.max_agent_hops = pipeline_config.max_agent_hops;
-        envelope.pipeline.stage_order = pipeline_config.get_stage_order();
-
-        // Initialize execution tracking
-        envelope.execution.max_stages = pipeline_config.stages.len() as i32;
-        envelope.execution.current_stage_number = 1;
-
-        // Set initial stage if not set
-        if envelope.pipeline.current_stage.is_empty() && !envelope.pipeline.stage_order.is_empty() {
-            envelope.pipeline.current_stage = envelope.pipeline.stage_order[0].clone();
-        }
-
-        let now = Utc::now();
-        let session = PipelineSession {
-            process_id: process_id.clone(),
-            pipeline_config,
-            edge_traversals: HashMap::new(),
-            stage_visits: HashMap::new(),
-            active_parallel: None,
-            created_at: now,
-            last_activity_at: now,
-        };
-
-        let state = self.build_session_state(&session, envelope);
-        self.pipelines.insert(process_id, session);
-
-        Ok(state)
     }
 
     /// Get the next instruction for a process.
@@ -152,10 +95,20 @@ impl Orchestrator {
         }
 
         // Check for pending interrupt
-        if envelope.interrupts.interrupt_pending {
-            return Ok(Instruction::WaitInterrupt {
-                interrupt: envelope.interrupts.interrupt.clone(),
-            });
+        if envelope.interrupts.is_pending() {
+            // Auto-clear expired interrupts
+            let expired = envelope.interrupts.interrupt.as_ref()
+                .and_then(|i| i.expires_at)
+                .map(|exp| Utc::now() > exp)
+                .unwrap_or(false);
+            if expired {
+                envelope.clear_interrupt();
+                // Fall through to routing — don't block on expired interrupt
+            } else {
+                return Ok(Instruction::WaitInterrupt {
+                    interrupt: envelope.interrupts.interrupt.clone(),
+                });
+            }
         }
 
         // Check bounds
@@ -394,7 +347,7 @@ impl Orchestrator {
 
                 if let Ok(agent) = get_agent_for_stage(&session.pipeline_config, stage_name) {
                     if let Some(agent_output) = envelope.outputs.get(&agent) {
-                        envelope.execution.completed_stages.push(
+                        envelope.pipeline.completed_stage_snapshots.push(
                             build_stage_snapshot(stage_name, agent_output),
                         );
                     }
@@ -438,7 +391,7 @@ impl Orchestrator {
 
         // Snapshot completed stage into execution tracking
         if let Some(agent_output) = envelope.outputs.get(agent_name) {
-            envelope.execution.completed_stages.push(
+            envelope.pipeline.completed_stage_snapshots.push(
                 build_stage_snapshot(&current_stage, agent_output),
             );
         }
@@ -511,7 +464,7 @@ impl Orchestrator {
                 }
 
                 // Record edge traversal
-                let edge_key = format!("{}->{}", from_stage, target);
+                let edge_key = EdgeKey::new(from_stage, &target);
                 *session.edge_traversals.entry(edge_key).or_insert(0) += 1;
                 envelope.bounds.agent_hop_count += 1;
 
@@ -520,7 +473,7 @@ impl Orchestrator {
 
                 // Update execution tracking before target is moved
                 if let Some(pos) = envelope.pipeline.stage_order.iter().position(|s| s == &target) {
-                    envelope.execution.current_stage_number = (pos + 1) as i32;
+                    envelope.pipeline.current_stage_number = (pos + 1) as i32;
                 }
 
                 envelope.pipeline.current_stage = target;
@@ -536,212 +489,18 @@ impl Orchestrator {
 
         Ok(())
     }
-
-    /// Get session state for external queries.
-    ///
-    /// Envelope is passed in by the Kernel (which owns it).
-    pub fn get_session_state(
-        &self,
-        process_id: &ProcessId,
-        envelope: &Envelope,
-    ) -> Result<SessionState> {
-        let session = self
-            .pipelines
-            .get(process_id)
-            .ok_or_else(|| Error::not_found(format!("Unknown process: {}", process_id)))?;
-
-        Ok(self.build_session_state(session, envelope))
-    }
-
-    /// Check if a pipeline session exists for the given process.
-    pub fn has_session(&self, process_id: &ProcessId) -> bool {
-        self.pipelines.contains_key(process_id)
-    }
-
-    /// Cleanup a pipeline session.
-    pub fn cleanup_session(&mut self, process_id: &ProcessId) -> bool {
-        self.pipelines.remove(process_id).is_some()
-    }
-
-    /// Get the output_schema for a specific stage in a process's pipeline.
-    /// Returns a cloned Value so the caller can use it without holding a borrow.
-    pub fn get_stage_output_schema(&self, process_id: &ProcessId, stage_name: &str) -> Option<serde_json::Value> {
-        self.pipelines.get(process_id)
-            .and_then(|session| {
-                session.pipeline_config.stages.iter()
-                    .find(|s| s.name == stage_name)
-                    .and_then(|s| s.output_schema.clone())
-            })
-    }
-
-    /// Get the allowed_tools for a specific stage in a process's pipeline.
-    pub fn get_stage_allowed_tools(&self, process_id: &ProcessId, stage_name: &str) -> Option<Vec<String>> {
-        self.pipelines.get(process_id)
-            .and_then(|session| {
-                session.pipeline_config.stages.iter()
-                    .find(|s| s.name == stage_name)
-                    .and_then(|s| s.allowed_tools.clone())
-            })
-    }
-
-    /// Get the state_schema for a process's pipeline.
-    pub fn get_state_schema(&self, process_id: &ProcessId) -> Option<&Vec<StateField>> {
-        self.pipelines.get(process_id)
-            .map(|session| &session.pipeline_config.state_schema)
-    }
-
-    /// Get the output_key for a stage, defaulting to the stage name.
-    pub fn get_stage_output_key(&self, process_id: &ProcessId, stage_name: &str) -> Option<String> {
-        self.pipelines.get(process_id)
-            .and_then(|session| {
-                session.pipeline_config.stages.iter()
-                    .find(|s| s.name == stage_name)
-                    .map(|s| s.output_key.clone().unwrap_or_else(|| s.name.clone()))
-            })
-    }
-
-    /// Get pipeline session count.
-    pub fn get_session_count(&self) -> usize {
-        self.pipelines.len()
-    }
-
-    /// Cleanup stale pipeline sessions older than the given duration.
-    /// Returns the PIDs of removed sessions so the Kernel can also clean up
-    /// the corresponding envelopes from `process_envelopes`.
-    pub fn cleanup_stale_sessions(&mut self, max_age_seconds: i64) -> Vec<ProcessId> {
-        let cutoff = Utc::now() - chrono::TimeDelta::seconds(max_age_seconds);
-        let mut to_remove = Vec::new();
-
-        for (pid, session) in &self.pipelines {
-            if session.last_activity_at < cutoff {
-                to_remove.push(pid.clone());
-            }
-        }
-
-        for pid in &to_remove {
-            self.pipelines.remove(pid);
-        }
-
-        to_remove
-    }
-
-    // =============================================================================
-    // Internal Helpers
-    // =============================================================================
-
-    /// Build external session state representation.
-    fn build_session_state(&self, session: &PipelineSession, envelope: &Envelope) -> SessionState {
-        let envelope_value = serde_json::to_value(envelope)
-            .unwrap_or_default();
-
-        SessionState {
-            process_id: session.process_id.clone(),
-            current_stage: envelope.pipeline.current_stage.clone(),
-            stage_order: envelope.pipeline.stage_order.clone(),
-            envelope: envelope_value,
-            edge_traversals: session.edge_traversals.clone(),
-            terminated: envelope.bounds.is_terminated(),
-            terminal_reason: envelope.bounds.terminal_reason(),
-        }
-    }
-}
-
-impl Default for Orchestrator {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
-// =============================================================================
-// Helper Functions (outside impl to avoid borrow checker issues)
-// =============================================================================
-
-/// Get agent name for a stage.
-fn get_agent_for_stage(
-    pipeline_config: &PipelineConfig,
-    stage_name: &str,
-) -> Result<String> {
-    pipeline_config
-        .stages
-        .iter()
-        .find(|s| s.name == stage_name)
-        .map(|s| s.agent.clone())
-        .ok_or_else(|| Error::not_found(format!("Stage not found in pipeline: {}", stage_name)))
-}
-
-/// Build a stage completion snapshot from agent output.
-fn build_stage_snapshot(
-    stage_name: &str,
-    agent_output: &HashMap<String, serde_json::Value>,
-) -> HashMap<String, serde_json::Value> {
-    [
-        ("stage".to_string(), serde_json::Value::String(stage_name.to_string())),
-        ("output".to_string(), serde_json::Value::Object(
-            agent_output.iter().map(|(k, v)| (k.clone(), v.clone())).collect()
-        )),
-    ].into_iter().collect()
-}
-
-/// Check if an edge transition is within its limit.
-/// Returns true if the transition is allowed.
-fn check_edge_limit(
-    config: &PipelineConfig,
-    edge_traversals: &HashMap<String, i32>,
-    from_stage: &str,
-    to_stage: &str,
-) -> bool {
-    for limit in &config.edge_limits {
-        if limit.from_stage == from_stage && limit.to_stage == to_stage {
-            let edge_key = format!("{}->{}", from_stage, to_stage);
-            let count = edge_traversals.get(&edge_key).copied().unwrap_or(0);
-            return count < limit.max_count;
-        }
-    }
-    // No limit configured — allowed
-    true
-}
-
-/// Check if a parallel group's join condition is met.
-///
-/// `pending_agents` is drained on dispatch, so join is based on reported count vs total stages.
-fn is_parallel_join_met(parallel: &ParallelGroupState) -> bool {
-    let reported = parallel.completed_agents.len() + parallel.failed_agents.len();
-    match parallel.join_strategy {
-        JoinStrategy::WaitAll => reported >= parallel.stages.len(),
-        JoinStrategy::WaitFirst => reported > 0,
-    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use super::super::test_helpers::*;
     use crate::types::ProcessId;
     use serde_json::Value;
 
     // =========================================================================
-    // Helpers
+    // Helpers (module-specific — shared helpers in test_helpers.rs)
     // =========================================================================
-
-    fn stage(name: &str, agent: &str, routing: Vec<RoutingRule>, default_next: Option<&str>) -> PipelineStage {
-        PipelineStage {
-            name: name.to_string(),
-            agent: agent.to_string(),
-            routing,
-            default_next: default_next.map(|s| s.to_string()),
-            error_next: None,
-            max_visits: None,
-            join_strategy: JoinStrategy::default(),
-            output_schema: None,
-            allowed_tools: None,
-            node_kind: NodeKind::default(),
-            output_key: None,
-            agent_config: AgentConfig::default(),
-        }
-    }
-
-    fn always_to(target: &str) -> RoutingRule {
-        RoutingRule { expr: RoutingExpr::Always, target: target.to_string() }
-    }
 
     fn eq_rule(key: &str, value: impl Into<Value>, target: &str) -> RoutingRule {
         RoutingRule {
@@ -765,84 +524,6 @@ mod tests {
 
     fn zero_metrics() -> AgentExecutionMetrics {
         AgentExecutionMetrics::default()
-    }
-
-    /// Linear 2-stage pipeline: stage1 --(Always)--> stage2 --(no rules, no default)--> terminate
-    fn create_test_pipeline() -> PipelineConfig {
-        PipelineConfig {
-            name: "test_pipeline".to_string(),
-            stages: vec![
-                stage("stage1", "agent1", vec![always_to("stage2")], None),
-                stage("stage2", "agent2", vec![], None),
-            ],
-            max_iterations: 10,
-            max_llm_calls: 50,
-            max_agent_hops: 5,
-            edge_limits: vec![],
-            step_limit: None,
-            state_schema: vec![],
-            subscriptions: vec![],
-            publishes: vec![],
-        }
-    }
-
-    fn create_test_envelope() -> Envelope {
-        let mut env = Envelope::new();
-        env.pipeline.current_stage = String::new();
-        env
-    }
-
-    // =========================================================================
-    // Session lifecycle
-    // =========================================================================
-
-    #[test]
-    fn test_initialize_session() {
-        let mut orch = Orchestrator::new();
-        let pipeline = create_test_pipeline();
-        let mut envelope = create_test_envelope();
-
-        let state = orch
-            .initialize_session(ProcessId::must("proc1"), pipeline.clone(), &mut envelope, false)
-            .unwrap();
-
-        assert_eq!(state.process_id.as_str(), "proc1");
-        assert_eq!(state.current_stage, "stage1");
-        assert_eq!(state.stage_order, vec!["stage1", "stage2"]);
-        assert!(!state.terminated);
-    }
-
-    #[test]
-    fn test_initialize_session_duplicate_fails() {
-        let mut orch = Orchestrator::new();
-        let pipeline = create_test_pipeline();
-        let mut envelope = create_test_envelope();
-
-        orch.initialize_session(ProcessId::must("proc1"), pipeline.clone(), &mut envelope, false)
-            .unwrap();
-
-        let mut envelope2 = create_test_envelope();
-        let result =
-            orch.initialize_session(ProcessId::must("proc1"), pipeline, &mut envelope2, false);
-
-        assert!(result.is_err());
-        assert!(result.unwrap_err().to_string().contains("already exists"));
-    }
-
-    #[test]
-    fn test_initialize_session_force_replaces() {
-        let mut orch = Orchestrator::new();
-        let pipeline = create_test_pipeline();
-        let mut envelope = create_test_envelope();
-
-        orch.initialize_session(ProcessId::must("proc1"), pipeline.clone(), &mut envelope, false)
-            .unwrap();
-
-        let mut envelope2 = create_test_envelope();
-        let result =
-            orch.initialize_session(ProcessId::must("proc1"), pipeline, &mut envelope2, true);
-
-        assert!(result.is_ok());
     }
 
     // =========================================================================
@@ -888,8 +569,7 @@ mod tests {
         let pipeline = create_test_pipeline();
         let mut envelope = create_test_envelope();
 
-        envelope.interrupts.interrupt_pending = true;
-        envelope.interrupts.interrupt = Some(
+        envelope.set_interrupt(
             crate::envelope::FlowInterrupt::new(crate::envelope::InterruptKind::Clarification)
                 .with_message("Need clarification".to_string())
         );
@@ -901,6 +581,33 @@ mod tests {
 
         let Instruction::WaitInterrupt { ref interrupt } = instruction else { panic!("Expected WaitInterrupt") };
         assert!(interrupt.is_some());
+    }
+
+    #[test]
+    fn test_expired_interrupt_auto_cleared() {
+        let mut orch = Orchestrator::new();
+        let pipeline = create_test_pipeline();
+        let mut envelope = create_test_envelope();
+
+        // Set interrupt with past expiry (already expired)
+        let expired_interrupt = crate::envelope::FlowInterrupt::new(crate::envelope::InterruptKind::Clarification)
+            .with_message("Expired question".to_string());
+        // Manually set expires_at to the past
+        let mut interrupt = expired_interrupt;
+        interrupt.expires_at = Some(Utc::now() - chrono::TimeDelta::seconds(60));
+        envelope.set_interrupt(interrupt);
+
+        orch.initialize_session(ProcessId::must("proc1"), pipeline, &mut envelope, false)
+            .unwrap();
+
+        // get_next_instruction should auto-clear the expired interrupt and return RunAgent
+        let instruction = orch.get_next_instruction(&ProcessId::must("proc1"), &mut envelope).unwrap();
+
+        let Instruction::RunAgent { ref agent, .. } = instruction else {
+            panic!("Expected RunAgent after expired interrupt auto-clear, got {:?}", instruction)
+        };
+        assert_eq!(agent, "agent1");
+        assert!(!envelope.interrupts.is_pending());
     }
 
     #[test]
@@ -994,55 +701,6 @@ mod tests {
 
         assert_eq!(envelope.bounds.tokens_in, 0);
         assert_eq!(envelope.bounds.tokens_out, 0);
-    }
-
-    // =========================================================================
-    // Session state & cleanup
-    // =========================================================================
-
-    #[test]
-    fn test_get_session_state() {
-        let mut orch = Orchestrator::new();
-        let pipeline = create_test_pipeline();
-        let mut envelope = create_test_envelope();
-
-        orch.initialize_session(ProcessId::must("proc1"), pipeline, &mut envelope, false)
-            .unwrap();
-
-        let state = orch.get_session_state(&ProcessId::must("proc1"), &envelope).unwrap();
-
-        assert_eq!(state.process_id.as_str(), "proc1");
-        assert_eq!(state.current_stage, "stage1");
-        assert!(state.envelope.is_object());
-        assert!(!state.terminated);
-    }
-
-    #[test]
-    fn test_cleanup_session() {
-        let mut orch = Orchestrator::new();
-        let pipeline = create_test_pipeline();
-        let mut envelope = create_test_envelope();
-
-        orch.initialize_session(ProcessId::must("proc1"), pipeline, &mut envelope, false)
-            .unwrap();
-
-        assert_eq!(orch.get_session_count(), 1);
-
-        let removed = orch.cleanup_session(&ProcessId::must("proc1"));
-        assert!(removed);
-        assert_eq!(orch.get_session_count(), 0);
-
-        let removed = orch.cleanup_session(&ProcessId::must("proc1"));
-        assert!(!removed);
-    }
-
-    #[test]
-    fn test_get_session_state_not_found() {
-        let orch = Orchestrator::new();
-        let envelope = create_test_envelope();
-
-        let result = orch.get_session_state(&ProcessId::must("nonexistent"), &envelope);
-        assert!(result.is_err());
     }
 
     // =========================================================================
@@ -1620,7 +1278,7 @@ mod tests {
         orch.report_agent_result(&ProcessId::must("p1"), "agent1", zero_metrics(), &mut envelope, false, false).unwrap();
 
         let session = orch.pipelines.get(&ProcessId::must("p1")).unwrap();
-        assert_eq!(session.edge_traversals.get("stage1->stage2"), Some(&1));
+        assert_eq!(session.edge_traversals.get(&EdgeKey::new("stage1", "stage2")), Some(&1));
     }
 
     // =========================================================================
@@ -2224,56 +1882,6 @@ mod tests {
         assert_eq!(envelope.pipeline.current_stage, "foo");
     }
 
-    // =========================================================================
-    // Phase 1c audit tests
-    // =========================================================================
-
-    #[test]
-    fn test_has_session_true_after_init() {
-        let mut orch = Orchestrator::new();
-        let pid = ProcessId::must("p1");
-        let pipeline = create_test_pipeline();
-        let mut envelope = create_test_envelope();
-        orch.initialize_session(pid.clone(), pipeline, &mut envelope, false).unwrap();
-
-        assert!(orch.has_session(&pid));
-    }
-
-    #[test]
-    fn test_has_session_false_for_unknown_pid() {
-        let orch = Orchestrator::new();
-        assert!(!orch.has_session(&ProcessId::must("unknown")));
-    }
-
-    #[test]
-    fn test_cleanup_stale_sessions_removes_old_keeps_young() {
-        let mut orch = Orchestrator::new();
-
-        // Create two sessions
-        let pid_old = ProcessId::must("old");
-        let pid_young = ProcessId::must("young");
-        let pipeline = create_test_pipeline();
-
-        let mut env1 = create_test_envelope();
-        orch.initialize_session(pid_old.clone(), pipeline.clone(), &mut env1, false).unwrap();
-
-        let mut env2 = create_test_envelope();
-        orch.initialize_session(pid_young.clone(), pipeline, &mut env2, false).unwrap();
-
-        // Manually set the old session's last_activity_at to the past
-        if let Some(session) = orch.pipelines.get_mut(&pid_old) {
-            session.last_activity_at = Utc::now() - chrono::TimeDelta::seconds(3600);
-        }
-
-        // Cleanup sessions older than 60 seconds
-        let removed = orch.cleanup_stale_sessions(60);
-        assert_eq!(removed.len(), 1);
-        assert_eq!(removed[0], pid_old);
-
-        assert!(!orch.has_session(&pid_old));
-        assert!(orch.has_session(&pid_young));
-    }
-
     #[test]
     fn test_check_bounds_agent_hops_path() {
         let mut envelope = create_test_envelope();
@@ -2530,7 +2138,9 @@ mod tests {
         orch.initialize_session(ProcessId::must("p1"), pipeline, &mut envelope, false).unwrap();
 
         // Set interrupt pending
-        envelope.interrupts.interrupt_pending = true;
+        envelope.set_interrupt(
+            crate::envelope::FlowInterrupt::new(crate::envelope::InterruptKind::Clarification)
+        );
 
         let instr = orch.get_next_instruction(&ProcessId::must("p1"), &mut envelope).unwrap();
         assert!(matches!(instr, Instruction::WaitInterrupt { .. }));
@@ -2664,7 +2274,9 @@ mod tests {
         orch.initialize_session(ProcessId::must("p1"), pipeline, &mut envelope, false).unwrap();
 
         // Set interrupt pending — but break should win
-        envelope.interrupts.interrupt_pending = true;
+        envelope.set_interrupt(
+            crate::envelope::FlowInterrupt::new(crate::envelope::InterruptKind::Clarification)
+        );
 
         orch.report_agent_result(&ProcessId::must("p1"), "agent1", zero_metrics(), &mut envelope, false, true).unwrap();
         assert!(envelope.bounds.is_terminated());

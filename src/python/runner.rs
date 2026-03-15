@@ -547,7 +547,7 @@ fn merge_agents_from_config(
                     temperature: stage.agent_config.temperature,
                     max_tokens: stage.agent_config.max_tokens,
                     model: stage.agent_config.model_role.clone(),
-                    max_tool_rounds: 10,
+                    max_tool_rounds: stage.agent_config.max_tool_rounds,
                 })
             }
             _ => {

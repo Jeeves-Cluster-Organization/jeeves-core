@@ -8,7 +8,6 @@
 //! - **Pipeline**: stage sequencing and parallel execution
 //! - **Bounds**: resource limits and counters
 //! - **InterruptState**: human-in-the-loop flow control
-//! - **Execution**: multi-stage goal tracking
 //! - **Audit**: processing history, errors, timing, metadata
 
 use chrono::{DateTime, Utc};
@@ -53,7 +52,6 @@ pub struct Envelope {
     pub pipeline: Pipeline,
     pub bounds: Bounds,
     pub interrupts: InterruptState,
-    pub execution: Execution,
     pub audit: Audit,
 
     /// Pending CommBus events accumulated between agent executions.
@@ -62,67 +60,17 @@ pub struct Envelope {
 }
 
 impl Envelope {
-    /// Create a new envelope with default values (matches Go's NewEnvelope).
+    /// Create a new envelope with default values.
+    ///
+    /// Delegates to `new_minimal()` with anonymous identity. Used in tests.
     pub fn new() -> Self {
-        let now = Utc::now();
         let uuid_short = || uuid::Uuid::new_v4().simple().to_string()[..16].to_string();
-
-        Self {
-            identity: Identity {
-                envelope_id: EnvelopeId::must(format!("env_{}", uuid_short())),
-                request_id: RequestId::must(format!("req_{}", uuid_short())),
-                user_id: UserId::must("anonymous"),
-                session_id: SessionId::must(format!("sess_{}", uuid_short())),
-            },
-
-            raw_input: String::new(),
-            received_at: now,
-            outputs: HashMap::new(),
-            state: HashMap::new(),
-
-            pipeline: Pipeline {
-                current_stage: "start".to_string(),
-                stage_order: Vec::new(),
-                iteration: 0,
-                max_iterations: 3,
-                active_stages: HashSet::new(),
-                completed_stage_set: HashSet::new(),
-                failed_stages: HashMap::new(),
-                parallel_mode: false,
-            },
-
-            bounds: Bounds {
-                llm_call_count: 0,
-                max_llm_calls: 10,
-                tool_call_count: 0,
-                agent_hop_count: 0,
-                max_agent_hops: 21,
-                tokens_in: 0,
-                tokens_out: 0,
-                termination: None,
-            },
-
-            interrupts: InterruptState {
-                interrupt_pending: false,
-                interrupt: None,
-            },
-
-            execution: Execution {
-                completed_stages: Vec::new(),
-                current_stage_number: 1,
-                max_stages: 5,
-            },
-
-            audit: Audit {
-                processing_history: Vec::new(),
-                errors: Vec::new(),
-                created_at: now,
-                completed_at: None,
-                metadata: HashMap::new(),
-            },
-
-            event_inbox: Vec::new(),
-        }
+        Self::new_minimal(
+            "anonymous",
+            &format!("sess_{}", uuid_short()),
+            "",
+            None,
+        )
     }
 
     /// Create a minimal envelope from 4 required params.
@@ -165,6 +113,9 @@ impl Envelope {
                 completed_stage_set: HashSet::new(),
                 failed_stages: HashMap::new(),
                 parallel_mode: false,
+                completed_stage_snapshots: Vec::new(),
+                current_stage_number: 0,
+                max_stages: 0,
             },
             bounds: Bounds {
                 llm_call_count: 0,
@@ -177,17 +128,10 @@ impl Envelope {
                 termination: None,
             },
             interrupts: InterruptState {
-                interrupt_pending: false,
                 interrupt: None,
-            },
-            execution: Execution {
-                completed_stages: Vec::new(),
-                current_stage_number: 0,
-                max_stages: 0,
             },
             audit: Audit {
                 processing_history: Vec::new(),
-                errors: Vec::new(),
                 created_at: now,
                 completed_at: None,
                 metadata: audit_metadata,
@@ -271,13 +215,11 @@ impl Envelope {
 
     /// Set interrupt pending.
     pub fn set_interrupt(&mut self, interrupt: FlowInterrupt) {
-        self.interrupts.interrupt_pending = true;
         self.interrupts.interrupt = Some(interrupt);
     }
 
     /// Clear interrupt.
     pub fn clear_interrupt(&mut self) {
-        self.interrupts.interrupt_pending = false;
         self.interrupts.interrupt = None;
     }
 
@@ -332,13 +274,6 @@ impl Envelope {
         // Pipeline: positive max_iterations
         if self.pipeline.max_iterations <= 0 {
             return Err(crate::types::Error::validation("pipeline.max_iterations must be positive"));
-        }
-
-        // Interrupt: pending ↔ interrupt coherence
-        if self.interrupts.interrupt_pending && self.interrupts.interrupt.is_none() {
-            return Err(crate::types::Error::validation(
-                "interrupts.interrupt_pending=true but interrupts.interrupt is None",
-            ));
         }
 
         Ok(())
@@ -408,38 +343,37 @@ mod tests {
         // Outputs map is empty
         assert!(env.outputs.is_empty());
 
-        // Pipeline defaults
-        assert_eq!(env.pipeline.current_stage, "start");
+        // Pipeline defaults (via new_minimal)
+        assert_eq!(env.pipeline.current_stage, "");
         assert!(env.pipeline.stage_order.is_empty());
         assert_eq!(env.pipeline.iteration, 0);
-        assert_eq!(env.pipeline.max_iterations, 3);
+        assert_eq!(env.pipeline.max_iterations, 100);
         assert!(env.pipeline.active_stages.is_empty());
         assert!(env.pipeline.completed_stage_set.is_empty());
         assert!(env.pipeline.failed_stages.is_empty());
         assert!(!env.pipeline.parallel_mode);
 
-        // Bounds defaults
+        // Bounds defaults (via new_minimal — placeholders overwritten by PipelineConfig)
         assert_eq!(env.bounds.llm_call_count, 0);
-        assert_eq!(env.bounds.max_llm_calls, 10);
+        assert_eq!(env.bounds.max_llm_calls, 100);
         assert_eq!(env.bounds.tool_call_count, 0);
         assert_eq!(env.bounds.agent_hop_count, 0);
-        assert_eq!(env.bounds.max_agent_hops, 21);
+        assert_eq!(env.bounds.max_agent_hops, 100);
         assert_eq!(env.bounds.tokens_in, 0);
         assert_eq!(env.bounds.tokens_out, 0);
         assert!(!env.bounds.is_terminated());
 
         // Interrupts defaults
-        assert!(!env.interrupts.interrupt_pending);
+        assert!(!env.interrupts.is_pending());
         assert!(env.interrupts.interrupt.is_none());
 
-        // Execution defaults
-        assert!(env.execution.completed_stages.is_empty());
-        assert_eq!(env.execution.current_stage_number, 1);
-        assert_eq!(env.execution.max_stages, 5);
+        // Pipeline execution tracking defaults
+        assert!(env.pipeline.completed_stage_snapshots.is_empty());
+        assert_eq!(env.pipeline.current_stage_number, 0);
+        assert_eq!(env.pipeline.max_stages, 0);
 
         // Audit defaults
         assert!(env.audit.processing_history.is_empty());
-        assert!(env.audit.errors.is_empty());
         assert!(env.audit.completed_at.is_none());
         assert!(env.audit.metadata.is_empty());
     }
@@ -486,9 +420,10 @@ mod tests {
     #[test]
     fn test_at_limit_llm_calls() {
         let mut env = Envelope::new();
+        env.bounds.max_llm_calls = 10;
         assert!(!env.at_limit());
 
-        // Increment to exactly the max (default 10)
+        // Increment to exactly the max
         env.increment_llm_calls(10);
         assert_eq!(env.bounds.llm_call_count, 10);
         assert!(env.at_limit());
@@ -499,9 +434,10 @@ mod tests {
     #[test]
     fn test_at_limit_agent_hops() {
         let mut env = Envelope::new();
+        env.bounds.max_agent_hops = 21;
         assert!(!env.at_limit());
 
-        // Increment agent hops to max (default 21)
+        // Increment agent hops to max
         for _ in 0..21 {
             env.increment_agent_hops();
         }
@@ -514,9 +450,10 @@ mod tests {
     #[test]
     fn test_at_limit_iterations() {
         let mut env = Envelope::new();
+        env.pipeline.max_iterations = 3;
         assert!(!env.at_limit());
 
-        // Increment iterations to max (default 3)
+        // Increment iterations to max
         env.pipeline.iteration = 3;
         assert!(env.at_limit());
 
@@ -563,7 +500,7 @@ mod tests {
     fn test_interrupt_flow() {
         let mut env = Envelope::new();
 
-        assert!(!env.interrupts.interrupt_pending);
+        assert!(!env.interrupts.is_pending());
         assert!(env.interrupts.interrupt.is_none());
 
         // Set an interrupt
@@ -571,7 +508,7 @@ mod tests {
             .with_question("Which database?".to_string());
         env.set_interrupt(interrupt);
 
-        assert!(env.interrupts.interrupt_pending);
+        assert!(env.interrupts.is_pending());
         assert!(env.interrupts.interrupt.is_some());
         let int = env.interrupts.interrupt.as_ref().unwrap();
         assert_eq!(int.kind, InterruptKind::Clarification);
@@ -579,7 +516,7 @@ mod tests {
 
         // Clear the interrupt
         env.clear_interrupt();
-        assert!(!env.interrupts.interrupt_pending);
+        assert!(!env.interrupts.is_pending());
         assert!(env.interrupts.interrupt.is_none());
     }
 
@@ -690,11 +627,11 @@ mod tests {
         assert_eq!(a.bounds.is_terminated(), b.bounds.is_terminated());
 
         // Interrupts
-        assert_eq!(a.interrupts.interrupt_pending, b.interrupts.interrupt_pending);
+        assert_eq!(a.interrupts.is_pending(), b.interrupts.is_pending());
 
-        // Execution
-        assert_eq!(a.execution.current_stage_number, b.execution.current_stage_number);
-        assert_eq!(a.execution.max_stages, b.execution.max_stages);
+        // Execution tracking
+        assert_eq!(a.pipeline.current_stage_number, 0);
+        assert_eq!(b.pipeline.current_stage_number, 0);
 
         // Identity shape (prefixes match even if UUIDs differ)
         assert!(b.identity.envelope_id.as_str().starts_with("env_"));
@@ -801,15 +738,6 @@ mod tests {
     fn test_validate_zero_max_llm_calls_fails() {
         let mut env = Envelope::new();
         env.bounds.max_llm_calls = 0;
-        assert!(env.validate().is_err());
-    }
-
-    // ── 21. validate: interrupt coherence ─────────────────────────────────
-
-    #[test]
-    fn test_validate_interrupt_pending_without_interrupt_fails() {
-        let mut env = Envelope::new();
-        env.interrupts.interrupt_pending = true;
         assert!(env.validate().is_err());
     }
 

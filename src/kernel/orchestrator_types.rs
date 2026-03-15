@@ -344,6 +344,23 @@ impl PipelineConfig {
 
         Ok(())
     }
+
+    /// Test-only minimal config constructor. Avoids 7-field boilerplate.
+    #[cfg(test)]
+    pub fn test_default(name: &str, stages: Vec<PipelineStage>) -> Self {
+        Self {
+            name: name.to_string(),
+            stages,
+            max_iterations: 10,
+            max_llm_calls: 50,
+            max_agent_hops: 10,
+            edge_limits: vec![],
+            step_limit: None,
+            state_schema: vec![],
+            subscriptions: vec![],
+            publishes: vec![],
+        }
+    }
 }
 
 /// Agent execution configuration — transparent to kernel, consumed by worker.
@@ -352,7 +369,7 @@ pub struct AgentConfig {
     /// Prompt template key for this agent. None = deterministic (no LLM call).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub prompt_key: Option<String>,
-    /// Whether this agent makes LLM calls.
+    /// Whether this agent makes LLM calls (default: false — require explicit opt-in).
     #[serde(default = "default_has_llm")]
     pub has_llm: bool,
     /// LLM temperature override for this stage.
@@ -368,17 +385,21 @@ pub struct AgentConfig {
     /// Mutually exclusive with has_llm=true.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub child_pipeline: Option<String>,
+    /// Maximum tool call rounds in the ReAct loop (default: 10).
+    #[serde(default = "default_max_tool_rounds")]
+    pub max_tool_rounds: u32,
 }
 
 impl Default for AgentConfig {
     fn default() -> Self {
         Self {
-            has_llm: true,
+            has_llm: false,
             prompt_key: None,
             temperature: None,
             max_tokens: None,
             model_role: None,
             child_pipeline: None,
+            max_tool_rounds: 10,
         }
     }
 }
@@ -419,7 +440,11 @@ pub struct PipelineStage {
 }
 
 fn default_has_llm() -> bool {
-    true
+    false
+}
+
+fn default_max_tool_rounds() -> u32 {
+    10
 }
 
 /// Join strategy for parallel execution groups.
@@ -438,6 +463,28 @@ pub struct EdgeLimit {
     pub from_stage: String,
     pub to_stage: String,
     pub max_count: i32,
+}
+
+/// Type-safe key for edge traversal tracking.
+///
+/// Replaces string concatenation `"from->to"` to eliminate collision risk
+/// (e.g., stage names containing "->").
+#[derive(Debug, Clone, Hash, Eq, PartialEq)]
+pub struct EdgeKey {
+    pub from_stage: String,
+    pub to_stage: String,
+}
+
+impl EdgeKey {
+    pub fn new(from: impl Into<String>, to: impl Into<String>) -> Self {
+        Self { from_stage: from.into(), to_stage: to.into() }
+    }
+}
+
+impl std::fmt::Display for EdgeKey {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}->{}", self.from_stage, self.to_stage)
+    }
 }
 
 /// State for an active parallel execution group.
@@ -489,18 +536,7 @@ mod tests {
     }
 
     fn minimal_config(stages: Vec<PipelineStage>) -> PipelineConfig {
-        PipelineConfig {
-            name: "test".to_string(),
-            stages,
-            max_iterations: 10,
-            max_llm_calls: 10,
-            max_agent_hops: 10,
-            edge_limits: vec![],
-            step_limit: None,
-            state_schema: vec![],
-            subscriptions: vec![],
-            publishes: vec![],
-        }
+        PipelineConfig::test_default("test", stages)
     }
 
     #[test]
