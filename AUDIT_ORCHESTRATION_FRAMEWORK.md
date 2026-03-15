@@ -31,7 +31,7 @@
                      ▼
 ┌──────────────────────────────────────────────────┐
 │ Agent Executors (concurrent tokio tasks)          │
-│  ├── LlmAgent (ReAct tool loop, OpenAI HTTP)     │
+│  ├── LlmAgent (ReAct tool loop, 8+ providers)     │
 │  ├── McpDelegatingAgent (MCP tools/call)         │
 │  ├── PipelineAgent (nested A2A pipelines)        │
 │  └── DeterministicAgent (pure routing gates)     │
@@ -49,6 +49,9 @@ The **Envelope** is a mutable state container that flows through the pipeline, a
 | **Deterministic routing** | 13-operator expression tree (Eq, Neq, Gt, Lt, Contains, Exists, And, Or, Not, Always...) with 5 field scopes (Current, Agent, Meta, Interrupt, State). First-match semantics. |
 | **Parallel fan-out** | Fork nodes with WaitAll/WaitFirst join strategies. |
 | **Composability** | PipelineAgent enables nested pipelines (A2A). CommBus enables cross-pipeline pub/sub. |
+| **Multi-provider LLM** | 8+ providers via `genai` crate (OpenAI, Anthropic, Gemini, Ollama, Groq, DeepSeek, Cohere, xAI). Per-stage model override, auto-detection by model prefix, env-based API key discovery. |
+| **Context safety** | Per-stage `max_context_tokens` with overflow strategies: `TruncateOldest` (drop intermediate messages) or `Fail` (safe abort). Prevents token overrun before LLM call. |
+| **Agent auto-factory** | `AgentFactoryBuilder` automatically creates correct agent types from pipeline config: Gate→Deterministic, child_pipeline→Pipeline, has_llm→Llm, tool match→McpDelegating. |
 | **Safety** | Rust memory safety, per-agent tool ACLs, circuit-breaking tool health tracker, rate limiting. |
 | **Observability** | Full tracing with OpenTelemetry bridge, streaming PipelineEvents, audit trail with timestamps. |
 | **Polyglot** | PyO3 bindings (Python 3.11+), native Rust crate, MCP stdio server. |
@@ -58,10 +61,10 @@ The **Envelope** is a mutable state container that flows through the pipeline, a
 
 | Weakness | Detail |
 |----------|--------|
-| **Single LLM provider** | Only OpenAI-compatible HTTP. No native Anthropic, Google, or local model support. Adding providers requires implementing the `LlmProvider` trait. |
+| ~~**Single LLM provider**~~ | **RESOLVED.** Now supports 8+ providers via `genai` crate: OpenAI, Anthropic, Google Gemini, Ollama (local), Groq, DeepSeek, Cohere, xAI. Per-stage model override via `model_role`. |
 | **No built-in memory/RAG** | No vector store, conversation memory, or retrieval integration. Must be implemented as custom tools. |
 | **No prompt management** | Prompts are loaded from files by key. No templating engine, no few-shot management, no prompt versioning. |
-| **Steep learning curve** | Kernel/Envelope/Orchestrator concepts are powerful but unfamiliar. JSON pipeline configs are verbose. |
+| **Steep learning curve** | Kernel/Envelope/Orchestrator concepts are powerful but unfamiliar. JSON pipeline configs are verbose. Partially mitigated by new `AgentFactoryBuilder` which auto-creates agents from config. |
 | **Small ecosystem** | No marketplace of pre-built agents, tools, or integrations. Everything must be built. |
 | **No built-in eval/testing framework** | No agent evaluation harness, no benchmark suite, no automatic quality scoring. |
 | **Limited documentation** | README covers architecture well but lacks tutorials, cookbooks, or migration guides. |
@@ -75,7 +78,7 @@ The **Envelope** is a mutable state container that flows through the pipeline, a
 
 | Framework | Language | Core Abstraction | Multi-Agent | LLM Providers | Maturity | GitHub Stars |
 |-----------|----------|-----------------|-------------|----------------|----------|-------------|
-| **Jeeves Core** | Rust (PyO3) | Kernel + Envelope state machine | Fork/Join, nested pipelines, CommBus | OpenAI-compat only | Pre-alpha (v0.0.2) | New |
+| **Jeeves Core** | Rust (PyO3) | Kernel + Envelope state machine | Fork/Join, nested pipelines, CommBus | **8+ providers** via genai (OpenAI, Anthropic, Gemini, Ollama, Groq, DeepSeek, Cohere, xAI) | Pre-alpha (v0.0.2) | New |
 | **LangGraph** | Python/JS | Directed graph (nodes + edges) | Supervisor, swarm, hierarchical | Any via LangChain | Production (GA 1.0, Oct 2025) | ~24.6k |
 | **CrewAI** | Python | Crew of role-based agents | Sequential, hierarchical, consensual | Fully model-agnostic | Stable (v1.10+) | ~45k |
 | **AutoGen/AG2** | Python | Multi-agent conversation | GroupChat, nested chat | Fully model-agnostic | **Maintenance mode** (deprecated) | Declining |
@@ -196,7 +199,7 @@ The **Envelope** is a mutable state container that flows through the pipeline, a
 |------|----------|------------|
 | **Pre-alpha maturity (v0.0.2)** | HIGH | API may break. No SemVer guarantees. Pin version, fork if needed. |
 | **Small community** | HIGH | Limited Stack Overflow answers, no ecosystem of plugins. You become your own support. |
-| **Single LLM provider** | MEDIUM | Must implement `LlmProvider` trait for Anthropic/Google. Straightforward but requires Rust. |
+| ~~**Single LLM provider**~~ | ~~MEDIUM~~ **RESOLVED** | Now supports 8+ providers via `genai` crate. No custom trait implementation needed. |
 | **No managed service** | MEDIUM | Must self-host, monitor, and operate. No "LangGraph Cloud" equivalent. |
 | **Bus factor** | HIGH | Appears to be early-stage project. Assess contributor count and commit velocity. |
 
@@ -204,7 +207,7 @@ The **Envelope** is a mutable state container that flows through the pipeline, a
 
 To use Jeeves Core for production agentic orchestration, you would need to add:
 
-1. **Additional LLM providers** — Anthropic, Google Gemini, local model support
+1. ~~**Additional LLM providers**~~ — **RESOLVED.** 8+ providers now supported natively via `genai` crate.
 2. **Memory / RAG layer** — Vector store integration, conversation memory
 3. **Prompt management** — Templating, versioning, A/B testing
 4. **Monitoring dashboard** — Visualize pipeline execution, costs, latency
@@ -248,7 +251,25 @@ Jeeves Core's per-user rate limiting, process isolation, and resource quotas mak
 
 ---
 
-## 8. Technical Summary Card
+## 8. Audit Revision Log
+
+### Rev 2 (2026-03-15) — Multi-Provider LLM & Agent Factory
+
+Changes merged from `main` that materially alter this audit:
+
+| Change | Impact |
+|--------|--------|
+| **`openai.rs` deleted, replaced by `genai_provider.rs`** | Single biggest weakness eliminated. Framework now supports 8+ LLM providers (OpenAI, Anthropic, Gemini, Ollama, Groq, DeepSeek, Cohere, xAI) via the `genai = "0.5"` crate. Model auto-detected by prefix (e.g., `claude-*` → Anthropic, `gemini-*` → Google). API keys auto-discovered from env vars. |
+| **Per-stage model override (`model_role`)** | Each pipeline stage can use a different model. Supports named roles (`"fast"` → gpt-4o-mini, `"reasoning"` → o3-mini) or explicit model names. Enables cost-optimized pipelines mixing cheap/expensive models. |
+| **`AgentFactoryBuilder` (179 lines added)** | Automatic agent type creation from pipeline config. Reduces boilerplate — no manual agent registration needed. Decision tree: Gate→Deterministic, child_pipeline→Pipeline, has_llm→Llm, tool match→McpDelegating. |
+| **Context window safety** | New `max_context_tokens` and `ContextOverflow` strategy (TruncateOldest / Fail) per stage. Prevents token overrun before LLM call using chars/4 heuristic. |
+| **Python runner updated** | `PipelineRunner` now accepts any model name: `PipelineRunner.from_json(..., model="claude-3-5-sonnet")`. Falls back to `OPENAI_MODEL` env var, then `gpt-4o-mini`. |
+
+**Net effect on competitive positioning:** The multi-provider gap was Jeeves Core's most significant weakness vs. LangGraph/CrewAI. With `genai` integration, Jeeves Core now matches or exceeds most frameworks on provider breadth, while retaining its unique advantages in resource bounding, HITL, and performance. The remaining gaps are ecosystem/community maturity and RAG/memory.
+
+---
+
+## 9. Technical Summary Card
 
 ```
 Name:           Jeeves Core
@@ -257,7 +278,7 @@ Language:       Rust 1.75+ (PyO3 for Python 3.11+)
 Lines of Code:  ~18,159 Rust
 Tests:          348
 License:        (check Cargo.toml)
-LLM Support:    OpenAI-compatible only
+LLM Support:    8+ providers via genai (OpenAI, Anthropic, Gemini, Ollama, Groq, DeepSeek, Cohere, xAI)
 Orchestration:  Kernel-owned state machine, declarative routing
 Multi-Agent:    Linear, conditional, fork/join, nested pipelines, CommBus
 HITL:           7 interrupt kinds, TTL, routing integration
