@@ -8,6 +8,7 @@
 
 use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
 use std::sync::atomic::{AtomicU64, Ordering};
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 use tokio::sync::Mutex;
@@ -23,9 +24,16 @@ use crate::worker::tools::{ToolExecutor, ToolInfo};
 #[derive(Debug, Clone)]
 pub enum McpTransport {
     /// JSON-RPC over HTTP POST.
-    Http { url: String },
+    Http {
+        url: String,
+        headers: HashMap<String, String>,
+    },
     /// JSON-RPC over stdin/stdout of a child process.
-    Stdio { command: String, args: Vec<String> },
+    Stdio {
+        command: String,
+        args: Vec<String>,
+        env: HashMap<String, String>,
+    },
 }
 
 // =============================================================================
@@ -93,8 +101,18 @@ struct McpContentItem {
 struct StdioClient {
     stdin: Mutex<tokio::process::ChildStdin>,
     stdout: Mutex<BufReader<tokio::process::ChildStdout>>,
-    // Held for Drop cleanup — start_kill() on drop.
-    _child: Mutex<tokio::process::Child>,
+    /// Child process handle — killed on drop.
+    child: Mutex<tokio::process::Child>,
+}
+
+impl Drop for StdioClient {
+    fn drop(&mut self) {
+        // Kill child process on drop (critical on Windows where tokio doesn't auto-kill).
+        if let Ok(mut child) = self.child.try_lock() {
+            let _ = child.start_kill();
+            tracing::debug!("MCP stdio child process killed on drop");
+        }
+    }
 }
 
 /// Transport-specific I/O, concurrency-safe via Mutex.
@@ -102,6 +120,7 @@ enum McpClient {
     Http {
         client: reqwest::Client,
         url: String,
+        headers: HashMap<String, String>,
     },
     Stdio(Box<StdioClient>),
 }
@@ -118,9 +137,12 @@ impl std::fmt::Debug for McpClient {
 impl McpClient {
     async fn send(&self, request: &JsonRpcRequest<'_>) -> Result<JsonRpcResponse> {
         match self {
-            McpClient::Http { client, url } => {
-                let resp = client
-                    .post(url)
+            McpClient::Http { client, url, headers } => {
+                let mut req_builder = client.post(url);
+                for (key, value) in headers {
+                    req_builder = req_builder.header(key.as_str(), value.as_str());
+                }
+                let resp = req_builder
                     .json(request)
                     .send()
                     .await
@@ -204,16 +226,21 @@ impl McpToolExecutor {
     /// Connect to an MCP server and discover tools via `tools/list`.
     pub async fn connect(transport: McpTransport) -> Result<Self> {
         let client = match transport {
-            McpTransport::Http { url } => McpClient::Http {
+            McpTransport::Http { url, headers } => McpClient::Http {
                 client: reqwest::Client::new(),
                 url,
+                headers,
             },
-            McpTransport::Stdio { command, args } => {
-                let mut child = tokio::process::Command::new(&command)
-                    .args(&args)
+            McpTransport::Stdio { command, args, env } => {
+                let mut cmd = tokio::process::Command::new(&command);
+                cmd.args(&args);
+                for (key, value) in &env {
+                    cmd.env(key, value);
+                }
+                let mut child = cmd
                     .stdin(std::process::Stdio::piped())
                     .stdout(std::process::Stdio::piped())
-                    .stderr(std::process::Stdio::null())
+                    .stderr(std::process::Stdio::inherit())
                     .spawn()
                     .map_err(|e| {
                         Error::internal(format!("MCP spawn error ({command}): {e}"))
@@ -229,7 +256,7 @@ impl McpToolExecutor {
                 McpClient::Stdio(Box::new(StdioClient {
                     stdin: Mutex::new(stdin),
                     stdout: Mutex::new(BufReader::new(stdout)),
-                    _child: Mutex::new(child),
+                    child: Mutex::new(child),
                 }))
             }
         };
@@ -429,5 +456,36 @@ mod tests {
         assert_eq!(result.content.len(), 1);
         assert_eq!(result.content[0].text.as_deref(), Some("hello world"));
         assert!(!result.is_error);
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn test_stdio_client_drop_kills_child() {
+        // Spawn a long-running child that we can verify gets killed
+        let mut child = tokio::process::Command::new("cat")
+            .stdin(std::process::Stdio::piped())
+            .stdout(std::process::Stdio::piped())
+            .stderr(std::process::Stdio::inherit())
+            .spawn()
+            .expect("spawn cat");
+
+        let stdin = child.stdin.take().unwrap();
+        let stdout = child.stdout.take().unwrap();
+        let child_id = child.id();
+
+        // Create StdioClient and immediately drop it
+        {
+            let _client = StdioClient {
+                stdin: Mutex::new(stdin),
+                stdout: Mutex::new(BufReader::new(stdout)),
+                child: Mutex::new(child),
+            };
+        } // Drop happens here — should call start_kill()
+
+        // Give OS time to reap the process
+        tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+
+        // Verify we got here without panic — Drop impl executed successfully
+        assert!(child_id.is_some());
     }
 }

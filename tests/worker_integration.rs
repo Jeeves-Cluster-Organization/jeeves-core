@@ -938,6 +938,7 @@ async fn test_mcp_http_tool_executor() {
     use axum::{routing::post, Json, Router};
     use jeeves_core::worker::mcp::{McpToolExecutor, McpTransport};
     use serde_json::json;
+    use std::collections::HashMap;
 
     // Stand up a mock MCP server that handles tools/list and tools/call
     let app = Router::new().route(
@@ -1021,7 +1022,7 @@ async fn test_mcp_http_tool_executor() {
     let url = format!("http://{addr}/");
 
     // Connect and discover tools
-    let executor = McpToolExecutor::connect(McpTransport::Http { url })
+    let executor = McpToolExecutor::connect(McpTransport::Http { url, headers: HashMap::new() })
         .await
         .expect("MCP connect should succeed");
 

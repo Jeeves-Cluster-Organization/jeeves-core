@@ -3,6 +3,7 @@
 //! Configuration is loaded from environment variables and config files.
 
 use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
 use std::time::Duration;
 
 /// Global kernel configuration.
@@ -184,6 +185,40 @@ pub struct McpServerConfig {
     pub command: Option<String>,
     #[serde(default)]
     pub args: Option<Vec<String>>,
+    /// HTTP headers to include in requests (e.g., Authorization).
+    #[serde(default, skip_serializing_if = "HashMap::is_empty")]
+    pub headers: HashMap<String, String>,
+    /// Environment variables to set on stdio child process.
+    #[serde(default, skip_serializing_if = "HashMap::is_empty")]
+    pub env: HashMap<String, String>,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_mcp_server_config_minimal() {
+        let json = r#"{"name":"test","transport":"http","url":"http://localhost:3000"}"#;
+        let cfg: McpServerConfig = serde_json::from_str(json).unwrap();
+        assert_eq!(cfg.name, "test");
+        assert!(cfg.headers.is_empty());
+        assert!(cfg.env.is_empty());
+    }
+
+    #[test]
+    fn test_mcp_server_config_with_auth() {
+        let json = r#"{"name":"api","transport":"http","url":"http://localhost:3000","headers":{"Authorization":"Bearer sk-test"}}"#;
+        let cfg: McpServerConfig = serde_json::from_str(json).unwrap();
+        assert_eq!(cfg.headers.get("Authorization").unwrap(), "Bearer sk-test");
+    }
+
+    #[test]
+    fn test_mcp_server_config_with_env() {
+        let json = r#"{"name":"tool","transport":"stdio","command":"python","args":["tool.py"],"env":{"API_KEY":"secret"}}"#;
+        let cfg: McpServerConfig = serde_json::from_str(json).unwrap();
+        assert_eq!(cfg.env.get("API_KEY").unwrap(), "secret");
+    }
 }
 
 impl Config {
