@@ -75,21 +75,26 @@ pub struct AgentDispatchContext {
     pub context_overflow: Option<ContextOverflow>,
 }
 
-/// Instruction tells the worker what to do next.
+/// Instruction from kernel to worker — determines what happens next.
+///
+/// Returned by `KernelHandle::get_next_instruction()` after each agent completes.
 #[must_use]
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "SCREAMING_SNAKE_CASE")]
 pub enum Instruction {
+    /// Dispatch a single agent for execution.
     RunAgent {
         agent: String,
         #[serde(flatten)]
         context: AgentDispatchContext,
     },
+    /// Dispatch multiple agents in parallel (emitted by Fork nodes).
     RunAgents {
         agents: Vec<String>,
         #[serde(flatten)]
         context: AgentDispatchContext,
     },
+    /// Stop the pipeline with the given reason.
     Terminate {
         reason: TerminalReason,
         #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -97,6 +102,7 @@ pub enum Instruction {
         #[serde(flatten)]
         context: AgentDispatchContext,
     },
+    /// Wait for all parallel agents to complete (Fork join point).
     WaitParallel,
     WaitInterrupt {
         #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -537,16 +543,27 @@ pub struct ParallelGroupState {
     pub join_strategy: JoinStrategy,
 }
 
-/// SessionState is the external representation of session state.
+/// External representation of a pipeline session's state.
+///
+/// Returned by `KernelHandle::get_session_state()` and included in
+/// `CheckpointSnapshot`. Contains full execution state serialized as JSON
+/// for cross-language consumption (PyO3, MCP).
 #[must_use]
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SessionState {
+    /// Process identifier for this session.
     pub process_id: ProcessId,
+    /// Name of the stage currently being executed or about to execute.
     pub current_stage: String,
+    /// Ordered list of all stage names in the pipeline.
     pub stage_order: Vec<String>,
+    /// Full Envelope serialized as JSON (outputs, bounds, audit trail, interrupts).
     pub envelope: serde_json::Value,
+    /// Per-edge traversal counts, keyed as `"from_stage->to_stage"`.
     pub edge_traversals: HashMap<String, i32>,
+    /// Whether the pipeline has terminated.
     pub terminated: bool,
+    /// Reason for termination, if terminated.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub terminal_reason: Option<TerminalReason>,
 }
