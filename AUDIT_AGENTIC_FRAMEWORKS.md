@@ -1,7 +1,7 @@
 # Jeeves-Core v0.0.2 — Architectural Audit
 
-**Date**: 2026-03-15 (Iteration 27 — weakness audit correction)
-**Codebase**: ~17,890 lines Rust, `#[deny(unsafe_code)]` except PyO3 FFI. 290 Rust tests + 27 pytest. Single-process kernel consumed via PyO3 or MCP stdio.
+**Date**: 2026-03-15 (Iteration 28)
+**Codebase**: ~17,920 lines Rust, `#[deny(unsafe_code)]` except PyO3 FFI. 293 Rust tests + 27 pytest. Single-process kernel consumed via PyO3 or MCP stdio.
 
 ---
 
@@ -16,7 +16,7 @@ MCP:    jeeves-kernel (JSON-RPC 2.0 over stdin/stdout)
 
 Core loop: `KernelHandle` → mpsc → single `&mut Kernel` actor → typed `Instruction` enum → worker spawns tokio agent tasks → results reported back.
 
-**Score: 4.9/5** — all critical gaps closed. One real bug: MCP stdio child processes orphan on drop (missing `impl Drop`). Two partial gaps: CommBus queries not exposed via MCP for cross-network federation; MCP HTTP transport missing `headers` config field.
+**Score: 4.9/5** — all critical gaps closed. One partial gap: CommBus queries not exposed via MCP for cross-network federation.
 
 ---
 
@@ -117,7 +117,7 @@ Auto-agent creation from stage config: Gate→Deterministic, `child_pipeline`→
 
 ### 2.7 MCP
 
-**Client** (430L): HTTP + stdio transports, JSON-RPC 2.0, 30s timeout on stdio, per-tool-name registration into `ToolRegistry`. 7 unit + 1 integration test.
+**Client** (492L): HTTP + stdio transports, JSON-RPC 2.0, 30s timeout on stdio, per-tool-name registration into `ToolRegistry`. HTTP transport carries `headers: HashMap<String, String>` for auth. Stdio transport carries `env: HashMap<String, String>` for child process config. `impl Drop for StdioClient` calls `child.start_kill()`. Stderr inherited (logged). 8 unit + 1 integration test.
 
 **Server** (360L): stdio, `initialize`/`tools/list`/`tools/call`, upstream proxy via `JEEVES_MCP_SERVERS`. 6 tests.
 
@@ -171,7 +171,7 @@ Auto-agent creation from stage config: Gate→Deterministic, `child_pipeline`→
 | HITL | 7 kinds wired | Breakpoints | — | Human proxy | — | — | — | — | — | — | — | — | — | — | — |
 | MCP | Client+Server | Client | — | — | — | — | — | Client | Client | Client | Client | Client | Client | — | — |
 | Streaming | 8 events staged | Yes | — | Yes | Yes | — | — | Yes | Yes | Yes | Yes | Yes | Yes | — | Yes |
-| Tests | 290+27py+harness | — | — | — | — | — | Eval | — | pytest | — | Eval | — | — | — | — |
+| Tests | 293+27py+harness | — | — | — | — | — | Eval | — | pytest | — | Eval | — | — | — | — |
 | A2A | PipelineAgent | — | — | Nested | — | — | — | — | — | — | Loop/Sub | Handoffs | — | — | — |
 | Persistent memory | — | Checkpoint | — | — | — | — | — | — | — | Memory | — | — | — | — | — |
 
@@ -210,7 +210,7 @@ Auto-agent creation from stage config: Gate→Deterministic, `child_pipeline`→
 | S7 | Agentic capabilities | 4.8 | ReAct + circuit breaking + health tracking. Triple enforcement |
 | S8 | Streaming | 4.5 | 8 event types, stage+pipeline attributed, `Arc<str>` |
 | S9 | Validation | 4.0 | `PipelineConfig::validate()`, 28 tests |
-| S10 | Testing | 4.5 | 290 Rust + 27 pytest + harness + mock MCP |
+| S10 | Testing | 4.5 | 293 Rust + 27 pytest + harness + mock MCP |
 | S11 | Observability | 4.0 | `#[instrument]`, routing debug, OTEL, CommBus stats |
 | S12 | Code hygiene | 5.0 | ~40k dead lines deleted, god-files split, delegation layer eliminated, domain grouping |
 | S13 | Interrupts | 4.5 | 7 kinds, wired end-to-end: kernel → poll/early-return |
@@ -223,20 +223,20 @@ Auto-agent creation from stage config: Gate→Deterministic, `child_pipeline`→
 
 ## 5. Weaknesses
 
-### Real bug
-
-| # | Area | Detail |
-|---|------|--------|
-| W1 | MCP stdio child orphan | `McpToolExecutor` stdio transport holds `_child: Child` but has no `impl Drop`. Comment says "start_kill() on drop" but the impl doesn't exist. Child processes orphan when executor is dropped. Fix: `impl Drop for StdioClient { fn drop(&mut self) { let _ = self.child.start_kill(); } }`. No reconnection on crash either. |
-
-### Partial gaps
+### Partial gap
 
 | # | Area | Score | Detail |
 |---|------|-------|--------|
-| W2 | Cross-network federation | 2.5 | CommBus primitives (pub/sub, commands, queries) exist in-process. MCP is already the network boundary. Missing: expose CommBus queries as MCP tools for cross-process federation. Straightforward extension. |
-| W3 | MCP HTTP auth | 2.5 | Stdio transport: process isolation is correct auth. HTTP transport: `McpServerConfig` missing `headers: Option<HashMap<String, String>>` and `env: Option<HashMap<String, String>>` for bearer tokens / API keys. |
+| W1 | Cross-network federation | 2.5 | CommBus primitives (pub/sub, commands, queries) exist in-process. MCP is already the network boundary. Missing: expose CommBus queries as MCP tools for cross-process federation. Straightforward extension. |
 
-### Not weaknesses (removed from previous audit)
+### Fixed (iteration 28)
+
+| Previously | Fix |
+|-----------|-----|
+| W1 (prev): MCP stdio child orphan | `impl Drop for StdioClient` with `child.start_kill()`. Stderr inherited. Test: `test_stdio_client_drop_kills_child`. |
+| W3 (prev): MCP HTTP auth | `McpServerConfig` gains `headers: HashMap<String, String>` + `env: HashMap<String, String>`. `McpTransport::Http` carries headers, `McpTransport::Stdio` carries env. Wired through `main.rs`. Tests: `test_mcp_server_config_with_auth`, `test_mcp_server_config_with_env`. |
+
+### Not weaknesses (removed from earlier audit)
 
 | Previously listed | Why removed |
 |-------------------|-------------|
@@ -251,16 +251,16 @@ Auto-agent creation from stage config: Gate→Deterministic, `child_pipeline`→
 
 ## 6. Documentation
 
-6 docs, ~870 lines. **Score: 4.5/5** (all rewritten in iteration 23).
+6 docs, ~890 lines. **Score: 4.5/5** (all rewritten in iteration 23, updated iteration 28 for MCP auth).
 
 | Doc | Lines | Status |
 |-----|-------|--------|
-| README.md | ~166 | Current: PyO3+MCP architecture, repo structure, consumer patterns |
+| README.md | ~172 | Current: PyO3+MCP architecture, repo structure, consumer patterns, MCP auth examples |
 | CONSTITUTION.md | ~94 | Current: 8 architectural principles |
 | CONTRIBUTING.md | ~42 | Current: setup, submission guidelines |
 | CHANGELOG.md | ~153 | Current: full history through iteration 22 |
 | API_REFERENCE.md | ~215 | Current: PyO3 API, pipeline config, routing, Rust types |
-| DEPLOYMENT.md | ~117 | Current: PyO3, MCP stdio, env vars |
+| DEPLOYMENT.md | ~131 | Current: PyO3, MCP stdio, env vars, MCP server config field reference |
 
 Deleted: `COVERAGE_REPORT.md` (stale), `Dockerfile` (HTTP pattern gone).
 
@@ -275,13 +275,17 @@ Deleted: `COVERAGE_REPORT.md` (stale), `Dockerfile` (HTTP pattern gone).
 3. ~~Routing recursion limit~~ — `validate_depth()` max 32
 4. ~~Documentation overhaul~~ — all 6 docs rewritten
 
+### Done (iteration 28)
+
+5. ~~MCP stdio child cleanup~~ — `impl Drop for StdioClient` with `child.start_kill()`. Stderr inherited.
+6. ~~MCP HTTP auth~~ — `headers` on `McpServerConfig` + `McpTransport::Http`. `env` on stdio transport.
+
 ### Next
 
-5. **MCP stdio child cleanup** (bug) — `impl Drop for StdioClient` with `child.start_kill()`. Add reconnection on transport failure.
-6. **MCP HTTP auth** — add `headers: Option<HashMap<String, String>>` to `McpServerConfig` for bearer tokens.
 7. **CommBus over MCP** — expose CommBus query/subscribe as MCP tools for cross-process federation.
 8. **Async Python tools** — `PyToolExecutor` currently sync-only. Support `async def` via `pyo3-asyncio`.
 9. **Evaluation framework** — leverage kernel metrics + PipelineTestHarness for pipeline quality.
+10. **MCP reconnection** — transport failure recovery for both HTTP and stdio.
 
 ---
 
@@ -297,21 +301,21 @@ Deleted: `COVERAGE_REPORT.md` (stale), `Dockerfile` (HTTP pattern gone).
 | Agentic capabilities | 5.0 | ReAct + circuit breaking + health tracking + 4 agent types |
 | Streaming | 5.0 | 8 events, stage+pipeline attributed, composed pipeline bridging |
 | Validation | 4.8 | `PipelineConfig::validate()` with 28 tests |
-| MCP | 4.5 | Client+Server bidirectional. Bug: stdio child orphans on drop (W1) |
+| MCP | 4.8 | Client+Server bidirectional. `impl Drop` kills children. HTTP auth headers. Stderr inherited |
 | Interrupts | 4.5 | 7 kinds, wired end-to-end |
 | PyO3 | 4.8 | GIL-released, auto-agents, 27 pytest |
 | Code hygiene | 5.0 | God-files split, delegation deleted, domain grouping |
-| Testing | 4.5 | 290 Rust + 27 pytest + harness |
+| Testing | 4.5 | 293 Rust + 27 pytest + harness |
 | DX | 4.5 | PipelineBuilder, @tool, auto-agents |
 | Documentation | 4.5 | All 6 docs current |
 | Interoperability | 4.5 | PyO3 + MCP stdio (any language via JSON-RPC) |
-| **Overall** | **4.9** | One bug (W1), two partial gaps (W2, W3) |
+| **Overall** | **4.9** | One partial gap (W1: cross-network federation) |
 
 ---
 
 ## 9. Trajectory
 
-### v0.0.2 changes (iterations 25-26, 3 commits, +1,429/-1,342)
+### v0.0.2 changes (iterations 25-28, 4 commits)
 
 **Commit 25: God-file decomposition + type safety** (`529e32a`):
 
@@ -336,20 +340,25 @@ Envelope restructured:
 
 **Commit 26-27: Version bump** (`ce0b1d0`, `f0e98ea`): 0.0.1 → 0.0.2 in `Cargo.toml`, `pyproject.toml`, `Cargo.lock`.
 
+**Commit 28: MCP lifecycle + auth hardening** (`a375830`, +131/-19):
+- `impl Drop for StdioClient` — `child.start_kill()` on drop. Prevents orphaned child processes. `child` field moved to `Mutex<Child>` for `try_lock()` in drop. Test: `test_stdio_client_drop_kills_child` (unix-only, spawns `cat`, verifies drop kills).
+- `McpTransport::Http` gains `headers: HashMap<String, String>` — wired through `McpClient::send()` via `req_builder.header()` loop.
+- `McpTransport::Stdio` gains `env: HashMap<String, String>` — wired through `cmd.env()` in `connect()`.
+- `McpServerConfig` gains `headers: HashMap<String, String>` + `env: HashMap<String, String>` — both `serde(default, skip_serializing_if = "HashMap::is_empty")`. 3 new tests: minimal config, with auth, with env.
+- `main.rs` updated to pass `headers`/`env` from config to transport.
+- `Stdio` stderr changed from `Stdio::null()` → `Stdio::inherit()` (MCP child stderr now visible in parent logs).
+- README + DEPLOYMENT.md updated with auth and env examples.
+
 ### Gap closure
 
-**45/52 closed.** 2 removed (gateway hardening, consumer client). 2 superseded (Python overhead, structured errors). 2 recovered (A2A, discovery). 1 open (persistent memory).
-
-New gaps closed in v0.0.2:
-- Orchestrator god-file → split 6 ways
-- CommBus god-file → split 4 ways
+**47/54 closed.** 6 recommendations done (4 original + 2 from iteration 28). One partial gap remains: cross-network CommBus federation.
 
 ### Code trajectory
 
-| Metric | v0.0.1 (iter 24) | v0.0.2 (iter 26) |
+| Metric | v0.0.1 (iter 24) | v0.0.2 (iter 28) |
 |--------|-------------------|-------------------|
-| Rust LOC | ~17,800 | ~17,890 |
-| Rust tests | 301 | 290 |
+| Rust LOC | ~17,800 | ~17,920 |
+| Rust tests | 301 | 293 |
 | Python tests | 27 | 27 |
 | Orchestrator files | 2 | 6 |
 | CommBus files | 1 | 4 |
@@ -357,16 +366,16 @@ New gaps closed in v0.0.2:
 | Agent types | 4 | 4 |
 | KernelCommand variants | 13 | 13 |
 | PipelineEvent variants | 8 | 8 |
+| MCP child lifecycle | no Drop | `impl Drop` + `start_kill()` |
+| MCP auth | none | `headers` (HTTP) + `env` (stdio) |
 | Version | 0.0.1 | 0.0.2 |
 
-Test count: 301 → 290 due to consolidation during refactor (shared test_helpers, deduplicated fixtures).
+Test count: 301 → 293. -11 from consolidation (shared test_helpers), +3 from MCP hardening (drop kill, auth config, env config).
 
 ### Verdict
 
-v0.0.2 is a structural polish release. No new features. Two god-files (orchestrator, CommBus) decomposed into focused modules. Envelope gains semantic sub-structs. Test helpers shared across modules. The codebase is now at the point where every file has a single clear purpose. Net +87 lines despite splitting — the new files add test coverage and type definitions that were previously inline.
-
-All 4 top recommendations remain DONE. One real bug to fix (MCP stdio child orphan). Two partial gaps to close (MCP HTTP auth headers, CommBus over MCP for cross-network).
+v0.0.2 is structural polish + MCP hardening. Two god-files decomposed (orchestrator 1→6, CommBus 1→4). Envelope gains semantic sub-structs. MCP lifecycle fixed (child kill on drop), auth added (HTTP headers, stdio env). All 6 recommendations done. One partial gap: CommBus not yet exposed via MCP for cross-network federation.
 
 ---
 
-*Audit: 27 iterations, 2026-03-11 to 2026-03-15. Branch: `claude/audit-agentic-frameworks-B6fqd`.*
+*Audit: 28 iterations, 2026-03-11 to 2026-03-15. Branch: `claude/audit-agentic-frameworks-B6fqd`.*
