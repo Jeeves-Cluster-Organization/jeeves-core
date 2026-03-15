@@ -108,7 +108,7 @@ impl Kernel {
         // Initialize orchestrator session from config
         let envelope = self.process_envelopes.get_mut(&pid)
             .ok_or_else(|| Error::not_found("Just-inserted envelope missing"))?;
-        let _ = self.orchestrator.initialize_session(pid.clone(), pipeline_config, envelope, true)?;
+        let _state = self.orchestrator.initialize_session(pid.clone(), pipeline_config, envelope, true)?;
 
         // Restore edge traversals, stage visits, and parallel state
         if let Some(session) = self.orchestrator.get_session_mut(&pid) {
@@ -162,7 +162,7 @@ mod tests {
 
         let config = test_config();
         let envelope = Envelope::new_minimal("user-1", "sess-1", "hello", None);
-        kernel.initialize_orchestration(pid.clone(), config, envelope, false).unwrap();
+        let _state = kernel.initialize_orchestration(pid.clone(), config, envelope, false).unwrap();
 
         (kernel, pid)
     }

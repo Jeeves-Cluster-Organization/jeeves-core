@@ -538,6 +538,7 @@ pub struct ParallelGroupState {
 }
 
 /// SessionState is the external representation of session state.
+#[must_use]
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SessionState {
     pub process_id: ProcessId,

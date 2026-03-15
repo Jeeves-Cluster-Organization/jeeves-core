@@ -209,7 +209,7 @@ async fn test_kernel_actor_terminate_process() {
     let pid = ProcessId::must("term-test");
     let envelope = jeeves_core::envelope::Envelope::new_minimal("user1", "sess1", "hello", None);
 
-    handle
+    let _state = handle
         .initialize_session(pid.clone(), two_stage_pipeline(), envelope, false)
         .await
         .expect("init should succeed");
@@ -413,7 +413,7 @@ async fn test_streaming_emits_stage_events() {
 
     let pid = ProcessId::must("stream-1");
     let envelope = jeeves_core::envelope::Envelope::new_minimal("user", "sess", "hello", None);
-    handle.initialize_session(pid.clone(), config, envelope, false).await.unwrap();
+    let _state = handle.initialize_session(pid.clone(), config, envelope, false).await.unwrap();
 
     let (tx, mut rx) = tokio::sync::mpsc::channel(64);
     let result = run_pipeline_loop(&handle, &pid, &agents, Some(tx), "test").await.unwrap();
@@ -470,7 +470,7 @@ async fn test_streaming_emits_tool_events() {
 
     let pid = ProcessId::must("stream-tool");
     let envelope = jeeves_core::envelope::Envelope::new_minimal("user", "sess", "hello", None);
-    handle.initialize_session(pid.clone(), config, envelope, false).await.unwrap();
+    let _state = handle.initialize_session(pid.clone(), config, envelope, false).await.unwrap();
 
     let (tx, mut rx) = tokio::sync::mpsc::channel(64);
     let _ = run_pipeline_loop(&handle, &pid, &agents, Some(tx), "test").await.unwrap();
@@ -508,7 +508,7 @@ async fn test_streaming_emits_done() {
 
     let pid = ProcessId::must("done-test");
     let envelope = jeeves_core::envelope::Envelope::new_minimal("user", "sess", "hi", None);
-    handle.initialize_session(pid.clone(), config, envelope, false).await.unwrap();
+    let _state = handle.initialize_session(pid.clone(), config, envelope, false).await.unwrap();
 
     let (tx, mut rx) = tokio::sync::mpsc::channel(64);
     let _ = run_pipeline_loop(&handle, &pid, &agents, Some(tx), "test").await.unwrap();

@@ -85,7 +85,7 @@ pub async fn run_pipeline_streaming(
     mpsc::Receiver<PipelineEvent>,
 )> {
     let pipeline_name = pipeline_config.name.clone();
-    let _ = handle
+    let _state = handle
         .initialize_session(process_id.clone(), pipeline_config, envelope, false)
         .await?;
     let (tx, rx) = mpsc::channel(64);

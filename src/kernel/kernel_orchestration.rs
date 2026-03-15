@@ -657,7 +657,7 @@ mod tests {
         let config = test_config(vec![test_stage("agent_a")]);
         let envelope = Envelope::new_minimal("user-1", "sess-1", "hello", None);
 
-        let _ = kernel.initialize_orchestration(pid.clone(), config, envelope, false);
+        let _state = kernel.initialize_orchestration(pid.clone(), config, envelope, false);
 
         // No subscriptions should be created
         assert!(!kernel.comm.subscriptions.contains_key(&pid));
@@ -673,7 +673,7 @@ mod tests {
         config.subscriptions = vec!["test.event".to_string()];
 
         let envelope = Envelope::new_minimal("user-1", "sess-1", "hello", None);
-        kernel.initialize_orchestration(pid.clone(), config, envelope, false).unwrap();
+        let _state = kernel.initialize_orchestration(pid.clone(), config, envelope, false).unwrap();
 
         // Publish an event to the CommBus (will be delivered to our subscription)
         let event = crate::commbus::Event {
@@ -703,7 +703,7 @@ mod tests {
         config.subscriptions = vec!["test.event".to_string()];
 
         let envelope = Envelope::new_minimal("user-1", "sess-1", "hello", None);
-        kernel.initialize_orchestration(pid.clone(), config, envelope, false).unwrap();
+        let _state = kernel.initialize_orchestration(pid.clone(), config, envelope, false).unwrap();
 
         assert!(kernel.comm.subscriptions.contains_key(&pid));
 
@@ -722,7 +722,7 @@ mod tests {
         config.subscriptions = vec!["npc.event".to_string()];
 
         let envelope = Envelope::new_minimal("user-1", "sess-1", "hello", None);
-        kernel.initialize_orchestration(pid.clone(), config, envelope, false).unwrap();
+        let _state = kernel.initialize_orchestration(pid.clone(), config, envelope, false).unwrap();
 
         // Publish two events
         for i in 0..2 {

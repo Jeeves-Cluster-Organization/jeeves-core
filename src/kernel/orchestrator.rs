@@ -566,7 +566,7 @@ mod tests {
         let pipeline = create_test_pipeline();
         let mut envelope = create_test_envelope();
 
-        orch.initialize_session(ProcessId::must("proc1"), pipeline, &mut envelope, false)
+        let _state = orch.initialize_session(ProcessId::must("proc1"), pipeline, &mut envelope, false)
             .unwrap();
 
         let instruction = orch.get_next_instruction(&ProcessId::must("proc1"), &mut envelope).unwrap();
@@ -581,7 +581,7 @@ mod tests {
         let pipeline = create_test_pipeline();
         let mut envelope = create_test_envelope();
 
-        orch.initialize_session(ProcessId::must("proc1"), pipeline, &mut envelope, false)
+        let _state = orch.initialize_session(ProcessId::must("proc1"), pipeline, &mut envelope, false)
             .unwrap();
 
         // Termination state lives exclusively in envelope.bounds
@@ -604,7 +604,7 @@ mod tests {
                 .with_message("Need clarification".to_string())
         );
 
-        orch.initialize_session(ProcessId::must("proc1"), pipeline, &mut envelope, false)
+        let _state = orch.initialize_session(ProcessId::must("proc1"), pipeline, &mut envelope, false)
             .unwrap();
 
         let instruction = orch.get_next_instruction(&ProcessId::must("proc1"), &mut envelope).unwrap();
@@ -627,7 +627,7 @@ mod tests {
         interrupt.expires_at = Some(Utc::now() - chrono::TimeDelta::seconds(60));
         envelope.set_interrupt(interrupt);
 
-        orch.initialize_session(ProcessId::must("proc1"), pipeline, &mut envelope, false)
+        let _state = orch.initialize_session(ProcessId::must("proc1"), pipeline, &mut envelope, false)
             .unwrap();
 
         // get_next_instruction should auto-clear the expired interrupt and return RunAgent
@@ -646,7 +646,7 @@ mod tests {
         let pipeline = create_test_pipeline();
         let mut envelope = create_test_envelope();
 
-        orch.initialize_session(ProcessId::must("proc1"), pipeline, &mut envelope, false)
+        let _state = orch.initialize_session(ProcessId::must("proc1"), pipeline, &mut envelope, false)
             .unwrap();
 
         envelope.bounds.llm_call_count = 50;
@@ -664,7 +664,7 @@ mod tests {
         let pipeline = create_test_pipeline();
         let mut envelope = create_test_envelope();
 
-        orch.initialize_session(ProcessId::must("proc1"), pipeline, &mut envelope, false)
+        let _state = orch.initialize_session(ProcessId::must("proc1"), pipeline, &mut envelope, false)
             .unwrap();
 
         envelope.pipeline.iteration = 10;
@@ -686,7 +686,7 @@ mod tests {
         let pipeline = create_test_pipeline();
         let mut envelope = create_test_envelope();
 
-        orch.initialize_session(ProcessId::must("proc1"), pipeline, &mut envelope, false)
+        let _state = orch.initialize_session(ProcessId::must("proc1"), pipeline, &mut envelope, false)
             .unwrap();
 
         let metrics = AgentExecutionMetrics {
@@ -714,7 +714,7 @@ mod tests {
         let pipeline = create_test_pipeline();
         let mut envelope = create_test_envelope();
 
-        orch.initialize_session(ProcessId::must("proc1"), pipeline, &mut envelope, false)
+        let _state = orch.initialize_session(ProcessId::must("proc1"), pipeline, &mut envelope, false)
             .unwrap();
 
         let metrics = AgentExecutionMetrics {
@@ -951,7 +951,7 @@ mod tests {
             publishes: vec![],
         };
         let mut envelope = create_test_envelope();
-        orch.initialize_session(ProcessId::must("p1"), pipeline, &mut envelope, false).unwrap();
+        let _state = orch.initialize_session(ProcessId::must("p1"), pipeline, &mut envelope, false).unwrap();
 
         // Agent a1 outputs intent="skip" → routes to s3
         let mut output = HashMap::new();
@@ -983,7 +983,7 @@ mod tests {
             publishes: vec![],
         };
         let mut envelope = create_test_envelope();
-        orch.initialize_session(ProcessId::must("p1"), pipeline, &mut envelope, false).unwrap();
+        let _state = orch.initialize_session(ProcessId::must("p1"), pipeline, &mut envelope, false).unwrap();
 
         orch.report_agent_result(&ProcessId::must("p1"), "agent1", zero_metrics(), &mut envelope, false, false).unwrap();
 
@@ -1014,7 +1014,7 @@ mod tests {
             publishes: vec![],
         };
         let mut envelope = create_test_envelope();
-        orch.initialize_session(ProcessId::must("p1"), pipeline, &mut envelope, false).unwrap();
+        let _state = orch.initialize_session(ProcessId::must("p1"), pipeline, &mut envelope, false).unwrap();
 
         let mut output = HashMap::new();
         output.insert("intent".to_string(), serde_json::json!("greet"));
@@ -1045,7 +1045,7 @@ mod tests {
             publishes: vec![],
         };
         let mut envelope = create_test_envelope();
-        orch.initialize_session(ProcessId::must("p1"), pipeline, &mut envelope, false).unwrap();
+        let _state = orch.initialize_session(ProcessId::must("p1"), pipeline, &mut envelope, false).unwrap();
 
         orch.report_agent_result(&ProcessId::must("p1"), "agent1", zero_metrics(), &mut envelope, false, false).unwrap();
 
@@ -1071,7 +1071,7 @@ mod tests {
             publishes: vec![],
         };
         let mut envelope = create_test_envelope();
-        orch.initialize_session(ProcessId::must("p1"), pipeline, &mut envelope, false).unwrap();
+        let _state = orch.initialize_session(ProcessId::must("p1"), pipeline, &mut envelope, false).unwrap();
 
         orch.report_agent_result(&ProcessId::must("p1"), "agent1", zero_metrics(), &mut envelope, false, false).unwrap();
 
@@ -1101,7 +1101,7 @@ mod tests {
             publishes: vec![],
         };
         let mut envelope = create_test_envelope();
-        orch.initialize_session(ProcessId::must("p1"), pipeline, &mut envelope, false).unwrap();
+        let _state = orch.initialize_session(ProcessId::must("p1"), pipeline, &mut envelope, false).unwrap();
 
         orch.report_agent_result(&ProcessId::must("p1"), "agent1", zero_metrics(), &mut envelope, true, false).unwrap();
 
@@ -1127,7 +1127,7 @@ mod tests {
             publishes: vec![],
         };
         let mut envelope = create_test_envelope();
-        orch.initialize_session(ProcessId::must("p1"), pipeline, &mut envelope, false).unwrap();
+        let _state = orch.initialize_session(ProcessId::must("p1"), pipeline, &mut envelope, false).unwrap();
 
         orch.report_agent_result(&ProcessId::must("p1"), "agent1", zero_metrics(), &mut envelope, true, false).unwrap();
 
@@ -1166,7 +1166,7 @@ mod tests {
             publishes: vec![],
         };
         let mut envelope = create_test_envelope();
-        orch.initialize_session(ProcessId::must("p1"), pipeline, &mut envelope, false).unwrap();
+        let _state = orch.initialize_session(ProcessId::must("p1"), pipeline, &mut envelope, false).unwrap();
 
         // First iteration: no output → completed missing → not_(eq) = true → loops
         orch.report_agent_result(&ProcessId::must("p1"), "agent1", zero_metrics(), &mut envelope, false, false).unwrap();
@@ -1214,7 +1214,7 @@ mod tests {
             publishes: vec![],
         };
         let mut envelope = create_test_envelope();
-        orch.initialize_session(ProcessId::must("p1"), pipeline, &mut envelope, false).unwrap();
+        let _state = orch.initialize_session(ProcessId::must("p1"), pipeline, &mut envelope, false).unwrap();
 
         orch.report_agent_result(&ProcessId::must("p1"), "agent1", zero_metrics(), &mut envelope, false, false).unwrap();
         assert_eq!(envelope.pipeline.current_stage, "s2");
@@ -1246,7 +1246,7 @@ mod tests {
             publishes: vec![],
         };
         let mut envelope = create_test_envelope();
-        orch.initialize_session(ProcessId::must("p1"), pipeline, &mut envelope, false).unwrap();
+        let _state = orch.initialize_session(ProcessId::must("p1"), pipeline, &mut envelope, false).unwrap();
 
         let mut terminated = false;
         for _ in 0..20 {
@@ -1284,7 +1284,7 @@ mod tests {
             publishes: vec![],
         };
         let mut envelope = create_test_envelope();
-        orch.initialize_session(ProcessId::must("p1"), pipeline, &mut envelope, false).unwrap();
+        let _state = orch.initialize_session(ProcessId::must("p1"), pipeline, &mut envelope, false).unwrap();
 
         let mut terminated = false;
         for _ in 0..20 {
@@ -1303,7 +1303,7 @@ mod tests {
         let mut orch = Orchestrator::new();
         let pipeline = create_test_pipeline();
         let mut envelope = create_test_envelope();
-        orch.initialize_session(ProcessId::must("p1"), pipeline, &mut envelope, false).unwrap();
+        let _state = orch.initialize_session(ProcessId::must("p1"), pipeline, &mut envelope, false).unwrap();
 
         orch.report_agent_result(&ProcessId::must("p1"), "agent1", zero_metrics(), &mut envelope, false, false).unwrap();
 
@@ -1336,7 +1336,7 @@ mod tests {
             publishes: vec![],
         };
         let mut envelope = create_test_envelope();
-        orch.initialize_session(ProcessId::must("p1"), pipeline, &mut envelope, false).unwrap();
+        let _state = orch.initialize_session(ProcessId::must("p1"), pipeline, &mut envelope, false).unwrap();
 
         // visit 1: s1 → s2 (s1 visits=1)
         orch.report_agent_result(&ProcessId::must("p1"), "agent1", zero_metrics(), &mut envelope, false, false).unwrap();
@@ -1407,7 +1407,7 @@ mod tests {
             publishes: vec![],
         };
         let mut envelope = create_test_envelope();
-        orch.initialize_session(ProcessId::must("p1"), pipeline, &mut envelope, false).unwrap();
+        let _state = orch.initialize_session(ProcessId::must("p1"), pipeline, &mut envelope, false).unwrap();
 
         // context agent reports → routes to fork
         orch.report_agent_result(&ProcessId::must("p1"), "ctx_agent", zero_metrics(), &mut envelope, false, false).unwrap();
@@ -1475,7 +1475,7 @@ mod tests {
             publishes: vec![],
         };
         let mut envelope = create_test_envelope();
-        orch.initialize_session(ProcessId::must("p1"), pipeline, &mut envelope, false).unwrap();
+        let _state = orch.initialize_session(ProcessId::must("p1"), pipeline, &mut envelope, false).unwrap();
 
         orch.report_agent_result(&ProcessId::must("p1"), "starter", zero_metrics(), &mut envelope, false, false).unwrap();
 
@@ -1579,7 +1579,7 @@ mod tests {
             publishes: vec![],
         };
         let mut envelope = create_test_envelope();
-        orch.initialize_session(ProcessId::must("p1"), pipeline, &mut envelope, false).unwrap();
+        let _state = orch.initialize_session(ProcessId::must("p1"), pipeline, &mut envelope, false).unwrap();
 
         let session = orch.pipelines.get(&ProcessId::must("p1")).unwrap();
         assert_eq!(session.pipeline_config.step_limit, Some(3));
@@ -1603,7 +1603,7 @@ mod tests {
             publishes: vec![],
         };
         let mut envelope = create_test_envelope();
-        orch.initialize_session(ProcessId::must("p1"), pipeline, &mut envelope, false).unwrap();
+        let _state = orch.initialize_session(ProcessId::must("p1"), pipeline, &mut envelope, false).unwrap();
 
         for _ in 0..50 {
             orch.report_agent_result(&ProcessId::must("p1"), "agent1", zero_metrics(), &mut envelope, false, false).unwrap();
@@ -1633,7 +1633,7 @@ mod tests {
             publishes: vec![],
         };
         let mut envelope = create_test_envelope();
-        orch.initialize_session(ProcessId::must("p1"), pipeline, &mut envelope, false).unwrap();
+        let _state = orch.initialize_session(ProcessId::must("p1"), pipeline, &mut envelope, false).unwrap();
 
         let mut terminated = false;
         for _ in 0..10 {
@@ -1676,7 +1676,7 @@ mod tests {
             publishes: vec![],
         };
         let mut envelope = create_test_envelope();
-        orch.initialize_session(ProcessId::must("p1"), pipeline, &mut envelope, false).unwrap();
+        let _state = orch.initialize_session(ProcessId::must("p1"), pipeline, &mut envelope, false).unwrap();
 
         // Fork dispatches only branch_a (always matches), not branch_b (eq never matches)
         let instr = orch.get_next_instruction(&ProcessId::must("p1"), &mut envelope).unwrap();
@@ -1710,7 +1710,7 @@ mod tests {
             publishes: vec![],
         };
         let mut envelope = create_test_envelope();
-        orch.initialize_session(ProcessId::must("p1"), pipeline, &mut envelope, false).unwrap();
+        let _state = orch.initialize_session(ProcessId::must("p1"), pipeline, &mut envelope, false).unwrap();
 
         let _instr = orch.get_next_instruction(&ProcessId::must("p1"), &mut envelope).unwrap();
         envelope.pipeline.current_stage = "branch_a".to_string();
@@ -1741,7 +1741,7 @@ mod tests {
             publishes: vec![],
         };
         let mut envelope = create_test_envelope();
-        orch.initialize_session(ProcessId::must("p1"), pipeline, &mut envelope, false).unwrap();
+        let _state = orch.initialize_session(ProcessId::must("p1"), pipeline, &mut envelope, false).unwrap();
 
         let mut terminated = false;
         for _ in 0..10 {
@@ -1773,7 +1773,7 @@ mod tests {
             publishes: vec![],
         };
         let mut envelope = create_test_envelope();
-        orch.initialize_session(ProcessId::must("p1"), pipeline, &mut envelope, false).unwrap();
+        let _state = orch.initialize_session(ProcessId::must("p1"), pipeline, &mut envelope, false).unwrap();
 
         for _ in 0..50 {
             orch.report_agent_result(&ProcessId::must("p1"), "agent1", zero_metrics(), &mut envelope, false, false).unwrap();
@@ -1808,7 +1808,7 @@ mod tests {
             publishes: vec![],
         };
         let mut envelope = create_test_envelope();
-        orch.initialize_session(ProcessId::must("p1"), pipeline, &mut envelope, false).unwrap();
+        let _state = orch.initialize_session(ProcessId::must("p1"), pipeline, &mut envelope, false).unwrap();
 
         orch.report_agent_result(&ProcessId::must("p1"), "agent1", zero_metrics(), &mut envelope, true, false).unwrap();
         assert_eq!(envelope.pipeline.current_stage, "recovery");
@@ -1837,7 +1837,7 @@ mod tests {
             publishes: vec![],
         };
         let mut envelope = create_test_envelope();
-        orch.initialize_session(ProcessId::must("p1"), pipeline, &mut envelope, false).unwrap();
+        let _state = orch.initialize_session(ProcessId::must("p1"), pipeline, &mut envelope, false).unwrap();
 
         orch.report_agent_result(&ProcessId::must("p1"), "agent1", zero_metrics(), &mut envelope, false, false).unwrap();
         assert_eq!(envelope.pipeline.current_stage, "s2");
@@ -1875,7 +1875,7 @@ mod tests {
             publishes: vec![],
         };
         let mut envelope = create_test_envelope();
-        orch.initialize_session(ProcessId::must("p1"), pipeline, &mut envelope, false).unwrap();
+        let _state = orch.initialize_session(ProcessId::must("p1"), pipeline, &mut envelope, false).unwrap();
 
         let mut terminated = false;
         for _ in 0..20 {
@@ -1908,7 +1908,7 @@ mod tests {
             publishes: vec![],
         };
         let mut envelope = create_test_envelope();
-        orch.initialize_session(ProcessId::must("p1"), pipeline, &mut envelope, false).unwrap();
+        let _state = orch.initialize_session(ProcessId::must("p1"), pipeline, &mut envelope, false).unwrap();
 
         orch.report_agent_result(&ProcessId::must("p1"), "agent1", zero_metrics(), &mut envelope, false, false).unwrap();
         assert_eq!(envelope.pipeline.current_stage, "foo");
@@ -1961,7 +1961,7 @@ mod tests {
             publishes: vec![],
         };
         let mut envelope = create_test_envelope();
-        orch.initialize_session(ProcessId::must("p1"), pipeline, &mut envelope, false).unwrap();
+        let _state = orch.initialize_session(ProcessId::must("p1"), pipeline, &mut envelope, false).unwrap();
 
         orch.report_agent_result(&ProcessId::must("p1"), "agent1", zero_metrics(), &mut envelope, false, false).unwrap();
         assert!(envelope.bounds.is_terminated());
@@ -2016,7 +2016,7 @@ mod tests {
             publishes: vec![],
         };
         let mut envelope = create_test_envelope();
-        orch.initialize_session(ProcessId::must("p1"), pipeline, &mut envelope, false).unwrap();
+        let _state = orch.initialize_session(ProcessId::must("p1"), pipeline, &mut envelope, false).unwrap();
 
         // First instruction: run entry agent
         let instr = orch.get_next_instruction(&ProcessId::must("p1"), &mut envelope).unwrap();
@@ -2056,7 +2056,7 @@ mod tests {
             publishes: vec![],
         };
         let mut envelope = create_test_envelope();
-        orch.initialize_session(ProcessId::must("p1"), pipeline, &mut envelope, false).unwrap();
+        let _state = orch.initialize_session(ProcessId::must("p1"), pipeline, &mut envelope, false).unwrap();
 
         // Should skip both gates and return RunAgent for final_agent
         let instr = orch.get_next_instruction(&ProcessId::must("p1"), &mut envelope).unwrap();
@@ -2087,7 +2087,7 @@ mod tests {
             publishes: vec![],
         };
         let mut envelope = create_test_envelope();
-        orch.initialize_session(ProcessId::must("p1"), pipeline, &mut envelope, false).unwrap();
+        let _state = orch.initialize_session(ProcessId::must("p1"), pipeline, &mut envelope, false).unwrap();
 
         let instr = orch.get_next_instruction(&ProcessId::must("p1"), &mut envelope).unwrap();
         let Instruction::RunAgent { ref agent, .. } = instr else { panic!("Expected RunAgent") };
@@ -2116,7 +2116,7 @@ mod tests {
             publishes: vec![],
         };
         let mut envelope = create_test_envelope();
-        orch.initialize_session(ProcessId::must("p1"), pipeline, &mut envelope, false).unwrap();
+        let _state = orch.initialize_session(ProcessId::must("p1"), pipeline, &mut envelope, false).unwrap();
 
         let instr = orch.get_next_instruction(&ProcessId::must("p1"), &mut envelope).unwrap();
         let Instruction::Terminate { reason, .. } = instr else { panic!("Expected Terminate") };
@@ -2142,7 +2142,7 @@ mod tests {
             publishes: vec![],
         };
         let mut envelope = create_test_envelope();
-        orch.initialize_session(ProcessId::must("p1"), pipeline, &mut envelope, false).unwrap();
+        let _state = orch.initialize_session(ProcessId::must("p1"), pipeline, &mut envelope, false).unwrap();
 
         let instr = orch.get_next_instruction(&ProcessId::must("p1"), &mut envelope).unwrap();
         let Instruction::Terminate { reason, .. } = instr else { panic!("Expected Terminate") };
@@ -2169,7 +2169,7 @@ mod tests {
             publishes: vec![],
         };
         let mut envelope = create_test_envelope();
-        orch.initialize_session(ProcessId::must("p1"), pipeline, &mut envelope, false).unwrap();
+        let _state = orch.initialize_session(ProcessId::must("p1"), pipeline, &mut envelope, false).unwrap();
 
         // Set interrupt pending
         envelope.set_interrupt(
@@ -2204,7 +2204,7 @@ mod tests {
             publishes: vec![],
         };
         let mut envelope = create_test_envelope();
-        orch.initialize_session(ProcessId::must("p1"), pipeline, &mut envelope, false).unwrap();
+        let _state = orch.initialize_session(ProcessId::must("p1"), pipeline, &mut envelope, false).unwrap();
 
         // Agent reports break
         orch.report_agent_result(&ProcessId::must("p1"), "agent1", zero_metrics(), &mut envelope, false, true).unwrap();
@@ -2237,7 +2237,7 @@ mod tests {
             publishes: vec![],
         };
         let mut envelope = create_test_envelope();
-        orch.initialize_session(ProcessId::must("p1"), pipeline, &mut envelope, false).unwrap();
+        let _state = orch.initialize_session(ProcessId::must("p1"), pipeline, &mut envelope, false).unwrap();
 
         // Store output before reporting (simulates kernel/mod.rs behavior)
         let mut agent_output = std::collections::HashMap::new();
@@ -2273,7 +2273,7 @@ mod tests {
             publishes: vec![],
         };
         let mut envelope = create_test_envelope();
-        orch.initialize_session(ProcessId::must("p1"), pipeline, &mut envelope, false).unwrap();
+        let _state = orch.initialize_session(ProcessId::must("p1"), pipeline, &mut envelope, false).unwrap();
 
         // First iteration — no break, should loop
         orch.report_agent_result(&ProcessId::must("p1"), "agent1", zero_metrics(), &mut envelope, false, false).unwrap();
@@ -2305,7 +2305,7 @@ mod tests {
             publishes: vec![],
         };
         let mut envelope = create_test_envelope();
-        orch.initialize_session(ProcessId::must("p1"), pipeline, &mut envelope, false).unwrap();
+        let _state = orch.initialize_session(ProcessId::must("p1"), pipeline, &mut envelope, false).unwrap();
 
         // Set interrupt pending — but break should win
         envelope.set_interrupt(
@@ -2346,7 +2346,7 @@ mod tests {
             publishes: vec![],
         };
         let mut envelope = create_test_envelope();
-        orch.initialize_session(ProcessId::must("p1"), pipeline, &mut envelope, false).unwrap();
+        let _state = orch.initialize_session(ProcessId::must("p1"), pipeline, &mut envelope, false).unwrap();
 
         // get_next_instruction should process Gates iteratively. With step_limit=3,
         // it can take at most 3 steps. Each Gate consumes one step in the loop.
@@ -2390,7 +2390,7 @@ mod tests {
             publishes: vec![],
         };
         let mut envelope = create_test_envelope();
-        orch.initialize_session(ProcessId::must("p1"), pipeline, &mut envelope, false).unwrap();
+        let _state = orch.initialize_session(ProcessId::must("p1"), pipeline, &mut envelope, false).unwrap();
 
         let instr = orch.get_next_instruction(&ProcessId::must("p1"), &mut envelope).unwrap();
 
@@ -2428,7 +2428,7 @@ mod tests {
             publishes: vec![],
         };
         let mut envelope = create_test_envelope();
-        orch.initialize_session(ProcessId::must("p1"), pipeline, &mut envelope, false).unwrap();
+        let _state = orch.initialize_session(ProcessId::must("p1"), pipeline, &mut envelope, false).unwrap();
 
         let instr = orch.get_next_instruction(&ProcessId::must("p1"), &mut envelope).unwrap();
 

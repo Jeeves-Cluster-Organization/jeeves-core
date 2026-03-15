@@ -97,7 +97,7 @@ mod tests {
         let pipeline = create_test_pipeline();
         let mut envelope = create_test_envelope();
 
-        orch.initialize_session(ProcessId::must("proc1"), pipeline, &mut envelope, false)
+        let _state = orch.initialize_session(ProcessId::must("proc1"), pipeline, &mut envelope, false)
             .unwrap();
 
         let state = orch.get_session_state(&ProcessId::must("proc1"), &envelope).unwrap();
@@ -124,7 +124,7 @@ mod tests {
 
         let pipeline = create_test_pipeline();
         let mut envelope = create_test_envelope();
-        orch.initialize_session(ProcessId::must("proc1"), pipeline, &mut envelope, false).unwrap();
+        let _state = orch.initialize_session(ProcessId::must("proc1"), pipeline, &mut envelope, false).unwrap();
         assert_eq!(orch.get_session_count(), 1);
     }
 }
