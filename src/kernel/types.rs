@@ -168,6 +168,7 @@ pub enum QuotaViolation {
     Iterations { used: i32, limit: i32 },
     TokensIn { used: i64, limit: i64 },
     TokensOut { used: i64, limit: i64 },
+    SoftTimeout { elapsed: f64, limit: f64 },
     Timeout { elapsed: f64, limit: f64 },
     InferenceRequests { used: i32, limit: i32 },
     InferenceInputChars { used: i64, limit: i64 },
@@ -182,6 +183,7 @@ impl std::fmt::Display for QuotaViolation {
             Self::Iterations { used, limit } => write!(f, "iterations {} > {}", used, limit),
             Self::TokensIn { used, limit } => write!(f, "tokens_in {} > {}", used, limit),
             Self::TokensOut { used, limit } => write!(f, "tokens_out {} > {}", used, limit),
+            Self::SoftTimeout { elapsed, limit } => write!(f, "soft_timeout {} > {}", elapsed, limit),
             Self::Timeout { elapsed, limit } => write!(f, "elapsed_seconds {} > {}", elapsed, limit),
             Self::InferenceRequests { used, limit } => write!(f, "inference_requests {} > {}", used, limit),
             Self::InferenceInputChars { used, limit } => write!(f, "inference_input_chars {} > {}", used, limit),
@@ -209,6 +211,9 @@ impl ResourceUsage {
         }
         if self.tokens_out > quota.max_output_tokens as i64 {
             return Some(QuotaViolation::TokensOut { used: self.tokens_out, limit: quota.max_output_tokens as i64 });
+        }
+        if quota.soft_timeout_seconds > 0 && self.elapsed_seconds > quota.soft_timeout_seconds as f64 {
+            return Some(QuotaViolation::SoftTimeout { elapsed: self.elapsed_seconds, limit: quota.soft_timeout_seconds as f64 });
         }
         if quota.timeout_seconds > 0 && self.elapsed_seconds > quota.timeout_seconds as f64 {
             return Some(QuotaViolation::Timeout { elapsed: self.elapsed_seconds, limit: quota.timeout_seconds as f64 });
