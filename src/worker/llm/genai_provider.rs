@@ -18,6 +18,26 @@ use std::pin::Pin;
 use super::{ChatRequest, ChatResponse, LlmProvider, StreamChunk, TokenUsage, ToolCall};
 use crate::types::{Error, Result};
 
+/// Max retry attempts for transient LLM errors (429, 5xx, connection).
+const MAX_RETRIES: u32 = 3;
+/// Initial backoff delay in milliseconds (doubles each retry).
+const INITIAL_BACKOFF_MS: u64 = 500;
+
+/// Returns true for errors worth retrying (rate limits, server errors, network).
+fn is_transient(err: &genai::Error) -> bool {
+    match err {
+        genai::Error::HttpError { status, .. } => {
+            status.as_u16() == 429
+                || status.is_server_error() // 500, 502, 503, 504
+        }
+        // Network/connection failures
+        genai::Error::WebAdapterCall { .. }
+        | genai::Error::WebModelCall { .. }
+        | genai::Error::WebStream { .. } => true,
+        _ => false,
+    }
+}
+
 /// Multi-provider LLM adapter via [genai](https://crates.io/crates/genai).
 ///
 /// API keys are auto-discovered from environment variables based on model prefix:
@@ -189,28 +209,40 @@ impl LlmProvider for GenaiProvider {
     async fn chat(&self, req: &ChatRequest) -> Result<ChatResponse> {
         let model = self.resolve_model(req);
         let options = self.build_options(req);
-        let genai_req = self.build_request(req);
 
-        let resp = self
-            .client
-            .exec_chat(&model, genai_req, Some(&options))
-            .await
-            .map_err(|e| Error::internal(format!("LLM error: {e}")))?;
-
-        let usage = convert_usage(&resp.usage);
-        let tool_calls: Vec<ToolCall> = resp.content.tool_calls()
-            .into_iter()
-            .cloned()
-            .map(convert_tool_call)
-            .collect();
-        let content = resp.content.into_first_text();
-
-        Ok(ChatResponse {
-            content,
-            tool_calls,
-            usage,
-            model: resp.model_iden.model_name.to_string(),
-        })
+        let mut last_err = None;
+        for attempt in 0..MAX_RETRIES {
+            let genai_req = self.build_request(req);
+            match self.client.exec_chat(&model, genai_req, Some(&options)).await {
+                Ok(resp) => {
+                    last_err = None;
+                    // Fall through to response conversion below
+                    let usage = convert_usage(&resp.usage);
+                    let tool_calls: Vec<ToolCall> = resp.content.tool_calls()
+                        .into_iter()
+                        .cloned()
+                        .map(convert_tool_call)
+                        .collect();
+                    let content = resp.content.into_first_text();
+                    return Ok(ChatResponse {
+                        content,
+                        tool_calls,
+                        usage,
+                        model: resp.model_iden.model_name.to_string(),
+                    });
+                }
+                Err(e) if is_transient(&e) && attempt + 1 < MAX_RETRIES => {
+                    let backoff = INITIAL_BACKOFF_MS * 2u64.pow(attempt);
+                    tracing::warn!(attempt = attempt + 1, backoff_ms = backoff, error = %e, "LLM transient error, retrying");
+                    tokio::time::sleep(tokio::time::Duration::from_millis(backoff)).await;
+                    last_err = Some(e);
+                }
+                Err(e) => {
+                    return Err(Error::internal(format!("LLM error: {e}")));
+                }
+            }
+        }
+        Err(Error::internal(format!("LLM error after {MAX_RETRIES} retries: {}", last_err.map(|e| e.to_string()).unwrap_or_default())))
     }
 
     async fn chat_stream(
@@ -219,13 +251,22 @@ impl LlmProvider for GenaiProvider {
     ) -> Result<Pin<Box<dyn Stream<Item = Result<StreamChunk>> + Send>>> {
         let model = self.resolve_model(req);
         let options = self.build_options(req);
-        let genai_req = self.build_request(req);
 
-        let stream_resp = self
-            .client
-            .exec_chat_stream(&model, genai_req, Some(&options))
-            .await
-            .map_err(|e| Error::internal(format!("LLM stream error: {e}")))?;
+        let mut stream_resp = None;
+        for attempt in 0..MAX_RETRIES {
+            let genai_req = self.build_request(req);
+            match self.client.exec_chat_stream(&model, genai_req, Some(&options)).await {
+                Ok(resp) => { stream_resp = Some(resp); break; }
+                Err(e) if is_transient(&e) && attempt + 1 < MAX_RETRIES => {
+                    let backoff = INITIAL_BACKOFF_MS * 2u64.pow(attempt);
+                    tracing::warn!(attempt = attempt + 1, backoff_ms = backoff, error = %e, "LLM stream transient error, retrying");
+                    tokio::time::sleep(tokio::time::Duration::from_millis(backoff)).await;
+                }
+                Err(e) => return Err(Error::internal(format!("LLM stream error: {e}"))),
+            }
+        }
+        let stream_resp = stream_resp
+            .ok_or_else(|| Error::internal("LLM stream failed after retries".to_string()))?;
 
         let mapped = stream_resp.stream.filter_map(|event| async {
             match event {
