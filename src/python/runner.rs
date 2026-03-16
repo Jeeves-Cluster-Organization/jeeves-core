@@ -194,7 +194,16 @@ impl PyPipelineRunner {
             parameters,
         };
 
-        let executor: Arc<dyn ToolExecutor> = Arc::new(PyToolExecutor::new(py_fn.clone_ref(py), info));
+        let mut py_executor = PyToolExecutor::new(py_fn.clone_ref(py), info);
+
+        // Extract optional requires_confirmation function
+        if let Ok(confirm_fn) = py_fn.getattr(py, "_requires_confirmation") {
+            if !confirm_fn.is_none(py) {
+                py_executor = py_executor.with_confirmation_fn(confirm_fn);
+            }
+        }
+
+        let executor: Arc<dyn ToolExecutor> = Arc::new(py_executor);
         self.tool_executors.push((name, executor));
 
         // Rebuild tool + agent registries

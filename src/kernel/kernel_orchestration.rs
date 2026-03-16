@@ -102,6 +102,11 @@ impl Kernel {
                     context.context_overflow = overflow;
                 }
 
+                // Extract interrupt response from metadata into typed field (consume it)
+                if let Some(env) = self.process_envelopes.get_mut(process_id) {
+                    context.interrupt_response = env.audit.metadata.remove("_interrupt_response");
+                }
+
                 let stage_name = self.process_envelopes.get(process_id)
                     .map(|e| e.pipeline.current_stage.clone())
                     .unwrap_or_default();
@@ -508,6 +513,9 @@ impl Kernel {
     }
 
     /// Wait a process (e.g., awaiting interrupt response).
+    ///
+    /// Requires lifecycle state = Running. For pipeline-loop interrupt flow
+    /// (where lifecycle stays Ready), use `set_process_interrupt` instead.
     pub fn wait_process(&mut self, pid: &ProcessId, interrupt: FlowInterrupt) -> Result<()> {
         self.lifecycle.wait(pid, interrupt.kind)?;
         if let Some(env) = self.process_envelopes.get_mut(pid) {
@@ -516,13 +524,85 @@ impl Kernel {
         Ok(())
     }
 
-    /// Resume a process from waiting/blocked.
+    /// Set an interrupt on a process without lifecycle state transition.
+    ///
+    /// Used by the worker pipeline loop, which stays in Ready state throughout
+    /// execution. Sets the interrupt on the envelope and registers it in the
+    /// interrupt manager so `resolve_interrupt` can find it.
+    pub fn set_process_interrupt(&mut self, pid: &ProcessId, interrupt: FlowInterrupt) -> Result<()> {
+        // Register in interrupt manager (so resolve_interrupt can find it by ID)
+        if let Some(env) = self.process_envelopes.get(pid) {
+            self.interrupts.register_flow_interrupt(
+                interrupt.clone(),
+                env.identity.request_id.as_str(),
+                env.identity.user_id.as_str(),
+                env.identity.session_id.as_str(),
+                env.identity.envelope_id.as_str(),
+            );
+        }
+
+        // Set on envelope (get_next_instruction will see it → WaitInterrupt)
+        let env = self.process_envelopes.get_mut(pid)
+            .ok_or_else(|| Error::not_found(format!("Envelope not found: {}", pid)))?;
+        env.set_interrupt(interrupt);
+        Ok(())
+    }
+
+    /// Resume a process from waiting/blocked (lifecycle transition).
+    ///
+    /// For pipeline-loop processes (lifecycle stays Ready), use
+    /// `clear_process_interrupt` instead.
     pub fn resume_process(&mut self, pid: &ProcessId) -> Result<()> {
         self.lifecycle.resume(pid)?;
         if let Some(env) = self.process_envelopes.get_mut(pid) {
             env.clear_interrupt();
         }
         Ok(())
+    }
+
+    /// Clear an interrupt on a process without lifecycle state transition.
+    ///
+    /// Counterpart to `set_process_interrupt`. Used when resolving interrupts
+    /// for pipeline-loop processes that never leave Ready state.
+    pub fn clear_process_interrupt(&mut self, pid: &ProcessId) -> Result<()> {
+        if let Some(env) = self.process_envelopes.get_mut(pid) {
+            env.clear_interrupt();
+        }
+        Ok(())
+    }
+
+    /// Resolve an interrupt on a process, regardless of how it was created.
+    ///
+    /// Handles both lifecycle-managed interrupts (process in Waiting/Blocked state)
+    /// and pipeline-loop interrupts (process stays in Ready state). Stores the
+    /// interrupt response in envelope metadata for the next agent dispatch.
+    pub fn resolve_process_interrupt(
+        &mut self,
+        pid: &ProcessId,
+        interrupt_id: &str,
+        response: crate::envelope::InterruptResponse,
+    ) -> Result<()> {
+        // 1. Resolve in interrupt manager
+        let response_json = serde_json::to_value(&response).unwrap_or_default();
+        if !self.interrupts.resolve(interrupt_id, response, None) {
+            return Err(Error::not_found(format!("Interrupt {} not found", interrupt_id)));
+        }
+
+        // 2. Store response for the re-dispatched agent (extracted by get_next_instruction)
+        if let Some(env) = self.process_envelopes.get_mut(pid) {
+            env.audit.metadata.insert("_interrupt_response".to_string(), response_json);
+        }
+
+        // 3. Clear interrupt + resume lifecycle if applicable
+        let is_lifecycle_managed = self.lifecycle.get(pid)
+            .map(|p| matches!(p.state, ProcessState::Waiting | ProcessState::Blocked))
+            .unwrap_or(false);
+
+        if is_lifecycle_managed {
+            self.resume_process(pid)
+        } else {
+            self.clear_process_interrupt(pid)
+        }
     }
 
     /// Resume a process with optional envelope updates.

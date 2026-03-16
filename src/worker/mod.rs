@@ -154,6 +154,12 @@ pub async fn run_pipeline_loop(
                 let ctx = build_agent_context(context, event_tx.clone(), Some(agent.clone()), pipeline_name.clone());
                 let output = execute_agent(agents, agent, &ctx).await;
 
+                // Tool confirmation gate: if agent requests an interrupt, suspend stage
+                if let Some(interrupt) = output.interrupt_request {
+                    handle.set_process_interrupt(process_id, interrupt).await?;
+                    continue; // get_next_instruction → WaitInterrupt
+                }
+
                 if let Some(ref tx) = event_tx {
                     let _ = tx
                         .send(PipelineEvent::StageCompleted {
@@ -242,6 +248,7 @@ async fn execute_parallel(
                     metrics: Default::default(),
                     success: false,
                     error_message: e.to_string(),
+                    interrupt_request: None,
                 })
             } else {
                 DeterministicAgent.process(&ctx).await.unwrap_or_else(|e| AgentOutput {
@@ -249,6 +256,7 @@ async fn execute_parallel(
                     metrics: Default::default(),
                     success: false,
                     error_message: e.to_string(),
+                    interrupt_request: None,
                 })
             };
             (agent_name, output)
@@ -307,6 +315,7 @@ fn build_agent_context(
         pipeline_name,
         max_context_tokens: context.max_context_tokens,
         context_overflow: context.context_overflow,
+        interrupt_response: context.interrupt_response.clone(),
     }
 }
 
@@ -354,6 +363,7 @@ async fn execute_agent(
                 metrics: Default::default(),
                 success: false,
                 error_message: e.to_string(),
+                interrupt_request: None,
             }
         }
     }

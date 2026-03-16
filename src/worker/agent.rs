@@ -26,6 +26,9 @@ pub struct AgentOutput {
     pub metrics: AgentExecutionMetrics,
     pub success: bool,
     pub error_message: String,
+    /// If set, the agent is requesting a flow interrupt (e.g., tool confirmation).
+    /// The worker loop sets this on the envelope and suspends the stage.
+    pub interrupt_request: Option<crate::envelope::FlowInterrupt>,
 }
 
 /// Context provided to an agent for execution.
@@ -51,6 +54,9 @@ pub struct AgentContext {
     pub max_context_tokens: Option<i64>,
     /// Strategy when context exceeds max_context_tokens.
     pub context_overflow: Option<ContextOverflow>,
+    /// Response from a resolved interrupt (e.g., user confirmed a destructive tool).
+    /// Populated by the worker when resuming from an interrupt.
+    pub interrupt_response: Option<serde_json::Value>,
 }
 
 /// Agent trait — implementations provide custom agent behavior.
@@ -178,6 +184,7 @@ impl Agent for LlmAgent {
                                     "Context overflow: estimated {} tokens exceeds limit of {}",
                                     estimated_tokens, max_tokens
                                 ),
+                                interrupt_request: None,
                             });
                         }
                     }
@@ -220,6 +227,36 @@ impl Agent for LlmAgent {
             for tc in &resp.tool_calls {
                 total_tool_calls += 1;
                 tracing::debug!(tool_name = %tc.name, "tool_execute");
+
+                // Tool confirmation gate: check before executing
+                if ctx.interrupt_response.is_none() {
+                    if let Some(confirmation) = self.tools.requires_confirmation(&tc.name, &tc.arguments) {
+                        let mut interrupt = crate::envelope::FlowInterrupt::new(
+                            crate::envelope::InterruptKind::Confirmation,
+                        ).with_message(confirmation.message.clone());
+                        if let Some(data) = confirmation.action_data {
+                            interrupt = interrupt.with_data(HashMap::from([("action_data".to_string(), data)]));
+                        }
+                        return Ok(AgentOutput {
+                            output: serde_json::json!({
+                                "status": "awaiting_confirmation",
+                                "message": &confirmation.message,
+                                "tool": &tc.name,
+                            }),
+                            interrupt_request: Some(interrupt),
+                            metrics: AgentExecutionMetrics {
+                                llm_calls: total_llm_calls,
+                                tool_calls: total_tool_calls,
+                                tokens_in: Some(total_tokens_in),
+                                tokens_out: Some(total_tokens_out),
+                                duration_ms: start.elapsed().as_millis() as i64,
+                                tool_results: tool_results.clone(),
+                            },
+                            success: true,
+                            error_message: String::new(),
+                        });
+                    }
+                }
 
                 if let Some(ref tx) = ctx.event_tx {
                     let _ = tx
@@ -287,6 +324,7 @@ impl Agent for LlmAgent {
             metrics,
             success: true,
             error_message: String::new(),
+            interrupt_request: None,
         })
     }
 }
@@ -325,6 +363,36 @@ impl Agent for McpDelegatingAgent {
             "state": ctx.state,
             "metadata": ctx.metadata,
         });
+
+        // Tool confirmation gate: check before executing
+        if ctx.interrupt_response.is_none() {
+            if let Some(confirmation) = self.tools.requires_confirmation(&self.tool_name, &params) {
+                let mut interrupt = crate::envelope::FlowInterrupt::new(
+                    crate::envelope::InterruptKind::Confirmation,
+                ).with_message(confirmation.message.clone());
+                if let Some(data) = confirmation.action_data {
+                    interrupt = interrupt.with_data(HashMap::from([("action_data".to_string(), data)]));
+                }
+                return Ok(AgentOutput {
+                    output: serde_json::json!({
+                        "status": "awaiting_confirmation",
+                        "message": &confirmation.message,
+                    }),
+                    interrupt_request: Some(interrupt),
+                    metrics: AgentExecutionMetrics {
+                        llm_calls: 0,
+                        tool_calls: 0,
+                        tokens_in: None,
+                        tokens_out: None,
+                        duration_ms: 0,
+                        tool_results: vec![],
+                    },
+                    success: true,
+                    error_message: String::new(),
+                });
+            }
+        }
+
         let start = std::time::Instant::now();
         let (result, success, error_message) = match self.tools.execute(&self.tool_name, params).await {
             Ok(v) => (v, true, String::new()),
@@ -372,6 +440,7 @@ impl Agent for McpDelegatingAgent {
             },
             success,
             error_message,
+            interrupt_request: None,
         })
     }
 }
@@ -395,6 +464,7 @@ impl Agent for DeterministicAgent {
             },
             success: true,
             error_message: String::new(),
+            interrupt_request: None,
         })
     }
 }
@@ -527,6 +597,7 @@ impl Agent for PipelineAgent {
                     },
                     success: result.terminated(),
                     error_message: String::new(),
+                    interrupt_request: None,
                 })
             }
             Err(e) => Ok(AgentOutput {
@@ -541,6 +612,7 @@ impl Agent for PipelineAgent {
                 },
                 success: false,
                 error_message: e.to_string(),
+                interrupt_request: None,
             }),
         }
     }
@@ -705,6 +777,7 @@ fn make_error_output(
         },
         success: false,
         error_message: e.to_string(),
+        interrupt_request: None,
     }
 }
 
@@ -729,6 +802,7 @@ mod tests {
             pipeline_name: Arc::from("test"),
             max_context_tokens: Some(max_tokens),
             context_overflow: Some(overflow),
+            interrupt_response: None,
         }
     }
 
@@ -918,6 +992,7 @@ mod tests {
             pipeline_name: Arc::from("test"),
             max_context_tokens: None,
             context_overflow: None,
+            interrupt_response: None,
         };
 
         let result = agent.process(&ctx).await.unwrap();

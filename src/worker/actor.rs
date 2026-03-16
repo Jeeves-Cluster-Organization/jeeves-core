@@ -174,12 +174,16 @@ async fn dispatch(kernel: &mut Kernel, cmd: KernelCommand) {
             response,
             resp_tx,
         } => {
-            let resolved = kernel.interrupts.resolve(&interrupt_id, response, None);
-            let result = if resolved {
-                kernel.resume_process(&process_id)
-            } else {
-                Err(crate::types::Error::not_found(format!("Interrupt {} not found", interrupt_id)))
-            };
+            let result = kernel.resolve_process_interrupt(&process_id, &interrupt_id, response);
+            let _ = resp_tx.send(result);
+        }
+
+        KernelCommand::SetProcessInterrupt {
+            process_id,
+            interrupt,
+            resp_tx,
+        } => {
+            let result = kernel.set_process_interrupt(&process_id, interrupt);
             let _ = resp_tx.send(result);
         }
 

@@ -24,6 +24,7 @@ struct ToolDecorator {
     name: String,
     description: String,
     parameters: Option<PyObject>,
+    requires_confirmation: Option<PyObject>,
 }
 
 #[allow(clippy::useless_conversion)]
@@ -35,6 +36,9 @@ impl ToolDecorator {
         if let Some(ref params) = self.parameters {
             func.setattr(py, "_tool_parameters", params)?;
         }
+        if let Some(ref confirm_fn) = self.requires_confirmation {
+            func.setattr(py, "_requires_confirmation", confirm_fn)?;
+        }
         Ok(func)
     }
 }
@@ -45,18 +49,24 @@ impl ToolDecorator {
 ///     @tool(name="get_time", description="Get current time")
 ///     def get_time(params):
 ///         return {"time": "..."}
+///
+///     @tool(name="rm", description="Delete files", requires_confirmation=my_check_fn)
+///     def rm(params):
+///         ...
 #[pyfunction]
-#[pyo3(signature = (name, description, parameters=None))]
+#[pyo3(signature = (name, description, parameters=None, requires_confirmation=None))]
 fn tool(
     _py: Python<'_>,
     name: String,
     description: String,
     parameters: Option<PyObject>,
+    requires_confirmation: Option<PyObject>,
 ) -> ToolDecorator {
     ToolDecorator {
         name,
         description,
         parameters,
+        requires_confirmation,
     }
 }
 

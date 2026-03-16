@@ -90,6 +90,10 @@ pub struct AgentDispatchContext {
     pub max_context_tokens: Option<i64>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub context_overflow: Option<ContextOverflow>,
+    /// Response from a resolved interrupt, if this dispatch is a resume after confirmation.
+    /// Extracted from envelope metadata by `get_next_instruction()` (not leaked to agents via metadata).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub interrupt_response: Option<serde_json::Value>,
 }
 
 /// Instruction from kernel to worker — determines what happens next.

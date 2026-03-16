@@ -69,6 +69,6 @@ pub mod prelude {
     pub use crate::worker::handle::KernelHandle;
     pub use crate::worker::llm::{LlmProvider, PipelineEvent};
     pub use crate::worker::prompts::PromptRegistry;
-    pub use crate::worker::tools::{ToolExecutor, ToolInfo, ToolRegistry, ToolRegistryBuilder};
+    pub use crate::worker::tools::{ConfirmationRequest, ToolExecutor, ToolInfo, ToolRegistry, ToolRegistryBuilder};
     pub use crate::worker::{run_pipeline_streaming, run_pipeline_with_envelope, WorkerResult};
 }

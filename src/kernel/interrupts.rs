@@ -307,6 +307,35 @@ impl InterruptService {
         interrupt
     }
 
+    /// Register an existing FlowInterrupt (preserving its ID) in the interrupt store.
+    ///
+    /// Used by the tool confirmation gate: the agent creates the FlowInterrupt,
+    /// the kernel registers it so `resolve_interrupt` can find it by ID.
+    pub fn register_flow_interrupt(
+        &mut self,
+        flow_interrupt: FlowInterrupt,
+        request_id: &str,
+        user_id: &str,
+        session_id: &str,
+        envelope_id: &str,
+    ) {
+        let interrupt_id = flow_interrupt.id.clone();
+        let ki = KernelInterrupt {
+            flow_interrupt,
+            status: InterruptStatus::Pending,
+            request_id: request_id.to_string(),
+            user_id: user_id.to_string(),
+            session_id: session_id.to_string(),
+            envelope_id: envelope_id.to_string(),
+            resolved_at: None,
+            trace_id: None,
+            span_id: None,
+        };
+        self.store.insert(interrupt_id.clone(), ki);
+        self.by_request.entry(request_id.to_string()).or_default().push(interrupt_id.clone());
+        self.by_session.entry(session_id.to_string()).or_default().push(interrupt_id);
+    }
+
     /// Convenience method to create a clarification interrupt.
     pub fn create_clarification(
         &mut self,

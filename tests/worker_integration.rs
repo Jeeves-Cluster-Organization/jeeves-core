@@ -1063,3 +1063,200 @@ async fn test_mcp_http_tool_executor() {
         .expect("registry execute should work");
     assert_eq!(result, json!({"result": "via registry"}));
 }
+
+// =============================================================================
+// H. Tool Confirmation Gate (interrupt flow)
+// =============================================================================
+
+/// Tool executor that requires confirmation for "dangerous_op" but not "safe_op".
+#[derive(Debug)]
+struct ConfirmableToolExecutor;
+
+#[async_trait::async_trait]
+impl ToolExecutor for ConfirmableToolExecutor {
+    async fn execute(&self, name: &str, _params: serde_json::Value) -> jeeves_core::types::Result<serde_json::Value> {
+        Ok(serde_json::json!({"tool": name, "executed": true}))
+    }
+    fn list_tools(&self) -> Vec<jeeves_core::worker::tools::ToolInfo> {
+        vec![
+            ToolInfo { name: "safe_op".into(), description: "safe".into(), parameters: serde_json::json!({"type": "object"}) },
+            ToolInfo { name: "dangerous_op".into(), description: "destructive".into(), parameters: serde_json::json!({"type": "object"}) },
+        ]
+    }
+    fn requires_confirmation(&self, name: &str, _params: &serde_json::Value) -> Option<jeeves_core::worker::tools::ConfirmationRequest> {
+        if name == "dangerous_op" {
+            Some(jeeves_core::worker::tools::ConfirmationRequest {
+                message: "This is destructive!".into(),
+                action_data: Some(serde_json::json!({"target": "all"})),
+            })
+        } else {
+            None
+        }
+    }
+}
+
+/// McpDelegatingAgent with confirmable tool → first run returns interrupt, resolve → re-run executes.
+#[tokio::test]
+async fn test_confirmation_gate_mcp_agent_buffered() {
+    use jeeves_core::worker::agent::{McpDelegatingAgent, Agent, AgentContext};
+    use std::collections::HashMap;
+
+    let mut tool_reg = ToolRegistry::new();
+    let executor = Arc::new(ConfirmableToolExecutor);
+    for t in executor.list_tools() {
+        tool_reg.register(t.name.clone(), executor.clone());
+    }
+    let tools = Arc::new(tool_reg);
+
+    let agent = McpDelegatingAgent {
+        tool_name: "dangerous_op".to_string(),
+        tools: tools.clone(),
+    };
+
+    // First call: no interrupt_response → should return interrupt_request
+    let ctx = AgentContext {
+        raw_input: "do dangerous thing".into(),
+        outputs: HashMap::new(),
+        state: HashMap::new(),
+        metadata: HashMap::new(),
+        event_tx: None,
+        stage_name: Some("execute".into()),
+        pipeline_name: Arc::from("test"),
+        max_context_tokens: None,
+        context_overflow: None,
+        interrupt_response: None,
+    };
+
+    let output = agent.process(&ctx).await.unwrap();
+    assert!(output.interrupt_request.is_some(), "Should request confirmation");
+    assert!(output.success, "Interrupt request is not a failure");
+    let interrupt = output.interrupt_request.unwrap();
+    assert_eq!(interrupt.kind, jeeves_core::envelope::InterruptKind::Confirmation);
+    assert!(interrupt.message.as_ref().unwrap().contains("destructive"));
+
+    // Second call: with interrupt_response → should skip confirmation and execute
+    let ctx_resumed = AgentContext {
+        interrupt_response: Some(serde_json::json!({"approved": true})),
+        ..ctx
+    };
+
+    let output2 = agent.process(&ctx_resumed).await.unwrap();
+    assert!(output2.interrupt_request.is_none(), "Should NOT request confirmation on resume");
+    assert!(output2.success);
+    assert_eq!(output2.output["tool"], "dangerous_op");
+    assert_eq!(output2.output["executed"], true);
+}
+
+/// McpDelegatingAgent with safe tool → no interrupt, executes directly.
+#[tokio::test]
+async fn test_confirmation_gate_safe_tool_no_interrupt() {
+    use jeeves_core::worker::agent::{McpDelegatingAgent, Agent, AgentContext};
+    use std::collections::HashMap;
+
+    let mut tool_reg = ToolRegistry::new();
+    let executor = Arc::new(ConfirmableToolExecutor);
+    for t in executor.list_tools() {
+        tool_reg.register(t.name.clone(), executor.clone());
+    }
+
+    let agent = McpDelegatingAgent {
+        tool_name: "safe_op".to_string(),
+        tools: Arc::new(tool_reg),
+    };
+
+    let ctx = AgentContext {
+        raw_input: "do safe thing".into(),
+        outputs: HashMap::new(),
+        state: HashMap::new(),
+        metadata: HashMap::new(),
+        event_tx: None,
+        stage_name: Some("execute".into()),
+        pipeline_name: Arc::from("test"),
+        max_context_tokens: None,
+        context_overflow: None,
+        interrupt_response: None,
+    };
+
+    let output = agent.process(&ctx).await.unwrap();
+    assert!(output.interrupt_request.is_none(), "Safe tool should not need confirmation");
+    assert!(output.success);
+    assert_eq!(output.output["tool"], "safe_op");
+    assert_eq!(output.output["executed"], true);
+}
+
+/// Full pipeline: stage with confirmable tool → WaitInterrupt (buffered) → resolve → re-run → complete.
+#[tokio::test]
+async fn test_confirmation_gate_full_pipeline_buffered() {
+    use jeeves_core::envelope::Envelope;
+    use jeeves_core::worker::agent::McpDelegatingAgent;
+
+    let cancel = CancellationToken::new();
+    let handle = spawn_kernel(Kernel::new(), cancel.clone());
+
+    let pipeline: PipelineConfig = serde_json::from_value(serde_json::json!({
+        "name": "confirm_test",
+        "stages": [
+            {
+                "name": "execute",
+                "agent": "execute",
+                "has_llm": false,
+                "allowed_tools": ["dangerous_op"]
+            }
+        ],
+        "max_iterations": 5,
+        "max_llm_calls": 5,
+        "max_agent_hops": 5
+    })).unwrap();
+
+    let mut tool_reg = ToolRegistry::new();
+    let executor = Arc::new(ConfirmableToolExecutor);
+    for t in executor.list_tools() {
+        tool_reg.register(t.name.clone(), executor.clone());
+    }
+
+    let mut agents = AgentRegistry::new();
+    agents.register("execute", Arc::new(McpDelegatingAgent {
+        tool_name: "dangerous_op".to_string(),
+        tools: Arc::new(tool_reg),
+    }));
+
+    let pid = ProcessId::new();
+    let envelope = Envelope::new_minimal("user-1", "sess-1", "delete everything", None);
+
+    // Initialize session
+    let _state = handle.initialize_session(pid.clone(), pipeline.clone(), envelope, false).await.unwrap();
+
+    // Run pipeline loop in buffered mode — should return incomplete (WaitInterrupt)
+    let result = run_pipeline_loop(&handle, &pid, &agents, None, "confirm_test").await.unwrap();
+    assert!(!result.terminated(), "Pipeline should NOT terminate — waiting for interrupt");
+
+    // Get next instruction — should be WaitInterrupt
+    let instr = handle.get_next_instruction(&pid).await.unwrap();
+    assert!(matches!(instr, jeeves_core::kernel::orchestrator_types::Instruction::WaitInterrupt { .. }));
+
+    // Resolve the interrupt
+    let interrupt_id = if let jeeves_core::kernel::orchestrator_types::Instruction::WaitInterrupt { ref interrupt } = instr {
+        interrupt.as_ref().unwrap().id.clone()
+    } else {
+        panic!("Expected WaitInterrupt");
+    };
+    handle.resolve_interrupt(&pid, &interrupt_id, jeeves_core::envelope::InterruptResponse {
+        text: None,
+        approved: Some(true),
+        decision: None,
+        data: None,
+        received_at: chrono::Utc::now(),
+    }).await.unwrap();
+
+    // Re-run pipeline loop — should now execute the tool and complete
+    let result2 = run_pipeline_loop(&handle, &pid, &agents, None, "confirm_test").await.unwrap();
+    assert!(result2.terminated(), "Pipeline should complete after interrupt resolved");
+    assert_eq!(result2.terminal_reason(), Some(TerminalReason::Completed));
+
+    // Verify the tool executed
+    let execute_output = result2.outputs.get("execute").expect("execute output should exist");
+    assert_eq!(execute_output.get("tool").and_then(|v| v.as_str()), Some("dangerous_op"));
+    assert_eq!(execute_output.get("executed").and_then(|v| v.as_bool()), Some(true));
+
+    cancel.cancel();
+}

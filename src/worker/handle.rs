@@ -73,6 +73,12 @@ pub enum KernelCommand {
         response: crate::envelope::InterruptResponse,
         resp_tx: oneshot::Sender<Result<()>>,
     },
+    /// Set an interrupt on a process without lifecycle transition (tool confirmation gate).
+    SetProcessInterrupt {
+        process_id: ProcessId,
+        interrupt: crate::envelope::FlowInterrupt,
+        resp_tx: oneshot::Sender<Result<()>>,
+    },
 
     // =========================================================================
     // CommBus Federation
@@ -226,6 +232,21 @@ impl KernelHandle {
     pub async fn terminate_process(&self, process_id: &ProcessId) -> Result<()> {
         kernel_request!(self, TerminateProcess {
             process_id: process_id.clone(),
+        })
+    }
+
+    /// Set a pending interrupt on a process without lifecycle transition.
+    ///
+    /// Used by the worker pipeline loop for tool confirmation gates.
+    /// Does NOT change lifecycle state (process stays Ready).
+    pub async fn set_process_interrupt(
+        &self,
+        process_id: &ProcessId,
+        interrupt: crate::envelope::FlowInterrupt,
+    ) -> Result<()> {
+        kernel_request!(self, SetProcessInterrupt {
+            process_id: process_id.clone(),
+            interrupt: interrupt,
         })
     }
 

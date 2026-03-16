@@ -14,6 +14,16 @@ pub struct ToolInfo {
     pub parameters: serde_json::Value,
 }
 
+/// Request for user confirmation before executing a tool.
+///
+/// Returned by `ToolExecutor::requires_confirmation()` when a tool operation
+/// is destructive and needs explicit approval (e.g., deletes, destructive bash).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ConfirmationRequest {
+    pub message: String,
+    pub action_data: Option<serde_json::Value>,
+}
+
 /// Tool executor trait — implementations provide actual tool functionality.
 #[async_trait]
 pub trait ToolExecutor: Send + Sync + std::fmt::Debug {
@@ -22,6 +32,13 @@ pub trait ToolExecutor: Send + Sync + std::fmt::Debug {
 
     /// List available tools.
     fn list_tools(&self) -> Vec<ToolInfo>;
+
+    /// Check if a tool operation requires user confirmation before execution.
+    ///
+    /// Default: no confirmation needed. Override for destructive tools.
+    fn requires_confirmation(&self, _name: &str, _params: &serde_json::Value) -> Option<ConfirmationRequest> {
+        None
+    }
 }
 
 /// Registry of tool executors keyed by name.
@@ -65,6 +82,11 @@ impl ToolRegistry {
             .values()
             .flat_map(|e| e.list_tools())
             .collect()
+    }
+
+    /// Check if a tool requires user confirmation before execution.
+    pub fn requires_confirmation(&self, name: &str, params: &serde_json::Value) -> Option<ConfirmationRequest> {
+        self.executors.get(name)?.requires_confirmation(name, params)
     }
 }
 
@@ -179,6 +201,13 @@ impl ToolExecutor for AclToolExecutor {
             .into_iter()
             .filter(|t| self.allowed.contains(&t.name))
             .collect()
+    }
+
+    fn requires_confirmation(&self, name: &str, params: &serde_json::Value) -> Option<ConfirmationRequest> {
+        if !self.allowed.contains(name) {
+            return None;
+        }
+        self.inner.requires_confirmation(name, params)
     }
 }
 
@@ -408,5 +437,83 @@ mod tests {
         assert_eq!(wrapped.list_all_tools().len(), 1);
         assert!(wrapped.get("search").is_some());
         assert!(wrapped.get("nonexistent").is_none());
+    }
+
+    // =========================================================================
+    // Confirmation gate tests
+    // =========================================================================
+
+    #[derive(Debug)]
+    struct ConfirmableExecutor;
+
+    #[async_trait]
+    impl ToolExecutor for ConfirmableExecutor {
+        async fn execute(&self, name: &str, _params: serde_json::Value) -> crate::types::Result<serde_json::Value> {
+            Ok(serde_json::json!({"tool": name, "executed": true}))
+        }
+        fn list_tools(&self) -> Vec<ToolInfo> {
+            vec![
+                ToolInfo { name: "safe_op".into(), description: "safe".into(), parameters: serde_json::json!({"type": "object"}) },
+                ToolInfo { name: "delete_all".into(), description: "destructive".into(), parameters: serde_json::json!({"type": "object"}) },
+            ]
+        }
+        fn requires_confirmation(&self, name: &str, _params: &serde_json::Value) -> Option<ConfirmationRequest> {
+            if name == "delete_all" {
+                Some(ConfirmationRequest {
+                    message: "This will delete everything!".into(),
+                    action_data: Some(serde_json::json!({"target": "all"})),
+                })
+            } else {
+                None
+            }
+        }
+    }
+
+    #[test]
+    fn confirmation_default_returns_none() {
+        let executor = mock_executor(&["a"]);
+        assert!(executor.requires_confirmation("a", &serde_json::json!({})).is_none());
+    }
+
+    #[test]
+    fn confirmation_returns_request_for_destructive_tool() {
+        let executor = ConfirmableExecutor;
+        let result = executor.requires_confirmation("delete_all", &serde_json::json!({}));
+        assert!(result.is_some());
+        let req = result.unwrap();
+        assert!(req.message.contains("delete everything"));
+        assert!(req.action_data.is_some());
+    }
+
+    #[test]
+    fn confirmation_returns_none_for_safe_tool() {
+        let executor = ConfirmableExecutor;
+        assert!(executor.requires_confirmation("safe_op", &serde_json::json!({})).is_none());
+    }
+
+    #[test]
+    fn registry_delegates_confirmation() {
+        let registry = ToolRegistryBuilder::new()
+            .add_executor(Arc::new(ConfirmableExecutor))
+            .build();
+        assert!(registry.requires_confirmation("delete_all", &serde_json::json!({})).is_some());
+        assert!(registry.requires_confirmation("safe_op", &serde_json::json!({})).is_none());
+        assert!(registry.requires_confirmation("nonexistent", &serde_json::json!({})).is_none());
+    }
+
+    #[test]
+    fn acl_delegates_confirmation_for_allowed() {
+        let inner: Arc<dyn ToolExecutor> = Arc::new(ConfirmableExecutor);
+        let acl = AclToolExecutor::new(inner, vec!["delete_all".to_string(), "safe_op".to_string()]);
+        assert!(acl.requires_confirmation("delete_all", &serde_json::json!({})).is_some());
+        assert!(acl.requires_confirmation("safe_op", &serde_json::json!({})).is_none());
+    }
+
+    #[test]
+    fn acl_blocks_confirmation_for_disallowed() {
+        let inner: Arc<dyn ToolExecutor> = Arc::new(ConfirmableExecutor);
+        let acl = AclToolExecutor::new(inner, vec!["safe_op".to_string()]);
+        // delete_all not in allowed set → confirmation check returns None
+        assert!(acl.requires_confirmation("delete_all", &serde_json::json!({})).is_none());
     }
 }

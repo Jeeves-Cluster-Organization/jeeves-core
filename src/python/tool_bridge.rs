@@ -6,7 +6,7 @@
 use async_trait::async_trait;
 use pyo3::prelude::*;
 
-use crate::worker::tools::{ToolExecutor, ToolInfo};
+use crate::worker::tools::{ConfirmationRequest, ToolExecutor, ToolInfo};
 
 /// Wraps a Python callable (`Py<PyAny>`) as a Rust `ToolExecutor`.
 ///
@@ -15,6 +15,8 @@ use crate::worker::tools::{ToolExecutor, ToolInfo};
 pub struct PyToolExecutor {
     py_fn: Py<PyAny>,
     info: ToolInfo,
+    /// Optional Python callable for confirmation checks: (name, params) -> dict|None
+    py_confirmation_fn: Option<Py<PyAny>>,
 }
 
 impl std::fmt::Debug for PyToolExecutor {
@@ -27,7 +29,12 @@ impl std::fmt::Debug for PyToolExecutor {
 
 impl PyToolExecutor {
     pub fn new(py_fn: Py<PyAny>, info: ToolInfo) -> Self {
-        Self { py_fn, info }
+        Self { py_fn, info, py_confirmation_fn: None }
+    }
+
+    pub fn with_confirmation_fn(mut self, py_fn: Py<PyAny>) -> Self {
+        self.py_confirmation_fn = Some(py_fn);
+        self
     }
 }
 
@@ -62,5 +69,20 @@ impl ToolExecutor for PyToolExecutor {
 
     fn list_tools(&self) -> Vec<ToolInfo> {
         vec![self.info.clone()]
+    }
+
+    fn requires_confirmation(&self, name: &str, params: &serde_json::Value) -> Option<ConfirmationRequest> {
+        let py_fn = self.py_confirmation_fn.as_ref()?;
+        Python::with_gil(|py| -> Option<ConfirmationRequest> {
+            let json_mod = py.import_bound("json").ok()?;
+            let params_str = serde_json::to_string(params).ok()?;
+            let py_params = json_mod.call_method1("loads", (params_str,)).ok()?;
+            let py_result = py_fn.call1(py, (name, py_params)).ok()?;
+            if py_result.is_none(py) {
+                return None;
+            }
+            let result_str: String = json_mod.call_method1("dumps", (py_result,)).ok()?.extract().ok()?;
+            serde_json::from_str(&result_str).ok()
+        })
     }
 }
