@@ -94,6 +94,12 @@ pub struct AgentDispatchContext {
     /// Extracted from envelope metadata by `get_next_instruction()` (not leaked to agents via metadata).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub interrupt_response: Option<serde_json::Value>,
+    /// Per-stage wall-clock timeout (passed from PipelineStage config).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub timeout_seconds: Option<u64>,
+    /// Retry policy for transient failures (passed from PipelineStage config).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub retry_policy: Option<RetryPolicy>,
 }
 
 /// Instruction from kernel to worker — determines what happens next.
@@ -508,6 +514,41 @@ impl Default for AgentConfig {
     }
 }
 
+/// Retry policy for transient agent failures (Temporal activity retry pattern).
+///
+/// When an agent fails with `success: false`, the worker retries with exponential
+/// backoff before routing to `error_next`. No retry on interrupt requests.
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+pub struct RetryPolicy {
+    /// Maximum retry attempts (0 = no retry, default).
+    #[serde(default)]
+    pub max_retries: u32,
+    /// Initial backoff in milliseconds (default: 1000).
+    #[serde(default = "default_initial_backoff_ms")]
+    pub initial_backoff_ms: u64,
+    /// Maximum backoff in milliseconds (default: 30000).
+    #[serde(default = "default_max_backoff_ms")]
+    pub max_backoff_ms: u64,
+    /// Backoff multiplier (default: 2.0).
+    #[serde(default = "default_backoff_multiplier")]
+    pub backoff_multiplier: f64,
+}
+
+impl Default for RetryPolicy {
+    fn default() -> Self {
+        Self {
+            max_retries: 0,
+            initial_backoff_ms: 1000,
+            max_backoff_ms: 30000,
+            backoff_multiplier: 2.0,
+        }
+    }
+}
+
+fn default_initial_backoff_ms() -> u64 { 1000 }
+fn default_max_backoff_ms() -> u64 { 30000 }
+fn default_backoff_multiplier() -> f64 { 2.0 }
+
 /// Pipeline stage with routing rules, fallbacks, and parallel config.
 ///
 /// Routing evaluation order (Temporal/K8s pattern):
@@ -558,6 +599,14 @@ pub struct PipelineStage {
     /// Strategy when context exceeds max_context_tokens.
     #[serde(default)]
     pub context_overflow: ContextOverflow,
+    /// Per-stage wall-clock timeout in seconds (K8s container timeout / Temporal startToClose).
+    /// Agent execution is cancelled if it exceeds this deadline.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub timeout_seconds: Option<u64>,
+    /// Retry policy for transient agent failures. Retries with backoff before
+    /// falling through to error_next routing.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub retry_policy: Option<RetryPolicy>,
     /// Agent execution config — transparent to kernel, consumed by worker.
     #[serde(flatten)]
     pub agent_config: AgentConfig,
@@ -666,22 +715,7 @@ mod tests {
         PipelineStage {
             name: name.to_string(),
             agent: name.to_string(),
-            routing: vec![],
-            default_next: None,
-            error_next: None,
-            max_visits: None,
-            join_strategy: JoinStrategy::default(),
-            output_schema: None,
-            allowed_tools: None,
-            node_kind: NodeKind::Agent,
-            output_key: None,
-            router_targets: vec![],
-            max_context_tokens: None,
-            context_overflow: ContextOverflow::default(),
-            agent_config: AgentConfig {
-                has_llm: false,
-                ..Default::default()
-            },
+            ..PipelineStage::default()
         }
     }
 
@@ -882,21 +916,4 @@ mod tests {
         );
     }
 
-    #[test]
-    #[ignore] // Side-effect: writes schema/pipeline.schema.json; run with --ignored
-    fn generate_pipeline_schema_file() {
-        let schema = pipeline_config_json_schema();
-        let pretty = serde_json::to_string_pretty(&schema).expect("serialize schema");
-
-        // Write to schema/ directory relative to crate root
-        let crate_dir = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"));
-        let schema_dir = crate_dir.join("schema");
-        std::fs::create_dir_all(&schema_dir).expect("create schema dir");
-        let path = schema_dir.join("pipeline.schema.json");
-        std::fs::write(&path, pretty).expect("write schema file");
-
-        // Verify the file is valid JSON
-        let content = std::fs::read_to_string(&path).expect("read schema file");
-        let _: serde_json::Value = serde_json::from_str(&content).expect("valid JSON");
-    }
 }

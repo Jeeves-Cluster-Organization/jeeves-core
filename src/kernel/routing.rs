@@ -632,19 +632,9 @@ mod tests {
         let stage = PipelineStage {
             name: "s1".to_string(),
             agent: "a1".to_string(),
-            routing: vec![],
             default_next: Some("s2".to_string()),
             error_next: Some("s_err".to_string()),
-            max_visits: None,
-            join_strategy: JoinStrategy::default(),
-            output_schema: None,
-            allowed_tools: None,
-            node_kind: crate::kernel::orchestrator_types::NodeKind::default(),
-            output_key: None,
-            router_targets: vec![],
-            max_context_tokens: None,
-            context_overflow: ContextOverflow::default(),
-            agent_config: crate::kernel::orchestrator_types::AgentConfig::default(),
+            ..PipelineStage::default()
         };
         let (outputs, metadata) = empty_ctx();
 

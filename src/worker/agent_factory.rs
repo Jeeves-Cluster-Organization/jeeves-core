@@ -18,7 +18,7 @@ use crate::worker::tools::{AclToolExecutor, ToolRegistry};
 /// Builds AgentRegistry from pipeline configs + shared resources.
 ///
 /// # Example
-/// ```ignore
+/// ```text
 /// let agents = AgentFactoryBuilder::new(llm, prompts, tools, handle)
 ///     .add_pipeline(config)
 ///     .build();

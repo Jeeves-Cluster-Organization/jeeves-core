@@ -209,7 +209,7 @@ impl McpClient {
 /// MCP tool executor — connects to an MCP server, discovers tools, executes them.
 ///
 /// Implements `ToolExecutor` so it plugs directly into `ToolRegistry`:
-/// ```ignore
+/// ```text
 /// let mcp = Arc::new(McpToolExecutor::connect(transport).await?);
 /// for tool in mcp.list_tools() {
 ///     registry.register(tool.name.clone(), mcp.clone());

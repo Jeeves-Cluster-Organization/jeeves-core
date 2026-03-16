@@ -93,7 +93,7 @@ impl ToolRegistry {
 /// Builder for composing tool registries from multiple sources.
 ///
 /// Replaces the repeated 6-line registration loop in every consumer:
-/// ```ignore
+/// ```text
 /// let tools = ToolRegistryBuilder::new()
 ///     .add_executor(Arc::new(MyTools::new()))
 ///     .add_executor(Arc::new(SearchTools::new()))

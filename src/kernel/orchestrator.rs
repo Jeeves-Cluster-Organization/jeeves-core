@@ -1396,17 +1396,9 @@ mod tests {
             agent: name.to_string(),
             routing,
             default_next: default_next.map(|s| s.to_string()),
-            error_next: None,
-            max_visits: None,
             join_strategy: join,
-            output_schema: None,
-            allowed_tools: None,
             node_kind: NodeKind::Fork,
-            output_key: None,
-            router_targets: vec![],
-            max_context_tokens: None,
-            context_overflow: ContextOverflow::default(),
-            agent_config: AgentConfig::default(),
+            ..PipelineStage::default()
         }
     }
 
@@ -2009,17 +2001,8 @@ mod tests {
             agent: name.to_string(),
             routing,
             default_next: default_next.map(|s| s.to_string()),
-            error_next: None,
-            max_visits: None,
-            join_strategy: JoinStrategy::default(),
-            output_schema: None,
-            allowed_tools: None,
             node_kind: NodeKind::Gate,
-            output_key: None,
-            router_targets: vec![],
-            max_context_tokens: None,
-            context_overflow: ContextOverflow::default(),
-            agent_config: AgentConfig::default(),
+            ..PipelineStage::default()
         }
     }
 

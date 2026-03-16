@@ -3,7 +3,7 @@
 //! Provides a simple API to run pipelines with mock agents
 //! without wiring up the full kernel actor.
 //!
-//! ```ignore
+//! ```text
 //! let result = PipelineTestHarness::new(config)
 //!     .mock_agent("understand", my_agent)
 //!     .run("Hello, world!")

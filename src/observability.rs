@@ -51,9 +51,8 @@ fn init_tracing_with(default_level: &str, json_from_config: bool) {
 /// OpenTelemetry spans, exportable to Jaeger, Datadog, Grafana Tempo, etc.
 ///
 /// # Usage
-/// ```ignore
+/// ```text
 /// use tracing_subscriber::prelude::*;
-///
 /// tracing_subscriber::registry()
 ///     .with(tracing_subscriber::fmt::layer())
 ///     .with(jeeves_core::observability::otel_tracing_layer())

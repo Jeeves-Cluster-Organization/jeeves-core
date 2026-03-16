@@ -110,6 +110,13 @@ impl Kernel {
                 let stage_name = self.process_envelopes.get(process_id)
                     .map(|e| e.pipeline.current_stage.clone())
                     .unwrap_or_default();
+
+                // Pass per-stage timeout + retry policy from stage config
+                if let Some(sc) = self.orchestrator.get_stage_config(process_id, &stage_name) {
+                    context.timeout_seconds = sc.timeout_seconds;
+                    context.retry_policy = sc.retry_policy.clone();
+                }
+
                 context.output_schema = self.orchestrator.get_stage_output_schema(process_id, &stage_name);
 
                 // Router enrichment: evaluate when-conditions, filter targets, override output_schema
@@ -743,9 +750,8 @@ impl Kernel {
 mod tests {
     use crate::envelope::Envelope;
     use crate::kernel::orchestrator::{
-        Instruction, NodeKind, PipelineConfig, PipelineStage, JoinStrategy,
+        Instruction, PipelineConfig, PipelineStage,
     };
-    use crate::kernel::orchestrator_types::ContextOverflow;
     use crate::kernel::{Kernel, SchedulingPriority};
     use crate::types::{ProcessId, RequestId, UserId, SessionId};
 
@@ -753,22 +759,7 @@ mod tests {
         PipelineStage {
             name: name.to_string(),
             agent: name.to_string(),
-            routing: vec![],
-            default_next: None,
-            error_next: None,
-            max_visits: None,
-            node_kind: NodeKind::Agent,
-            output_key: None,
-            router_targets: vec![],
-            max_context_tokens: None,
-            context_overflow: ContextOverflow::default(),
-            join_strategy: JoinStrategy::WaitAll,
-            allowed_tools: None,
-            output_schema: None,
-            agent_config: crate::kernel::orchestrator_types::AgentConfig {
-                has_llm: false,
-                ..Default::default()
-            },
+            ..PipelineStage::default()
         }
     }
 

@@ -31,11 +31,7 @@ pub use types::*;
 /// Unlike hardcoded per-agent output fields, Envelope uses a dynamic `Outputs` map
 /// where any agent can write results keyed by agent name.
 ///
-/// Example (pseudo-code):
-/// ```ignore
-/// envelope.outputs.insert("perception", {...});
-/// envelope.outputs.insert("intent", {...});
-/// ```
+/// Example: `envelope.outputs.insert("perception", hashmap)` per agent.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct Envelope {
     pub identity: Identity,

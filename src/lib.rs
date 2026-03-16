@@ -55,9 +55,7 @@ pub use types::{Config, Error, Result};
 
 /// Prelude — re-exports consumer-facing types for convenient imports.
 ///
-/// ```ignore
-/// use jeeves_core::prelude::*;
-/// ```
+/// Usage: `use jeeves_core::prelude::*;`
 pub mod prelude {
     pub use crate::envelope::Envelope;
     pub use crate::kernel::orchestrator_types::PipelineConfig;

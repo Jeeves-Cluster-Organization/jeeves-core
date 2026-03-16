@@ -1,12 +1,16 @@
 //! PipelineBuilder — fluent API for constructing PipelineConfig.
 //!
 //! Reduces pipeline authoring from 30+ lines of raw JSON to ~5 lines:
-//! ```ignore
-//! PipelineBuilder::new("chat")
+//! ```no_run
+//! # use jeeves_core::kernel::builder::PipelineBuilder;
+//! # fn main() -> jeeves_core::Result<()> {
+//! let config = PipelineBuilder::new("chat")
 //!     .stage("understand", "understand").has_llm(false).default_next("respond").done()
 //!     .stage("respond", "respond").done()
 //!     .bounds(10, 5, 5)
-//!     .build()?
+//!     .build()?;
+//! # Ok(())
+//! # }
 //! ```
 
 use crate::types::Result;

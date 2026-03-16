@@ -18,7 +18,7 @@ use std::sync::Arc;
 use tracing::{instrument, Instrument};
 
 use crate::envelope::Envelope;
-use crate::kernel::orchestrator_types::{AgentDispatchContext, Instruction, PipelineConfig};
+use crate::kernel::orchestrator_types::{AgentDispatchContext, AgentExecutionMetrics, Instruction, PipelineConfig};
 use crate::types::{ProcessId, Result};
 
 use agent::{Agent, AgentContext, AgentOutput, AgentRegistry, DeterministicAgent};
@@ -152,7 +152,11 @@ pub async fn run_pipeline_loop(
                 }
 
                 let ctx = build_agent_context(context, event_tx.clone(), Some(agent.clone()), pipeline_name.clone());
-                let output = execute_agent(agents, agent, &ctx).await;
+                let output = execute_agent_with_policy(
+                    agents, agent, &ctx,
+                    context.timeout_seconds,
+                    context.retry_policy.as_ref(),
+                ).await;
 
                 // Tool confirmation gate: if agent requests an interrupt, suspend stage
                 if let Some(interrupt) = output.interrupt_request {
@@ -235,6 +239,8 @@ async fn execute_parallel(
 ) -> Result<()> {
     let mut join_handles = Vec::new();
 
+    let timeout_secs = context.timeout_seconds;
+
     for agent_name in agent_names {
         let ctx = build_agent_context(context, event_tx.clone(), Some(agent_name.clone()), pipeline_name.clone());
         let agent_name = agent_name.clone();
@@ -242,22 +248,38 @@ async fn execute_parallel(
 
         let agent_name_for_span = agent_name.clone();
         join_handles.push(tokio::spawn(async move {
-            let output: AgentOutput = if let Some(a) = agent_impl {
-                a.process(&ctx).await.unwrap_or_else(|e| AgentOutput {
-                    output: serde_json::json!({"error": e.to_string()}),
-                    metrics: Default::default(),
-                    success: false,
-                    error_message: e.to_string(),
-                    interrupt_request: None,
-                })
+            let agent_future = async {
+                if let Some(a) = agent_impl {
+                    a.process(&ctx).await.unwrap_or_else(|e| AgentOutput {
+                        output: serde_json::json!({"error": e.to_string()}),
+                        metrics: Default::default(),
+                        success: false,
+                        error_message: e.to_string(),
+                        interrupt_request: None,
+                    })
+                } else {
+                    DeterministicAgent.process(&ctx).await.unwrap_or_else(|e| AgentOutput {
+                        output: serde_json::json!({"error": e.to_string()}),
+                        metrics: Default::default(),
+                        success: false,
+                        error_message: e.to_string(),
+                        interrupt_request: None,
+                    })
+                }
+            };
+            let output = if let Some(secs) = timeout_secs {
+                match tokio::time::timeout(std::time::Duration::from_secs(secs), agent_future).await {
+                    Ok(output) => output,
+                    Err(_) => AgentOutput {
+                        output: serde_json::json!({"error": format!("Stage timeout after {}s", secs)}),
+                        metrics: Default::default(),
+                        success: false,
+                        error_message: format!("Stage timeout after {}s", secs),
+                        interrupt_request: None,
+                    },
+                }
             } else {
-                DeterministicAgent.process(&ctx).await.unwrap_or_else(|e| AgentOutput {
-                    output: serde_json::json!({"error": e.to_string()}),
-                    metrics: Default::default(),
-                    success: false,
-                    error_message: e.to_string(),
-                    interrupt_request: None,
-                })
+                agent_future.await
             };
             (agent_name, output)
         }.instrument(tracing::debug_span!("parallel_agent", agent = %agent_name_for_span))));
@@ -316,6 +338,95 @@ fn build_agent_context(
         max_context_tokens: context.max_context_tokens,
         context_overflow: context.context_overflow,
         interrupt_response: context.interrupt_response.clone(),
+    }
+}
+
+/// Execute an agent with per-stage timeout and retry policy.
+///
+/// Wraps `execute_agent` with:
+/// - `tokio::time::timeout` (per-stage wall-clock deadline)
+/// - Retry loop with exponential backoff on transient failures
+///
+/// Timeout/retry are no-ops when None (existing behavior preserved).
+#[instrument(skip(agents, ctx, retry_policy), fields(agent = %agent_name))]
+async fn execute_agent_with_policy(
+    agents: &AgentRegistry,
+    agent_name: &str,
+    ctx: &AgentContext,
+    timeout_seconds: Option<u64>,
+    retry_policy: Option<&crate::kernel::orchestrator_types::RetryPolicy>,
+) -> AgentOutput {
+    let max_attempts = retry_policy.map(|r| r.max_retries + 1).unwrap_or(1);
+    let mut accumulated_metrics = AgentExecutionMetrics::default();
+
+    for attempt in 0..max_attempts {
+        let output = execute_agent_with_timeout(agents, agent_name, ctx, timeout_seconds, attempt).await;
+
+        // Accumulate metrics across attempts so bounds accounting is accurate
+        accumulated_metrics.llm_calls += output.metrics.llm_calls;
+        accumulated_metrics.tool_calls += output.metrics.tool_calls;
+        accumulated_metrics.tokens_in = Some(
+            accumulated_metrics.tokens_in.unwrap_or(0) + output.metrics.tokens_in.unwrap_or(0),
+        );
+        accumulated_metrics.tokens_out = Some(
+            accumulated_metrics.tokens_out.unwrap_or(0) + output.metrics.tokens_out.unwrap_or(0),
+        );
+        accumulated_metrics.duration_ms += output.metrics.duration_ms;
+        accumulated_metrics.tool_results.extend(output.metrics.tool_results.clone());
+
+        // Terminal: success, interrupt, or final attempt
+        if output.success || output.interrupt_request.is_some() || attempt + 1 >= max_attempts {
+            return AgentOutput {
+                metrics: accumulated_metrics,
+                ..output
+            };
+        }
+
+        // Transient failure — backoff before next attempt
+        if let Some(policy) = retry_policy {
+            let backoff_ms = (policy.initial_backoff_ms as f64
+                * policy.backoff_multiplier.powi(attempt as i32)) as u64;
+            let capped_ms = backoff_ms.min(policy.max_backoff_ms);
+            tracing::info!(agent = %agent_name, attempt, backoff_ms = capped_ms, "agent_retry");
+            tokio::time::sleep(std::time::Duration::from_millis(capped_ms)).await;
+        }
+    }
+
+    unreachable!("loop always returns on final attempt")
+}
+
+/// Single agent execution attempt with optional timeout.
+async fn execute_agent_with_timeout(
+    agents: &AgentRegistry,
+    agent_name: &str,
+    ctx: &AgentContext,
+    timeout_seconds: Option<u64>,
+    attempt: u32,
+) -> AgentOutput {
+    let Some(secs) = timeout_seconds else {
+        return execute_agent(agents, agent_name, ctx).await;
+    };
+
+    match tokio::time::timeout(std::time::Duration::from_secs(secs), execute_agent(agents, agent_name, ctx)).await {
+        Ok(output) => output,
+        Err(_elapsed) => {
+            let msg = format!("Stage timeout after {}s (attempt {})", secs, attempt);
+            tracing::warn!(agent = %agent_name, timeout_secs = secs, attempt, "stage_timeout");
+            if let Some(ref tx) = ctx.event_tx {
+                let _ = tx.send(PipelineEvent::Error {
+                    message: msg.clone(),
+                    stage: ctx.stage_name.clone(),
+                    pipeline: ctx.pipeline_name.clone(),
+                }).await;
+            }
+            AgentOutput {
+                output: serde_json::json!({"error": &msg}),
+                metrics: Default::default(),
+                success: false,
+                error_message: msg,
+                interrupt_request: None,
+            }
+        }
     }
 }
 

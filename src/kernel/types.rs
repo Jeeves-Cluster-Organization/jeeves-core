@@ -210,7 +210,7 @@ impl ResourceUsage {
         if self.tokens_out > quota.max_output_tokens as i64 {
             return Some(QuotaViolation::TokensOut { used: self.tokens_out, limit: quota.max_output_tokens as i64 });
         }
-        if self.elapsed_seconds > quota.timeout_seconds as f64 {
+        if quota.timeout_seconds > 0 && self.elapsed_seconds > quota.timeout_seconds as f64 {
             return Some(QuotaViolation::Timeout { elapsed: self.elapsed_seconds, limit: quota.timeout_seconds as f64 });
         }
         if self.inference_requests > quota.max_inference_requests {
