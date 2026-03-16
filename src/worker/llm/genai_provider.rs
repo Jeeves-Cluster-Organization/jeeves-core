@@ -215,7 +215,6 @@ impl LlmProvider for GenaiProvider {
             let genai_req = self.build_request(req);
             match self.client.exec_chat(&model, genai_req, Some(&options)).await {
                 Ok(resp) => {
-                    last_err = None;
                     // Fall through to response conversion below
                     let usage = convert_usage(&resp.usage);
                     let tool_calls: Vec<ToolCall> = resp.content.tool_calls()

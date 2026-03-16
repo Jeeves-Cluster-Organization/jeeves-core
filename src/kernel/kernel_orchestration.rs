@@ -930,7 +930,7 @@ mod tests {
         config.publishes = vec!["test.completed".to_string()];
 
         let envelope = Envelope::new_minimal("user-1", "sess-1", "hello", None);
-        kernel.initialize_orchestration(pid.clone(), config, envelope, false).unwrap();
+        let _ = kernel.initialize_orchestration(pid.clone(), config, envelope, false).unwrap();
 
         // First instruction: RunAgent
         let instr = kernel.get_next_instruction(&pid).unwrap();
@@ -973,7 +973,7 @@ mod tests {
         // No publishes configured
         let config = test_config(vec![test_stage("agent_a")]);
         let envelope = Envelope::new_minimal("user-1", "sess-1", "hello", None);
-        kernel.initialize_orchestration(pid.clone(), config, envelope, false).unwrap();
+        let _ = kernel.initialize_orchestration(pid.clone(), config, envelope, false).unwrap();
 
         let _instr = kernel.get_next_instruction(&pid).unwrap();
         kernel.process_agent_result(

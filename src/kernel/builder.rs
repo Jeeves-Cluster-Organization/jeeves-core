@@ -248,13 +248,6 @@ impl StageHandle {
         self
     }
 
-    /// Set child_pipeline for this stage (composition).
-    pub fn child_pipeline(mut self, name: &str) -> Self {
-        self.stage_mut().agent_config.child_pipeline = Some(name.to_string());
-        self.stage_mut().agent_config.has_llm = false; // mutually exclusive
-        self
-    }
-
     /// Return to the pipeline builder.
     pub fn done(self) -> PipelineBuilder {
         self.builder

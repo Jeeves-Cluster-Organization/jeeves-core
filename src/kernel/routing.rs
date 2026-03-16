@@ -283,7 +283,7 @@ pub fn resolve_field(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::kernel::orchestrator_types::{ContextOverflow, JoinStrategy, PipelineStage};
+    use crate::kernel::orchestrator_types::PipelineStage;
     use serde_json::Value;
 
     // ── Test helpers ─────────────────────────────────────────────────────

@@ -85,7 +85,7 @@ use jeeves_core::prelude::*;
 use jeeves_core::worker::llm::genai_provider::GenaiProvider;
 
 let tools = ToolRegistryBuilder::new().add_executor(my_tools).build();
-let agents = AgentFactoryBuilder::new(llm, prompts, tools, handle)
+let agents = AgentFactoryBuilder::new(llm, prompts, tools)
     .add_pipeline(config).build();
 ```
 

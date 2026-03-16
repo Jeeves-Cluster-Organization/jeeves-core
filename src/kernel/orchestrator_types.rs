@@ -289,14 +289,6 @@ impl PipelineConfig {
         }
 
         for stage in &self.stages {
-            // Validate child_pipeline + has_llm mutual exclusion
-            if stage.agent_config.child_pipeline.is_some() && stage.agent_config.has_llm {
-                return Err(Error::validation(format!(
-                    "Stage '{}': child_pipeline and has_llm=true are mutually exclusive",
-                    stage.name
-                )));
-            }
-
             // Validate node-kind constraints
             match stage.node_kind {
                 NodeKind::Agent => {
@@ -336,11 +328,6 @@ impl PipelineConfig {
                     if stage.output_schema.is_some() {
                         return Err(Error::validation(format!(
                             "Router stage '{}' must not have explicit output_schema (auto-generated)", stage.name
-                        )));
-                    }
-                    if stage.agent_config.child_pipeline.is_some() {
-                        return Err(Error::validation(format!(
-                            "Router stage '{}' must not have child_pipeline", stage.name
                         )));
                     }
                     for rt in &stage.router_targets {
@@ -491,10 +478,6 @@ pub struct AgentConfig {
     /// Model role (e.g. "fast", "reasoning") — resolved by LLM provider.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub model_role: Option<String>,
-    /// If set, this stage runs the named pipeline as a child (PipelineAgent).
-    /// Mutually exclusive with has_llm=true.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub child_pipeline: Option<String>,
     /// Maximum tool call rounds in the ReAct loop (default: 10).
     #[serde(default = "default_max_tool_rounds")]
     pub max_tool_rounds: u32,
@@ -508,7 +491,6 @@ impl Default for AgentConfig {
             temperature: None,
             max_tokens: None,
             model_role: None,
-            child_pipeline: None,
             max_tool_rounds: 10,
         }
     }
@@ -807,25 +789,6 @@ mod tests {
         assert!(config.validate().is_ok());
     }
 
-    #[test]
-    fn test_validate_child_pipeline_and_has_llm_mutually_exclusive() {
-        let mut stage = minimal_stage("sub");
-        stage.agent_config.child_pipeline = Some("child".to_string());
-        stage.agent_config.has_llm = true;
-        let config = minimal_config(vec![stage]);
-        let err = config.validate().unwrap_err();
-        assert!(err.to_string().contains("mutually exclusive"));
-    }
-
-    #[test]
-    fn test_validate_child_pipeline_without_llm_ok() {
-        let mut stage = minimal_stage("sub");
-        stage.agent_config.child_pipeline = Some("child".to_string());
-        stage.agent_config.has_llm = false;
-        let config = minimal_config(vec![stage]);
-        assert!(config.validate().is_ok());
-    }
-
     // =========================================================================
     // Router validation tests
     // =========================================================================
@@ -881,16 +844,6 @@ mod tests {
         let config = minimal_config(vec![stage, minimal_stage("t")]);
         let err = config.validate().unwrap_err();
         assert!(err.to_string().contains("output_schema"));
-    }
-
-    #[test]
-    fn test_validate_router_with_child_pipeline_rejected() {
-        let mut stage = router_stage("router", vec![rt("t", "desc")]);
-        stage.agent_config.child_pipeline = Some("child".to_string());
-        stage.agent_config.has_llm = false; // avoid child+has_llm rejection
-        let config = minimal_config(vec![stage, minimal_stage("t")]);
-        let err = config.validate().unwrap_err();
-        assert!(err.to_string().contains("must not have child_pipeline"));
     }
 
     #[test]

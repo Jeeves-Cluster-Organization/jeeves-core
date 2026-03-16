@@ -2483,7 +2483,7 @@ mod tests {
             stage("b", "b", vec![], None),
         ]);
         let mut envelope = create_test_envelope();
-        orch.initialize_session(ProcessId::must("p1"), pipeline, &mut envelope, false).unwrap();
+        let _ = orch.initialize_session(ProcessId::must("p1"), pipeline, &mut envelope, false).unwrap();
 
         let instr = orch.get_next_instruction(&ProcessId::must("p1"), &mut envelope).unwrap();
         // Router dispatches RunAgent, not skipped like Gate
@@ -2502,7 +2502,7 @@ mod tests {
             stage("b", "b", vec![], None),
         ]);
         let mut envelope = create_test_envelope();
-        orch.initialize_session(ProcessId::must("p1"), pipeline, &mut envelope, false).unwrap();
+        let _ = orch.initialize_session(ProcessId::must("p1"), pipeline, &mut envelope, false).unwrap();
 
         // Agent outputs chosen_target = "b"
         let mut output = HashMap::new();
@@ -2522,7 +2522,7 @@ mod tests {
             stage("fallback", "fallback", vec![], None),
         ]);
         let mut envelope = create_test_envelope();
-        orch.initialize_session(ProcessId::must("p1"), pipeline, &mut envelope, false).unwrap();
+        let _ = orch.initialize_session(ProcessId::must("p1"), pipeline, &mut envelope, false).unwrap();
 
         // Agent outputs invalid target
         let mut output = HashMap::new();
@@ -2542,7 +2542,7 @@ mod tests {
             stage("fallback", "fallback", vec![], None),
         ]);
         let mut envelope = create_test_envelope();
-        orch.initialize_session(ProcessId::must("p1"), pipeline, &mut envelope, false).unwrap();
+        let _ = orch.initialize_session(ProcessId::must("p1"), pipeline, &mut envelope, false).unwrap();
 
         // Agent outputs no chosen_target
         envelope.outputs.insert("router".to_string(), HashMap::new());
@@ -2559,7 +2559,7 @@ mod tests {
             stage("a", "a", vec![], None),
         ]);
         let mut envelope = create_test_envelope();
-        orch.initialize_session(ProcessId::must("p1"), pipeline, &mut envelope, false).unwrap();
+        let _ = orch.initialize_session(ProcessId::must("p1"), pipeline, &mut envelope, false).unwrap();
 
         // Agent outputs no chosen_target, no default_next → terminate
         envelope.outputs.insert("router".to_string(), HashMap::new());

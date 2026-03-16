@@ -128,7 +128,6 @@ impl PyPipelineRunner {
             llm.clone(),
             prompts.clone(),
             tools.clone(),
-            handle.clone(),
         )
         .add_pipelines(pipeline_configs.values().cloned())
         .build();
@@ -538,9 +537,8 @@ impl PyPipelineRunner {
     /// Rebuild tool and agent registries from current tool_executors + pipeline configs.
     ///
     /// Delegates to AgentFactoryBuilder which handles:
-    /// - Decision tree (Gate→Deterministic, child_pipeline→PipelineAgent, etc.)
+    /// - Decision tree (Gate→Deterministic, has_llm→LlmAgent, tool→McpDelegatingAgent, etc.)
     /// - Per-stage ACL via AclToolExecutor::wrap_registry()
-    /// - PipelineAgent OnceLock backfill
     fn rebuild_registries(&mut self) {
         // Build tool registry from accumulated executors
         let mut builder = crate::worker::tools::ToolRegistryBuilder::new();
@@ -554,7 +552,6 @@ impl PyPipelineRunner {
             self.llm.clone(),
             self.prompts.clone(),
             tools.clone(),
-            self.handle.clone(),
         )
         .add_pipelines(self.pipeline_configs.values().cloned())
         .build();

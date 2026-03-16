@@ -271,7 +271,7 @@ use jeeves_core::prelude::*;
 let tools = ToolRegistryBuilder::new()
     .add_executor(Arc::new(MyTools::new()))
     .build();
-let agents = AgentFactoryBuilder::new(llm, prompts, tools.clone(), handle.clone())
+let agents = AgentFactoryBuilder::new(llm, prompts, tools.clone())
     .add_pipeline(config.clone())
     .build();
 let result = run_pipeline_with_envelope(&handle, pid, config, envelope, &agents).await?;
