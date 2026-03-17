@@ -20,6 +20,18 @@ pub struct PyPipelineRunner {
     pub(crate) inner: PipelineRunner,
 }
 
+impl PyPipelineRunner {
+    /// Access the underlying Rust PipelineRunner (for Rust crate consumers like airframe).
+    pub fn runner(&self) -> &PipelineRunner {
+        &self.inner
+    }
+
+    /// Access the tokio runtime handle (for Rust crate consumers that need to block_on).
+    pub fn runtime(&self) -> &tokio::runtime::Runtime {
+        &self.rt
+    }
+}
+
 impl std::fmt::Debug for PyPipelineRunner {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("PyPipelineRunner")
