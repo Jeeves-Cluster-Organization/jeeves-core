@@ -573,11 +573,16 @@ async fn test_gate_routing() {
 
 #[tokio::test]
 async fn test_fork_join_parallel() {
-    let kernel = Kernel::new();
+    use jeeves_core::kernel::orchestrator::{RoutingResult, RoutingContext};
+
+    let mut kernel = Kernel::new();
+    kernel.register_routing_fn("fan_ab", Arc::new(|_: &RoutingContext<'_>| {
+        RoutingResult::Fan(vec!["branch_a".into(), "branch_b".into()])
+    }));
     let cancel = CancellationToken::new();
     let handle = spawn_kernel(kernel, cancel.clone());
 
-    // Fork node: 2 Always rules → 2 parallel agents, then join into "final"
+    // Fork node: routing_fn fans out to branch_a + branch_b, then join into "final"
     let config: PipelineConfig = serde_json::from_value(serde_json::json!({
         "name": "fork_join_test",
         "stages": [
@@ -591,10 +596,7 @@ async fn test_fork_join_parallel() {
                 "name": "splitter",
                 "agent": "splitter",
                 "node_kind": "Fork",
-                "routing": [
-                    {"expr": {"op": "Always"}, "target": "branch_a"},
-                    {"expr": {"op": "Always"}, "target": "branch_b"}
-                ],
+                "routing_fn": "fan_ab",
                 "default_next": "final",
                 "has_llm": false
             },
@@ -886,7 +888,12 @@ async fn test_invalid_pipeline_rejected() {
 
 #[tokio::test]
 async fn test_valid_complex_pipeline() {
-    let kernel = Kernel::new();
+    use jeeves_core::kernel::orchestrator::{RoutingResult, RoutingContext};
+
+    let mut kernel = Kernel::new();
+    kernel.register_routing_fn("fan_ab", Arc::new(|_: &RoutingContext<'_>| {
+        RoutingResult::Fan(vec!["a".into(), "b".into()])
+    }));
     let cancel = CancellationToken::new();
     let handle = spawn_kernel(kernel, cancel.clone());
 
@@ -900,10 +907,7 @@ async fn test_valid_complex_pipeline() {
                 "name": "fork",
                 "agent": "fork",
                 "node_kind": "Fork",
-                "routing": [
-                    {"expr": {"op": "Always"}, "target": "a"},
-                    {"expr": {"op": "Always"}, "target": "b"}
-                ],
+                "routing_fn": "fan_ab",
                 "default_next": "final",
                 "has_llm": false
             },

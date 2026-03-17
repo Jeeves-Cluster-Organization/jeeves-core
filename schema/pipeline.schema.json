@@ -41,110 +41,6 @@
       ],
       "type": "object"
     },
-    "FieldRef": {
-      "description": "Scoped field reference for routing expressions.\n\nSerde: internally tagged with \"scope\" field. JSON example: `{\"scope\": \"Agent\", \"agent\": \"understand\", \"key\": \"topic\"}`",
-      "oneOf": [
-        {
-          "description": "output[current_agent][key]",
-          "properties": {
-            "key": {
-              "type": "string"
-            },
-            "scope": {
-              "enum": [
-                "Current"
-              ],
-              "type": "string"
-            }
-          },
-          "required": [
-            "key",
-            "scope"
-          ],
-          "type": "object"
-        },
-        {
-          "description": "output[agent][key] — cross-agent reference",
-          "properties": {
-            "agent": {
-              "type": "string"
-            },
-            "key": {
-              "type": "string"
-            },
-            "scope": {
-              "enum": [
-                "Agent"
-              ],
-              "type": "string"
-            }
-          },
-          "required": [
-            "agent",
-            "key",
-            "scope"
-          ],
-          "type": "object"
-        },
-        {
-          "description": "envelope.audit.metadata with dot-notation traversal",
-          "properties": {
-            "path": {
-              "type": "string"
-            },
-            "scope": {
-              "enum": [
-                "Meta"
-              ],
-              "type": "string"
-            }
-          },
-          "required": [
-            "path",
-            "scope"
-          ],
-          "type": "object"
-        },
-        {
-          "description": "interrupt_response[key] — serialized InterruptResponse",
-          "properties": {
-            "key": {
-              "type": "string"
-            },
-            "scope": {
-              "enum": [
-                "Interrupt"
-              ],
-              "type": "string"
-            }
-          },
-          "required": [
-            "key",
-            "scope"
-          ],
-          "type": "object"
-        },
-        {
-          "description": "envelope.state[key] — merged accumulator state",
-          "properties": {
-            "key": {
-              "type": "string"
-            },
-            "scope": {
-              "enum": [
-                "State"
-              ],
-              "type": "string"
-            }
-          },
-          "required": [
-            "key",
-            "scope"
-          ],
-          "type": "object"
-        }
-      ]
-    },
     "JoinStrategy": {
       "description": "Join strategy for parallel execution groups.",
       "oneOf": [
@@ -208,7 +104,7 @@
           "type": "string"
         },
         {
-          "description": "Parallel fan-out node — evaluates ALL matching rules, dispatches branches",
+          "description": "Parallel fan-out node — routing function returns Fan(targets)",
           "enum": [
             "Fork"
           ],
@@ -217,24 +113,19 @@
       ]
     },
     "PipelineStage": {
-      "description": "Pipeline stage with routing rules, fallbacks, and parallel config.\n\nRouting evaluation order (Temporal/K8s pattern): 1. If agent failed AND error_next set → route to error_next 2. Evaluate routing rules (first match wins) 3. If no match AND default_next set → route to default_next 4. If no match AND no default_next → terminate (COMPLETED)",
+      "description": "Pipeline stage with routing, fallbacks, and parallel config.\n\nRouting evaluation order: 1. If agent failed AND error_next set → route to error_next 2. If routing_fn registered → call it, use result 3. If no routing_fn → fall through to default_next 4. If no default_next → terminate (COMPLETED)",
       "properties": {
         "agent": {
+          "description": "Agent name to dispatch (ignored for Gate nodes).",
           "type": "string"
         },
         "allowed_tools": {
+          "description": "Tool whitelist — only these tools are available to this stage's agent.",
           "items": {
             "type": "string"
           },
           "type": [
             "array",
-            "null"
-          ]
-        },
-        "child_pipeline": {
-          "description": "If set, this stage runs the named pipeline as a child (PipelineAgent). Mutually exclusive with has_llm=true.",
-          "type": [
-            "string",
             "null"
           ]
         },
@@ -248,12 +139,14 @@
           "description": "Strategy when context exceeds max_context_tokens."
         },
         "default_next": {
+          "description": "Fallback target when no routing function is set or it returns Terminate.",
           "type": [
             "string",
             "null"
           ]
         },
         "error_next": {
+          "description": "Target stage when the agent fails (checked before routing_fn).",
           "type": [
             "string",
             "null"
@@ -270,7 +163,8 @@
               "$ref": "#/definitions/JoinStrategy"
             }
           ],
-          "default": "WaitAll"
+          "default": "WaitAll",
+          "description": "How to join parallel branches from a Fork (WaitAll or WaitFirst)."
         },
         "max_context_tokens": {
           "description": "Maximum estimated tokens allowed in LLM context for this stage. Uses chars/4 heuristic. When exceeded, applies context_overflow strategy.",
@@ -296,6 +190,7 @@
           "type": "integer"
         },
         "max_visits": {
+          "description": "Per-stage visit limit. Terminates with `MaxStageVisitsExceeded` when reached.",
           "format": "int32",
           "type": [
             "integer",
@@ -310,6 +205,7 @@
           ]
         },
         "name": {
+          "description": "Stage identifier (must be unique within the pipeline).",
           "type": "string"
         },
         "node_kind": {
@@ -318,15 +214,19 @@
               "$ref": "#/definitions/NodeKind"
             }
           ],
-          "default": "Agent"
+          "default": "Agent",
+          "description": "Node kind: Agent (run agent + route), Gate (route only), Fork (parallel fan-out)."
         },
         "output_key": {
+          "description": "State field key for this stage's output (defaults to stage name).",
           "type": [
             "string",
             "null"
           ]
         },
-        "output_schema": true,
+        "output_schema": {
+          "description": "JSON Schema for validating agent output before writing to state."
+        },
         "prompt_key": {
           "description": "Prompt template key for this agent. None = deterministic (no LLM call).",
           "type": [
@@ -334,18 +234,38 @@
             "null"
           ]
         },
-        "routing": {
-          "default": [],
-          "items": {
-            "$ref": "#/definitions/RoutingRule"
-          },
-          "type": "array"
+        "retry_policy": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/RetryPolicy"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Retry policy for transient agent failures. Retries with backoff before falling through to error_next routing."
+        },
+        "routing_fn": {
+          "description": "Name of a registered routing function. Called after agent completion (or directly for Gate nodes) to determine the next stage.",
+          "type": [
+            "string",
+            "null"
+          ]
         },
         "temperature": {
           "description": "LLM temperature override for this stage.",
           "format": "double",
           "type": [
             "number",
+            "null"
+          ]
+        },
+        "timeout_seconds": {
+          "description": "Per-stage wall-clock timeout in seconds (K8s container timeout / Temporal startToClose). Agent execution is cancelled if it exceeds this deadline.",
+          "format": "uint64",
+          "minimum": 0.0,
+          "type": [
+            "integer",
             "null"
           ]
         }
@@ -356,288 +276,37 @@
       ],
       "type": "object"
     },
-    "RoutingExpr": {
-      "description": "Routing expression tree evaluated recursively by the kernel.\n\nSerde: internally tagged with \"op\" field. JSON example: `{\"op\": \"Eq\", \"field\": {\"scope\": \"Current\", \"key\": \"intent\"}, \"value\": \"greet\"}`",
-      "oneOf": [
-        {
-          "description": "Equality: field == value",
-          "properties": {
-            "field": {
-              "$ref": "#/definitions/FieldRef"
-            },
-            "op": {
-              "enum": [
-                "Eq"
-              ],
-              "type": "string"
-            },
-            "value": true
-          },
-          "required": [
-            "field",
-            "op",
-            "value"
-          ],
-          "type": "object"
-        },
-        {
-          "description": "Inequality: field != value",
-          "properties": {
-            "field": {
-              "$ref": "#/definitions/FieldRef"
-            },
-            "op": {
-              "enum": [
-                "Neq"
-              ],
-              "type": "string"
-            },
-            "value": true
-          },
-          "required": [
-            "field",
-            "op",
-            "value"
-          ],
-          "type": "object"
-        },
-        {
-          "description": "Greater than (numeric f64 comparison)",
-          "properties": {
-            "field": {
-              "$ref": "#/definitions/FieldRef"
-            },
-            "op": {
-              "enum": [
-                "Gt"
-              ],
-              "type": "string"
-            },
-            "value": true
-          },
-          "required": [
-            "field",
-            "op",
-            "value"
-          ],
-          "type": "object"
-        },
-        {
-          "description": "Less than (numeric f64 comparison)",
-          "properties": {
-            "field": {
-              "$ref": "#/definitions/FieldRef"
-            },
-            "op": {
-              "enum": [
-                "Lt"
-              ],
-              "type": "string"
-            },
-            "value": true
-          },
-          "required": [
-            "field",
-            "op",
-            "value"
-          ],
-          "type": "object"
-        },
-        {
-          "description": "Greater than or equal (numeric f64 comparison)",
-          "properties": {
-            "field": {
-              "$ref": "#/definitions/FieldRef"
-            },
-            "op": {
-              "enum": [
-                "Gte"
-              ],
-              "type": "string"
-            },
-            "value": true
-          },
-          "required": [
-            "field",
-            "op",
-            "value"
-          ],
-          "type": "object"
-        },
-        {
-          "description": "Less than or equal (numeric f64 comparison)",
-          "properties": {
-            "field": {
-              "$ref": "#/definitions/FieldRef"
-            },
-            "op": {
-              "enum": [
-                "Lte"
-              ],
-              "type": "string"
-            },
-            "value": true
-          },
-          "required": [
-            "field",
-            "op",
-            "value"
-          ],
-          "type": "object"
-        },
-        {
-          "description": "String contains substring, or array contains element",
-          "properties": {
-            "field": {
-              "$ref": "#/definitions/FieldRef"
-            },
-            "op": {
-              "enum": [
-                "Contains"
-              ],
-              "type": "string"
-            },
-            "value": true
-          },
-          "required": [
-            "field",
-            "op",
-            "value"
-          ],
-          "type": "object"
-        },
-        {
-          "description": "Field exists and is not null",
-          "properties": {
-            "field": {
-              "$ref": "#/definitions/FieldRef"
-            },
-            "op": {
-              "enum": [
-                "Exists"
-              ],
-              "type": "string"
-            }
-          },
-          "required": [
-            "field",
-            "op"
-          ],
-          "type": "object"
-        },
-        {
-          "description": "Field is absent or null",
-          "properties": {
-            "field": {
-              "$ref": "#/definitions/FieldRef"
-            },
-            "op": {
-              "enum": [
-                "NotExists"
-              ],
-              "type": "string"
-            }
-          },
-          "required": [
-            "field",
-            "op"
-          ],
-          "type": "object"
-        },
-        {
-          "description": "All sub-expressions must be true",
-          "properties": {
-            "exprs": {
-              "items": {
-                "$ref": "#/definitions/RoutingExpr"
-              },
-              "type": "array"
-            },
-            "op": {
-              "enum": [
-                "And"
-              ],
-              "type": "string"
-            }
-          },
-          "required": [
-            "exprs",
-            "op"
-          ],
-          "type": "object"
-        },
-        {
-          "description": "At least one sub-expression must be true",
-          "properties": {
-            "exprs": {
-              "items": {
-                "$ref": "#/definitions/RoutingExpr"
-              },
-              "type": "array"
-            },
-            "op": {
-              "enum": [
-                "Or"
-              ],
-              "type": "string"
-            }
-          },
-          "required": [
-            "exprs",
-            "op"
-          ],
-          "type": "object"
-        },
-        {
-          "description": "Negate a sub-expression",
-          "properties": {
-            "expr": {
-              "$ref": "#/definitions/RoutingExpr"
-            },
-            "op": {
-              "enum": [
-                "Not"
-              ],
-              "type": "string"
-            }
-          },
-          "required": [
-            "expr",
-            "op"
-          ],
-          "type": "object"
-        },
-        {
-          "description": "Unconditional match (always true)",
-          "properties": {
-            "op": {
-              "enum": [
-                "Always"
-              ],
-              "type": "string"
-            }
-          },
-          "required": [
-            "op"
-          ],
-          "type": "object"
-        }
-      ]
-    },
-    "RoutingRule": {
-      "description": "Routing rule: expression tree + target stage.",
+    "RetryPolicy": {
+      "description": "Retry policy for transient agent failures (Temporal activity retry pattern).\n\nWhen an agent fails with `success: false`, the worker retries with exponential backoff before routing to `error_next`. No retry on interrupt requests.",
       "properties": {
-        "expr": {
-          "$ref": "#/definitions/RoutingExpr"
+        "backoff_multiplier": {
+          "default": 2.0,
+          "description": "Backoff multiplier (default: 2.0).",
+          "format": "double",
+          "type": "number"
         },
-        "target": {
-          "type": "string"
+        "initial_backoff_ms": {
+          "default": 1000,
+          "description": "Initial backoff in milliseconds (default: 1000).",
+          "format": "uint64",
+          "minimum": 0.0,
+          "type": "integer"
+        },
+        "max_backoff_ms": {
+          "default": 30000,
+          "description": "Maximum backoff in milliseconds (default: 30000).",
+          "format": "uint64",
+          "minimum": 0.0,
+          "type": "integer"
+        },
+        "max_retries": {
+          "default": 0,
+          "description": "Maximum retry attempts (0 = no retry, default).",
+          "format": "uint32",
+          "minimum": 0.0,
+          "type": "integer"
         }
       },
-      "required": [
-        "expr",
-        "target"
-      ],
       "type": "object"
     },
     "StateField": {
@@ -660,24 +329,29 @@
   "description": "Pipeline configuration for orchestration.\n\nThe kernel is a pure evaluator — it iterates routing rules, first match wins. All pipeline shape (linear, branching, cycles) is defined by the capability layer via routing rules on each stage.",
   "properties": {
     "edge_limits": {
+      "description": "Per-edge transition limits (e.g. max 3 trips from stage A→B).",
       "items": {
         "$ref": "#/definitions/EdgeLimit"
       },
       "type": "array"
     },
     "max_agent_hops": {
+      "description": "Global agent hop bound (transitions between stages). Terminates with `MaxAgentHopsExceeded`.",
       "format": "int32",
       "type": "integer"
     },
     "max_iterations": {
+      "description": "Global iteration bound. Terminates with `MaxIterationsExceeded` when reached.",
       "format": "int32",
       "type": "integer"
     },
     "max_llm_calls": {
+      "description": "Global LLM call bound across all stages. Terminates with `MaxLlmCallsExceeded`.",
       "format": "int32",
       "type": "integer"
     },
     "name": {
+      "description": "Unique pipeline name (used for event attribution and child pipeline references).",
       "type": "string"
     },
     "publishes": {
@@ -688,18 +362,21 @@
       "type": "array"
     },
     "stages": {
+      "description": "Ordered list of pipeline stages. First stage is the entry point.",
       "items": {
         "$ref": "#/definitions/PipelineStage"
       },
       "type": "array"
     },
     "state_schema": {
+      "description": "Typed state fields with merge strategies for loop-back accumulation.",
       "items": {
         "$ref": "#/definitions/StateField"
       },
       "type": "array"
     },
     "step_limit": {
+      "description": "Maximum routing steps per `get_next_instruction` call (default: 100). Prevents infinite Gate/Fork chains from blocking the orchestration loop.",
       "format": "int32",
       "type": [
         "integer",

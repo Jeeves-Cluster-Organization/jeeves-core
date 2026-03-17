@@ -59,6 +59,7 @@ pub use types::{Config, Error, Result};
 pub mod prelude {
     pub use crate::envelope::Envelope;
     pub use crate::kernel::orchestrator_types::PipelineConfig;
+    pub use crate::kernel::routing::{RoutingContext, RoutingFn, RoutingResult};
     pub use crate::kernel::Kernel;
     pub use crate::types::ProcessId;
     pub use crate::worker::actor::spawn_kernel;

@@ -10,7 +10,31 @@ use std::pin::Pin;
 use std::sync::Arc;
 use tokio::sync::mpsc;
 
+use crate::kernel::orchestrator_types::ToolCallResult;
 use crate::types::Result;
+
+/// Per-stage execution metrics attached to `StageCompleted` events.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct StageMetrics {
+    pub duration_ms: i64,
+    pub llm_calls: i32,
+    pub tool_calls: i32,
+    pub tokens_in: i64,
+    pub tokens_out: i64,
+    pub tool_results: Vec<ToolCallResult>,
+    pub success: bool,
+}
+
+/// Aggregate metrics across all stages, attached to `Done` events.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AggregateMetrics {
+    pub total_duration_ms: i64,
+    pub total_llm_calls: i32,
+    pub total_tool_calls: i32,
+    pub total_tokens_in: i64,
+    pub total_tokens_out: i64,
+    pub stages_executed: Vec<String>,
+}
 
 /// A single message in a chat conversation (OpenAI multi-turn tool protocol).
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -98,6 +122,7 @@ pub struct StreamChunk {
 /// emitted outside a stage boundary.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
+#[non_exhaustive]
 pub enum PipelineEvent {
     StageStarted {
         stage: String,
@@ -126,6 +151,8 @@ pub enum PipelineEvent {
     StageCompleted {
         stage: String,
         pipeline: Arc<str>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        metrics: Option<StageMetrics>,
     },
     Done {
         process_id: String,
@@ -134,6 +161,8 @@ pub enum PipelineEvent {
         #[serde(skip_serializing_if = "Option::is_none")]
         outputs: Option<serde_json::Value>,
         pipeline: Arc<str>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        aggregate_metrics: Option<AggregateMetrics>,
     },
     InterruptPending {
         process_id: String,
@@ -149,6 +178,12 @@ pub enum PipelineEvent {
         stage: Option<String>,
         pipeline: Arc<str>,
     },
+    RoutingDecision {
+        from_stage: String,
+        to_stage: Option<String>,
+        reason: crate::kernel::routing::RoutingReason,
+        pipeline: Arc<str>,
+    },
 }
 
 impl PipelineEvent {
@@ -162,6 +197,7 @@ impl PipelineEvent {
             Self::Done { .. } => "done",
             Self::InterruptPending { .. } => "interrupt_pending",
             Self::Error { .. } => "error",
+            Self::RoutingDecision { .. } => "routing_decision",
         }
     }
 }

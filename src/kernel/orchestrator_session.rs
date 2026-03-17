@@ -58,6 +58,7 @@ impl Orchestrator {
             active_parallel: None,
             created_at: now,
             last_activity_at: now,
+            last_routing_decision: None,
         };
 
         let state = self.build_session_state(&session, envelope);

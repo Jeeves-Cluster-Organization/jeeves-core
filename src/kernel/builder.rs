@@ -16,10 +16,9 @@
 use crate::types::Result;
 
 use super::orchestrator_types::{
-    EdgeLimit, JoinStrategy, MergeStrategy, NodeKind, PipelineConfig, PipelineStage, RouterTarget,
+    EdgeLimit, JoinStrategy, MergeStrategy, NodeKind, PipelineConfig, PipelineStage,
     StateField,
 };
-use super::routing::{FieldRef, RoutingExpr, RoutingRule};
 
 /// Fluent builder for PipelineConfig.
 #[derive(Debug)]
@@ -141,12 +140,9 @@ impl StageHandle {
         self
     }
 
-    /// Add a routing rule to this stage.
-    pub fn routing(mut self, expr: RoutingExpr, target: &str) -> Self {
-        self.stage_mut().routing.push(RoutingRule {
-            expr,
-            target: target.to_string(),
-        });
+    /// Set the routing function name for this stage.
+    pub fn routing_fn(mut self, name: &str) -> Self {
+        self.stage_mut().routing_fn = Some(name.to_string());
         self
     }
 
@@ -159,32 +155,6 @@ impl StageHandle {
     /// Set this stage as a Fork (parallel fan-out).
     pub fn fork(mut self) -> Self {
         self.stage_mut().node_kind = NodeKind::Fork;
-        self
-    }
-
-    /// Set this stage as a Router (agent picks target from declared set).
-    pub fn router(mut self) -> Self {
-        self.stage_mut().node_kind = NodeKind::Router;
-        self
-    }
-
-    /// Add a router target (unconditional).
-    pub fn router_target(mut self, target: &str, description: &str) -> Self {
-        self.stage_mut().router_targets.push(RouterTarget {
-            target: target.to_string(),
-            description: description.to_string(),
-            when: None,
-        });
-        self
-    }
-
-    /// Add a router target with a guard condition.
-    pub fn router_target_when(mut self, target: &str, description: &str, when: RoutingExpr) -> Self {
-        self.stage_mut().router_targets.push(RouterTarget {
-            target: target.to_string(),
-            description: description.to_string(),
-            when: Some(when),
-        });
         self
     }
 
@@ -254,86 +224,6 @@ impl StageHandle {
     }
 }
 
-// =============================================================================
-// Default impl for PipelineStage
-// =============================================================================
-
-// PipelineStage Default is derived — all fields have matching defaults.
-// AgentConfig::default() sets has_llm=false, matching serde `default_has_llm()`.
-
-// =============================================================================
-// RoutingExpr convenience constructors
-// =============================================================================
-
-/// Always-true routing expression.
-pub fn always() -> RoutingExpr {
-    RoutingExpr::Always
-}
-
-/// Equality routing expression.
-pub fn eq(field: FieldRef, value: impl Into<serde_json::Value>) -> RoutingExpr {
-    RoutingExpr::Eq { field, value: value.into() }
-}
-
-/// Inequality routing expression.
-pub fn neq(field: FieldRef, value: impl Into<serde_json::Value>) -> RoutingExpr {
-    RoutingExpr::Neq { field, value: value.into() }
-}
-
-/// Greater-than routing expression.
-pub fn gt(field: FieldRef, value: impl Into<serde_json::Value>) -> RoutingExpr {
-    RoutingExpr::Gt { field, value: value.into() }
-}
-
-/// Less-than routing expression.
-pub fn lt(field: FieldRef, value: impl Into<serde_json::Value>) -> RoutingExpr {
-    RoutingExpr::Lt { field, value: value.into() }
-}
-
-/// Field-exists routing expression.
-pub fn exists(field: FieldRef) -> RoutingExpr {
-    RoutingExpr::Exists { field }
-}
-
-/// Field-not-exists routing expression.
-pub fn not_exists(field: FieldRef) -> RoutingExpr {
-    RoutingExpr::NotExists { field }
-}
-
-/// Contains routing expression.
-pub fn contains(field: FieldRef, value: impl Into<serde_json::Value>) -> RoutingExpr {
-    RoutingExpr::Contains { field, value: value.into() }
-}
-
-/// FieldRef for current agent output.
-pub fn current(key: &str) -> FieldRef {
-    FieldRef::Current { key: key.to_string() }
-}
-
-/// FieldRef for merged state.
-pub fn state(key: &str) -> FieldRef {
-    FieldRef::State { key: key.to_string() }
-}
-
-/// FieldRef for cross-agent output.
-pub fn agent_ref(agent: &str, key: &str) -> FieldRef {
-    FieldRef::Agent { agent: agent.to_string(), key: key.to_string() }
-}
-
-/// FieldRef for metadata with dot-notation.
-pub fn meta(path: &str) -> FieldRef {
-    FieldRef::Meta { path: path.to_string() }
-}
-
-/// FieldRef for interrupt response.
-pub fn interrupt(key: &str) -> FieldRef {
-    FieldRef::Interrupt { key: key.to_string() }
-}
-
-// =============================================================================
-// Tests
-// =============================================================================
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -356,19 +246,13 @@ mod tests {
         assert_eq!(config.stages[0].name, "understand");
         assert!(!config.stages[0].agent_config.has_llm);
         assert_eq!(config.stages[0].default_next.as_deref(), Some("respond"));
-        assert_eq!(config.stages[1].name, "respond");
-        assert!(!config.stages[1].agent_config.has_llm); // default is false (opt-in)
-        assert_eq!(config.max_iterations, 10);
-        assert_eq!(config.max_llm_calls, 5);
-        assert_eq!(config.max_agent_hops, 5);
     }
 
     #[test]
-    fn test_builder_with_routing() {
+    fn test_builder_with_routing_fn() {
         let config = PipelineBuilder::new("routed")
             .stage("router", "router")
-                .routing(eq(current("intent"), "search"), "search")
-                .routing(eq(current("intent"), "chat"), "chat")
+                .routing_fn("my_router")
                 .default_next("fallback")
                 .done()
             .stage("search", "search_agent").done()
@@ -378,9 +262,8 @@ mod tests {
             .build()
             .unwrap();
 
-        assert_eq!(config.stages[0].routing.len(), 2);
-        assert_eq!(config.stages[0].routing[0].target, "search");
-        assert_eq!(config.stages[0].routing[1].target, "chat");
+        assert_eq!(config.stages[0].routing_fn.as_deref(), Some("my_router"));
+        assert_eq!(config.stages[0].default_next.as_deref(), Some("fallback"));
     }
 
     #[test]
@@ -388,12 +271,11 @@ mod tests {
         let config = PipelineBuilder::new("complex")
             .stage("gate", "")
                 .gate()
-                .routing(always(), "worker")
+                .default_next("worker")
                 .done()
             .stage("fork", "")
                 .fork()
-                .routing(always(), "a")
-                .routing(always(), "b")
+                .routing_fn("fan_out")
                 .default_next("join")
                 .done()
             .stage("a", "agent_a").done()
@@ -406,6 +288,7 @@ mod tests {
 
         assert_eq!(config.stages[0].node_kind, NodeKind::Gate);
         assert_eq!(config.stages[1].node_kind, NodeKind::Fork);
+        assert_eq!(config.stages[1].routing_fn.as_deref(), Some("fan_out"));
     }
 
     #[test]
@@ -445,72 +328,13 @@ mod tests {
     }
 
     #[test]
-    fn test_builder_stage_all_options() {
-        let config = PipelineBuilder::new("full")
-            .stage("s1", "a1")
-                .has_llm(true)
-                .default_next("s1")
-                .error_next("s1")
-                .max_visits(3)
-                .temperature(0.7)
-                .max_tokens(1000)
-                .model_role("fast")
-                .prompt_key("my_prompt")
-                .output_key("my_output")
-                .allowed_tools(vec!["search", "calc"])
-                .join_strategy(JoinStrategy::WaitFirst)
-                .output_schema(serde_json::json!({"type": "object"}))
-                .done()
-            .bounds(10, 10, 10)
-            .build()
-            .unwrap();
-
-        let s = &config.stages[0];
-        assert!(s.agent_config.has_llm);
-        assert_eq!(s.max_visits, Some(3));
-        assert_eq!(s.agent_config.temperature, Some(0.7));
-        assert_eq!(s.agent_config.max_tokens, Some(1000));
-        assert_eq!(s.agent_config.model_role.as_deref(), Some("fast"));
-        assert_eq!(s.agent_config.prompt_key.as_deref(), Some("my_prompt"));
-        assert_eq!(s.output_key.as_deref(), Some("my_output"));
-        assert_eq!(s.allowed_tools.as_ref().unwrap().len(), 2);
-        assert_eq!(s.join_strategy, JoinStrategy::WaitFirst);
-        assert!(s.output_schema.is_some());
-    }
-
-    #[test]
     fn test_pipeline_stage_default_matches_serde() {
         let stage = PipelineStage::default();
-        assert!(!stage.agent_config.has_llm);  // matches default_has_llm() = false
+        assert!(!stage.agent_config.has_llm);
         assert_eq!(stage.node_kind, NodeKind::Agent);
         assert_eq!(stage.join_strategy, JoinStrategy::WaitAll);
-        assert!(stage.routing.is_empty());
+        assert!(stage.routing_fn.is_none());
         assert!(stage.default_next.is_none());
         assert!(stage.error_next.is_none());
-        assert!(stage.max_visits.is_none());
-        assert!(stage.agent_config.temperature.is_none());
-        assert!(stage.agent_config.max_tokens.is_none());
-        assert!(stage.agent_config.model_role.is_none());
-    }
-
-    #[test]
-    fn test_routing_convenience_constructors() {
-        assert!(matches!(always(), RoutingExpr::Always));
-        assert!(matches!(eq(current("k"), "v"), RoutingExpr::Eq { .. }));
-        assert!(matches!(neq(current("k"), "v"), RoutingExpr::Neq { .. }));
-        assert!(matches!(gt(current("k"), 5), RoutingExpr::Gt { .. }));
-        assert!(matches!(lt(current("k"), 5), RoutingExpr::Lt { .. }));
-        assert!(matches!(exists(current("k")), RoutingExpr::Exists { .. }));
-        assert!(matches!(not_exists(current("k")), RoutingExpr::NotExists { .. }));
-        assert!(matches!(contains(current("k"), "v"), RoutingExpr::Contains { .. }));
-    }
-
-    #[test]
-    fn test_field_ref_constructors() {
-        assert!(matches!(current("k"), FieldRef::Current { .. }));
-        assert!(matches!(state("k"), FieldRef::State { .. }));
-        assert!(matches!(agent_ref("a", "k"), FieldRef::Agent { .. }));
-        assert!(matches!(meta("a.b"), FieldRef::Meta { .. }));
-        assert!(matches!(interrupt("k"), FieldRef::Interrupt { .. }));
     }
 }

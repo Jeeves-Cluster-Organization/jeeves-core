@@ -532,6 +532,9 @@ mod tests {
             status: ProcessingStatus::Success,
             error: None,
             llm_calls: 1,
+            tool_calls: 0,
+            tokens_in: 0,
+            tokens_out: 0,
         };
 
         env.add_processing_record(record.clone());

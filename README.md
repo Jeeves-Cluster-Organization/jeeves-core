@@ -25,7 +25,7 @@ jeeves-core/
 │   ├── kernel/               # Orchestration engine
 │   │   ├── orchestrator.rs   # Pipeline sessions, routing, bounds
 │   │   ├── orchestrator_types.rs  # PipelineConfig, PipelineStage, Instruction
-│   │   ├── routing.rs        # RoutingExpr evaluation (13 ops, 5 scopes)
+│   │   ├── routing.rs        # RoutingFn trait, RoutingRegistry, dispatch
 │   │   ├── builder.rs        # PipelineBuilder DSL
 │   │   ├── agent_card.rs     # AgentCard registry (federation discovery)
 │   │   ├── lifecycle.rs      # Process state machine

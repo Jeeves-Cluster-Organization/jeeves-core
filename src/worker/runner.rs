@@ -135,6 +135,7 @@ impl PipelineRunner {
     }
 
     /// Create from pre-built components (for consumers that manage their own resources).
+    #[allow(clippy::too_many_arguments)]
     pub fn from_parts(
         handle: KernelHandle,
         cancel: CancellationToken,
@@ -261,6 +262,15 @@ impl PipelineRunner {
     /// Get the default pipeline name.
     pub fn default_pipeline(&self) -> &str {
         &self.default_pipeline
+    }
+
+    /// Register a named routing function on the kernel's orchestrator.
+    pub async fn register_routing_fn(
+        &self,
+        name: impl Into<String>,
+        routing_fn: std::sync::Arc<dyn crate::kernel::routing::RoutingFn>,
+    ) -> crate::types::Result<()> {
+        self.handle.register_routing_fn(name, routing_fn).await
     }
 
     /// Graceful shutdown.

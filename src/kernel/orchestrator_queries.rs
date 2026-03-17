@@ -89,6 +89,12 @@ impl Orchestrator {
     pub fn get_session_count(&self) -> usize {
         self.pipelines.len()
     }
+
+    /// Take the last routing decision from a session (Option::take — returns and clears).
+    pub fn take_last_routing_decision(&mut self, process_id: &ProcessId) -> Option<super::routing::RoutingDecision> {
+        self.pipelines.get_mut(process_id)
+            .and_then(|session| session.last_routing_decision.take())
+    }
 }
 
 #[cfg(test)]

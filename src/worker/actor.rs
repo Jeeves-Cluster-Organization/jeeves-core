@@ -279,5 +279,29 @@ async fn dispatch(kernel: &mut Kernel, cmd: KernelCommand) {
             let result = kernel.resume_from_checkpoint(*snapshot, *pipeline_config);
             let _ = resp_tx.send(result);
         }
+
+        // =====================================================================
+        // Tool Health
+        // =====================================================================
+
+        KernelCommand::GetToolHealth { tool_name, resp_tx } => {
+            let report = match tool_name {
+                Some(ref name) => serde_json::to_value(kernel.tools.health.check_tool_health(name)),
+                None => serde_json::to_value(kernel.tools.health.check_system_health()),
+            };
+            let result = report.map_err(|e| {
+                crate::types::Error::internal(format!("Health serialization: {}", e))
+            });
+            let _ = resp_tx.send(result);
+        }
+
+        // =====================================================================
+        // Routing
+        // =====================================================================
+
+        KernelCommand::RegisterRoutingFn { name, routing_fn, resp_tx } => {
+            kernel.register_routing_fn(name, routing_fn);
+            let _ = resp_tx.send(());
+        }
     }
 }

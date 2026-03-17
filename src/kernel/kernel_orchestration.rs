@@ -9,8 +9,7 @@ use crate::types::{Error, ProcessId, RequestId, Result, SessionId, UserId};
 
 use super::merge_state_field;
 use super::orchestrator;
-use super::orchestrator_types::{ContextOverflow, NodeKind};
-use super::routing::evaluate_expr;
+use super::orchestrator_types::ContextOverflow;
 use super::{Kernel, ProcessState, RemainingBudget, ResourceQuota, SchedulingPriority, SystemStatus};
 
 impl Kernel {
@@ -119,61 +118,6 @@ impl Kernel {
 
                 context.output_schema = self.orchestrator.get_stage_output_schema(process_id, &stage_name);
 
-                // Router enrichment: evaluate when-conditions, filter targets, override output_schema
-                if let Some(stage_config) = self.orchestrator.get_stage_config(process_id, &stage_name) {
-                    if stage_config.node_kind == NodeKind::Router {
-                        let envelope = self.process_envelopes.get(process_id);
-                        let empty_outputs = HashMap::new();
-                        let empty_meta = HashMap::new();
-                        let empty_state = HashMap::new();
-
-                        let (outputs, metadata, state) = envelope
-                            .map(|e| (&e.outputs, &e.audit.metadata, &e.state))
-                            .unwrap_or((&empty_outputs, &empty_meta, &empty_state));
-
-                        let available: Vec<_> = stage_config.router_targets.iter()
-                            .filter(|rt| {
-                                rt.when.as_ref().map_or(true, |expr| {
-                                    evaluate_expr(expr, outputs, &stage_config.agent, metadata, None, state)
-                                })
-                            })
-                            .collect();
-
-                        // Auto-generate output_schema with enum of available target names
-                        let target_names: Vec<&str> = available.iter().map(|t| t.target.as_str()).collect();
-                        context.output_schema = Some(serde_json::json!({
-                            "type": "object",
-                            "properties": {
-                                "chosen_target": {
-                                    "type": "string",
-                                    "enum": target_names,
-                                    "description": "The target to route to"
-                                }
-                            },
-                            "required": ["chosen_target"],
-                            "additionalProperties": false
-                        }));
-
-                        // Inject available_targets into metadata for prompt template vars
-                        let targets_json: Vec<serde_json::Value> = available.iter()
-                            .map(|rt| serde_json::json!({
-                                "name": rt.target,
-                                "description": rt.description,
-                            }))
-                            .collect();
-
-                        if let Some(ref mut ctx_val) = context.agent_context {
-                            if let Some(obj) = ctx_val.as_object_mut() {
-                                if let Some(meta) = obj.get_mut("metadata") {
-                                    if let Some(meta_obj) = meta.as_object_mut() {
-                                        meta_obj.insert("available_targets".to_string(), serde_json::json!(targets_json));
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
-
                 let allowed = self.tools.access.tools_for_agent(agent);
                 if !allowed.is_empty() {
                     context.allowed_tools = Some(allowed);
@@ -200,10 +144,20 @@ impl Kernel {
                 }
             }
             orchestrator::Instruction::Terminate { context, reason, .. } => {
-                // Attach final outputs so the worker can return them
+                // Attach final outputs + aggregate metrics so the worker can return them
                 if let Some(envelope) = self.process_envelopes.get(process_id) {
+                    let total_duration_ms = (chrono::Utc::now() - envelope.audit.created_at)
+                        .num_milliseconds();
                     context.agent_context = Some(serde_json::json!({
                         "outputs": &envelope.outputs,
+                        "aggregate_metrics": {
+                            "total_duration_ms": total_duration_ms,
+                            "total_llm_calls": envelope.bounds.llm_call_count,
+                            "total_tool_calls": envelope.bounds.tool_call_count,
+                            "total_tokens_in": envelope.bounds.tokens_in,
+                            "total_tokens_out": envelope.bounds.tokens_out,
+                            "stages_executed": &envelope.pipeline.stage_order,
+                        }
                     }));
                 }
 
@@ -241,6 +195,20 @@ impl Kernel {
             _ => {}
         }
 
+        // Phase 2b: Thread routing decision from last report_agent_result into this instruction's context
+        if let Some(decision) = self.orchestrator.take_last_routing_decision(process_id) {
+            match &mut instruction {
+                orchestrator::Instruction::RunAgent { context, .. } |
+                orchestrator::Instruction::Terminate { context, .. } => {
+                    context.last_routing_decision = Some(decision);
+                }
+                orchestrator::Instruction::RunAgents { context, .. } => {
+                    context.last_routing_decision = Some(decision);
+                }
+                _ => {}
+            }
+        }
+
         // Phase 3: Clear event_inbox after enrichment (events now in agent_context)
         if let Some(envelope) = self.process_envelopes.get_mut(process_id) {
             envelope.event_inbox.clear();
@@ -272,6 +240,7 @@ impl Kernel {
         let tool_calls = metrics.tool_calls;
         let tokens_in = metrics.tokens_in.unwrap_or(0);
         let tokens_out = metrics.tokens_out.unwrap_or(0);
+        let duration_ms = metrics.duration_ms;
 
         // Record per-tool health from agent metrics
         for tool_result in &metrics.tool_results {
@@ -375,6 +344,22 @@ impl Kernel {
 
             // Report to orchestrator (consumes metrics, adds to envelope, evaluates routing)
             self.orchestrator.report_agent_result(process_id, agent_name, metrics, envelope, effective_failed, break_loop)?;
+
+            // Activate audit trail: record per-stage processing history
+            let now = chrono::Utc::now();
+            envelope.audit.processing_history.push(crate::envelope::ProcessingRecord {
+                agent: agent_name.to_string(),
+                stage_order: envelope.pipeline.current_stage_number,
+                started_at: now - chrono::Duration::milliseconds(duration_ms),
+                completed_at: Some(now),
+                duration_ms: duration_ms as i32,
+                status: if !effective_failed { crate::envelope::ProcessingStatus::Success } else { crate::envelope::ProcessingStatus::Error },
+                error: if error_message.is_empty() { None } else { Some(error_message.to_string()) },
+                llm_calls,
+                tool_calls,
+                tokens_in,
+                tokens_out,
+            });
 
             effective_failed
         }; // envelope borrow dropped

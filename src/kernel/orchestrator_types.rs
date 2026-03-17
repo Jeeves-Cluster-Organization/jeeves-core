@@ -8,7 +8,6 @@ use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
 
-use super::routing::{RoutingExpr, RoutingRule};
 
 // =============================================================================
 // Graph Primitive Types
@@ -22,10 +21,8 @@ pub enum NodeKind {
     Agent,
     /// Pure routing node — evaluates routing without running an agent
     Gate,
-    /// Parallel fan-out node — evaluates ALL matching rules, dispatches branches
+    /// Parallel fan-out node — routing function returns Fan(targets)
     Fork,
-    /// Agent-determined routing — agent picks target from a declared set
-    Router,
 }
 
 /// Merge strategy for state fields.
@@ -57,21 +54,6 @@ pub struct StateField {
     pub merge: MergeStrategy,
 }
 
-/// Declared routing target for Router nodes.
-///
-/// The agent picks one of these targets at runtime. Optional `when` guard
-/// conditions filter the available set based on pipeline state.
-#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
-pub struct RouterTarget {
-    /// Target stage name to route to.
-    pub target: String,
-    /// Human-readable description (injected into agent context for LLM reasoning).
-    pub description: String,
-    /// Guard condition — target is only available when this evaluates to true.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub when: Option<RoutingExpr>,
-}
-
 // =============================================================================
 // Instruction Types
 // =============================================================================
@@ -100,6 +82,9 @@ pub struct AgentDispatchContext {
     /// Retry policy for transient failures (passed from PipelineStage config).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub retry_policy: Option<RetryPolicy>,
+    /// Routing decision that led to this instruction (for audit trail events).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub last_routing_decision: Option<super::routing::RoutingDecision>,
 }
 
 /// Instruction from kernel to worker — determines what happens next.
@@ -194,9 +179,9 @@ pub struct AgentExecutionMetrics {
 
 /// Pipeline configuration for orchestration.
 ///
-/// The kernel is a pure evaluator — it iterates routing rules, first match wins.
+/// The kernel dispatches registered routing functions to determine transitions.
 /// All pipeline shape (linear, branching, cycles) is defined by the capability
-/// layer via routing rules on each stage.
+/// layer via routing functions and default_next on each stage.
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
 pub struct PipelineConfig {
     /// Unique pipeline name (used for event attribution and child pipeline references).
@@ -300,49 +285,13 @@ impl PipelineConfig {
                 }
                 NodeKind::Gate => {
                     // Gate stages route without running an agent.
-                    // The agent field may be populated (ignored at runtime).
+                    // Must have routing_fn or default_next to be useful.
                 }
                 NodeKind::Fork => {
-                    if stage.routing.is_empty() {
+                    if stage.routing_fn.is_none() {
                         return Err(Error::validation(format!(
-                            "Fork stage '{}' must have at least one routing rule", stage.name
+                            "Fork stage '{}' must have a routing_fn", stage.name
                         )));
-                    }
-                }
-                NodeKind::Router => {
-                    if stage.agent.is_empty() {
-                        return Err(Error::validation(format!(
-                            "Router stage '{}' must have a non-empty agent field", stage.name
-                        )));
-                    }
-                    if stage.router_targets.is_empty() {
-                        return Err(Error::validation(format!(
-                            "Router stage '{}' must have at least one router_target", stage.name
-                        )));
-                    }
-                    if !stage.routing.is_empty() {
-                        return Err(Error::validation(format!(
-                            "Router stage '{}' must not have routing rules; use router_targets instead", stage.name
-                        )));
-                    }
-                    if stage.output_schema.is_some() {
-                        return Err(Error::validation(format!(
-                            "Router stage '{}' must not have explicit output_schema (auto-generated)", stage.name
-                        )));
-                    }
-                    for rt in &stage.router_targets {
-                        if !stage_names.contains(rt.target.as_str()) {
-                            return Err(Error::validation(format!(
-                                "Router stage '{}' target '{}' does not exist in pipeline",
-                                stage.name, rt.target
-                            )));
-                        }
-                        if let Some(ref expr) = rt.when {
-                            expr.validate_depth().map_err(|e| Error::validation(format!(
-                                "Router stage '{}' target '{}' when condition: {}",
-                                stage.name, rt.target, e
-                            )))?;
-                        }
                     }
                 }
             }
@@ -355,18 +304,6 @@ impl PipelineConfig {
                         stage.name
                     )));
                 }
-            }
-            // Validate routing targets reference existing stages + expression depth
-            for rule in &stage.routing {
-                if !stage_names.contains(rule.target.as_str()) {
-                    return Err(Error::validation(format!(
-                        "Stage '{}' has routing target '{}' which does not exist in pipeline. Valid stages: {:?}",
-                        stage.name, rule.target, stage_names
-                    )));
-                }
-                rule.expr.validate_depth().map_err(|e| Error::validation(format!(
-                    "Stage '{}' routing rule targeting '{}': {}", stage.name, rule.target, e
-                )))?;
             }
 
             // Validate default_next references existing stage
@@ -531,26 +468,27 @@ fn default_initial_backoff_ms() -> u64 { 1000 }
 fn default_max_backoff_ms() -> u64 { 30000 }
 fn default_backoff_multiplier() -> f64 { 2.0 }
 
-/// Pipeline stage with routing rules, fallbacks, and parallel config.
+/// Pipeline stage with routing, fallbacks, and parallel config.
 ///
-/// Routing evaluation order (Temporal/K8s pattern):
+/// Routing evaluation order:
 /// 1. If agent failed AND error_next set → route to error_next
-/// 2. Evaluate routing rules (first match wins)
-/// 3. If no match AND default_next set → route to default_next
-/// 4. If no match AND no default_next → terminate (COMPLETED)
+/// 2. If routing_fn registered → call it, use result
+/// 3. If no routing_fn → fall through to default_next
+/// 4. If no default_next → terminate (COMPLETED)
 #[derive(Debug, Clone, Default, Serialize, Deserialize, JsonSchema)]
 pub struct PipelineStage {
     /// Stage identifier (must be unique within the pipeline).
     pub name: String,
     /// Agent name to dispatch (ignored for Gate nodes).
     pub agent: String,
-    /// Expression-based routing rules evaluated in order (first match wins).
-    #[serde(default)]
-    pub routing: Vec<RoutingRule>,
-    /// Fallback target when no routing rule matches.
+    /// Name of a registered routing function. Called after agent completion
+    /// (or directly for Gate nodes) to determine the next stage.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub routing_fn: Option<String>,
+    /// Fallback target when no routing function is set or it returns Terminate.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub default_next: Option<String>,
-    /// Target stage when the agent fails (checked before routing rules).
+    /// Target stage when the agent fails (checked before routing_fn).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub error_next: Option<String>,
     /// Per-stage visit limit. Terminates with `MaxStageVisitsExceeded` when reached.
@@ -565,15 +503,12 @@ pub struct PipelineStage {
     /// Tool whitelist — only these tools are available to this stage's agent.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub allowed_tools: Option<Vec<String>>,
-    /// Node kind: Agent (run agent + route), Gate (route only), Fork (parallel fan-out), Router (agent picks target).
+    /// Node kind: Agent (run agent + route), Gate (route only), Fork (parallel fan-out).
     #[serde(default)]
     pub node_kind: NodeKind,
     /// State field key for this stage's output (defaults to stage name).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub output_key: Option<String>,
-    /// Router targets — agent picks one at runtime. Only for `node_kind: Router`.
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub router_targets: Vec<RouterTarget>,
     /// Maximum estimated tokens allowed in LLM context for this stage.
     /// Uses chars/4 heuristic. When exceeded, applies context_overflow strategy.
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -738,13 +673,12 @@ mod tests {
     }
 
     #[test]
-    fn test_validate_fork_empty_routing() {
+    fn test_validate_fork_requires_routing_fn() {
         let mut stage = minimal_stage("splitter");
         stage.node_kind = NodeKind::Fork;
-        stage.routing = vec![];
         let config = minimal_config(vec![stage]);
         let err = config.validate().unwrap_err();
-        assert!(err.to_string().contains("Fork stage 'splitter' must have at least one routing rule"));
+        assert!(err.to_string().contains("Fork stage 'splitter' must have a routing_fn"));
     }
 
     #[test]
@@ -787,72 +721,6 @@ mod tests {
         let fallback = minimal_stage("fallback");
         let config = minimal_config(vec![gate, fallback]);
         assert!(config.validate().is_ok());
-    }
-
-    // =========================================================================
-    // Router validation tests
-    // =========================================================================
-
-    fn router_stage(name: &str, targets: Vec<RouterTarget>) -> PipelineStage {
-        PipelineStage {
-            name: name.to_string(),
-            agent: name.to_string(),
-            node_kind: NodeKind::Router,
-            router_targets: targets,
-            agent_config: AgentConfig { has_llm: true, ..Default::default() },
-            ..Default::default()
-        }
-    }
-
-    fn rt(target: &str, desc: &str) -> RouterTarget {
-        RouterTarget { target: target.to_string(), description: desc.to_string(), when: None }
-    }
-
-    #[test]
-    fn test_validate_router_valid() {
-        let config = minimal_config(vec![
-            router_stage("router", vec![rt("target_a", "Go to A"), rt("target_b", "Go to B")]),
-            minimal_stage("target_a"),
-            minimal_stage("target_b"),
-        ]);
-        assert!(config.validate().is_ok());
-    }
-
-    #[test]
-    fn test_validate_router_empty_targets_rejected() {
-        let config = minimal_config(vec![router_stage("router", vec![])]);
-        let err = config.validate().unwrap_err();
-        assert!(err.to_string().contains("at least one router_target"));
-    }
-
-    #[test]
-    fn test_validate_router_with_routing_rules_rejected() {
-        let mut stage = router_stage("router", vec![rt("t", "desc")]);
-        stage.routing = vec![RoutingRule {
-            expr: super::super::routing::RoutingExpr::Always,
-            target: "t".to_string(),
-        }];
-        let config = minimal_config(vec![stage, minimal_stage("t")]);
-        let err = config.validate().unwrap_err();
-        assert!(err.to_string().contains("must not have routing rules"));
-    }
-
-    #[test]
-    fn test_validate_router_with_output_schema_rejected() {
-        let mut stage = router_stage("router", vec![rt("t", "desc")]);
-        stage.output_schema = Some(serde_json::json!({"type": "object"}));
-        let config = minimal_config(vec![stage, minimal_stage("t")]);
-        let err = config.validate().unwrap_err();
-        assert!(err.to_string().contains("output_schema"));
-    }
-
-    #[test]
-    fn test_validate_router_invalid_target_ref_rejected() {
-        let config = minimal_config(vec![
-            router_stage("router", vec![rt("nonexistent", "desc")]),
-        ]);
-        let err = config.validate().unwrap_err();
-        assert!(err.to_string().contains("does not exist in pipeline"));
     }
 
     #[test]

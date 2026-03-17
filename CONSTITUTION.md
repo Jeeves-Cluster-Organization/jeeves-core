@@ -72,15 +72,9 @@ Capabilities consume the kernel via:
 
 No HTTP gateway. The kernel is a library, not a service.
 
-### 7. Routing as Data
+### 7. Routing as Code
 
-Routing rules are JSON-serializable expression trees, not code:
-
-```json
-{"expr": {"op": "Eq", "field": {"scope": "Current", "key": "intent"}, "value": "search"}, "target": "search_agent"}
-```
-
-Inspectable, serializable, auditable.
+Routing is registered functions (`RoutingFn` trait), not JSON expression trees. Consumers register named closures on the Kernel; pipeline stages reference them by name via `routing_fn`. Static wiring (`default_next`, `error_next`) remains declarative.
 
 ### 8. Kernel is Sole Termination Authority
 

@@ -6,11 +6,78 @@
 use pyo3::prelude::*;
 use std::sync::Arc;
 
+use crate::kernel::routing::{RoutingContext, RoutingFn, RoutingResult};
 use crate::worker::runner::PipelineRunner;
 use crate::worker::tools::{ToolExecutor, ToolInfo};
 
 use super::event_iter::PyEventIterator;
 use super::tool_bridge::PyToolExecutor;
+
+/// Bridge: wraps a Python callable as a RoutingFn.
+///
+/// The Python callable receives a dict and returns str, list[str], or None.
+struct PyRoutingFn {
+    py_fn: PyObject,
+}
+
+// Safety: PyObject is Send+Sync when only accessed inside GIL blocks.
+unsafe impl Send for PyRoutingFn {}
+unsafe impl Sync for PyRoutingFn {}
+
+impl RoutingFn for PyRoutingFn {
+    fn route(&self, ctx: &RoutingContext<'_>) -> RoutingResult {
+        Python::with_gil(|py| {
+            let ctx_dict = pyo3::types::PyDict::new_bound(py);
+            let _ = ctx_dict.set_item("current_stage", ctx.current_stage);
+            let _ = ctx_dict.set_item("agent_name", ctx.agent_name);
+            let _ = ctx_dict.set_item("agent_failed", ctx.agent_failed);
+
+            // Convert outputs/metadata/state to Python via JSON round-trip
+            let Ok(json_mod) = py.import_bound("json") else {
+                tracing::error!("failed to import Python json module in routing_fn");
+                return RoutingResult::Terminate;
+            };
+            for (key, val) in [
+                ("outputs", &serde_json::to_string(ctx.outputs).unwrap_or_default()),
+                ("metadata", &serde_json::to_string(ctx.metadata).unwrap_or_default()),
+                ("state", &serde_json::to_string(ctx.state).unwrap_or_default()),
+            ] {
+                if let Ok(parsed) = json_mod.call_method1("loads", (val.as_str(),)) {
+                    let _ = ctx_dict.set_item(key, parsed);
+                }
+            }
+            if let Some(ir) = ctx.interrupt_response {
+                if let Ok(s) = serde_json::to_string(ir) {
+                    if let Ok(parsed) = json_mod.call_method1("loads", (s.as_str(),)) {
+                        let _ = ctx_dict.set_item("interrupt_response", parsed);
+                    }
+                }
+            }
+
+            match self.py_fn.call1(py, (ctx_dict,)) {
+                Ok(result) => {
+                    if result.is_none(py) {
+                        return RoutingResult::Terminate;
+                    }
+                    // Try as list first (Fan)
+                    if let Ok(list) = result.extract::<Vec<String>>(py) {
+                        return RoutingResult::Fan(list);
+                    }
+                    // Try as string (Next)
+                    if let Ok(s) = result.extract::<String>(py) {
+                        return RoutingResult::Next(s);
+                    }
+                    tracing::warn!("routing_fn returned non-str/list/None, terminating");
+                    RoutingResult::Terminate
+                }
+                Err(e) => {
+                    tracing::error!("routing_fn raised exception: {e}");
+                    RoutingResult::Terminate
+                }
+            }
+        })
+    }
+}
 
 /// Python-facing PipelineRunner. Thin wrapper over the Rust PipelineRunner
 /// that adds a tokio runtime for blocking from Python and GIL management.
@@ -147,6 +214,22 @@ impl PyPipelineRunner {
             })?;
         self.inner.register_pipeline(name.to_string(), config).map_err(|e| {
             pyo3::exceptions::PyValueError::new_err(format!("Invalid pipeline config: {e}"))
+        })?;
+        Ok(())
+    }
+
+    /// Register a Python callable as a routing function.
+    ///
+    /// The callable receives a dict with keys: current_stage, agent_name, agent_failed,
+    /// outputs, metadata, interrupt_response, state.
+    /// It must return: a stage name (str), a list of stage names (list[str] for Fork fan-out),
+    /// or None (terminate pipeline).
+    fn register_routing_fn(&mut self, py: Python<'_>, name: String, py_fn: PyObject) -> PyResult<()> {
+        let routing_fn = Arc::new(PyRoutingFn { py_fn: py_fn.clone_ref(py) });
+        self.rt.block_on(async {
+            self.inner.register_routing_fn(name, routing_fn).await
+        }).map_err(|e| {
+            pyo3::exceptions::PyRuntimeError::new_err(format!("Failed to register routing fn: {e}"))
         })?;
         Ok(())
     }

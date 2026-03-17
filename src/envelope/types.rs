@@ -112,6 +112,15 @@ pub struct ProcessingRecord {
     pub error: Option<String>,
 
     pub llm_calls: i32,
+
+    #[serde(default)]
+    pub tool_calls: i32,
+
+    #[serde(default)]
+    pub tokens_in: i64,
+
+    #[serde(default)]
+    pub tokens_out: i64,
 }
 
 // =============================================================================

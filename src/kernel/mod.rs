@@ -173,6 +173,11 @@ impl Kernel {
         }
     }
 
+    /// Register a routing function by name.
+    pub fn register_routing_fn(&mut self, name: impl Into<String>, f: std::sync::Arc<dyn orchestrator::RoutingFn>) {
+        self.orchestrator.register_routing_fn(name, f);
+    }
+
     /// Create a Kernel wired from a Config struct.
     pub fn from_config(config: &crate::Config) -> Self {
         let default_quota = ResourceQuota {

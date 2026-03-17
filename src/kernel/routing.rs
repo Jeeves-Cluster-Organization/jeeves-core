@@ -1,710 +1,429 @@
-//! Routing expression evaluation for pipeline orchestration.
+//! Routing function dispatch for pipeline orchestration.
 //!
-//! Pure functions that evaluate routing expression trees against agent outputs
-//! and metadata. Borrow-checker friendly — no mutable state required.
+//! Routing is code, not data. Consumers register named routing functions
+//! that the kernel calls to determine the next stage after agent execution.
+//! Static wiring (default_next, error_next) remains declarative on PipelineStage.
 
-use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
+use std::sync::Arc;
 
 // =============================================================================
-// Routing Types
+// Routing Context & Result
 // =============================================================================
 
-/// Routing rule: expression tree + target stage.
-///
-/// Evaluated in order within a stage's routing list; first match wins.
-#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
-pub struct RoutingRule {
-    /// Boolean expression tree that determines whether this rule matches.
-    pub expr: RoutingExpr,
-    /// Target stage name to route to when `expr` evaluates to true.
-    pub target: String,
+/// Context passed to routing functions — read-only view of pipeline state.
+#[derive(Debug)]
+pub struct RoutingContext<'a> {
+    /// Name of the stage that just completed (or is being evaluated for Gate).
+    pub current_stage: &'a str,
+    /// Name of the agent that ran (same as stage.agent).
+    pub agent_name: &'a str,
+    /// Whether the agent execution failed.
+    pub agent_failed: bool,
+    /// All agent outputs: agent_name → { key → value }.
+    pub outputs: &'a HashMap<String, HashMap<String, serde_json::Value>>,
+    /// Envelope metadata (session context, user info, etc.).
+    pub metadata: &'a HashMap<String, serde_json::Value>,
+    /// Response from a resolved interrupt, if any.
+    pub interrupt_response: Option<&'a serde_json::Value>,
+    /// Accumulated state across loop iterations.
+    pub state: &'a HashMap<String, serde_json::Value>,
 }
 
-/// Maximum nesting depth for And/Or/Not expressions (prevents stack overflow from user-supplied JSON).
-pub const MAX_ROUTING_EXPR_DEPTH: usize = 16;
-
-/// Routing expression tree evaluated recursively by the kernel.
-///
-/// Serde: internally tagged with "op" field.
-/// JSON example: `{"op": "Eq", "field": {"scope": "Current", "key": "intent"}, "value": "greet"}`
-#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
-#[serde(tag = "op")]
-pub enum RoutingExpr {
-    /// Equality: field == value
-    Eq { field: FieldRef, value: serde_json::Value },
-    /// Inequality: field != value
-    Neq { field: FieldRef, value: serde_json::Value },
-    /// Greater than (numeric f64 comparison)
-    Gt { field: FieldRef, value: serde_json::Value },
-    /// Less than (numeric f64 comparison)
-    Lt { field: FieldRef, value: serde_json::Value },
-    /// Greater than or equal (numeric f64 comparison)
-    Gte { field: FieldRef, value: serde_json::Value },
-    /// Less than or equal (numeric f64 comparison)
-    Lte { field: FieldRef, value: serde_json::Value },
-    /// String contains substring, or array contains element
-    Contains { field: FieldRef, value: serde_json::Value },
-    /// Field exists and is not null
-    Exists { field: FieldRef },
-    /// Field is absent or null
-    NotExists { field: FieldRef },
-    /// All sub-expressions must be true
-    And { exprs: Vec<RoutingExpr> },
-    /// At least one sub-expression must be true
-    Or { exprs: Vec<RoutingExpr> },
-    /// Negate a sub-expression
-    Not { expr: Box<RoutingExpr> },
-    /// Unconditional match (always true)
-    Always,
+/// Result from a routing function.
+#[derive(Debug, Clone)]
+pub enum RoutingResult {
+    /// Route to a single target stage.
+    Next(String),
+    /// Fan out to multiple stages in parallel (Fork semantics).
+    Fan(Vec<String>),
+    /// End the pipeline.
+    Terminate,
 }
 
-/// Scoped field reference for routing expressions.
-///
-/// Serde: internally tagged with "scope" field.
-/// JSON example: `{"scope": "Agent", "agent": "understand", "key": "topic"}`
-#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
-#[serde(tag = "scope")]
-pub enum FieldRef {
-    /// output[current_agent][key]
-    Current { key: String },
-    /// output[agent][key] — cross-agent reference
-    Agent { agent: String, key: String },
-    /// envelope.audit.metadata with dot-notation traversal
-    Meta { path: String },
-    /// interrupt_response[key] — serialized InterruptResponse
-    Interrupt { key: String },
-    /// envelope.state[key] — merged accumulator state
-    State { key: String },
+// =============================================================================
+// Routing Function Trait & Registry
+// =============================================================================
+
+/// Trait for routing functions. Consumers implement this or use the blanket
+/// impl for closures: `Fn(&RoutingContext) -> RoutingResult`.
+pub trait RoutingFn: Send + Sync {
+    fn route(&self, ctx: &RoutingContext<'_>) -> RoutingResult;
 }
 
-impl RoutingExpr {
-    /// Compute the nesting depth of this expression tree.
-    pub fn depth(&self) -> usize {
-        match self {
-            Self::And { exprs } => 1 + exprs.iter().map(|e| e.depth()).max().unwrap_or(0),
-            Self::Or { exprs } => 1 + exprs.iter().map(|e| e.depth()).max().unwrap_or(0),
-            Self::Not { expr } => 1 + expr.depth(),
-            _ => 0,
-        }
+/// Blanket impl: any closure with the right signature is a RoutingFn.
+impl<F> RoutingFn for F
+where
+    F: Fn(&RoutingContext<'_>) -> RoutingResult + Send + Sync,
+{
+    fn route(&self, ctx: &RoutingContext<'_>) -> RoutingResult {
+        self(ctx)
+    }
+}
+
+/// Thread-safe registry of named routing functions.
+#[derive(Default)]
+pub struct RoutingRegistry {
+    fns: HashMap<String, Arc<dyn RoutingFn>>,
+}
+
+impl RoutingRegistry {
+    pub fn new() -> Self {
+        Self { fns: HashMap::new() }
     }
 
-    /// Validate that nesting depth does not exceed the limit.
-    pub fn validate_depth(&self) -> crate::types::Result<()> {
-        let d = self.depth();
-        if d > MAX_ROUTING_EXPR_DEPTH {
-            return Err(crate::types::Error::validation(format!(
-                "Routing expression nesting depth {} exceeds maximum {}",
-                d, MAX_ROUTING_EXPR_DEPTH
-            )));
-        }
-        Ok(())
+    /// Register a routing function by name.
+    pub fn register(&mut self, name: impl Into<String>, f: Arc<dyn RoutingFn>) {
+        self.fns.insert(name.into(), f);
+    }
+
+    /// Look up a routing function by name.
+    pub fn get(&self, name: &str) -> Option<&Arc<dyn RoutingFn>> {
+        self.fns.get(name)
+    }
+
+    /// Check if a routing function is registered.
+    pub fn contains(&self, name: &str) -> bool {
+        self.fns.contains_key(name)
+    }
+}
+
+impl std::fmt::Debug for RoutingRegistry {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("RoutingRegistry")
+            .field("registered", &self.fns.keys().collect::<Vec<_>>())
+            .finish()
     }
 }
 
 // =============================================================================
-// Evaluation Functions
+// Routing Decision Types (audit trail)
 // =============================================================================
 
-/// Evaluate routing for a stage (Temporal/K8s pattern).
+/// Result of routing evaluation with decision rationale for audit trails.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct RoutingDecision {
+    /// Stage that made this routing decision.
+    pub from_stage: String,
+    /// Target stage (None = pipeline terminated).
+    pub target: Option<String>,
+    /// Why this target was chosen.
+    pub reason: RoutingReason,
+}
+
+/// Why a particular routing decision was made.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum RoutingReason {
+    /// Agent failed and error_next was set.
+    ErrorRoute,
+    /// A registered routing function decided the target.
+    RoutingFn { name: String },
+    /// No routing function; used default_next.
+    DefaultRoute,
+    /// No routing function, no default_next — pipeline terminates.
+    NoMatch,
+}
+
+// =============================================================================
+// Evaluation
+// =============================================================================
+
+/// Evaluate routing for a stage using the registry.
 ///
 /// Evaluation order:
-/// 1. If agent failed AND error_next set → route to error_next
-/// 2. Evaluate routing rules (first match wins)
-/// 3. If no match AND default_next set → route to default_next
-/// 4. If no match AND no default_next → None (caller terminates with COMPLETED)
-pub fn evaluate_routing(
+/// 1. If agent_failed AND error_next set → route to error_next
+/// 2. If routing_fn registered → call it, use result
+/// 3. If no routing_fn → fall through to default_next
+/// 4. If no default_next → None (caller terminates with COMPLETED)
+pub fn evaluate_routing_with_reason(
     stage: &super::orchestrator_types::PipelineStage,
-    agent_outputs: &HashMap<String, HashMap<String, serde_json::Value>>,
-    agent_name: &str,
-    agent_failed: bool,
-    metadata: &HashMap<String, serde_json::Value>,
-    interrupt_response: Option<&serde_json::Value>,
-    state: &HashMap<String, serde_json::Value>,
-) -> Option<String> {
+    registry: &RoutingRegistry,
+    ctx: &RoutingContext<'_>,
+    from_stage: &str,
+) -> RoutingDecision {
     // 1. Error path
-    if agent_failed {
+    if ctx.agent_failed {
         if let Some(ref error_next) = stage.error_next {
-            tracing::debug!(stage = %stage.name, target = %error_next, "error_route_taken");
-            return Some(error_next.clone());
+            return RoutingDecision {
+                from_stage: from_stage.to_string(),
+                target: Some(error_next.clone()),
+                reason: RoutingReason::ErrorRoute,
+            };
         }
     }
 
-    // 2. Routing rules (first match wins)
-    for (i, rule) in stage.routing.iter().enumerate() {
-        let matched = evaluate_expr(&rule.expr, agent_outputs, agent_name, metadata, interrupt_response, state);
-        tracing::debug!(
-            stage = %stage.name,
-            rule_idx = i,
-            target = %rule.target,
-            matched,
-            "routing_rule_evaluated"
-        );
-        if matched {
-            return Some(rule.target.clone());
+    // 2. Routing function
+    if let Some(ref fn_name) = stage.routing_fn {
+        if let Some(routing_fn) = registry.get(fn_name) {
+            let result = routing_fn.route(ctx);
+            tracing::debug!(
+                stage = %from_stage,
+                routing_fn = %fn_name,
+                ?result,
+                "routing_fn_evaluated"
+            );
+            let target = match result {
+                RoutingResult::Next(t) => Some(t),
+                RoutingResult::Fan(targets) => {
+                    // Fan is handled by the caller (Fork dispatch).
+                    // For non-Fork stages, take the first target.
+                    targets.into_iter().next()
+                }
+                RoutingResult::Terminate => None,
+            };
+            return RoutingDecision {
+                from_stage: from_stage.to_string(),
+                target,
+                reason: RoutingReason::RoutingFn { name: fn_name.clone() },
+            };
+        } else {
+            tracing::warn!(
+                stage = %from_stage,
+                routing_fn = %fn_name,
+                "routing_fn_not_found_in_registry"
+            );
         }
     }
 
     // 3. Default fallback
     if let Some(ref default_next) = stage.default_next {
-        tracing::debug!(stage = %stage.name, target = %default_next, "default_route_taken");
-        return Some(default_next.clone());
+        tracing::debug!(stage = %from_stage, target = %default_next, "default_route_taken");
+        return RoutingDecision {
+            from_stage: from_stage.to_string(),
+            target: Some(default_next.clone()),
+            reason: RoutingReason::DefaultRoute,
+        };
     }
 
     // 4. No match — Temporal pattern: kernel terminates
-    tracing::debug!(stage = %stage.name, rules_count = stage.routing.len(), "no_routing_match");
-    None
-}
-
-/// Recursively evaluate a routing expression against agent outputs and metadata.
-pub fn evaluate_expr(
-    expr: &RoutingExpr,
-    agent_outputs: &HashMap<String, HashMap<String, serde_json::Value>>,
-    current_agent: &str,
-    metadata: &HashMap<String, serde_json::Value>,
-    interrupt_response: Option<&serde_json::Value>,
-    state: &HashMap<String, serde_json::Value>,
-) -> bool {
-    match expr {
-        RoutingExpr::Always => true,
-
-        RoutingExpr::Eq { field, value } => {
-            resolve_field(field, agent_outputs, current_agent, metadata, interrupt_response, state)
-                .is_some_and(|v| v == *value)
-        }
-
-        RoutingExpr::Neq { field, value } => {
-            resolve_field(field, agent_outputs, current_agent, metadata, interrupt_response, state)
-                .is_some_and(|v| v != *value)
-        }
-
-        RoutingExpr::Gt { field, value } => {
-            resolve_field(field, agent_outputs, current_agent, metadata, interrupt_response, state)
-                .and_then(|v| Some(v.as_f64()? > value.as_f64()?))
-                .unwrap_or(false)
-        }
-
-        RoutingExpr::Lt { field, value } => {
-            resolve_field(field, agent_outputs, current_agent, metadata, interrupt_response, state)
-                .and_then(|v| Some(v.as_f64()? < value.as_f64()?))
-                .unwrap_or(false)
-        }
-
-        RoutingExpr::Gte { field, value } => {
-            resolve_field(field, agent_outputs, current_agent, metadata, interrupt_response, state)
-                .and_then(|v| Some(v.as_f64()? >= value.as_f64()?))
-                .unwrap_or(false)
-        }
-
-        RoutingExpr::Lte { field, value } => {
-            resolve_field(field, agent_outputs, current_agent, metadata, interrupt_response, state)
-                .and_then(|v| Some(v.as_f64()? <= value.as_f64()?))
-                .unwrap_or(false)
-        }
-
-        RoutingExpr::Contains { field, value } => {
-            resolve_field(field, agent_outputs, current_agent, metadata, interrupt_response, state)
-                .is_some_and(|v| {
-                    // String contains substring
-                    if let (Some(s), Some(substr)) = (v.as_str(), value.as_str()) {
-                        return s.contains(substr);
-                    }
-                    // Array contains element
-                    if let Some(arr) = v.as_array() {
-                        return arr.contains(value);
-                    }
-                    false
-                })
-        }
-
-        RoutingExpr::Exists { field } => {
-            resolve_field(field, agent_outputs, current_agent, metadata, interrupt_response, state)
-                .is_some_and(|v| !v.is_null())
-        }
-
-        RoutingExpr::NotExists { field } => {
-            resolve_field(field, agent_outputs, current_agent, metadata, interrupt_response, state)
-                .map_or(true, |v| v.is_null())
-        }
-
-        RoutingExpr::And { exprs } => {
-            exprs.iter().all(|e| evaluate_expr(e, agent_outputs, current_agent, metadata, interrupt_response, state))
-        }
-
-        RoutingExpr::Or { exprs } => {
-            exprs.iter().any(|e| evaluate_expr(e, agent_outputs, current_agent, metadata, interrupt_response, state))
-        }
-
-        RoutingExpr::Not { expr } => {
-            !evaluate_expr(expr, agent_outputs, current_agent, metadata, interrupt_response, state)
-        }
+    tracing::debug!(stage = %from_stage, "no_routing_match");
+    RoutingDecision {
+        from_stage: from_stage.to_string(),
+        target: None,
+        reason: RoutingReason::NoMatch,
     }
 }
 
-/// Resolve a field reference to its value from agent outputs, metadata, interrupt response, or state.
-pub fn resolve_field(
-    field: &FieldRef,
-    agent_outputs: &HashMap<String, HashMap<String, serde_json::Value>>,
-    current_agent: &str,
-    metadata: &HashMap<String, serde_json::Value>,
-    interrupt_response: Option<&serde_json::Value>,
-    state: &HashMap<String, serde_json::Value>,
-) -> Option<serde_json::Value> {
-    match field {
-        FieldRef::Current { key } => {
-            agent_outputs.get(current_agent)?.get(key).cloned()
-        }
-        FieldRef::Agent { agent, key } => {
-            agent_outputs.get(agent.as_str())?.get(key).cloned()
-        }
-        FieldRef::Meta { path } => {
-            // Dot-notation traversal: "session_context.has_history"
-            let parts: Vec<&str> = path.split('.').collect();
-            if parts.is_empty() {
-                return None;
-            }
-            let first = metadata.get(parts[0])?;
-            let mut current = first.clone();
-            for part in &parts[1..] {
-                current = current.get(part)?.clone();
-            }
-            Some(current)
-        }
-        FieldRef::Interrupt { key } => {
-            interrupt_response?.get(key).cloned()
-        }
-        FieldRef::State { key } => {
-            state.get(key).cloned()
+/// Evaluate routing for a Fork node — returns all fan-out targets.
+///
+/// If the routing function returns Fan(targets), returns those targets.
+/// If it returns Next(target), returns a single-element vec.
+/// If no routing function, falls back to default_next.
+pub fn evaluate_fork_routing(
+    stage: &super::orchestrator_types::PipelineStage,
+    registry: &RoutingRegistry,
+    ctx: &RoutingContext<'_>,
+) -> Vec<String> {
+    if let Some(ref fn_name) = stage.routing_fn {
+        if let Some(routing_fn) = registry.get(fn_name) {
+            let result = routing_fn.route(ctx);
+            tracing::debug!(
+                stage = %stage.name,
+                routing_fn = %fn_name,
+                ?result,
+                "fork_routing_fn_evaluated"
+            );
+            return match result {
+                RoutingResult::Fan(targets) => targets,
+                RoutingResult::Next(t) => vec![t],
+                RoutingResult::Terminate => vec![],
+            };
+        } else {
+            tracing::warn!(
+                stage = %stage.name,
+                routing_fn = %fn_name,
+                "fork_routing_fn_not_found"
+            );
         }
     }
+
+    // Fallback: default_next as single target
+    stage.default_next.iter().cloned().collect()
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::kernel::orchestrator_types::PipelineStage;
-    use serde_json::Value;
 
-    // ── Test helpers ─────────────────────────────────────────────────────
+    fn test_registry() -> RoutingRegistry {
+        let mut reg = RoutingRegistry::new();
+        reg.register("always_s2", Arc::new(|_ctx: &RoutingContext| -> RoutingResult {
+            RoutingResult::Next("s2".to_string())
+        }));
+        reg.register("terminate", Arc::new(|_ctx: &RoutingContext| -> RoutingResult {
+            RoutingResult::Terminate
+        }));
+        reg.register("fan_ab", Arc::new(|_ctx: &RoutingContext| -> RoutingResult {
+            RoutingResult::Fan(vec!["a".to_string(), "b".to_string()])
+        }));
+        reg
+    }
 
-    /// Empty outputs and metadata — the common case for routing tests.
-    fn empty_ctx() -> (HashMap<String, HashMap<String, Value>>, HashMap<String, Value>) {
+    fn empty_ctx() -> (HashMap<String, HashMap<String, serde_json::Value>>, HashMap<String, serde_json::Value>) {
         (HashMap::new(), HashMap::new())
     }
 
-    /// Build an outputs map with a single agent's key-value pairs.
-    fn outputs_with(agent: &str, kvs: &[(&str, Value)]) -> HashMap<String, HashMap<String, Value>> {
-        let mut agent_out = HashMap::new();
-        for (k, v) in kvs {
-            agent_out.insert(k.to_string(), v.clone());
+    fn make_ctx<'a>(
+        outputs: &'a HashMap<String, HashMap<String, serde_json::Value>>,
+        metadata: &'a HashMap<String, serde_json::Value>,
+        state: &'a HashMap<String, serde_json::Value>,
+    ) -> RoutingContext<'a> {
+        RoutingContext {
+            current_stage: "s1",
+            agent_name: "a1",
+            agent_failed: false,
+            outputs,
+            metadata,
+            interrupt_response: None,
+            state,
         }
-        let mut outputs = HashMap::new();
-        outputs.insert(agent.to_string(), agent_out);
-        outputs
     }
 
-    // =========================================================================
-    // RoutingExpr unit tests (evaluate_expr directly)
-    // =========================================================================
-
     #[test]
-    fn test_evaluate_expr_neq() {
+    fn test_routing_fn_called() {
+        let reg = test_registry();
         let (outputs, metadata) = empty_ctx();
+        let state = HashMap::new();
+        let ctx = make_ctx(&outputs, &metadata, &state);
 
-        // Field doesn't exist → Neq returns false (field must exist)
-        let expr = RoutingExpr::Neq {
-            field: FieldRef::Current { key: "k".to_string() },
-            value: serde_json::json!("x"),
+        let stage = PipelineStage {
+            name: "s1".to_string(),
+            agent: "a1".to_string(),
+            routing_fn: Some("always_s2".to_string()),
+            ..PipelineStage::default()
         };
-        assert!(!evaluate_expr(&expr, &outputs, "a1", &metadata, None, &HashMap::new()));
 
-        // Field exists and differs → true
-        let outputs2 = outputs_with("a1", &[("k", serde_json::json!("y"))]);
-        assert!(evaluate_expr(&expr, &outputs2, "a1", &metadata, None, &HashMap::new()));
-
-        // Field exists and matches → false
-        let outputs3 = outputs_with("a1", &[("k", serde_json::json!("x"))]);
-        assert!(!evaluate_expr(&expr, &outputs3, "a1", &metadata, None, &HashMap::new()));
+        let decision = evaluate_routing_with_reason(&stage, &reg, &ctx, "s1");
+        assert_eq!(decision.target, Some("s2".to_string()));
+        assert!(matches!(decision.reason, RoutingReason::RoutingFn { ref name } if name == "always_s2"));
     }
 
     #[test]
-    fn test_evaluate_expr_gt_lt() {
-        let (_, metadata) = empty_ctx();
-        let outputs = outputs_with("a1", &[("score", serde_json::json!(0.8))]);
-
-        let gt = RoutingExpr::Gt {
-            field: FieldRef::Current { key: "score".to_string() },
-            value: serde_json::json!(0.5),
-        };
-        assert!(evaluate_expr(&gt, &outputs, "a1", &metadata, None, &HashMap::new()));
-
-        let lt = RoutingExpr::Lt {
-            field: FieldRef::Current { key: "score".to_string() },
-            value: serde_json::json!(0.5),
-        };
-        assert!(!evaluate_expr(&lt, &outputs, "a1", &metadata, None, &HashMap::new()));
-    }
-
-    #[test]
-    fn test_evaluate_expr_contains_string() {
-        let (_, metadata) = empty_ctx();
-        let outputs = outputs_with("a1", &[("text", serde_json::json!("hello world"))]);
-
-        let expr = RoutingExpr::Contains {
-            field: FieldRef::Current { key: "text".to_string() },
-            value: serde_json::json!("world"),
-        };
-        assert!(evaluate_expr(&expr, &outputs, "a1", &metadata, None, &HashMap::new()));
-
-        let expr2 = RoutingExpr::Contains {
-            field: FieldRef::Current { key: "text".to_string() },
-            value: serde_json::json!("missing"),
-        };
-        assert!(!evaluate_expr(&expr2, &outputs, "a1", &metadata, None, &HashMap::new()));
-    }
-
-    #[test]
-    fn test_evaluate_expr_exists_not_exists() {
-        let (_, metadata) = empty_ctx();
-        let outputs = outputs_with("a1", &[("k", serde_json::json!("v"))]);
-
-        let exists = RoutingExpr::Exists { field: FieldRef::Current { key: "k".to_string() } };
-        assert!(evaluate_expr(&exists, &outputs, "a1", &metadata, None, &HashMap::new()));
-
-        let not_exists = RoutingExpr::NotExists { field: FieldRef::Current { key: "k".to_string() } };
-        assert!(!evaluate_expr(&not_exists, &outputs, "a1", &metadata, None, &HashMap::new()));
-
-        let exists_missing = RoutingExpr::Exists { field: FieldRef::Current { key: "nope".to_string() } };
-        assert!(!evaluate_expr(&exists_missing, &outputs, "a1", &metadata, None, &HashMap::new()));
-    }
-
-    #[test]
-    fn test_evaluate_expr_and_or_not() {
+    fn test_error_next_takes_priority() {
+        let reg = test_registry();
         let (outputs, metadata) = empty_ctx();
+        let state = HashMap::new();
+        let mut ctx = make_ctx(&outputs, &metadata, &state);
+        ctx.agent_failed = true;
 
-        let t = RoutingExpr::Always;
-        let f = RoutingExpr::Not { expr: Box::new(RoutingExpr::Always) };
+        let stage = PipelineStage {
+            name: "s1".to_string(),
+            agent: "a1".to_string(),
+            routing_fn: Some("always_s2".to_string()),
+            error_next: Some("s_err".to_string()),
+            ..PipelineStage::default()
+        };
 
-        let and_tt = RoutingExpr::And { exprs: vec![t.clone(), t.clone()] };
-        assert!(evaluate_expr(&and_tt, &outputs, "a1", &metadata, None, &HashMap::new()));
-
-        let and_tf = RoutingExpr::And { exprs: vec![t.clone(), f.clone()] };
-        assert!(!evaluate_expr(&and_tf, &outputs, "a1", &metadata, None, &HashMap::new()));
-
-        let or_tf = RoutingExpr::Or { exprs: vec![t.clone(), f.clone()] };
-        assert!(evaluate_expr(&or_tf, &outputs, "a1", &metadata, None, &HashMap::new()));
-
-        let or_ff = RoutingExpr::Or { exprs: vec![f.clone(), f.clone()] };
-        assert!(!evaluate_expr(&or_ff, &outputs, "a1", &metadata, None, &HashMap::new()));
+        let decision = evaluate_routing_with_reason(&stage, &reg, &ctx, "s1");
+        assert_eq!(decision.target, Some("s_err".to_string()));
+        assert!(matches!(decision.reason, RoutingReason::ErrorRoute));
     }
 
     #[test]
-    fn test_evaluate_expr_field_ref_agent() {
-        let (_, metadata) = empty_ctx();
-        let outputs = outputs_with("understand", &[("topic", serde_json::json!("time"))]);
-
-        let expr = RoutingExpr::Eq {
-            field: FieldRef::Agent { agent: "understand".to_string(), key: "topic".to_string() },
-            value: serde_json::json!("time"),
-        };
-        assert!(evaluate_expr(&expr, &outputs, "current", &metadata, None, &HashMap::new()));
-
-        // Agent hasn't run → field doesn't exist → Eq returns false
-        let expr2 = RoutingExpr::Eq {
-            field: FieldRef::Agent { agent: "missing_agent".to_string(), key: "topic".to_string() },
-            value: serde_json::json!("time"),
-        };
-        assert!(!evaluate_expr(&expr2, &outputs, "current", &metadata, None, &HashMap::new()));
-    }
-
-    #[test]
-    fn test_evaluate_expr_field_ref_meta_dot_notation() {
-        let (outputs, mut metadata) = empty_ctx();
-        metadata.insert("session_context".to_string(), serde_json::json!({
-            "has_history": true,
-            "nested": { "deep": 42 }
-        }));
-
-        let expr = RoutingExpr::Eq {
-            field: FieldRef::Meta { path: "session_context.has_history".to_string() },
-            value: serde_json::json!(true),
-        };
-        assert!(evaluate_expr(&expr, &outputs, "a1", &metadata, None, &HashMap::new()));
-
-        let expr2 = RoutingExpr::Eq {
-            field: FieldRef::Meta { path: "session_context.nested.deep".to_string() },
-            value: serde_json::json!(42),
-        };
-        assert!(evaluate_expr(&expr2, &outputs, "a1", &metadata, None, &HashMap::new()));
-
-        // Missing path
-        let expr3 = RoutingExpr::Exists {
-            field: FieldRef::Meta { path: "session_context.nonexistent".to_string() },
-        };
-        assert!(!evaluate_expr(&expr3, &outputs, "a1", &metadata, None, &HashMap::new()));
-    }
-
-    #[test]
-    fn test_evaluate_expr_field_ref_interrupt() {
+    fn test_default_next_fallback() {
+        let reg = test_registry();
         let (outputs, metadata) = empty_ctx();
+        let state = HashMap::new();
+        let ctx = make_ctx(&outputs, &metadata, &state);
 
-        let interrupt_val = serde_json::json!({
-            "approved": true,
-            "text": "yes go ahead",
-        });
-
-        let expr = RoutingExpr::Eq {
-            field: FieldRef::Interrupt { key: "approved".to_string() },
-            value: serde_json::json!(true),
-        };
-        assert!(evaluate_expr(&expr, &outputs, "a1", &metadata, Some(&interrupt_val), &HashMap::new()));
-
-        // No interrupt response → field doesn't exist
-        assert!(!evaluate_expr(&expr, &outputs, "a1", &metadata, None, &HashMap::new()));
-    }
-
-    // =========================================================================
-    // Serde round-trip tests
-    // =========================================================================
-
-    #[test]
-    fn test_routing_rule_serde_roundtrip() {
-        let rule = RoutingRule {
-            expr: RoutingExpr::And {
-                exprs: vec![
-                    RoutingExpr::Or {
-                        exprs: vec![
-                            RoutingExpr::Eq {
-                                field: FieldRef::Current { key: "intent".to_string() },
-                                value: serde_json::json!("greet"),
-                            },
-                            RoutingExpr::Neq {
-                                field: FieldRef::Agent { agent: "other".to_string(), key: "status".to_string() },
-                                value: serde_json::json!("done"),
-                            },
-                        ],
-                    },
-                    RoutingExpr::Not {
-                        expr: Box::new(RoutingExpr::Exists {
-                            field: FieldRef::Meta { path: "skip".to_string() },
-                        }),
-                    },
-                ],
-            },
-            target: "next_stage".to_string(),
-        };
-        let json = serde_json::to_string(&rule).unwrap();
-        let deserialized: RoutingRule = serde_json::from_str(&json).unwrap();
-        let json2 = serde_json::to_string(&deserialized).unwrap();
-        let v1: serde_json::Value = serde_json::from_str(&json).unwrap();
-        let v2: serde_json::Value = serde_json::from_str(&json2).unwrap();
-        assert_eq!(v1, v2);
-    }
-
-    // =========================================================================
-    // Edge case tests (Phase 1b audit)
-    // =========================================================================
-
-    #[test]
-    fn test_gt_lt_with_non_numeric_string_returns_false() {
-        let (_, metadata) = empty_ctx();
-        let outputs = outputs_with("a1", &[("val", serde_json::json!("not_a_number"))]);
-
-        let gt = RoutingExpr::Gt {
-            field: FieldRef::Current { key: "val".to_string() },
-            value: serde_json::json!(5),
-        };
-        assert!(!evaluate_expr(&gt, &outputs, "a1", &metadata, None, &HashMap::new()));
-
-        let lt = RoutingExpr::Lt {
-            field: FieldRef::Current { key: "val".to_string() },
-            value: serde_json::json!(5),
-        };
-        assert!(!evaluate_expr(&lt, &outputs, "a1", &metadata, None, &HashMap::new()));
-
-        let gte = RoutingExpr::Gte {
-            field: FieldRef::Current { key: "val".to_string() },
-            value: serde_json::json!(5),
-        };
-        assert!(!evaluate_expr(&gte, &outputs, "a1", &metadata, None, &HashMap::new()));
-
-        let lte = RoutingExpr::Lte {
-            field: FieldRef::Current { key: "val".to_string() },
-            value: serde_json::json!(5),
-        };
-        assert!(!evaluate_expr(&lte, &outputs, "a1", &metadata, None, &HashMap::new()));
-    }
-
-    #[test]
-    fn test_contains_on_json_array_element_membership() {
-        let (_, metadata) = empty_ctx();
-        let outputs = outputs_with("a1", &[("tags", serde_json::json!(["a", "b", "c"]))]);
-
-        let contains = RoutingExpr::Contains {
-            field: FieldRef::Current { key: "tags".to_string() },
-            value: serde_json::json!("b"),
-        };
-        assert!(evaluate_expr(&contains, &outputs, "a1", &metadata, None, &HashMap::new()));
-
-        let not_contains = RoutingExpr::Contains {
-            field: FieldRef::Current { key: "tags".to_string() },
-            value: serde_json::json!("z"),
-        };
-        assert!(!evaluate_expr(&not_contains, &outputs, "a1", &metadata, None, &HashMap::new()));
-    }
-
-    #[test]
-    fn test_contains_on_non_string_non_array_returns_false() {
-        let (_, metadata) = empty_ctx();
-        let outputs = outputs_with("a1", &[("count", serde_json::json!(42))]);
-
-        let contains = RoutingExpr::Contains {
-            field: FieldRef::Current { key: "count".to_string() },
-            value: serde_json::json!(4),
-        };
-        assert!(!evaluate_expr(&contains, &outputs, "a1", &metadata, None, &HashMap::new()));
-    }
-
-    #[test]
-    fn test_deeply_nested_meta_with_missing_intermediate() {
-        let (outputs, mut metadata) = empty_ctx();
-        metadata.insert("a".to_string(), serde_json::json!({"b": {"c": 99}}));
-
-        // Valid deep path
-        let expr = RoutingExpr::Eq {
-            field: FieldRef::Meta { path: "a.b.c".to_string() },
-            value: serde_json::json!(99),
-        };
-        assert!(evaluate_expr(&expr, &outputs, "a1", &metadata, None, &HashMap::new()));
-
-        // Missing intermediate "x" → resolves to None, Exists returns false
-        let missing = RoutingExpr::Exists {
-            field: FieldRef::Meta { path: "a.x.c".to_string() },
-        };
-        assert!(!evaluate_expr(&missing, &outputs, "a1", &metadata, None, &HashMap::new()));
-    }
-
-    #[test]
-    fn test_field_ref_agent_nonexistent_agent_resolves_to_null() {
-        let (outputs, metadata) = empty_ctx();
-
-        // Nonexistent agent → resolve returns None → Exists returns false
-        let expr = RoutingExpr::Exists {
-            field: FieldRef::Agent { agent: "ghost".to_string(), key: "k".to_string() },
-        };
-        assert!(!evaluate_expr(&expr, &outputs, "a1", &metadata, None, &HashMap::new()));
-
-        // NotExists on nonexistent agent → true
-        let not_exists = RoutingExpr::NotExists {
-            field: FieldRef::Agent { agent: "ghost".to_string(), key: "k".to_string() },
-        };
-        assert!(evaluate_expr(&not_exists, &outputs, "a1", &metadata, None, &HashMap::new()));
-    }
-
-    #[test]
-    fn test_eq_type_mismatch_string_vs_number() {
-        let (_, metadata) = empty_ctx();
-        let outputs = outputs_with("a1", &[("val", serde_json::json!("5"))]);
-
-        // String "5" != number 5 → no match
-        let expr = RoutingExpr::Eq {
-            field: FieldRef::Current { key: "val".to_string() },
-            value: serde_json::json!(5),
-        };
-        assert!(!evaluate_expr(&expr, &outputs, "a1", &metadata, None, &HashMap::new()));
-    }
-
-    #[test]
-    fn test_neq_missing_field_returns_false() {
-        // Neq requires field to exist — missing field → false (not true)
-        let (outputs, metadata) = empty_ctx();
-
-        let expr = RoutingExpr::Neq {
-            field: FieldRef::Current { key: "missing".to_string() },
-            value: serde_json::json!("anything"),
-        };
-        assert!(!evaluate_expr(&expr, &outputs, "a1", &metadata, None, &HashMap::new()));
-    }
-
-    #[test]
-    fn test_evaluate_routing_error_next_on_failure() {
         let stage = PipelineStage {
             name: "s1".to_string(),
             agent: "a1".to_string(),
             default_next: Some("s2".to_string()),
-            error_next: Some("s_err".to_string()),
             ..PipelineStage::default()
         };
+
+        let decision = evaluate_routing_with_reason(&stage, &reg, &ctx, "s1");
+        assert_eq!(decision.target, Some("s2".to_string()));
+        assert!(matches!(decision.reason, RoutingReason::DefaultRoute));
+    }
+
+    #[test]
+    fn test_no_routing_no_default_terminates() {
+        let reg = test_registry();
         let (outputs, metadata) = empty_ctx();
+        let state = HashMap::new();
+        let ctx = make_ctx(&outputs, &metadata, &state);
 
-        // agent_failed=true → routes to error_next, not default_next
-        let result = evaluate_routing(&stage, &outputs, "a1", true, &metadata, None, &HashMap::new());
-        assert_eq!(result, Some("s_err".to_string()));
-
-        // agent_failed=false → falls through to default_next
-        let result = evaluate_routing(&stage, &outputs, "a1", false, &metadata, None, &HashMap::new());
-        assert_eq!(result, Some("s2".to_string()));
-    }
-
-    #[test]
-    fn test_expr_depth_calculation() {
-        assert_eq!(RoutingExpr::Always.depth(), 0);
-
-        let one_deep = RoutingExpr::Not { expr: Box::new(RoutingExpr::Always) };
-        assert_eq!(one_deep.depth(), 1);
-
-        let two_deep = RoutingExpr::And {
-            exprs: vec![RoutingExpr::Not { expr: Box::new(RoutingExpr::Always) }],
+        let stage = PipelineStage {
+            name: "s1".to_string(),
+            agent: "a1".to_string(),
+            ..PipelineStage::default()
         };
-        assert_eq!(two_deep.depth(), 2);
 
-        // Depth 0 for leaf exprs
-        let leaf = RoutingExpr::Eq {
-            field: FieldRef::Current { key: "k".to_string() },
-            value: serde_json::json!("v"),
+        let decision = evaluate_routing_with_reason(&stage, &reg, &ctx, "s1");
+        assert_eq!(decision.target, None);
+        assert!(matches!(decision.reason, RoutingReason::NoMatch));
+    }
+
+    #[test]
+    fn test_terminate_routing_fn() {
+        let reg = test_registry();
+        let (outputs, metadata) = empty_ctx();
+        let state = HashMap::new();
+        let ctx = make_ctx(&outputs, &metadata, &state);
+
+        let stage = PipelineStage {
+            name: "s1".to_string(),
+            agent: "a1".to_string(),
+            routing_fn: Some("terminate".to_string()),
+            ..PipelineStage::default()
         };
-        assert_eq!(leaf.depth(), 0);
+
+        let decision = evaluate_routing_with_reason(&stage, &reg, &ctx, "s1");
+        assert_eq!(decision.target, None);
+        assert!(matches!(decision.reason, RoutingReason::RoutingFn { .. }));
     }
 
     #[test]
-    fn test_validate_depth_within_limit() {
-        let expr = RoutingExpr::And {
-            exprs: vec![RoutingExpr::Or {
-                exprs: vec![RoutingExpr::Not { expr: Box::new(RoutingExpr::Always) }],
-            }],
+    fn test_fork_routing() {
+        let reg = test_registry();
+        let (outputs, metadata) = empty_ctx();
+        let state = HashMap::new();
+        let ctx = make_ctx(&outputs, &metadata, &state);
+
+        let stage = PipelineStage {
+            name: "fork1".to_string(),
+            agent: "a1".to_string(),
+            routing_fn: Some("fan_ab".to_string()),
+            ..PipelineStage::default()
         };
-        assert_eq!(expr.depth(), 3);
-        assert!(expr.validate_depth().is_ok());
+
+        let targets = evaluate_fork_routing(&stage, &reg, &ctx);
+        assert_eq!(targets, vec!["a".to_string(), "b".to_string()]);
     }
 
     #[test]
-    fn test_validate_depth_exceeds_limit() {
-        // Build nesting depth > MAX_ROUTING_EXPR_DEPTH
-        let mut expr = RoutingExpr::Always;
-        for _ in 0..(MAX_ROUTING_EXPR_DEPTH + 1) {
-            expr = RoutingExpr::Not { expr: Box::new(expr) };
-        }
-        assert!(expr.depth() > MAX_ROUTING_EXPR_DEPTH);
-        assert!(expr.validate_depth().is_err());
+    fn test_missing_routing_fn_falls_through() {
+        let reg = test_registry();
+        let (outputs, metadata) = empty_ctx();
+        let state = HashMap::new();
+        let ctx = make_ctx(&outputs, &metadata, &state);
+
+        let stage = PipelineStage {
+            name: "s1".to_string(),
+            agent: "a1".to_string(),
+            routing_fn: Some("nonexistent".to_string()),
+            default_next: Some("s2".to_string()),
+            ..PipelineStage::default()
+        };
+
+        let decision = evaluate_routing_with_reason(&stage, &reg, &ctx, "s1");
+        assert_eq!(decision.target, Some("s2".to_string()));
+        assert!(matches!(decision.reason, RoutingReason::DefaultRoute));
     }
 
     #[test]
-    fn test_field_ref_serde_roundtrip() {
-        let variants: Vec<FieldRef> = vec![
-            FieldRef::Current { key: "intent".to_string() },
-            FieldRef::Agent { agent: "understand".to_string(), key: "topic".to_string() },
-            FieldRef::Meta { path: "session.has_history".to_string() },
-            FieldRef::Interrupt { key: "approved".to_string() },
-            FieldRef::State { key: "accumulated".to_string() },
-        ];
-        for field_ref in variants {
-            let json = serde_json::to_string(&field_ref).unwrap();
-            let deserialized: FieldRef = serde_json::from_str(&json).unwrap();
-            let json2 = serde_json::to_string(&deserialized).unwrap();
-            let v1: serde_json::Value = serde_json::from_str(&json).unwrap();
-            let v2: serde_json::Value = serde_json::from_str(&json2).unwrap();
-            assert_eq!(v1, v2, "FieldRef round-trip failed for: {}", json);
-        }
+    fn test_registry_operations() {
+        let mut reg = RoutingRegistry::new();
+        assert!(!reg.contains("test"));
+
+        reg.register("test", Arc::new(|_ctx: &RoutingContext| RoutingResult::Terminate));
+        assert!(reg.contains("test"));
+        assert!(reg.get("test").is_some());
+        assert!(reg.get("other").is_none());
     }
 }

@@ -16,7 +16,6 @@ use std::collections::HashMap;
 use tokio::sync::{mpsc, oneshot};
 
 /// Command variants sent to the kernel actor.
-#[derive(Debug)]
 pub enum KernelCommand {
     /// Initialize a pipeline session (auto-creates PCB if needed).
     InitializeSession {
@@ -126,6 +125,60 @@ pub enum KernelCommand {
         pipeline_config: Box<PipelineConfig>,
         resp_tx: oneshot::Sender<Result<ProcessId>>,
     },
+
+    // =========================================================================
+    // Tool Health
+    // =========================================================================
+
+    /// Query tool health metrics (single tool or full system report).
+    GetToolHealth {
+        tool_name: Option<String>,
+        resp_tx: oneshot::Sender<Result<serde_json::Value>>,
+    },
+
+    // =========================================================================
+    // Routing
+    // =========================================================================
+
+    /// Register a named routing function on the kernel's orchestrator.
+    RegisterRoutingFn {
+        name: String,
+        routing_fn: std::sync::Arc<dyn crate::kernel::routing::RoutingFn>,
+        resp_tx: oneshot::Sender<()>,
+    },
+}
+
+impl std::fmt::Debug for KernelCommand {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::RegisterRoutingFn { name, .. } => {
+                f.debug_struct("RegisterRoutingFn").field("name", name).finish()
+            }
+            other => {
+                // All other variants' fields implement Debug; use variant name only.
+                write!(f, "KernelCommand::{}", match other {
+                    Self::InitializeSession { .. } => "InitializeSession",
+                    Self::GetNextInstruction { .. } => "GetNextInstruction",
+                    Self::ProcessAgentResult { .. } => "ProcessAgentResult",
+                    Self::GetSessionState { .. } => "GetSessionState",
+                    Self::CreateProcess { .. } => "CreateProcess",
+                    Self::TerminateProcess { .. } => "TerminateProcess",
+                    Self::GetSystemStatus { .. } => "GetSystemStatus",
+                    Self::ResolveInterrupt { .. } => "ResolveInterrupt",
+                    Self::SetProcessInterrupt { .. } => "SetProcessInterrupt",
+                    Self::PublishEvent { .. } => "PublishEvent",
+                    Self::Subscribe { .. } => "Subscribe",
+                    Self::Unsubscribe { .. } => "Unsubscribe",
+                    Self::CommBusQuery { .. } => "CommBusQuery",
+                    Self::ListAgentCards { .. } => "ListAgentCards",
+                    Self::Checkpoint { .. } => "Checkpoint",
+                    Self::ResumeFromCheckpoint { .. } => "ResumeFromCheckpoint",
+                    Self::GetToolHealth { .. } => "GetToolHealth",
+                    Self::RegisterRoutingFn { .. } => unreachable!(),
+                })
+            }
+        }
+    }
 }
 
 /// Typed handle to the kernel actor. Clone-able, Send + Sync.
@@ -153,6 +206,27 @@ impl KernelHandle {
     /// Create a new handle from a channel sender.
     pub fn new(tx: mpsc::Sender<KernelCommand>) -> Self {
         Self { tx }
+    }
+
+    /// Register a named routing function on the kernel's orchestrator.
+    pub async fn register_routing_fn(
+        &self,
+        name: impl Into<String>,
+        routing_fn: std::sync::Arc<dyn crate::kernel::routing::RoutingFn>,
+    ) -> Result<()> {
+        let (resp_tx, resp_rx) = oneshot::channel();
+        self.tx
+            .send(KernelCommand::RegisterRoutingFn {
+                name: name.into(),
+                routing_fn,
+                resp_tx,
+            })
+            .await
+            .map_err(|_| crate::types::Error::internal("Kernel actor unavailable"))?;
+        resp_rx
+            .await
+            .map_err(|_| crate::types::Error::internal("Kernel actor dropped response"))?;
+        Ok(())
     }
 
     /// Initialize a pipeline session.
@@ -343,6 +417,20 @@ impl KernelHandle {
         kernel_request!(self, ResumeFromCheckpoint {
             snapshot: Box::new(snapshot),
             pipeline_config: Box::new(pipeline_config),
+        })
+    }
+
+    // =========================================================================
+    // Tool Health
+    // =========================================================================
+
+    /// Query tool health metrics.
+    ///
+    /// Returns a single tool's health report if `tool_name` is Some,
+    /// or the full system health report (all tools) if None.
+    pub async fn get_tool_health(&self, tool_name: Option<&str>) -> Result<serde_json::Value> {
+        kernel_request!(self, GetToolHealth {
+            tool_name: tool_name.map(|s| s.to_string()),
         })
     }
 

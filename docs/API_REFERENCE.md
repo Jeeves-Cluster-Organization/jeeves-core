@@ -109,9 +109,9 @@ Pipeline configuration is a JSON document or Rust `PipelineConfig` struct.
 |-------|------|---------|-------------|
 | `name` | string | — | Stage identifier |
 | `agent` | string | — | Agent to execute |
-| `routing` | array | `[]` | Expression-based routing rules |
-| `default_next` | string | null | Fallback target when no rule matches |
-| `error_next` | string | null | Target on agent failure |
+| `routing_fn` | string | null | Name of registered routing function |
+| `default_next` | string | null | Fallback target when no routing_fn or it terminates |
+| `error_next` | string | null | Target on agent failure (checked before routing_fn) |
 | `max_visits` | int | null | Per-stage visit limit |
 | `node_kind` | string | `"Agent"` | `Agent`, `Gate`, or `Fork` |
 | `output_key` | string | null | State field key (defaults to stage name) |
@@ -175,47 +175,33 @@ Use `Append` for multi-hop RAG (accumulate docs across loops). Use `MergeDict` f
 
 ---
 
-## Routing Expressions
+## Routing Functions
 
-Routing rules are expression trees evaluated in order (first match wins).
+Routing is code. Consumers register named `RoutingFn` closures on the Kernel before spawning. Pipeline stages reference them by name via `routing_fn`. Static wiring (`default_next`, `error_next`) remains declarative.
 
-### Operators
+### RoutingContext
 
-`Eq`, `Neq`, `Gt`, `Lt`, `Gte`, `Lte`, `Contains`, `Exists`, `NotExists`, `And`, `Or`, `Not`, `Always`
+Routing functions receive a `RoutingContext` with read-only access to:
+- `current_stage`, `agent_name`, `agent_failed`
+- `outputs` — all agent outputs (`agent_name -> {key -> value}`)
+- `metadata` — envelope metadata
+- `interrupt_response` — resolved interrupt response, if any
+- `state` — accumulated state across loop iterations
 
-### Field Scopes
+### RoutingResult
 
-| Scope | Syntax | Description |
-|-------|--------|-------------|
-| `Current` | `{"scope": "Current", "key": "intent"}` | Current agent output |
-| `Agent` | `{"scope": "Agent", "agent": "X", "key": "Y"}` | Specific agent output |
-| `Meta` | `{"scope": "Meta", "path": "user.tier"}` | Envelope metadata (dot-notation) |
-| `Interrupt` | `{"scope": "Interrupt", "key": "response"}` | Interrupt response |
-| `State` | `{"scope": "State", "key": "topic"}` | Pipeline state |
-
-### Example
-
-```json
-{
-  "routing": [
-    {
-      "expr": {"op": "Eq", "field": {"scope": "Current", "key": "intent"}, "value": "search"},
-      "target": "search_stage"
-    },
-    {
-      "expr": {"op": "Always"},
-      "target": "default_stage"
-    }
-  ]
-}
-```
+| Variant | Description |
+|---------|-------------|
+| `Next(String)` | Route to a single target stage |
+| `Fan(Vec<String>)` | Fan out to multiple stages in parallel (Fork) |
+| `Terminate` | End the pipeline |
 
 ### Evaluation Order
 
 1. Agent failed AND `error_next` set → route to error_next
-2. Routing rules in order (first match wins)
-3. No match + `default_next` set → route to default_next
-4. No match + no default_next → terminate COMPLETED
+2. `routing_fn` registered → call it
+3. No routing_fn + `default_next` set → route to default_next
+4. No routing_fn + no default_next → terminate COMPLETED
 
 ---
 
