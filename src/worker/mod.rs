@@ -11,6 +11,7 @@ pub mod mcp;
 #[cfg(feature = "mcp-stdio")]
 pub mod mcp_server;
 pub mod prompts;
+pub mod runner;
 pub mod tools;
 
 use std::sync::Arc;
@@ -33,6 +34,7 @@ pub struct WorkerResult {
     pub process_id: ProcessId,
     pub termination: Option<crate::envelope::Termination>,
     pub outputs: std::collections::HashMap<String, std::collections::HashMap<String, serde_json::Value>>,
+    pub aggregate_metrics: Option<llm::AggregateMetrics>,
 }
 
 impl WorkerResult {
@@ -115,12 +117,32 @@ pub async fn run_pipeline_loop(
 
         match instruction {
             Instruction::Terminate { reason, message, context } => {
+                // Emit routing decision from the previous stage that led to termination
+                if let Some(ref decision) = context.last_routing_decision {
+                    if let Some(ref tx) = event_tx {
+                        let _ = tx
+                            .send(PipelineEvent::RoutingDecision {
+                                from_stage: decision.from_stage.clone(),
+                                to_stage: decision.target.clone(),
+                                reason: decision.reason.clone(),
+                                pipeline: pipeline_name.clone(),
+                            })
+                            .await;
+                    }
+                }
+
                 let outputs = context
                     .agent_context
                     .as_ref()
                     .and_then(|c| c.get("outputs"))
                     .and_then(|v| serde_json::from_value(v.clone()).ok())
                     .unwrap_or_default();
+
+                let aggregate_metrics: Option<llm::AggregateMetrics> = context
+                    .agent_context
+                    .as_ref()
+                    .and_then(|c| c.get("aggregate_metrics"))
+                    .and_then(|v| serde_json::from_value(v.clone()).ok());
 
                 if let Some(ref tx) = event_tx {
                     let _ = tx
@@ -130,6 +152,7 @@ pub async fn run_pipeline_loop(
                             terminal_reason: Some(format!("{:?}", reason)),
                             outputs: Some(serde_json::to_value(&outputs).unwrap_or_default()),
                             pipeline: pipeline_name.clone(),
+                            aggregate_metrics: aggregate_metrics.clone(),
                         })
                         .await;
                 }
@@ -138,10 +161,25 @@ pub async fn run_pipeline_loop(
                     process_id: process_id.clone(),
                     termination: Some(crate::envelope::Termination { reason, message }),
                     outputs,
+                    aggregate_metrics,
                 });
             }
 
             Instruction::RunAgent { ref agent, ref context } => {
+                // Emit routing decision from the previous stage that led here
+                if let Some(ref decision) = context.last_routing_decision {
+                    if let Some(ref tx) = event_tx {
+                        let _ = tx
+                            .send(PipelineEvent::RoutingDecision {
+                                from_stage: decision.from_stage.clone(),
+                                to_stage: decision.target.clone(),
+                                reason: decision.reason.clone(),
+                                pipeline: pipeline_name.clone(),
+                            })
+                            .await;
+                    }
+                }
+
                 if let Some(ref tx) = event_tx {
                     let _ = tx
                         .send(PipelineEvent::StageStarted {
@@ -169,6 +207,15 @@ pub async fn run_pipeline_loop(
                         .send(PipelineEvent::StageCompleted {
                             stage: agent.clone(),
                             pipeline: pipeline_name.clone(),
+                            metrics: Some(llm::StageMetrics {
+                                duration_ms: output.metrics.duration_ms,
+                                llm_calls: output.metrics.llm_calls,
+                                tool_calls: output.metrics.tool_calls,
+                                tokens_in: output.metrics.tokens_in.unwrap_or(0),
+                                tokens_out: output.metrics.tokens_out.unwrap_or(0),
+                                tool_results: output.metrics.tool_results.clone(),
+                                success: output.success,
+                            }),
                         })
                         .await;
                 }
@@ -220,6 +267,7 @@ pub async fn run_pipeline_loop(
                         process_id: process_id.clone(),
                         termination: None,
                         outputs: Default::default(),
+                        aggregate_metrics: None,
                     });
                 }
             }
