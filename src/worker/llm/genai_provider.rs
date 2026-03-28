@@ -119,10 +119,10 @@ impl GenaiProvider {
         for msg in &req.messages {
             match msg.role.as_str() {
                 "system" => {
-                    system_msg = Some(msg.content.clone());
+                    system_msg = Some(msg.content.as_text_lossy());
                 }
                 "user" => {
-                    messages.push(GenaiMessage::user(msg.content.clone()));
+                    messages.push(GenaiMessage::user(msg.content.as_text_lossy()));
                 }
                 "assistant" => {
                     if let Some(ref tcs) = msg.tool_calls {
@@ -139,20 +139,20 @@ impl GenaiProvider {
                         let thought_sigs: Vec<String> = Vec::new();
                         let mut m = GenaiMessage::assistant_tool_calls_with_thoughts(genai_tcs, thought_sigs);
                         if !msg.content.is_empty() {
-                            m.content.prepend(genai::chat::ContentPart::from_text(msg.content.clone()));
+                            m.content.prepend(genai::chat::ContentPart::from_text(msg.content.as_text_lossy()));
                         }
                         messages.push(m);
                     } else {
-                        messages.push(GenaiMessage::assistant(msg.content.clone()));
+                        messages.push(GenaiMessage::assistant(msg.content.as_text_lossy()));
                     }
                 }
                 "tool" => {
                     let call_id = msg.tool_call_id.clone().unwrap_or_default();
-                    let tool_resp = genai::chat::ToolResponse::new(call_id, msg.content.clone());
+                    let tool_resp = genai::chat::ToolResponse::new(call_id, msg.content.as_text_lossy());
                     messages.push(tool_resp.into());
                 }
                 _ => {
-                    messages.push(GenaiMessage::user(msg.content.clone()));
+                    messages.push(GenaiMessage::user(msg.content.as_text_lossy()));
                 }
             }
         }

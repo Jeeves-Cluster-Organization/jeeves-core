@@ -13,10 +13,10 @@ use tracing::instrument;
 
 use crate::kernel::orchestrator_types::{AgentExecutionMetrics, ContextOverflow, ToolCallResult};
 use crate::worker::llm::{
-    collect_stream, ChatMessage, ChatRequest, LlmProvider, PipelineEvent, ToolCall,
+    collect_stream, ChatMessage, ChatRequest, LlmProvider, MessageContent, PipelineEvent, ToolCall,
 };
 use crate::worker::prompts::PromptRegistry;
-use crate::worker::tools::ToolRegistry;
+use crate::worker::tools::{ContentPart, ContentResolver, ToolRegistry};
 
 /// Output from agent execution.
 #[must_use]
@@ -81,6 +81,8 @@ pub struct LlmAgent {
     pub max_tokens: Option<i32>,
     pub model: Option<String>,
     pub max_tool_rounds: u32,
+    /// Optional content resolver for lazy `ContentPart::Ref` resolution.
+    pub content_resolver: Option<Arc<dyn ContentResolver>>,
 }
 
 impl Default for LlmAgent {
@@ -94,6 +96,7 @@ impl Default for LlmAgent {
             max_tokens: None,
             model: None,
             max_tool_rounds: 10,
+            content_resolver: None,
         }
     }
 }
@@ -271,10 +274,19 @@ impl Agent for LlmAgent {
 
                 let params = tc.arguments.clone();
                 let tool_start = Instant::now();
-                let (result, tool_success, tool_error) = match self.tools.execute(&tc.name, params).await {
-                    Ok(v) => (v.to_string(), true, None),
+                let (result_text, result_content, tool_success, tool_error) = match self.tools.execute(&tc.name, params).await {
+                    Ok(tool_output) => {
+                        let text = tool_output.data.to_string();
+                        let content = if tool_output.content.is_empty() {
+                            None
+                        } else {
+                            Some(self.resolve_content_parts(&tool_output.content))
+                        };
+                        (text, content, true, None)
+                    }
                     Err(e) => (
                         serde_json::json!({"error": e.to_string()}).to_string(),
+                        None,
                         false,
                         Some(e.to_string()),
                     ),
@@ -290,14 +302,27 @@ impl Agent for LlmAgent {
                     let _ = tx
                         .send(PipelineEvent::ToolResult {
                             id: tc.id.clone(),
-                            content: result.clone(),
+                            content: result_text.clone(),
                             stage: ctx.stage_name.clone(),
                             pipeline: ctx.pipeline_name.clone(),
                         })
                         .await;
                 }
 
-                messages.push(ChatMessage::tool_result(&tc.id, &result));
+                // Use multimodal content if available, otherwise text fallback
+                match result_content {
+                    Some(parts) => {
+                        let mut all_parts = vec![ContentPart::Text { text: result_text }];
+                        all_parts.extend(parts);
+                        messages.push(ChatMessage::tool_result(
+                            &tc.id,
+                            MessageContent::Parts(all_parts),
+                        ));
+                    }
+                    None => {
+                        messages.push(ChatMessage::tool_result(&tc.id, result_text));
+                    }
+                }
             }
 
             last_response = Some(resp);
@@ -326,6 +351,30 @@ impl Agent for LlmAgent {
             error_message: String::new(),
             interrupt_request: None,
         })
+    }
+}
+
+impl LlmAgent {
+    /// Resolve `ContentPart::Ref` entries using the registered content resolver.
+    /// Refs that can't be resolved degrade to text placeholders.
+    fn resolve_content_parts(&self, parts: &[ContentPart]) -> Vec<ContentPart> {
+        parts.iter().map(|part| match part {
+            ContentPart::Ref { content_type, ref_id } => {
+                if let Some(ref resolver) = self.content_resolver {
+                    if let Some(data) = resolver.resolve(ref_id, content_type) {
+                        return ContentPart::Blob {
+                            content_type: content_type.clone(),
+                            data,
+                        };
+                    }
+                }
+                // Graceful degradation: unresolved ref becomes text placeholder
+                ContentPart::Text {
+                    text: format!("[content ref: {} ({})]", ref_id, content_type),
+                }
+            }
+            other => other.clone(),
+        }).collect()
     }
 }
 
@@ -395,7 +444,7 @@ impl Agent for McpDelegatingAgent {
 
         let start = std::time::Instant::now();
         let (result, success, error_message) = match self.tools.execute(&self.tool_name, params).await {
-            Ok(v) => (v, true, String::new()),
+            Ok(tool_output) => (tool_output.data, true, String::new()),
             Err(e) => {
                 let err_str = e.to_string();
                 if let Some(ref tx) = ctx.event_tx {
@@ -648,6 +697,7 @@ mod tests {
             max_tokens: None,
             model: None,
             max_tool_rounds: 10,
+            content_resolver: None,
         };
 
         let long_input = "x".repeat(200); // 200 chars = ~50 tokens
@@ -696,9 +746,9 @@ mod tests {
         struct EchoExecutor;
         #[async_trait::async_trait]
         impl crate::worker::tools::ToolExecutor for EchoExecutor {
-            async fn execute(&self, _name: &str, _params: serde_json::Value) -> crate::types::Result<serde_json::Value> {
+            async fn execute(&self, _name: &str, _params: serde_json::Value) -> crate::types::Result<crate::worker::tools::ToolOutput> {
                 // Return a large result to inflate context
-                Ok(serde_json::json!({"result": "a]".repeat(100)}))
+                Ok(crate::worker::tools::ToolOutput::json(serde_json::json!({"result": "a]".repeat(100)})))
             }
             fn list_tools(&self) -> Vec<crate::worker::tools::ToolInfo> {
                 vec![crate::worker::tools::ToolInfo {
@@ -721,6 +771,7 @@ mod tests {
             max_tokens: None,
             model: None,
             max_tool_rounds: 5,
+            content_resolver: None,
         };
 
         // Set a low token limit: 50 tokens = 200 chars.
@@ -752,6 +803,7 @@ mod tests {
             max_tokens: None,
             model: None,
             max_tool_rounds: 10,
+            content_resolver: None,
         };
 
         let long_input = "y".repeat(500); // 500 chars = ~125 tokens
@@ -780,6 +832,7 @@ mod tests {
             max_tokens: None,
             model: None,
             max_tool_rounds: 10,
+            content_resolver: None,
         };
 
         let ctx = AgentContext {

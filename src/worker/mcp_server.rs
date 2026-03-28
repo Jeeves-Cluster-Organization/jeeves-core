@@ -242,9 +242,9 @@ impl McpStdioServer {
         }
 
         match self.tools.execute(&name, arguments).await {
-            Ok(result) => {
+            Ok(tool_output) => {
                 // MCP tools/call returns content items, not raw JSON
-                let text = serde_json::to_string(&result).unwrap_or_default();
+                let text = serde_json::to_string(&tool_output.data).unwrap_or_default();
                 JsonRpcResponse::success(
                     id,
                     serde_json::json!({

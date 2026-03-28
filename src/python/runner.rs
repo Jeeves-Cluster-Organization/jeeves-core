@@ -6,10 +6,12 @@
 use pyo3::prelude::*;
 use std::sync::Arc;
 
+use crate::commbus::types::{Event, Query};
 use crate::kernel::routing::{RoutingContext, RoutingFn, RoutingResult};
 use crate::worker::runner::PipelineRunner;
-use crate::worker::tools::{ToolExecutor, ToolInfo};
+use crate::worker::tools::{ContentResolver, ToolExecutor, ToolInfo};
 
+use super::commbus_bridge::PyEventSubscription;
 use super::event_iter::PyEventIterator;
 use super::tool_bridge::PyToolExecutor;
 
@@ -414,6 +416,136 @@ impl PyPipelineRunner {
         json_to_pyobject(py, &schema)
     }
 
+    // =========================================================================
+    // CommBus Federation (P0a)
+    // =========================================================================
+
+    /// Publish an event to CommBus subscribers.
+    ///
+    /// Args:
+    ///     event_type: Event type string (e.g. "perception.detections").
+    ///     payload: JSON-serializable dict payload.
+    ///     source: Identity of the publisher (e.g. "perception_cv", "session:abc").
+    ///
+    /// Returns: Number of subscribers the event was delivered to.
+    fn publish_event(&self, py: Python<'_>, event_type: String, payload: PyObject, source: String) -> PyResult<usize> {
+        let payload_bytes = py_obj_to_json_bytes(py, payload)?;
+        let event = Event {
+            event_type,
+            payload: payload_bytes,
+            timestamp_ms: chrono::Utc::now().timestamp_millis(),
+            source,
+        };
+
+        py.allow_threads(|| {
+            self.rt.block_on(self.inner.handle().publish_event(event))
+        })
+        .map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(format!("publish_event failed: {e}")))
+    }
+
+    /// Subscribe to CommBus events. Returns an EventSubscription iterator.
+    ///
+    /// Args:
+    ///     subscriber_id: Unique ID for this subscription.
+    ///     event_types: List of event type strings to subscribe to.
+    ///
+    /// The returned iterator blocks (GIL-released) on each `next()` call.
+    /// Channel is 256-item, lossy (fire-and-forget) — wrap with overflow policy in Python.
+    fn subscribe(&self, py: Python<'_>, subscriber_id: String, event_types: Vec<String>) -> PyResult<PyEventSubscription> {
+        let (subscription, rx) = py.allow_threads(|| {
+            self.rt.block_on(self.inner.handle().subscribe(subscriber_id, event_types))
+        })
+        .map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(format!("subscribe failed: {e}")))?;
+
+        Ok(PyEventSubscription {
+            rt_handle: self.rt.handle().clone(),
+            rx,
+            subscription,
+        })
+    }
+
+    /// Unsubscribe from CommBus events.
+    fn unsubscribe(&self, py: Python<'_>, subscription: &PyEventSubscription) -> PyResult<()> {
+        let sub = subscription.subscription.clone();
+        py.allow_threads(|| {
+            self.rt.block_on(self.inner.handle().unsubscribe(sub));
+        });
+        Ok(())
+    }
+
+    /// Execute a CommBus query (request-response with timeout).
+    ///
+    /// Args:
+    ///     query_type: Query type string.
+    ///     payload: JSON-serializable dict payload.
+    ///     timeout_ms: Timeout in milliseconds.
+    ///     source: Identity of the querier (e.g. "mission_planner", "session:abc").
+    ///
+    /// Returns: Response dict with 'result' (dict) and optional 'error' (str).
+    /// Note: Blocks the Python thread for the full timeout duration if no handler responds.
+    fn commbus_query(&self, py: Python<'_>, query_type: String, payload: PyObject, timeout_ms: u64, source: String) -> PyResult<PyObject> {
+        let payload_bytes = py_obj_to_json_bytes(py, payload)?;
+        let query = Query {
+            query_type,
+            payload: payload_bytes,
+            timeout_ms,
+            source,
+        };
+
+        let response = py.allow_threads(|| {
+            self.rt.block_on(self.inner.handle().commbus_query(query))
+        })
+        .map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(format!("commbus_query failed: {e}")))?;
+
+        // Build response dict
+        let dict = pyo3::types::PyDict::new_bound(py);
+        let json_mod = py.import_bound("json")?;
+        let result_str = String::from_utf8(response.result).unwrap_or_else(|_| "{}".to_string());
+        let py_result = json_mod.call_method1("loads", (result_str,))?;
+        dict.set_item("result", py_result)?;
+        if let Some(ref err) = response.error {
+            dict.set_item("error", err)?;
+        }
+        Ok(dict.into())
+    }
+
+    // =========================================================================
+    // Agent Discovery + System Status (P0b)
+    // =========================================================================
+
+    /// List registered agent cards for discovery.
+    #[pyo3(signature = (filter=None))]
+    fn list_agent_cards(&self, py: Python<'_>, filter: Option<String>) -> PyResult<PyObject> {
+        let cards = py.allow_threads(|| {
+            self.rt.block_on(self.inner.handle().list_agent_cards(filter))
+        });
+        json_to_pyobject(py, &cards)
+    }
+
+    /// Get system status (active processes, subscriber counts, etc.).
+    fn get_system_status(&self, py: Python<'_>) -> PyResult<PyObject> {
+        let status = py.allow_threads(|| {
+            self.rt.block_on(self.inner.handle().get_system_status())
+        });
+        json_to_pyobject(py, &status)
+    }
+
+    // =========================================================================
+    // Content Resolver (P1c)
+    // =========================================================================
+
+    /// Register a Python callable as a content resolver for lazy Ref resolution.
+    ///
+    /// The callable receives (ref_id: str, content_type: str) and returns bytes or None.
+    /// Called at LLM-send time when a tool returns ContentPart::Ref.
+    fn register_content_resolver(&mut self, py: Python<'_>, py_fn: PyObject) -> PyResult<()> {
+        let resolver = Arc::new(PyContentResolver {
+            py_fn: py_fn.clone_ref(py),
+        });
+        self.inner.set_content_resolver(resolver);
+        Ok(())
+    }
+
     /// Shut down the kernel actor.
     fn shutdown(&self) {
         self.inner.shutdown();
@@ -465,6 +597,44 @@ fn json_to_pyobject(py: Python<'_>, value: &impl serde::Serialize) -> PyResult<P
     let json_mod = py.import_bound("json")?;
     let py_obj = json_mod.call_method1("loads", (json_str,))?;
     Ok(py_obj.into())
+}
+
+/// Convert a Python object to JSON-encoded bytes.
+fn py_obj_to_json_bytes(py: Python<'_>, obj: PyObject) -> PyResult<Vec<u8>> {
+    let json_mod = py.import_bound("json")?;
+    let json_str: String = json_mod.call_method1("dumps", (obj,))?.extract()?;
+    Ok(json_str.into_bytes())
+}
+
+// =============================================================================
+// PyContentResolver — bridges Python callable to ContentResolver trait
+// =============================================================================
+
+/// Wraps a Python callable `(ref_id, content_type) -> bytes | None` as ContentResolver.
+struct PyContentResolver {
+    py_fn: PyObject,
+}
+
+// Safety: PyObject is Send+Sync when only accessed inside GIL blocks.
+unsafe impl Send for PyContentResolver {}
+unsafe impl Sync for PyContentResolver {}
+
+impl std::fmt::Debug for PyContentResolver {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("PyContentResolver").finish()
+    }
+}
+
+impl ContentResolver for PyContentResolver {
+    fn resolve(&self, ref_id: &str, content_type: &str) -> Option<Vec<u8>> {
+        Python::with_gil(|py| {
+            let result = self.py_fn.call1(py, (ref_id, content_type)).ok()?;
+            if result.is_none(py) {
+                return None;
+            }
+            result.extract::<Vec<u8>>(py).ok()
+        })
+    }
 }
 
 /// Convert a WorkerResult to a Python dict.

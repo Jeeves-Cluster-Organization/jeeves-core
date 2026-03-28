@@ -11,7 +11,7 @@ use crate::worker::agent::{
 };
 use crate::worker::llm::LlmProvider;
 use crate::worker::prompts::PromptRegistry;
-use crate::worker::tools::{AclToolExecutor, ToolRegistry};
+use crate::worker::tools::{AclToolExecutor, ContentResolver, ToolRegistry};
 
 /// Builds AgentRegistry from pipeline configs + shared resources.
 ///
@@ -26,6 +26,7 @@ pub struct AgentFactoryBuilder {
     prompts: Arc<PromptRegistry>,
     tools: Arc<ToolRegistry>,
     pipeline_configs: HashMap<String, PipelineConfig>,
+    content_resolver: Option<Arc<dyn ContentResolver>>,
 }
 
 impl std::fmt::Debug for AgentFactoryBuilder {
@@ -47,7 +48,14 @@ impl AgentFactoryBuilder {
             prompts,
             tools,
             pipeline_configs: HashMap::new(),
+            content_resolver: None,
         }
+    }
+
+    /// Set a content resolver for lazy `ContentPart::Ref` resolution in LLM agents.
+    pub fn with_content_resolver(mut self, resolver: Arc<dyn ContentResolver>) -> Self {
+        self.content_resolver = Some(resolver);
+        self
     }
 
     /// Add a single pipeline config.
@@ -111,6 +119,7 @@ fn merge_agents(
                     max_tokens: stage.agent_config.max_tokens,
                     model: stage.agent_config.model_role.clone(),
                     max_tool_rounds: stage.agent_config.max_tool_rounds,
+                    content_resolver: ctx.content_resolver.clone(),
                 })
             }
 
@@ -160,8 +169,8 @@ mod tests {
 
     #[async_trait::async_trait]
     impl ToolExecutor for DummyToolExecutor {
-        async fn execute(&self, name: &str, _params: serde_json::Value) -> crate::types::Result<serde_json::Value> {
-            Ok(serde_json::json!({"tool": name}))
+        async fn execute(&self, name: &str, _params: serde_json::Value) -> crate::types::Result<crate::worker::tools::ToolOutput> {
+            Ok(crate::worker::tools::ToolOutput::json(serde_json::json!({"tool": name})))
         }
         fn list_tools(&self) -> Vec<ToolInfo> {
             vec![ToolInfo {

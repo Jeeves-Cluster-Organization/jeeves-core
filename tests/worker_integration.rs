@@ -84,8 +84,8 @@ struct EchoToolExecutor;
 
 #[async_trait::async_trait]
 impl ToolExecutor for EchoToolExecutor {
-    async fn execute(&self, name: &str, params: serde_json::Value) -> jeeves_core::types::Result<serde_json::Value> {
-        Ok(serde_json::json!({"tool": name, "params": params}))
+    async fn execute(&self, name: &str, params: serde_json::Value) -> jeeves_core::types::Result<jeeves_core::worker::tools::ToolOutput> {
+        Ok(jeeves_core::worker::tools::ToolOutput::json(serde_json::json!({"tool": name, "params": params})))
     }
 
     fn list_tools(&self) -> Vec<ToolInfo> {
@@ -110,7 +110,7 @@ struct FailingToolExecutor;
 
 #[async_trait::async_trait]
 impl ToolExecutor for FailingToolExecutor {
-    async fn execute(&self, name: &str, _params: serde_json::Value) -> jeeves_core::types::Result<serde_json::Value> {
+    async fn execute(&self, name: &str, _params: serde_json::Value) -> jeeves_core::types::Result<jeeves_core::worker::tools::ToolOutput> {
         Err(jeeves_core::types::Error::internal(format!("Tool '{}' failed", name)))
     }
 
@@ -136,6 +136,7 @@ fn make_llm_agent(
         max_tokens: None,
         model: None,
         max_tool_rounds: 10,
+        content_resolver: None,
     }
 }
 
@@ -1040,7 +1041,7 @@ async fn test_mcp_http_tool_executor() {
         .execute("echo", json!({"message": "hello world"}))
         .await
         .expect("echo should succeed");
-    assert_eq!(result, json!({"result": "hello world"}));
+    assert_eq!(result.data, json!({"result": "hello world"}));
 
     // Execute add tool
     let result = executor
@@ -1048,7 +1049,7 @@ async fn test_mcp_http_tool_executor() {
         .await
         .expect("add should succeed");
     // "7" is a valid JSON number, so it should parse as such
-    assert_eq!(result, json!(7));
+    assert_eq!(result.data, json!(7));
 
     // Register into ToolRegistry and verify
     let mut registry = ToolRegistry::new();
@@ -1065,7 +1066,7 @@ async fn test_mcp_http_tool_executor() {
         .execute("echo", json!({"message": "via registry"}))
         .await
         .expect("registry execute should work");
-    assert_eq!(result, json!({"result": "via registry"}));
+    assert_eq!(result.data, json!({"result": "via registry"}));
 }
 
 // =============================================================================
@@ -1078,8 +1079,8 @@ struct ConfirmableToolExecutor;
 
 #[async_trait::async_trait]
 impl ToolExecutor for ConfirmableToolExecutor {
-    async fn execute(&self, name: &str, _params: serde_json::Value) -> jeeves_core::types::Result<serde_json::Value> {
-        Ok(serde_json::json!({"tool": name, "executed": true}))
+    async fn execute(&self, name: &str, _params: serde_json::Value) -> jeeves_core::types::Result<jeeves_core::worker::tools::ToolOutput> {
+        Ok(jeeves_core::worker::tools::ToolOutput::json(serde_json::json!({"tool": name, "executed": true})))
     }
     fn list_tools(&self) -> Vec<jeeves_core::worker::tools::ToolInfo> {
         vec![

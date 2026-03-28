@@ -6,7 +6,7 @@
 use async_trait::async_trait;
 use pyo3::prelude::*;
 
-use crate::worker::tools::{ConfirmationRequest, ToolExecutor, ToolInfo};
+use crate::worker::tools::{ConfirmationRequest, ToolExecutor, ToolInfo, ToolOutput};
 
 /// Wraps a Python callable (`Py<PyAny>`) as a Rust `ToolExecutor`.
 ///
@@ -44,7 +44,7 @@ impl ToolExecutor for PyToolExecutor {
         &self,
         _name: &str,
         params: serde_json::Value,
-    ) -> crate::types::Result<serde_json::Value> {
+    ) -> crate::types::Result<ToolOutput> {
         let result = Python::with_gil(|py| -> PyResult<serde_json::Value> {
             let json_mod = py.import_bound("json")?;
 
@@ -64,7 +64,7 @@ impl ToolExecutor for PyToolExecutor {
         })
         .map_err(|e| crate::types::Error::internal(format!("Python tool error: {e}")))?;
 
-        Ok(result)
+        Ok(ToolOutput::json(result))
     }
 
     fn list_tools(&self) -> Vec<ToolInfo> {

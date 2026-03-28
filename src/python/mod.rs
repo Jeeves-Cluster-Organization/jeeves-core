@@ -5,10 +5,12 @@
 
 use pyo3::prelude::*;
 
+pub mod commbus_bridge;
 pub mod event_iter;
 pub mod runner;
 pub mod tool_bridge;
 
+pub use commbus_bridge::PyEventSubscription;
 pub use event_iter::PyEventIterator;
 pub use runner::PyPipelineRunner;
 
@@ -79,6 +81,7 @@ fn tool(
 fn jeeves_core(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<PyPipelineRunner>()?;
     m.add_class::<PyEventIterator>()?;
+    m.add_class::<PyEventSubscription>()?;
     m.add_function(wrap_pyfunction!(tool, m)?)?;
     Ok(())
 }

@@ -14,7 +14,7 @@ use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 use tokio::sync::Mutex;
 
 use crate::types::{Error, Result};
-use crate::worker::tools::{ToolExecutor, ToolInfo};
+use crate::worker::tools::{ToolExecutor, ToolInfo, ToolOutput};
 
 // =============================================================================
 // Transport configuration
@@ -326,7 +326,7 @@ impl ToolExecutor for McpToolExecutor {
         &self,
         name: &str,
         params: serde_json::Value,
-    ) -> Result<serde_json::Value> {
+    ) -> Result<crate::worker::tools::ToolOutput> {
         let req = JsonRpcRequest {
             jsonrpc: "2.0",
             method: "tools/call",
@@ -341,7 +341,7 @@ impl ToolExecutor for McpToolExecutor {
 
         if let Some(err) = resp.error {
             // Return as JSON value so the LLM can react in the ReAct loop
-            return Ok(serde_json::json!({"error": err.message}));
+            return Ok(ToolOutput::json(serde_json::json!({"error": err.message})));
         }
 
         let result = resp
@@ -360,13 +360,13 @@ impl ToolExecutor for McpToolExecutor {
 
             // Try to parse as JSON; if not, return as string
             if let Ok(parsed) = serde_json::from_str::<serde_json::Value>(&text) {
-                return Ok(parsed);
+                return Ok(ToolOutput::json(parsed));
             }
-            return Ok(serde_json::json!({"result": text}));
+            return Ok(ToolOutput::json(serde_json::json!({"result": text})));
         }
 
         // Fallback: return raw result
-        Ok(result)
+        Ok(ToolOutput::json(result))
     }
 
     fn list_tools(&self) -> Vec<ToolInfo> {

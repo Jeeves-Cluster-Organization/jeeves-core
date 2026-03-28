@@ -21,7 +21,7 @@ use crate::worker::handle::KernelHandle;
 use crate::worker::llm::genai_provider::GenaiProvider;
 use crate::worker::llm::{LlmProvider, PipelineEvent};
 use crate::worker::prompts::PromptRegistry;
-use crate::worker::tools::{ToolExecutor, ToolInfo, ToolRegistry, ToolRegistryBuilder};
+use crate::worker::tools::{ContentResolver, ToolExecutor, ToolInfo, ToolRegistry, ToolRegistryBuilder};
 use crate::worker::WorkerResult;
 
 use tokio::sync::mpsc;
@@ -49,6 +49,7 @@ pub struct PipelineRunner {
     tool_executors: Vec<(String, Arc<dyn ToolExecutor>)>,
     tools: Arc<ToolRegistry>,
     agents: Arc<AgentRegistry>,
+    content_resolver: Option<Arc<dyn ContentResolver>>,
 }
 
 impl std::fmt::Debug for PipelineRunner {
@@ -131,6 +132,7 @@ impl PipelineRunner {
             tool_executors: Vec::new(),
             tools,
             agents,
+            content_resolver: None,
         })
     }
 
@@ -156,7 +158,14 @@ impl PipelineRunner {
             tool_executors: Vec::new(),
             tools,
             agents,
+            content_resolver: None,
         }
+    }
+
+    /// Set a content resolver for lazy `ContentPart::Ref` resolution in LLM agents.
+    pub fn set_content_resolver(&mut self, resolver: Arc<dyn ContentResolver>) {
+        self.content_resolver = Some(resolver);
+        self.rebuild_registries();
     }
 
     /// Register a tool executor. Rebuilds agent registry.
@@ -306,13 +315,16 @@ impl PipelineRunner {
         }
         let tools = builder.build();
 
-        let agents = crate::worker::agent_factory::AgentFactoryBuilder::new(
+        let mut factory = crate::worker::agent_factory::AgentFactoryBuilder::new(
             self.llm.clone(),
             self.prompts.clone(),
             tools.clone(),
         )
-        .add_pipelines(self.pipeline_configs.values().cloned())
-        .build();
+        .add_pipelines(self.pipeline_configs.values().cloned());
+        if let Some(ref resolver) = self.content_resolver {
+            factory = factory.with_content_resolver(resolver.clone());
+        }
+        let agents = factory.build();
 
         self.tools = tools;
         self.agents = agents;

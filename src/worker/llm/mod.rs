@@ -12,6 +12,7 @@ use tokio::sync::mpsc;
 
 use crate::kernel::orchestrator_types::ToolCallResult;
 use crate::types::Result;
+use crate::worker::tools::ContentPart;
 
 /// Per-stage execution metrics attached to `StageCompleted` events.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -36,11 +37,74 @@ pub struct AggregateMetrics {
     pub stages_executed: Vec<String>,
 }
 
+/// Message content — either plain text or multimodal content parts.
+///
+/// Uses `#[serde(untagged)]` so `Text("hello")` serializes as `"hello"` (bare string),
+/// preserving backward compatibility with existing checkpoints and wire formats.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(untagged)]
+pub enum MessageContent {
+    /// Plain text content (backward-compatible path).
+    Text(String),
+    /// Multimodal content parts (text + images + refs).
+    Parts(Vec<ContentPart>),
+}
+
+impl MessageContent {
+    /// True if the content is empty (no text, no parts).
+    pub fn is_empty(&self) -> bool {
+        match self {
+            Self::Text(s) => s.is_empty(),
+            Self::Parts(parts) => parts.is_empty(),
+        }
+    }
+
+    /// Approximate character length (used for token estimation: chars/4).
+    pub fn len(&self) -> usize {
+        match self {
+            Self::Text(s) => s.len(),
+            Self::Parts(parts) => parts.iter().map(|p| match p {
+                ContentPart::Text { text } => text.len(),
+                ContentPart::Ref { ref_id, .. } => ref_id.len() + 30,
+                ContentPart::Blob { data, .. } => data.len(),
+            }).sum(),
+        }
+    }
+
+    /// Get the text content if this is a Text variant.
+    pub fn as_text(&self) -> Option<&str> {
+        match self {
+            Self::Text(s) => Some(s),
+            _ => None,
+        }
+    }
+
+    /// Extract text content, joining Text parts or returning the full string.
+    /// Non-text parts are skipped.
+    pub fn as_text_lossy(&self) -> String {
+        match self {
+            Self::Text(s) => s.clone(),
+            Self::Parts(parts) => parts.iter().filter_map(|p| match p {
+                ContentPart::Text { text } => Some(text.as_str()),
+                _ => None,
+            }).collect::<Vec<_>>().join(""),
+        }
+    }
+}
+
+impl From<String> for MessageContent {
+    fn from(s: String) -> Self { Self::Text(s) }
+}
+
+impl From<&str> for MessageContent {
+    fn from(s: &str) -> Self { Self::Text(s.to_string()) }
+}
+
 /// A single message in a chat conversation (OpenAI multi-turn tool protocol).
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ChatMessage {
     pub role: String,
-    pub content: String,
+    pub content: MessageContent,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub tool_call_id: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -48,19 +112,19 @@ pub struct ChatMessage {
 }
 
 impl ChatMessage {
-    pub fn system(content: impl Into<String>) -> Self {
+    pub fn system(content: impl Into<MessageContent>) -> Self {
         Self { role: "system".into(), content: content.into(), tool_call_id: None, tool_calls: None }
     }
 
-    pub fn user(content: impl Into<String>) -> Self {
+    pub fn user(content: impl Into<MessageContent>) -> Self {
         Self { role: "user".into(), content: content.into(), tool_call_id: None, tool_calls: None }
     }
 
-    pub fn assistant(content: impl Into<String>, tool_calls: Option<Vec<ToolCall>>) -> Self {
+    pub fn assistant(content: impl Into<MessageContent>, tool_calls: Option<Vec<ToolCall>>) -> Self {
         Self { role: "assistant".into(), content: content.into(), tool_call_id: None, tool_calls }
     }
 
-    pub fn tool_result(tool_call_id: impl Into<String>, content: impl Into<String>) -> Self {
+    pub fn tool_result(tool_call_id: impl Into<String>, content: impl Into<MessageContent>) -> Self {
         Self { role: "tool".into(), content: content.into(), tool_call_id: Some(tool_call_id.into()), tool_calls: None }
     }
 }
@@ -280,6 +344,67 @@ fn merge_tool_call_deltas(accumulated: &mut Vec<ToolCall>, deltas: &[ToolCall]) 
         } else {
             accumulated.push(delta.clone());
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn message_content_text_serde_round_trip() {
+        // Text variant serializes as bare string (backward compat)
+        let content = MessageContent::Text("hello world".into());
+        let json = serde_json::to_string(&content).unwrap();
+        assert_eq!(json, r#""hello world""#);
+
+        let deserialized: MessageContent = serde_json::from_str(&json).unwrap();
+        assert_eq!(deserialized.as_text(), Some("hello world"));
+    }
+
+    #[test]
+    fn message_content_parts_serde_round_trip() {
+        let content = MessageContent::Parts(vec![
+            ContentPart::Text { text: "description".into() },
+            ContentPart::Ref { content_type: "image/jpeg".into(), ref_id: "frame_1".into() },
+        ]);
+        let json = serde_json::to_string(&content).unwrap();
+        let deserialized: MessageContent = serde_json::from_str(&json).unwrap();
+        assert_eq!(deserialized.len(), "description".len() + "frame_1".len() + 30);
+    }
+
+    #[test]
+    fn message_content_helpers() {
+        let text = MessageContent::Text("hello".into());
+        assert!(!text.is_empty());
+        assert_eq!(text.len(), 5);
+        assert_eq!(text.as_text(), Some("hello"));
+        assert_eq!(text.as_text_lossy(), "hello");
+
+        let empty = MessageContent::Text(String::new());
+        assert!(empty.is_empty());
+
+        let parts = MessageContent::Parts(vec![
+            ContentPart::Text { text: "a".into() },
+            ContentPart::Ref { content_type: "image/png".into(), ref_id: "x".into() },
+            ContentPart::Text { text: "b".into() },
+        ]);
+        assert_eq!(parts.as_text(), None);
+        assert_eq!(parts.as_text_lossy(), "ab"); // non-text parts skipped
+    }
+
+    #[test]
+    fn chat_message_backward_compat_serde() {
+        // Old format: {"role":"user","content":"hello"}
+        // MessageContent::Text("hello") serializes as "hello" (untagged)
+        let msg = ChatMessage::user("hello");
+        let json = serde_json::to_string(&msg).unwrap();
+        assert!(json.contains(r#""content":"hello""#));
+
+        // Deserializing old-format JSON still works
+        let old_json = r#"{"role":"user","content":"hello"}"#;
+        let deserialized: ChatMessage = serde_json::from_str(old_json).unwrap();
+        assert_eq!(deserialized.content.as_text(), Some("hello"));
     }
 }
 

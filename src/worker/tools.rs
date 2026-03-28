@@ -14,6 +14,91 @@ pub struct ToolInfo {
     pub parameters: serde_json::Value,
 }
 
+// =============================================================================
+// ToolOutput + ContentPart — separates pipeline data from LLM content
+// =============================================================================
+
+/// Output from a tool execution.
+///
+/// Separates two concerns:
+/// - `data`: structured JSON for pipeline mechanics (state merge, checkpoint, output_schema, routing).
+/// - `content`: rich content parts consumed only by the LLM message builder (multimodal).
+///
+/// When `content` is empty, the agent falls back to `data.to_string()` for the LLM message.
+#[derive(Debug, Clone)]
+pub struct ToolOutput {
+    /// Structured data for pipeline orchestration. Always lightweight JSON.
+    pub data: serde_json::Value,
+    /// Rich content for LLM message construction only. Empty = text-only (backward compat).
+    pub content: Vec<ContentPart>,
+}
+
+impl ToolOutput {
+    /// Create a text-only tool output (no rich content). Backward-compatible path.
+    pub fn json(data: serde_json::Value) -> Self {
+        Self { data, content: vec![] }
+    }
+
+    /// Create a tool output with both pipeline data and rich content parts.
+    pub fn with_content(data: serde_json::Value, content: Vec<ContentPart>) -> Self {
+        Self { data, content }
+    }
+}
+
+/// A content part for multimodal LLM messages.
+///
+/// Uses MIME `content_type` strings (e.g. `image/jpeg`, `audio/wav`) so the kernel
+/// never needs to understand specific content types — the LLM provider maps them
+/// to the appropriate API format.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub enum ContentPart {
+    /// Plain text content.
+    Text { text: String },
+    /// Reference to content stored externally, resolved lazily via [`ContentResolver`].
+    Ref {
+        content_type: String,
+        ref_id: String,
+    },
+    /// Inline binary content (small items only — icons, thumbnails, charts).
+    Blob {
+        content_type: String,
+        #[serde(with = "base64_bytes")]
+        data: Vec<u8>,
+    },
+}
+
+/// Serde helper for base64 encoding of `Vec<u8>` in Blob variant.
+mod base64_bytes {
+    use serde::{Deserialize, Deserializer, Serializer};
+    use serde::de::Error;
+
+    pub fn serialize<S: Serializer>(data: &[u8], ser: S) -> Result<S::Ok, S::Error> {
+        use base64::Engine;
+        ser.serialize_str(&base64::engine::general_purpose::STANDARD.encode(data))
+    }
+
+    pub fn deserialize<'de, D: Deserializer<'de>>(de: D) -> Result<Vec<u8>, D::Error> {
+        use base64::Engine;
+        let s = String::deserialize(de)?;
+        base64::engine::general_purpose::STANDARD.decode(&s).map_err(D::Error::custom)
+    }
+}
+
+// =============================================================================
+// ContentResolver — consumer-provided lazy content resolution
+// =============================================================================
+
+/// Resolves [`ContentPart::Ref`] to actual bytes at LLM-send time.
+///
+/// Consumers register an implementation to bridge external content stores
+/// (e.g. frame buffers, file caches) into the LLM message pipeline.
+/// If no resolver is registered, Ref parts degrade to text placeholders.
+pub trait ContentResolver: Send + Sync + std::fmt::Debug {
+    /// Resolve a content reference to bytes. Returns `None` if the ref is stale or unknown.
+    fn resolve(&self, ref_id: &str, content_type: &str) -> Option<Vec<u8>>;
+}
+
 /// Request for user confirmation before executing a tool.
 ///
 /// Returned by `ToolExecutor::requires_confirmation()` when a tool operation
@@ -27,8 +112,11 @@ pub struct ConfirmationRequest {
 /// Tool executor trait — implementations provide actual tool functionality.
 #[async_trait]
 pub trait ToolExecutor: Send + Sync + std::fmt::Debug {
-    /// Execute a tool by name with JSON params, returning JSON result.
-    async fn execute(&self, name: &str, params: serde_json::Value) -> crate::types::Result<serde_json::Value>;
+    /// Execute a tool by name with JSON params, returning structured output.
+    ///
+    /// `ToolOutput.data` feeds pipeline mechanics (state, routing, checkpoint).
+    /// `ToolOutput.content` feeds the LLM message builder (multimodal).
+    async fn execute(&self, name: &str, params: serde_json::Value) -> crate::types::Result<ToolOutput>;
 
     /// List available tools.
     fn list_tools(&self) -> Vec<ToolInfo>;
@@ -68,7 +156,7 @@ impl ToolRegistry {
         &self,
         name: &str,
         params: serde_json::Value,
-    ) -> crate::types::Result<serde_json::Value> {
+    ) -> crate::types::Result<ToolOutput> {
         let executor = self
             .executors
             .get(name)
@@ -185,7 +273,7 @@ impl ToolExecutor for AclToolExecutor {
         &self,
         name: &str,
         params: serde_json::Value,
-    ) -> crate::types::Result<serde_json::Value> {
+    ) -> crate::types::Result<ToolOutput> {
         if !self.allowed.contains(name) {
             return Err(crate::types::Error::policy_violation(format!(
                 "Tool '{}' not in allowed_tools: {:?}",
@@ -217,7 +305,7 @@ pub struct NoopToolExecutor;
 
 #[async_trait]
 impl ToolExecutor for NoopToolExecutor {
-    async fn execute(&self, name: &str, _params: serde_json::Value) -> crate::types::Result<serde_json::Value> {
+    async fn execute(&self, name: &str, _params: serde_json::Value) -> crate::types::Result<ToolOutput> {
         Err(crate::types::Error::not_found(format!(
             "No tool executor registered for: {}",
             name
@@ -244,8 +332,8 @@ mod tests {
             &self,
             name: &str,
             _params: serde_json::Value,
-        ) -> crate::types::Result<serde_json::Value> {
-            Ok(serde_json::json!({"tool": name, "executed": true}))
+        ) -> crate::types::Result<ToolOutput> {
+            Ok(ToolOutput::json(serde_json::json!({"tool": name, "executed": true})))
         }
         fn list_tools(&self) -> Vec<ToolInfo> {
             self.tools.clone()
@@ -448,8 +536,8 @@ mod tests {
 
     #[async_trait]
     impl ToolExecutor for ConfirmableExecutor {
-        async fn execute(&self, name: &str, _params: serde_json::Value) -> crate::types::Result<serde_json::Value> {
-            Ok(serde_json::json!({"tool": name, "executed": true}))
+        async fn execute(&self, name: &str, _params: serde_json::Value) -> crate::types::Result<ToolOutput> {
+            Ok(ToolOutput::json(serde_json::json!({"tool": name, "executed": true})))
         }
         fn list_tools(&self) -> Vec<ToolInfo> {
             vec![
@@ -515,5 +603,58 @@ mod tests {
         let acl = AclToolExecutor::new(inner, vec!["safe_op".to_string()]);
         // delete_all not in allowed set → confirmation check returns None
         assert!(acl.requires_confirmation("delete_all", &serde_json::json!({})).is_none());
+    }
+
+    // =========================================================================
+    // ToolOutput + ContentPart tests
+    // =========================================================================
+
+    #[test]
+    fn tool_output_json_has_empty_content() {
+        let out = ToolOutput::json(serde_json::json!({"key": "value"}));
+        assert!(out.content.is_empty());
+        assert_eq!(out.data["key"], "value");
+    }
+
+    #[test]
+    fn tool_output_with_content_preserves_both() {
+        let out = ToolOutput::with_content(
+            serde_json::json!({"ref_id": "frame_1"}),
+            vec![ContentPart::Ref {
+                content_type: "image/jpeg".into(),
+                ref_id: "frame_1".into(),
+            }],
+        );
+        assert_eq!(out.data["ref_id"], "frame_1");
+        assert_eq!(out.content.len(), 1);
+        match &out.content[0] {
+            ContentPart::Ref { content_type, ref_id } => {
+                assert_eq!(content_type, "image/jpeg");
+                assert_eq!(ref_id, "frame_1");
+            }
+            other => panic!("Expected Ref, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn content_part_serde_round_trip() {
+        let parts = vec![
+            ContentPart::Text { text: "hello".into() },
+            ContentPart::Ref { content_type: "image/png".into(), ref_id: "img_1".into() },
+        ];
+        let json = serde_json::to_string(&parts).unwrap();
+        let deserialized: Vec<ContentPart> = serde_json::from_str(&json).unwrap();
+        assert_eq!(deserialized.len(), 2);
+        match &deserialized[0] {
+            ContentPart::Text { text } => assert_eq!(text, "hello"),
+            other => panic!("Expected Text, got {:?}", other),
+        }
+        match &deserialized[1] {
+            ContentPart::Ref { content_type, ref_id } => {
+                assert_eq!(content_type, "image/png");
+                assert_eq!(ref_id, "img_1");
+            }
+            other => panic!("Expected Ref, got {:?}", other),
+        }
     }
 }

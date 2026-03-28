@@ -250,7 +250,7 @@ pub struct RemainingBudget {
 }
 
 /// Full system status snapshot returned by `Kernel::get_system_status()`.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, serde::Serialize)]
 pub struct SystemStatus {
     pub processes_total: usize,
     pub processes_by_state: HashMap<ProcessState, usize>,
