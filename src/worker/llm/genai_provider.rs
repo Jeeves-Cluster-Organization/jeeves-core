@@ -57,6 +57,9 @@ impl GenaiProvider {
     ///
     /// Model roles are read from `MODEL_*` env vars (case-insensitive):
     /// `MODEL_FAST=gpt-4o-mini` makes `model_role: "fast"` resolve to `gpt-4o-mini`.
+    ///
+    /// If `LLM_API_BASE` is set, routes all requests to that endpoint using the
+    /// OpenAI adapter (for llama.cpp, vLLM, or any OpenAI-compatible server).
     pub fn new(default_model: impl Into<String>) -> Self {
         let mut model_roles = HashMap::new();
         for (key, value) in std::env::vars() {
@@ -64,8 +67,27 @@ impl GenaiProvider {
                 model_roles.insert(role.to_lowercase(), value);
             }
         }
+
+        let client = if let Ok(base_url) = std::env::var("LLM_API_BASE") {
+            // Custom endpoint: route all models through OpenAI adapter to this URL
+            let endpoint_url = base_url.clone();
+            let resolver = genai::resolver::ServiceTargetResolver::from_resolver_fn(
+                move |service_target: genai::ServiceTarget| -> std::result::Result<genai::ServiceTarget, genai::resolver::Error> {
+                    let genai::ServiceTarget { model, .. } = service_target;
+                    let endpoint = genai::resolver::Endpoint::from_owned(endpoint_url.clone());
+                    let auth = genai::resolver::AuthData::from_single("not-needed");
+                    let model = genai::ModelIden::new(genai::adapter::AdapterKind::OpenAI, model.model_name);
+                    Ok(genai::ServiceTarget { endpoint, auth, model })
+                },
+            );
+            tracing::info!(base_url = %base_url, "LLM_API_BASE set — routing all models via OpenAI adapter");
+            genai::Client::builder().with_service_target_resolver(resolver).build()
+        } else {
+            genai::Client::default()
+        };
+
         Self {
-            client: genai::Client::default(),
+            client,
             default_model: default_model.into(),
             model_roles,
         }
