@@ -94,11 +94,11 @@ fn merge_agents(
         }
 
         // Per-stage ACL: wrap ToolRegistry if allowed_tools is set
+        // Some([]) means zero tools allowed (pure text generation)
+        // None means use all tools (no ACL)
         let stage_tools = match &stage.allowed_tools {
-            Some(allowed) if !allowed.is_empty() => {
-                AclToolExecutor::wrap_registry(ctx.tools.clone(), allowed)
-            }
-            _ => ctx.tools.clone(),
+            Some(allowed) => AclToolExecutor::wrap_registry(ctx.tools.clone(), allowed),
+            None => ctx.tools.clone(),
         };
 
         let agent: Arc<dyn Agent> = match stage.node_kind {

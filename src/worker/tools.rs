@@ -247,11 +247,11 @@ impl AclToolExecutor {
 
     /// Create a filtered ToolRegistry from an existing one.
     ///
-    /// If `allowed` is empty, returns the original registry (no restriction).
-    /// Otherwise, returns a new registry containing only the allowed tools.
+    /// Returns a new registry containing only the allowed tools.
+    /// Empty `allowed` = zero tools (pure text generation).
     pub fn wrap_registry(registry: Arc<ToolRegistry>, allowed: &[String]) -> Arc<ToolRegistry> {
         if allowed.is_empty() {
-            return registry; // No ACL — pass through
+            return Arc::new(ToolRegistry::new()); // Empty = no tools
         }
         let allowed_set: std::collections::HashSet<&str> =
             allowed.iter().map(|s| s.as_str()).collect();
@@ -415,13 +415,13 @@ mod tests {
     }
 
     #[test]
-    fn wrap_registry_empty_acl_passes_through() {
+    fn wrap_registry_empty_acl_returns_no_tools() {
         let registry = ToolRegistryBuilder::new()
             .add_tool("a", mock_executor(&["a"]))
             .add_tool("b", mock_executor(&["b"]))
             .build();
         let wrapped = AclToolExecutor::wrap_registry(registry.clone(), &[]);
-        assert_eq!(wrapped.list_all_tools().len(), 2);
+        assert_eq!(wrapped.list_all_tools().len(), 0);
     }
 
     #[test]
