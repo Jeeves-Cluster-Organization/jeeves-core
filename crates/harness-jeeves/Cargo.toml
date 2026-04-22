@@ -1,0 +1,27 @@
+[package]
+name = "harness-jeeves"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+authors.workspace = true
+description = "Production-shape harness over agent-core: confirmation gate, compaction, OTel feature."
+
+[features]
+default = []
+otel = ["dep:opentelemetry", "dep:opentelemetry_sdk", "dep:tracing-opentelemetry"]
+
+[dependencies]
+agent-core.workspace = true
+tokio.workspace = true
+async-trait.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+tracing.workspace = true
+
+opentelemetry      = { version = "0.28", optional = true }
+opentelemetry_sdk  = { version = "0.28", features = ["trace"], optional = true }
+tracing-opentelemetry = { version = "0.29", optional = true }
+
+[lints]
+workspace = true

@@ -1,41 +1,40 @@
-# Contributing to Jeeves Core
+# Contributing
 
-## Development Setup
+## Setup
 
 ```bash
-git clone https://github.com/Jeeves-Cluster-Organization/jeeves-core.git
+git clone https://github.com/jeeves-cluster-organization/jeeves-core.git
 cd jeeves-core
-cargo test                      # 302 tests
-cargo clippy --all-features     # lint
+cargo test --workspace
 ```
 
-For PyO3 development:
+## Before submitting
+
 ```bash
-pip install -e .                # builds via maturin
+cargo test --workspace      # all tests pass
+cargo clippy --workspace    # no warnings
+cargo fmt --all             # formatted
 ```
 
-## Before Submitting
+## Where does my change belong?
 
-1. `cargo test` — all tests pass
-2. `cargo clippy --all-features` — no warnings
-3. `cargo fmt` — code formatted
+This workspace has a strict split, documented in [CONSTITUTION.md](CONSTITUTION.md):
 
-## What Belongs Here
+| If your change is… | It goes in… |
+|---|---|
+| A new primitive every harness would need (events, budget counter, tool trait extension) | `agent-core` |
+| A default two plausible harnesses would disagree on | a harness |
+| Pi-style UX (session commands, TUI, AGENTS.md) | `harness-pi` |
+| Production concerns (confirmation gate, OTel, Python bindings) | `harness-jeeves` |
+| An entirely new shape (Slack bot, VS Code extension) | a new harness crate |
 
-Jeeves Core is the **micro-kernel**. Changes should provide orchestration primitives, not domain logic.
+If you can't decide, err on the side of the harness — policy can graduate into
+core later, but core leaking into policy is hard to reverse.
 
-| Belongs here | Belongs in capability layer |
-|-------------|---------------------------|
-| Process lifecycle | Domain-specific tools |
-| Pipeline orchestration | Prompt templates |
-| Bounds enforcement | Business logic |
-| CommBus (IPC) | Frontend/UI |
-| Agent trait + base impls | Custom agent implementations |
+## Commits
 
-## Commit Messages
-
-Follow conventional commits: `feat:`, `fix:`, `docs:`, `test:`, `refactor:`
+Conventional commits: `feat:`, `fix:`, `docs:`, `refactor:`, `test:`.
 
 ## License
 
-Contributions are licensed under Apache License 2.0.
+Apache-2.0.

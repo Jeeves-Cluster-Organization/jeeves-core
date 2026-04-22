@@ -1,97 +1,40 @@
-[package]
-name = "jeeves-core"
-version = "0.0.2"
+[workspace]
+resolver = "2"
+members = [
+    "crates/agent-core",
+    "crates/harness-pi",
+    "crates/harness-jeeves",
+]
+
+[workspace.package]
 edition = "2021"
-rust-version = "1.75"
-authors = ["Jeeves Team"]
-description = "Rust implementation of Jeeves kernel - multi-agent orchestration runtime"
+rust-version = "1.80"
 license = "Apache-2.0"
+authors = ["Jeeves Team"]
 
-[[bin]]
-name = "jeeves-kernel"
-path = "src/main.rs"
-required-features = ["mcp-stdio"]
+[workspace.dependencies]
+agent-core = { path = "crates/agent-core" }
 
-[lib]
-name = "jeeves_core"
-path = "src/lib.rs"
-
-[dependencies]
-# Async runtime
-tokio = { version = "1.41", features = ["rt-multi-thread", "macros", "net", "io-util", "io-std", "sync", "time", "signal", "process"] }
-tokio-util = "0.7"
-
-# HTTP client (LLM API calls)
-reqwest = { version = "0.12", features = ["json", "stream"] }
-
-# Async traits
+tokio = { version = "1.41", features = ["rt-multi-thread", "macros", "sync", "time", "fs", "io-util", "io-std", "process", "signal"] }
 async-trait = "0.1"
-
-# CLI (optional — only for MCP stdio binary)
-clap = { version = "4", features = ["derive", "env"], optional = true }
-
-# Python bindings (optional — behind py-bindings feature)
-pyo3 = { version = "0.22", features = ["multiple-pymethods"], optional = true }
-inventory = { version = "0.3", optional = true }
-
-# SSE streaming
 futures = "0.3"
 
-# Byte buffers (used by reqwest streams, replaces axum::body::Bytes)
-bytes = "1"
-
-# Serialization
-serde = { version = "1.0", features = ["derive", "rc"] }
+serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 base64 = "0.22"
 
-# Error handling
 thiserror = "2.0"
+anyhow = "1.0"
 
-# Observability
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter", "json", "registry"] }
 
-# OpenTelemetry (optional — behind otel feature)
-opentelemetry = { version = "0.28", optional = true }
-opentelemetry_sdk = { version = "0.28", features = ["trace"], optional = true }
-tracing-opentelemetry = { version = "0.29", optional = true }
-
-# Time handling
-chrono = { version = "0.4", features = ["serde"] }
-humantime-serde = "1.1"
-
-# UUIDs
-uuid = { version = "1.11", features = ["v4", "serde"] }
-
-# JSON Schema validation (output_schema enforcement)
-jsonschema = "0.28"
-
-# JSON Schema generation (pipeline config discoverability)
-schemars = "0.8"
 genai = "0.5"
 
+clap = { version = "4", features = ["derive", "env"] }
 
-[dev-dependencies]
-# Testing
-axum = "0.8"
-proptest = "1.6"
-mockall = "0.13"
-tokio-test = "0.4"
-tracing-test = "0.2"
-criterion = "0.5"
-tempfile = "3.14"
-
-# Golden test utilities
-pretty_assertions = "1.4"
-insta = { version = "1.41", features = ["json"] }
-
-[features]
-default = []
-mcp-stdio = ["dep:clap"]
-py-bindings = ["dep:pyo3", "dep:inventory", "pyo3/extension-module"]
-test-harness = []
-otel = ["dep:opentelemetry", "dep:opentelemetry_sdk", "dep:tracing-opentelemetry"]
+chrono = { version = "0.4", features = ["serde"] }
+uuid = { version = "1.11", features = ["v4", "serde"] }
 
 [profile.release]
 opt-level = 3
@@ -103,26 +46,10 @@ strip = true
 opt-level = 0
 debug = true
 
-[profile.test]
-opt-level = 1
+[workspace.lints.rust]
+unsafe_code = "deny"
 
-# Linting configuration
-[lints.clippy]
-# Enforce strict safety (deny enforced in lib.rs; warn here so tests can use unwrap)
+[workspace.lints.clippy]
 unwrap_used = "warn"
 expect_used = "warn"
 panic = "warn"
-# unwrap_in_result = "deny"
-
-# Performance lints
-large_enum_variant = "warn"
-large_stack_arrays = "warn"
-
-# Style lints
-missing_errors_doc = "allow"  # Too noisy for internal code
-missing_panics_doc = "allow"
-module_name_repetitions = "allow"
-
-[lints.rust]
-unsafe_code = "deny"
-missing_debug_implementations = "warn"
