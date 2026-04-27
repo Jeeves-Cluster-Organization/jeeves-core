@@ -204,12 +204,6 @@ pub struct PipelineConfig {
     /// Typed state fields with merge strategies for loop-back accumulation.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub state_schema: Vec<StateField>,
-    /// Event types this pipeline subscribes to via CommBus.
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub subscriptions: Vec<String>,
-    /// Event types this pipeline publishes via CommBus.
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub publishes: Vec<String>,
 }
 
 impl PipelineConfig {
@@ -379,7 +373,7 @@ impl PipelineConfig {
         Ok(())
     }
 
-    /// Test-only minimal config constructor. Avoids 7-field boilerplate.
+    /// Test-only minimal config constructor. Avoids field boilerplate.
     #[cfg(test)]
     pub fn test_default(name: &str, stages: Vec<PipelineStage>) -> Self {
         Self {
@@ -391,8 +385,6 @@ impl PipelineConfig {
             edge_limits: vec![],
             step_limit: None,
             state_schema: vec![],
-            subscriptions: vec![],
-            publishes: vec![],
         }
     }
 }

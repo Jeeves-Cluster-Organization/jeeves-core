@@ -4,7 +4,6 @@
 //! channel. The caller gets a oneshot back with the typed result. No
 //! serialization, no TCP, no codec.
 
-use crate::commbus::{Event, Query, QueryResponse, Subscription};
 use crate::envelope::Envelope;
 use crate::kernel::orchestrator_types::{
     AgentExecutionMetrics, Instruction, PipelineConfig, SessionState,
@@ -79,31 +78,6 @@ pub enum KernelCommand {
     },
 
     // =========================================================================
-    // CommBus Federation
-    // =========================================================================
-
-    /// Publish an event to CommBus subscribers.
-    PublishEvent {
-        event: Event,
-        resp_tx: oneshot::Sender<Result<usize>>,
-    },
-    /// Subscribe to CommBus event types.
-    Subscribe {
-        subscriber_id: String,
-        event_types: Vec<String>,
-        resp_tx: oneshot::Sender<Result<(Subscription, mpsc::Receiver<Event>)>>,
-    },
-    /// Unsubscribe from CommBus.
-    Unsubscribe {
-        subscription: Subscription,
-        resp_tx: oneshot::Sender<()>,
-    },
-    /// Execute a CommBus query (request/response with timeout).
-    CommBusQuery {
-        query: Query,
-        resp_tx: oneshot::Sender<Result<QueryResponse>>,
-    },
-    // =========================================================================
     // Tool Health
     // =========================================================================
 
@@ -143,10 +117,6 @@ impl std::fmt::Debug for KernelCommand {
                     Self::GetSystemStatus { .. } => "GetSystemStatus",
                     Self::ResolveInterrupt { .. } => "ResolveInterrupt",
                     Self::SetProcessInterrupt { .. } => "SetProcessInterrupt",
-                    Self::PublishEvent { .. } => "PublishEvent",
-                    Self::Subscribe { .. } => "Subscribe",
-                    Self::Unsubscribe { .. } => "Unsubscribe",
-                    Self::CommBusQuery { .. } => "CommBusQuery",
                     Self::GetToolHealth { .. } => "GetToolHealth",
                     Self::RegisterRoutingFn { .. } => unreachable!(),
                 })
@@ -310,48 +280,6 @@ impl KernelHandle {
             interrupt_id: interrupt_id.to_string(),
             response: response,
         })
-    }
-
-    // =========================================================================
-    // CommBus Federation
-    // =========================================================================
-
-    /// Publish an event to CommBus subscribers.
-    pub async fn publish_event(&self, event: Event) -> Result<usize> {
-        kernel_request!(self, PublishEvent { event: event })
-    }
-
-    /// Subscribe to CommBus event types.
-    pub async fn subscribe(
-        &self,
-        subscriber_id: String,
-        event_types: Vec<String>,
-    ) -> Result<(Subscription, mpsc::Receiver<Event>)> {
-        kernel_request!(self, Subscribe {
-            subscriber_id: subscriber_id,
-            event_types: event_types,
-        })
-    }
-
-    /// Unsubscribe from CommBus.
-    pub async fn unsubscribe(&self, subscription: Subscription) {
-        let (resp_tx, resp_rx) = oneshot::channel();
-        if self
-            .tx
-            .send(KernelCommand::Unsubscribe {
-                subscription,
-                resp_tx,
-            })
-            .await
-            .is_ok()
-        {
-            let _ = resp_rx.await;
-        }
-    }
-
-    /// Execute a CommBus query.
-    pub async fn commbus_query(&self, query: Query) -> Result<QueryResponse> {
-        kernel_request!(self, CommBusQuery { query: query })
     }
 
     // =========================================================================

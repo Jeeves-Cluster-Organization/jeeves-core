@@ -70,9 +70,6 @@ async fn dispatch(kernel: &mut Kernel, cmd: KernelCommand) {
                 *envelope,
                 force,
             );
-            if result.is_ok() {
-                kernel.emit_envelope_snapshot(&process_id, "initialized");
-            }
             let _ = resp_tx.send(result);
         }
 
@@ -171,75 +168,6 @@ async fn dispatch(kernel: &mut Kernel, cmd: KernelCommand) {
         } => {
             let result = kernel.set_process_interrupt(&process_id, interrupt);
             let _ = resp_tx.send(result);
-        }
-
-        // =====================================================================
-        // CommBus Federation
-        // =====================================================================
-
-        KernelCommand::PublishEvent { event, resp_tx } => {
-            let result = kernel.comm.bus.publish(event);
-            let _ = resp_tx.send(result);
-        }
-
-        KernelCommand::Subscribe {
-            subscriber_id,
-            event_types,
-            resp_tx,
-        } => {
-            let result = kernel.comm.bus.subscribe(subscriber_id, event_types);
-            let _ = resp_tx.send(result);
-        }
-
-        KernelCommand::Unsubscribe {
-            subscription,
-            resp_tx,
-        } => {
-            kernel.comm.bus.unsubscribe(&subscription);
-            let _ = resp_tx.send(());
-        }
-
-        KernelCommand::CommBusQuery { query, resp_tx } => {
-            // Fire-and-spawn to prevent deadlock: get handler, then spawn
-            // a task to send query + await response outside the actor loop.
-            if let Some(handler) = kernel.comm.bus.get_query_handler(&query.query_type) {
-                tokio::spawn(async move {
-                    let (response_tx, response_rx) = tokio::sync::oneshot::channel();
-                    if handler.send((query.clone(), response_tx)).await.is_err() {
-                        let _ = resp_tx.send(Err(crate::types::Error::internal(
-                            format!("Failed to send query to handler: {}", query.query_type),
-                        )));
-                        return;
-                    }
-                    let timeout_ms = query.timeout_ms;
-                    match tokio::time::timeout(
-                        tokio::time::Duration::from_millis(timeout_ms),
-                        response_rx,
-                    )
-                    .await
-                    {
-                        Ok(Ok(response)) => {
-                            let _ = resp_tx.send(Ok(response));
-                        }
-                        Ok(Err(_)) => {
-                            let _ = resp_tx.send(Err(crate::types::Error::internal(
-                                "Query response channel closed",
-                            )));
-                        }
-                        Err(_) => {
-                            let _ = resp_tx.send(Err(crate::types::Error::timeout(format!(
-                                "Query timeout after {}ms",
-                                timeout_ms,
-                            ))));
-                        }
-                    }
-                }.instrument(tracing::debug_span!("commbus_query")));
-            } else {
-                let _ = resp_tx.send(Err(crate::types::Error::validation(format!(
-                    "No handler registered for query type: {}",
-                    query.query_type,
-                ))));
-            }
         }
 
         // =====================================================================

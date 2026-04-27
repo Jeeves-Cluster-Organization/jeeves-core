@@ -33,28 +33,9 @@ impl Kernel {
             }
         }
 
-        // Wire CommBus subscriptions from pipeline config (before pipeline_config is moved)
-        let subscription_types = pipeline_config.subscriptions.clone();
-
         let state = self.orchestrator
             .initialize_session(process_id.clone(), pipeline_config, &mut envelope, force)?;
-        self.process_envelopes.insert(process_id.clone(), envelope);
-
-        // Subscribe to CommBus event types if configured
-        if !subscription_types.is_empty() {
-            let subscriber_id = format!("pipeline:{}", process_id);
-            match self.comm.bus.subscribe(subscriber_id, subscription_types) {
-                Ok((subscription, receiver)) => {
-                    self.comm.subscriptions
-                        .entry(process_id)
-                        .or_default()
-                        .push((subscription, receiver));
-                }
-                Err(e) => {
-                    tracing::warn!(error = %e, "Failed to wire CommBus subscriptions");
-                }
-            }
-        }
+        self.process_envelopes.insert(process_id, envelope);
 
         Ok(state)
     }
@@ -68,23 +49,6 @@ impl Kernel {
         &mut self,
         process_id: &ProcessId,
     ) -> Result<orchestrator::Instruction> {
-        // Phase 0: Drain CommBus subscription receivers into envelope.event_inbox
-        const MAX_EVENT_INBOX: usize = 1024;
-        if let Some(subs) = self.comm.subscriptions.get_mut(process_id) {
-            if let Some(envelope) = self.process_envelopes.get_mut(process_id) {
-                for (_subscription, receiver) in subs.iter_mut() {
-                    while let Ok(event) = receiver.try_recv() {
-                        if envelope.event_inbox.len() < MAX_EVENT_INBOX {
-                            envelope.event_inbox.push(event);
-                        } else {
-                            tracing::warn!(process_id = %process_id, "event_inbox full, dropping events");
-                            break;
-                        }
-                    }
-                }
-            }
-        }
-
         // Phase 1: Get instruction (needs &mut envelope)
         let envelope = self.process_envelopes.get_mut(process_id)
             .ok_or_else(|| Error::not_found(format!("Envelope not found for process: {}", process_id)))?;
@@ -143,7 +107,7 @@ impl Kernel {
                     }
                 }
             }
-            orchestrator::Instruction::Terminate { context, reason, .. } => {
+            orchestrator::Instruction::Terminate { context, .. } => {
                 // Attach final outputs + aggregate metrics so the worker can return them
                 if let Some(envelope) = self.process_envelopes.get(process_id) {
                     let total_duration_ms = (chrono::Utc::now() - envelope.audit.created_at)
@@ -159,37 +123,6 @@ impl Kernel {
                             "stages_executed": &envelope.pipeline.stage_order,
                         }
                     }));
-                }
-
-                // Publish completion events for each type in pipeline.publishes
-                // Scope block: collect owned data, drop immutable borrows before &mut self
-                let to_publish: Option<(Vec<String>, Vec<u8>)> = {
-                    let publishes = self.orchestrator.get_pipeline_publishes(process_id);
-                    match publishes {
-                        Some(p) if !p.is_empty() => {
-                            let types = p.to_vec();
-                            let outputs_json = self.process_envelopes.get(process_id)
-                                .map(|e| serde_json::to_value(&e.outputs).unwrap_or_default());
-                            let payload = serde_json::json!({
-                                "process_id": process_id.as_str(),
-                                "terminal_reason": format!("{:?}", reason),
-                                "outputs": outputs_json,
-                            });
-                            Some((types, serde_json::to_vec(&payload).unwrap_or_default()))
-                        }
-                        _ => None,
-                    }
-                };
-                if let Some((types, payload_bytes)) = to_publish {
-                    for event_type in types {
-                        let event = crate::commbus::Event {
-                            event_type,
-                            payload: payload_bytes.clone(),
-                            timestamp_ms: chrono::Utc::now().timestamp_millis(),
-                            source: format!("pipeline:{}", process_id),
-                        };
-                        let _ = self.publish_event(event);
-                    }
                 }
             }
             _ => {}
@@ -207,11 +140,6 @@ impl Kernel {
                 }
                 _ => {}
             }
-        }
-
-        // Phase 3: Clear event_inbox after enrichment (events now in agent_context)
-        if let Some(envelope) = self.process_envelopes.get_mut(process_id) {
-            envelope.event_inbox.clear();
         }
 
         Ok(instruction)
@@ -374,8 +302,6 @@ impl Kernel {
             }
         }
 
-        // Phase 3: Snapshot
-        self.emit_envelope_snapshot(process_id, "agent_completed");
         Ok(())
     }
 
@@ -428,7 +354,6 @@ impl Kernel {
             "tokens_in": envelope.bounds.tokens_in,
             "tokens_out": envelope.bounds.tokens_out,
             "circuit_broken_tools": self.tools.health.get_circuit_broken_tools(),
-            "pending_events": &envelope.event_inbox,
         });
 
         let stage_name = envelope.pipeline.current_stage.clone();
@@ -618,12 +543,6 @@ impl Kernel {
         if let Some(env) = self.process_envelopes.get_mut(pid) {
             env.terminate("Process terminated");
         }
-        // Unsubscribe CommBus subscriptions and drop receivers
-        if let Some(subs) = self.comm.subscriptions.remove(pid) {
-            for (subscription, _receiver) in subs {
-                self.comm.bus.unsubscribe(&subscription);
-            }
-        }
         Ok(())
     }
 
@@ -633,12 +552,6 @@ impl Kernel {
         self.lifecycle.remove(pid)?;
         self.process_envelopes.remove(pid);
         self.orchestrator.cleanup_session(pid);
-        // Cleanup any remaining subscriptions (belt-and-suspenders)
-        if let Some(subs) = self.comm.subscriptions.remove(pid) {
-            for (subscription, _receiver) in subs {
-                self.comm.bus.unsubscribe(&subscription);
-            }
-        }
         Ok(())
     }
 
@@ -743,22 +656,11 @@ mod tests {
         }
     }
 
-    fn test_config(stages: Vec<PipelineStage>) -> PipelineConfig {
-        PipelineConfig {
-            name: "test".to_string(),
-            stages,
-            max_iterations: 10,
-            max_llm_calls: 10,
-            max_agent_hops: 10,
-            edge_limits: vec![],
-            step_limit: None,
-            state_schema: vec![],
-            subscriptions: vec![],
-            publishes: vec![],
-        }
+    fn _test_config(stages: Vec<PipelineStage>) -> PipelineConfig {
+        PipelineConfig::test_default("test", stages)
     }
 
-    fn setup_kernel_with_process(kernel: &mut Kernel, pid: &ProcessId) {
+    fn _setup_kernel_with_process(kernel: &mut Kernel, pid: &ProcessId) {
         let _ = kernel.create_process(
             pid.clone(),
             RequestId::must("req-1"),
@@ -769,204 +671,6 @@ mod tests {
         );
     }
 
-    // =========================================================================
-    // CommBus Subscription Wiring Tests
-    // =========================================================================
-
-    #[test]
-    fn test_initialize_orchestration_wires_subscriptions() {
-        let mut kernel = Kernel::new();
-        let pid = ProcessId::must("proc-sub-1");
-        setup_kernel_with_process(&mut kernel, &pid);
-
-        let mut config = test_config(vec![test_stage("agent_a")]);
-        config.subscriptions = vec!["npc.dialogue".to_string(), "game.event".to_string()];
-
-        let envelope = Envelope::new_minimal("user-1", "sess-1", "hello", None);
-
-        let result = kernel.initialize_orchestration(pid.clone(), config, envelope, false);
-        assert!(result.is_ok());
-
-        // Subscriptions should be stored
-        assert!(kernel.comm.subscriptions.contains_key(&pid));
-        let subs = kernel.comm.subscriptions.get(&pid).unwrap();
-        assert_eq!(subs.len(), 1); // One subscribe call with multiple event types
-    }
-
-    #[test]
-    fn test_no_subscriptions_when_config_empty() {
-        let mut kernel = Kernel::new();
-        let pid = ProcessId::must("proc-nosub");
-        setup_kernel_with_process(&mut kernel, &pid);
-
-        let config = test_config(vec![test_stage("agent_a")]);
-        let envelope = Envelope::new_minimal("user-1", "sess-1", "hello", None);
-
-        let _state = kernel.initialize_orchestration(pid.clone(), config, envelope, false);
-
-        // No subscriptions should be created
-        assert!(!kernel.comm.subscriptions.contains_key(&pid));
-    }
-
-    #[test]
-    fn test_event_inbox_drain_on_get_next_instruction() {
-        let mut kernel = Kernel::new();
-        let pid = ProcessId::must("proc-drain-1");
-        setup_kernel_with_process(&mut kernel, &pid);
-
-        let mut config = test_config(vec![test_stage("agent_a")]);
-        config.subscriptions = vec!["test.event".to_string()];
-
-        let envelope = Envelope::new_minimal("user-1", "sess-1", "hello", None);
-        let _state = kernel.initialize_orchestration(pid.clone(), config, envelope, false).unwrap();
-
-        // Publish an event to the CommBus (will be delivered to our subscription)
-        let event = crate::commbus::Event {
-            event_type: "test.event".to_string(),
-            payload: b"{\"msg\":\"world\"}".to_vec(),
-            timestamp_ms: chrono::Utc::now().timestamp_millis(),
-            source: "external".to_string(),
-        };
-        kernel.comm.bus.publish(event).unwrap();
-
-        // get_next_instruction should drain events into envelope.event_inbox
-        let instruction = kernel.get_next_instruction(&pid).unwrap();
-        assert!(matches!(instruction, Instruction::RunAgent { .. }));
-
-        // Event inbox should be cleared after get_next_instruction
-        let envelope = kernel.process_envelopes.get(&pid).unwrap();
-        assert!(envelope.event_inbox.is_empty(), "event_inbox should be cleared after drain");
-    }
-
-    #[test]
-    fn test_terminate_process_cleans_up_subscriptions() {
-        let mut kernel = Kernel::new();
-        let pid = ProcessId::must("proc-cleanup-1");
-        setup_kernel_with_process(&mut kernel, &pid);
-
-        let mut config = test_config(vec![test_stage("agent_a")]);
-        config.subscriptions = vec!["test.event".to_string()];
-
-        let envelope = Envelope::new_minimal("user-1", "sess-1", "hello", None);
-        let _state = kernel.initialize_orchestration(pid.clone(), config, envelope, false).unwrap();
-
-        assert!(kernel.comm.subscriptions.contains_key(&pid));
-
-        // Terminate should clean up subscriptions
-        kernel.terminate_process(&pid).unwrap();
-        assert!(!kernel.comm.subscriptions.contains_key(&pid));
-    }
-
-    #[test]
-    fn test_pending_events_in_agent_context() {
-        let mut kernel = Kernel::new();
-        let pid = ProcessId::must("proc-ctx-1");
-        setup_kernel_with_process(&mut kernel, &pid);
-
-        let mut config = test_config(vec![test_stage("agent_a")]);
-        config.subscriptions = vec!["npc.event".to_string()];
-
-        let envelope = Envelope::new_minimal("user-1", "sess-1", "hello", None);
-        let _state = kernel.initialize_orchestration(pid.clone(), config, envelope, false).unwrap();
-
-        // Publish two events
-        for i in 0..2 {
-            let event = crate::commbus::Event {
-                event_type: "npc.event".to_string(),
-                payload: format!("{{\"n\":{}}}", i).into_bytes(),
-                timestamp_ms: chrono::Utc::now().timestamp_millis(),
-                source: "game".to_string(),
-            };
-            kernel.comm.bus.publish(event).unwrap();
-        }
-
-        let instruction = kernel.get_next_instruction(&pid).unwrap();
-        // Agent context should include pending_events
-        let context = match &instruction {
-            Instruction::RunAgent { context, .. } => context,
-            _ => panic!("Expected RunAgent"),
-        };
-        let ctx = context.agent_context.as_ref().unwrap();
-        let pending = ctx.get("pending_events").unwrap().as_array().unwrap();
-        assert_eq!(pending.len(), 2);
-    }
-
-    // =========================================================================
-    // Pipeline Publishes Tests
-    // =========================================================================
-
-    #[test]
-    fn test_pipeline_publishes_on_terminate() {
-        let mut kernel = Kernel::new();
-        let pid = ProcessId::must("proc-pub-1");
-        setup_kernel_with_process(&mut kernel, &pid);
-
-        // Subscribe to the event type before pipeline init
-        let (_sub, mut rx) = kernel.comm.bus
-            .subscribe("test_listener".to_string(), vec!["test.completed".to_string()])
-            .unwrap();
-
-        let mut config = test_config(vec![test_stage("agent_a")]);
-        config.publishes = vec!["test.completed".to_string()];
-
-        let envelope = Envelope::new_minimal("user-1", "sess-1", "hello", None);
-        let _ = kernel.initialize_orchestration(pid.clone(), config, envelope, false).unwrap();
-
-        // First instruction: RunAgent
-        let instr = kernel.get_next_instruction(&pid).unwrap();
-        assert!(matches!(instr, Instruction::RunAgent { .. }));
-
-        // Report agent result to advance to termination
-        kernel.process_agent_result(
-            &pid, "agent_a",
-            serde_json::json!({"result": "done"}),
-            None,
-            crate::kernel::orchestrator_types::AgentExecutionMetrics::default(),
-            true, "", false,
-        ).unwrap();
-
-        // Next instruction: Terminate (should publish completion event)
-        let instr = kernel.get_next_instruction(&pid).unwrap();
-        assert!(matches!(instr, Instruction::Terminate { .. }));
-
-        // Verify the completion event was published
-        let event = rx.try_recv().expect("should have received completion event");
-        assert_eq!(event.event_type, "test.completed");
-        assert!(event.source.contains("proc-pub-1"));
-
-        let payload: serde_json::Value = serde_json::from_slice(&event.payload).unwrap();
-        assert_eq!(payload["process_id"], "proc-pub-1");
-        assert!(payload["terminal_reason"].as_str().unwrap().contains("Completed"));
-    }
-
-    #[test]
-    fn test_no_publish_when_publishes_empty() {
-        let mut kernel = Kernel::new();
-        let pid = ProcessId::must("proc-nopub");
-        setup_kernel_with_process(&mut kernel, &pid);
-
-        // Subscribe to all events
-        let (_sub, mut rx) = kernel.comm.bus
-            .subscribe("test_listener".to_string(), vec!["test.completed".to_string()])
-            .unwrap();
-
-        // No publishes configured
-        let config = test_config(vec![test_stage("agent_a")]);
-        let envelope = Envelope::new_minimal("user-1", "sess-1", "hello", None);
-        let _ = kernel.initialize_orchestration(pid.clone(), config, envelope, false).unwrap();
-
-        let _instr = kernel.get_next_instruction(&pid).unwrap();
-        kernel.process_agent_result(
-            &pid, "agent_a",
-            serde_json::json!({"result": "done"}),
-            None,
-            crate::kernel::orchestrator_types::AgentExecutionMetrics::default(),
-            true, "", false,
-        ).unwrap();
-        let _instr = kernel.get_next_instruction(&pid).unwrap();
-
-        // No completion event should be published (only envelope.snapshot events exist)
-        assert!(rx.try_recv().is_err(), "should not receive completion event when publishes is empty");
-    }
-
+    // No tests remain in this module after the CommBus prune.
+    // Helpers retained as `_`-prefixed for future reuse.
 }

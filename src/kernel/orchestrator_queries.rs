@@ -60,12 +60,6 @@ impl Orchestrator {
             .map(|session| &session.pipeline_config.state_schema)
     }
 
-    /// Get the publish event types for a process's pipeline.
-    pub fn get_pipeline_publishes(&self, process_id: &ProcessId) -> Option<&[String]> {
-        self.pipelines.get(process_id)
-            .map(|session| session.pipeline_config.publishes.as_slice())
-    }
-
     /// Get the output_key for a stage, defaulting to the stage name.
     pub fn get_stage_output_key(&self, process_id: &ProcessId, stage_name: &str) -> Option<String> {
         self.pipelines.get(process_id)

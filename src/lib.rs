@@ -21,7 +21,6 @@
 #![warn(rust_2018_idioms)]
 
 // Re-export public API
-pub mod commbus;
 pub mod envelope;
 pub mod kernel;
 #[cfg(any(test, feature = "test-harness"))]

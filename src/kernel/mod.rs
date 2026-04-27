@@ -23,7 +23,6 @@ pub mod resources;
 pub mod routing;
 
 // Kernel impl split across focused files
-mod kernel_events;
 mod kernel_orchestration;
 
 // Re-export key types
@@ -87,16 +86,6 @@ pub struct ToolDomain {
     pub(crate) health: crate::tools::ToolHealthTracker,
 }
 
-/// Communication subsystem — bus only (federation/agent-cards removed).
-#[derive(Debug)]
-pub struct CommDomain {
-    /// Communication bus (kernel-mediated inter-process communication).
-    pub(crate) bus: crate::commbus::CommBus,
-    /// Per-process CommBus subscriptions (subscription + event receiver).
-    pub(crate) subscriptions:
-        HashMap<ProcessId, Vec<(crate::commbus::Subscription, tokio::sync::mpsc::Receiver<crate::commbus::Event>)>>,
-}
-
 /// Kernel - the main orchestrator.
 ///
 /// Owns all subsystems and provides unified interface for process management.
@@ -120,9 +109,6 @@ pub struct Kernel {
 
     /// Tool subsystem (catalog, access, health).
     pub(crate) tools: ToolDomain,
-
-    /// Communication subsystem (bus + subscriptions).
-    pub(crate) comm: CommDomain,
 }
 
 impl Kernel {
@@ -136,10 +122,6 @@ impl Kernel {
             tools: ToolDomain {
                 access: crate::tools::ToolAccessPolicy::new(),
                 health: crate::tools::ToolHealthTracker::default(),
-            },
-            comm: CommDomain {
-                bus: crate::commbus::CommBus::new(),
-                subscriptions: HashMap::new(),
             },
         }
     }
@@ -173,10 +155,6 @@ impl Kernel {
             tools: ToolDomain {
                 access: crate::tools::ToolAccessPolicy::new(),
                 health: crate::tools::ToolHealthTracker::default(),
-            },
-            comm: CommDomain {
-                bus: crate::commbus::CommBus::new(),
-                subscriptions: HashMap::new(),
             },
         }
     }

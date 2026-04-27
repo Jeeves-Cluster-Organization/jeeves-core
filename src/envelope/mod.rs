@@ -49,10 +49,6 @@ pub struct Envelope {
     pub bounds: Bounds,
     pub interrupts: InterruptState,
     pub audit: Audit,
-
-    /// Pending CommBus events accumulated between agent executions.
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub event_inbox: Vec<crate::commbus::Event>,
 }
 
 impl Envelope {
@@ -132,8 +128,6 @@ impl Envelope {
                 completed_at: None,
                 metadata: audit_metadata,
             },
-
-            event_inbox: Vec::new(),
         }
     }
 
