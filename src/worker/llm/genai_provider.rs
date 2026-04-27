@@ -131,6 +131,15 @@ impl GenaiProvider {
                 opts = opts.with_max_tokens(max as u32);
             }
         }
+        if let Some(ref schema) = req.response_format {
+            // Force schema-constrained output (response_format=json_schema on
+            // OpenAI-compat backends, structured output on others). Names allow
+            // only `-` and `_` per genai/OpenAI rules.
+            use genai::chat::{ChatResponseFormat, JsonSpec};
+            opts = opts.with_response_format(ChatResponseFormat::JsonSpec(
+                JsonSpec::new("agent_output", schema.clone()),
+            ));
+        }
         opts
     }
 

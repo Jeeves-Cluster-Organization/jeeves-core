@@ -57,6 +57,9 @@ pub struct AgentContext {
     /// Response from a resolved interrupt (e.g., user confirmed a destructive tool).
     /// Populated by the worker when resuming from an interrupt.
     pub interrupt_response: Option<serde_json::Value>,
+    /// JSON Schema for grammar-constrained LLM output. Threaded from
+    /// `PipelineStage::output_schema` through `AgentDispatchContext`.
+    pub output_schema: Option<serde_json::Value>,
 }
 
 /// Agent trait — implementations provide custom agent behavior.
@@ -214,6 +217,7 @@ impl Agent for LlmAgent {
                 max_tokens: self.max_tokens,
                 model: self.model.clone(),
                 tools: if tool_defs.is_empty() { None } else { Some(tool_defs.clone()) },
+                response_format: ctx.output_schema.clone(),
             };
 
             // Use streaming path — collect_stream forwards deltas to event_tx if present
@@ -703,6 +707,7 @@ mod tests {
             max_context_tokens: Some(max_tokens),
             context_overflow: Some(overflow),
             interrupt_response: None,
+            output_schema: None,
         }
     }
 
@@ -901,6 +906,7 @@ mod tests {
             max_context_tokens: None,
             context_overflow: None,
             interrupt_response: None,
+            output_schema: None,
         };
 
         let result = agent.process(&ctx).await.unwrap();

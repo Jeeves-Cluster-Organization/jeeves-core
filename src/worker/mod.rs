@@ -298,6 +298,7 @@ fn build_agent_context(
         max_context_tokens: context.max_context_tokens,
         context_overflow: context.context_overflow,
         interrupt_response: context.interrupt_response.clone(),
+        output_schema: context.output_schema.clone(),
     }
 }
 

@@ -922,6 +922,7 @@ async fn test_confirmation_gate_mcp_agent_buffered() {
         max_context_tokens: None,
         context_overflow: None,
         interrupt_response: None,
+        output_schema: None,
     };
 
     let output = agent.process(&ctx).await.unwrap();
@@ -971,6 +972,7 @@ async fn test_confirmation_gate_safe_tool_no_interrupt() {
         max_context_tokens: None,
         context_overflow: None,
         interrupt_response: None,
+        output_schema: None,
     };
 
     let output = agent.process(&ctx).await.unwrap();

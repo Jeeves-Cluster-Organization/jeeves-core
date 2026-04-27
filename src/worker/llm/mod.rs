@@ -149,6 +149,11 @@ pub struct ChatRequest {
     pub model: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub tools: Option<Arc<Vec<serde_json::Value>>>,
+    /// JSON Schema for grammar-constrained output. When set, the provider
+    /// configures `response_format: {type: "json_schema", schema: ...}` so
+    /// the model is forced to emit a value matching the schema.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub response_format: Option<serde_json::Value>,
 }
 
 /// Token usage from the API response.
