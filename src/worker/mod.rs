@@ -8,10 +8,7 @@ pub mod agent_factory;
 pub mod handle;
 pub mod llm;
 pub mod mcp;
-#[cfg(feature = "mcp-stdio")]
-pub mod mcp_server;
 pub mod prompts;
-pub mod runner;
 pub mod tools;
 
 use std::sync::Arc;
