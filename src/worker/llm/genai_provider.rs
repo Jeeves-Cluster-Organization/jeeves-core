@@ -69,8 +69,11 @@ impl GenaiProvider {
         }
 
         let client = if let Ok(base_url) = std::env::var("LLM_API_BASE") {
-            // Custom endpoint: route all models through OpenAI adapter to this URL
-            let endpoint_url = base_url.clone();
+            // Custom endpoint: route all models through OpenAI adapter to this URL.
+            // Ensure trailing slash so reqwest::Url::join preserves path prefix
+            // (e.g. "http://host/v1" + "chat/completions" would drop "/v1" without it).
+            let endpoint_url = if base_url.ends_with('/') { base_url } else { format!("{}/", base_url) };
+            tracing::info!(endpoint_url = %endpoint_url, "LLM_API_BASE set — routing all models via OpenAI adapter");
             let resolver = genai::resolver::ServiceTargetResolver::from_resolver_fn(
                 move |service_target: genai::ServiceTarget| -> std::result::Result<genai::ServiceTarget, genai::resolver::Error> {
                     let genai::ServiceTarget { model, .. } = service_target;
@@ -80,7 +83,6 @@ impl GenaiProvider {
                     Ok(genai::ServiceTarget { endpoint, auth, model })
                 },
             );
-            tracing::info!(base_url = %base_url, "LLM_API_BASE set — routing all models via OpenAI adapter");
             genai::Client::builder().with_service_target_resolver(resolver).build()
         } else {
             genai::Client::default()
