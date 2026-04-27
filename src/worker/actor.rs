@@ -19,31 +19,17 @@ pub fn spawn_kernel(kernel: Kernel, cancel: CancellationToken) -> KernelHandle {
 }
 
 /// The kernel actor loop. Processes commands sequentially (single &mut).
-/// Includes periodic cleanup — no separate service or lock needed.
 async fn run_kernel_actor(
     mut kernel: Kernel,
     mut rx: mpsc::Receiver<KernelCommand>,
     cancel: CancellationToken,
 ) {
-    let cleanup_config = crate::kernel::cleanup::CleanupConfig::default();
-    let mut cleanup_ticker = tokio::time::interval(
-        tokio::time::Duration::from_secs(cleanup_config.interval_seconds.max(10)),
-    );
-    cleanup_ticker.tick().await; // consume initial immediate tick
-
     tracing::info!("Kernel actor started");
     loop {
         tokio::select! {
             _ = cancel.cancelled() => {
                 tracing::info!("Kernel actor shutting down");
                 break;
-            }
-            _ = cleanup_ticker.tick() => {
-                if let Ok(ref s) = crate::kernel::cleanup::run_cleanup_cycle(&mut kernel, &cleanup_config) {
-                    if s.zombies_removed + s.sessions_removed + s.interrupts_removed > 0 {
-                        tracing::debug!(zombies = s.zombies_removed, sessions = s.sessions_removed, "cleanup_cycle");
-                    }
-                }
             }
             cmd = rx.recv() => {
                 let Some(cmd) = cmd else {
@@ -254,30 +240,6 @@ async fn dispatch(kernel: &mut Kernel, cmd: KernelCommand) {
                     query.query_type,
                 ))));
             }
-        }
-
-        KernelCommand::ListAgentCards { filter, resp_tx } => {
-            let cards = kernel
-                .comm.agent_cards
-                .list(filter.as_deref())
-                .into_iter()
-                .cloned()
-                .collect();
-            let _ = resp_tx.send(cards);
-        }
-
-        // =====================================================================
-        // Checkpoint/Resume
-        // =====================================================================
-
-        KernelCommand::Checkpoint { process_id, resp_tx } => {
-            let result = kernel.checkpoint(&process_id);
-            let _ = resp_tx.send(result);
-        }
-
-        KernelCommand::ResumeFromCheckpoint { snapshot, pipeline_config, resp_tx } => {
-            let result = kernel.resume_from_checkpoint(*snapshot, *pipeline_config);
-            let _ = resp_tx.send(result);
         }
 
         // =====================================================================

@@ -6,7 +6,6 @@
 
 use crate::commbus::{Event, Query, QueryResponse, Subscription};
 use crate::envelope::Envelope;
-use crate::kernel::agent_card::AgentCard;
 use crate::kernel::orchestrator_types::{
     AgentExecutionMetrics, Instruction, PipelineConfig, SessionState,
 };
@@ -104,28 +103,6 @@ pub enum KernelCommand {
         query: Query,
         resp_tx: oneshot::Sender<Result<QueryResponse>>,
     },
-    /// List registered agent cards (discovery).
-    ListAgentCards {
-        filter: Option<String>,
-        resp_tx: oneshot::Sender<Vec<AgentCard>>,
-    },
-
-    // =========================================================================
-    // Checkpoint/Resume
-    // =========================================================================
-
-    /// Capture a checkpoint of a running process.
-    Checkpoint {
-        process_id: ProcessId,
-        resp_tx: oneshot::Sender<Result<crate::kernel::checkpoint::CheckpointSnapshot>>,
-    },
-    /// Resume a process from a checkpoint snapshot.
-    ResumeFromCheckpoint {
-        snapshot: Box<crate::kernel::checkpoint::CheckpointSnapshot>,
-        pipeline_config: Box<PipelineConfig>,
-        resp_tx: oneshot::Sender<Result<ProcessId>>,
-    },
-
     // =========================================================================
     // Tool Health
     // =========================================================================
@@ -170,9 +147,6 @@ impl std::fmt::Debug for KernelCommand {
                     Self::Subscribe { .. } => "Subscribe",
                     Self::Unsubscribe { .. } => "Unsubscribe",
                     Self::CommBusQuery { .. } => "CommBusQuery",
-                    Self::ListAgentCards { .. } => "ListAgentCards",
-                    Self::Checkpoint { .. } => "Checkpoint",
-                    Self::ResumeFromCheckpoint { .. } => "ResumeFromCheckpoint",
                     Self::GetToolHealth { .. } => "GetToolHealth",
                     Self::RegisterRoutingFn { .. } => unreachable!(),
                 })
@@ -380,46 +354,6 @@ impl KernelHandle {
         kernel_request!(self, CommBusQuery { query: query })
     }
 
-    /// List registered agent cards (discovery).
-    pub async fn list_agent_cards(&self, filter: Option<String>) -> Vec<AgentCard> {
-        let (resp_tx, resp_rx) = oneshot::channel();
-        if self
-            .tx
-            .send(KernelCommand::ListAgentCards { filter, resp_tx })
-            .await
-            .is_err()
-        {
-            return vec![];
-        }
-        resp_rx.await.unwrap_or_default()
-    }
-
-    // =========================================================================
-    // Checkpoint/Resume
-    // =========================================================================
-
-    /// Capture a checkpoint of a running process.
-    pub async fn checkpoint(
-        &self,
-        process_id: ProcessId,
-    ) -> Result<crate::kernel::checkpoint::CheckpointSnapshot> {
-        kernel_request!(self, Checkpoint {
-            process_id: process_id,
-        })
-    }
-
-    /// Resume a process from a checkpoint snapshot.
-    pub async fn resume_from_checkpoint(
-        &self,
-        snapshot: crate::kernel::checkpoint::CheckpointSnapshot,
-        pipeline_config: PipelineConfig,
-    ) -> Result<ProcessId> {
-        kernel_request!(self, ResumeFromCheckpoint {
-            snapshot: Box::new(snapshot),
-            pipeline_config: Box::new(pipeline_config),
-        })
-    }
-
     // =========================================================================
     // Tool Health
     // =========================================================================
@@ -446,18 +380,12 @@ impl KernelHandle {
             return SystemStatus {
                 processes_total: 0,
                 processes_by_state: Default::default(),
-                services_healthy: 0,
-                services_degraded: 0,
-                services_unhealthy: 0,
                 active_orchestration_sessions: 0,
             };
         }
         resp_rx.await.unwrap_or(SystemStatus {
             processes_total: 0,
             processes_by_state: Default::default(),
-            services_healthy: 0,
-            services_degraded: 0,
-            services_unhealthy: 0,
             active_orchestration_sessions: 0,
         })
     }

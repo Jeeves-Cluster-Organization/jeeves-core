@@ -122,22 +122,24 @@ impl std::fmt::Debug for PipelineTestHarness {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::kernel::builder::PipelineBuilder;
+    use crate::kernel::orchestrator_types::PipelineStage;
     use crate::worker::agent::DeterministicAgent;
+
+    fn stage(name: &str, default_next: Option<&str>) -> PipelineStage {
+        PipelineStage {
+            name: name.to_string(),
+            agent: name.to_string(),
+            default_next: default_next.map(|s| s.to_string()),
+            ..PipelineStage::default()
+        }
+    }
 
     #[tokio::test]
     async fn test_harness_simple_pipeline() {
-        let config = PipelineBuilder::new("test")
-            .stage("s1", "s1")
-                .has_llm(false)
-                .default_next("s2")
-                .done()
-            .stage("s2", "s2")
-                .has_llm(false)
-                .done()
-            .bounds(10, 10, 10)
-            .build()
-            .unwrap();
+        let config = PipelineConfig::test_default(
+            "test",
+            vec![stage("s1", Some("s2")), stage("s2", None)],
+        );
 
         let result = PipelineTestHarness::new(config)
             .mock_agent("s1", DeterministicAgent)
@@ -151,13 +153,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_harness_streaming() {
-        let config = PipelineBuilder::new("stream_test")
-            .stage("s1", "s1")
-                .has_llm(false)
-                .done()
-            .bounds(10, 10, 10)
-            .build()
-            .unwrap();
+        let config = PipelineConfig::test_default("stream_test", vec![stage("s1", None)]);
 
         let (result, events) = PipelineTestHarness::new(config)
             .mock_agent("s1", DeterministicAgent)

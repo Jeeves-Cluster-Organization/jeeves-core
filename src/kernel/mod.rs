@@ -1,8 +1,8 @@
 //! Kernel - the main orchestration actor.
 //!
 //! The Kernel owns all mutable state and processes commands via a single
-//! message channel. Subsystems (lifecycle, resources, interrupts, rate limiter)
-//! are plain structs owned by the Kernel, not separate actors.
+//! message channel. Subsystems (lifecycle, resources, interrupts) are plain
+//! structs owned by the Kernel, not separate actors.
 
 use std::collections::HashMap;
 
@@ -10,8 +10,6 @@ use std::collections::HashMap;
 pub mod types;
 
 // Subsystem modules
-pub mod agent_card;
-pub mod cleanup;
 pub mod interrupts;
 pub mod lifecycle;
 pub mod orchestrator;
@@ -21,30 +19,17 @@ mod orchestrator_helpers;   // Free functions — routing helpers
 #[cfg(test)]
 pub(crate) mod test_helpers; // Shared test utilities for orchestrator tests
 pub mod orchestrator_types;
-pub mod rate_limiter;
 pub mod resources;
 pub mod routing;
-pub mod services;
-
-// Checkpoint/resume
-pub mod checkpoint;
-
-// Builder
-pub mod builder;
 
 // Kernel impl split across focused files
 mod kernel_events;
 mod kernel_orchestration;
 
 // Re-export key types
-pub use cleanup::{CleanupConfig, CleanupStats};
 pub use interrupts::{InterruptConfig, InterruptService, InterruptStatus, KernelInterrupt};
 pub use lifecycle::LifecycleManager;
-pub use rate_limiter::{RateLimitConfig, RateLimiter};
 pub use resources::ResourceTracker;
-pub use services::{
-    RegistryStats, ServiceInfo, ServiceRegistry, ServiceStats, ServiceStatus, SERVICE_TYPE_MCP,
-};
 pub use types::{
     ProcessControlBlock, ProcessState, QuotaViolation, ResourceQuota, ResourceUsage,
     SchedulingPriority,
@@ -102,13 +87,11 @@ pub struct ToolDomain {
     pub(crate) health: crate::tools::ToolHealthTracker,
 }
 
-/// Communication subsystem — bus, agent cards, subscriptions.
+/// Communication subsystem — bus only (federation/agent-cards removed).
 #[derive(Debug)]
 pub struct CommDomain {
     /// Communication bus (kernel-mediated inter-process communication).
     pub(crate) bus: crate::commbus::CommBus,
-    /// Agent card registry for federation discovery.
-    pub(crate) agent_cards: agent_card::AgentCardRegistry,
     /// Per-process CommBus subscriptions (subscription + event receiver).
     pub(crate) subscriptions:
         HashMap<ProcessId, Vec<(crate::commbus::Subscription, tokio::sync::mpsc::Receiver<crate::commbus::Event>)>>,
@@ -118,9 +101,6 @@ pub struct CommDomain {
 ///
 /// Owns all subsystems and provides unified interface for process management.
 /// NOT an actor in the message-passing sense - called directly via &mut self.
-///
-/// `process_envelopes` and `orchestrator` are separate top-level fields (not in a
-/// domain struct) because `process_agent_result()` borrows both mutably.
 #[derive(Debug)]
 pub struct Kernel {
     /// Process lifecycle management
@@ -129,14 +109,8 @@ pub struct Kernel {
     /// Resource tracking and quota enforcement
     pub(crate) resources: ResourceTracker,
 
-    /// Rate limiting per user
-    pub(crate) rate_limiter: RateLimiter,
-
     /// Interrupt handling (human-in-the-loop)
     pub(crate) interrupts: interrupts::InterruptService,
-
-    /// Service registry (dispatch)
-    pub(crate) services: services::ServiceRegistry,
 
     /// Pipeline orchestration (kernel-driven execution)
     pub(crate) orchestrator: orchestrator::Orchestrator,
@@ -147,7 +121,7 @@ pub struct Kernel {
     /// Tool subsystem (catalog, access, health).
     pub(crate) tools: ToolDomain,
 
-    /// Communication subsystem (bus, agent cards, subscriptions).
+    /// Communication subsystem (bus + subscriptions).
     pub(crate) comm: CommDomain,
 }
 
@@ -156,9 +130,7 @@ impl Kernel {
         Self {
             lifecycle: LifecycleManager::default(),
             resources: ResourceTracker::default(),
-            rate_limiter: RateLimiter::default(),
             interrupts: interrupts::InterruptService::new(),
-            services: services::ServiceRegistry::new(),
             orchestrator: orchestrator::Orchestrator::new(),
             process_envelopes: HashMap::new(),
             tools: ToolDomain {
@@ -167,7 +139,6 @@ impl Kernel {
             },
             comm: CommDomain {
                 bus: crate::commbus::CommBus::new(),
-                agent_cards: agent_card::AgentCardRegistry::new(),
                 subscriptions: HashMap::new(),
             },
         }
@@ -188,41 +159,15 @@ impl Kernel {
             timeout_seconds: config.defaults.process_timeout.as_secs() as i32,
             ..ResourceQuota::default()
         };
-        let rate_limit_config = RateLimitConfig {
-            requests_per_minute: config.rate_limit.requests_per_minute,
-            requests_per_hour: config.rate_limit.requests_per_hour,
-            burst_size: config.rate_limit.burst_size,
-        };
-        Self {
-            lifecycle: LifecycleManager::new(Some(default_quota)),
-            resources: ResourceTracker::new(),
-            rate_limiter: RateLimiter::new(Some(rate_limit_config)),
-            interrupts: interrupts::InterruptService::new(),
-            services: services::ServiceRegistry::new(),
-            orchestrator: orchestrator::Orchestrator::new(),
-            process_envelopes: HashMap::new(),
-            tools: ToolDomain {
-                access: crate::tools::ToolAccessPolicy::new(),
-                health: crate::tools::ToolHealthTracker::default(),
-            },
-            comm: CommDomain {
-                bus: crate::commbus::CommBus::new(),
-                agent_cards: agent_card::AgentCardRegistry::new(),
-                subscriptions: HashMap::new(),
-            },
-        }
+        Self::with_quota(Some(default_quota))
     }
 
-    pub fn with_config(
-        default_quota: Option<ResourceQuota>,
-        rate_limit_config: Option<RateLimitConfig>,
-    ) -> Self {
+    /// Construct a Kernel with an optional default quota for new processes.
+    pub fn with_quota(default_quota: Option<ResourceQuota>) -> Self {
         Self {
             lifecycle: LifecycleManager::new(default_quota),
             resources: ResourceTracker::new(),
-            rate_limiter: RateLimiter::new(rate_limit_config),
             interrupts: interrupts::InterruptService::new(),
-            services: services::ServiceRegistry::new(),
             orchestrator: orchestrator::Orchestrator::new(),
             process_envelopes: HashMap::new(),
             tools: ToolDomain {
@@ -231,7 +176,6 @@ impl Kernel {
             },
             comm: CommDomain {
                 bus: crate::commbus::CommBus::new(),
-                agent_cards: agent_card::AgentCardRegistry::new(),
                 subscriptions: HashMap::new(),
             },
         }
@@ -254,9 +198,6 @@ pub struct RemainingBudget {
 pub struct SystemStatus {
     pub processes_total: usize,
     pub processes_by_state: HashMap<ProcessState, usize>,
-    pub services_healthy: usize,
-    pub services_degraded: usize,
-    pub services_unhealthy: usize,
     pub active_orchestration_sessions: usize,
 }
 
@@ -277,9 +218,6 @@ mod tests {
         let status = kernel.get_system_status();
 
         assert_eq!(status.processes_total, 0);
-        assert_eq!(status.services_healthy, 0);
-        assert_eq!(status.services_degraded, 0);
-        assert_eq!(status.services_unhealthy, 0);
         assert_eq!(status.active_orchestration_sessions, 0);
 
         for (_state, count) in &status.processes_by_state {

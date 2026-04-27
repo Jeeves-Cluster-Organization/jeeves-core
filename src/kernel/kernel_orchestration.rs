@@ -462,7 +462,6 @@ impl Kernel {
         priority: SchedulingPriority,
         quota: Option<ResourceQuota>,
     ) -> Result<super::ProcessControlBlock> {
-        self.rate_limiter.check_rate_limit(user_id.as_str())?;
         let pcb = self.lifecycle.submit(
             pid.clone(),
             request_id,
@@ -699,15 +698,11 @@ impl Kernel {
             by_state.insert(*state, self.lifecycle.count_by_state(*state));
         }
 
-        let service_stats = self.services.get_stats();
         let orchestrator_sessions = self.orchestrator.get_session_count();
 
         SystemStatus {
             processes_total: total,
             processes_by_state: by_state,
-            services_healthy: service_stats.healthy_services,
-            services_degraded: service_stats.degraded_services,
-            services_unhealthy: service_stats.unhealthy_services,
             active_orchestration_sessions: orchestrator_sessions,
         }
     }
@@ -974,57 +969,4 @@ mod tests {
         assert!(rx.try_recv().is_err(), "should not receive completion event when publishes is empty");
     }
 
-    // =========================================================================
-    // AgentCard Tests
-    // =========================================================================
-
-    #[test]
-    fn test_agent_card_registration_and_listing() {
-        let mut kernel = Kernel::new();
-
-        let card = crate::kernel::agent_card::AgentCard {
-            name: "npc_dialogue".to_string(),
-            description: "Handles NPC dialogue".to_string(),
-            pipeline_name: Some("npc_pipeline".to_string()),
-            capabilities: vec!["dialogue".to_string()],
-            accepted_event_types: vec!["npc.speak".to_string()],
-            published_event_types: vec!["npc.response".to_string()],
-            input_schema: None,
-            output_schema: None,
-        };
-
-        kernel.comm.agent_cards.register(card);
-
-        let all = kernel.comm.agent_cards.list(None);
-        assert_eq!(all.len(), 1);
-        assert_eq!(all[0].name, "npc_dialogue");
-
-        // Filter by name substring
-        let filtered = kernel.comm.agent_cards.list(Some("npc"));
-        assert_eq!(filtered.len(), 1);
-
-        let no_match = kernel.comm.agent_cards.list(Some("zzz_nonexistent"));
-        assert_eq!(no_match.len(), 0);
-    }
-
-    #[test]
-    fn test_agent_card_get_by_name() {
-        let mut kernel = Kernel::new();
-
-        let card = crate::kernel::agent_card::AgentCard {
-            name: "search_agent".to_string(),
-            description: "Searches things".to_string(),
-            pipeline_name: None,
-            capabilities: vec![],
-            accepted_event_types: vec![],
-            published_event_types: vec![],
-            input_schema: None,
-            output_schema: None,
-        };
-
-        kernel.comm.agent_cards.register(card);
-
-        assert!(kernel.comm.agent_cards.get("search_agent").is_some());
-        assert!(kernel.comm.agent_cards.get("nonexistent").is_none());
-    }
 }
