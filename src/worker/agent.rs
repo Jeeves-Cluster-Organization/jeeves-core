@@ -70,6 +70,9 @@ pub trait Agent: Send + Sync + std::fmt::Debug + std::any::Any {
     async fn process(&self, ctx: &AgentContext) -> crate::types::Result<AgentOutput>;
 }
 
+/// Default max tool-call rounds in the ReAct loop.
+pub const DEFAULT_MAX_TOOL_ROUNDS: u32 = 10;
+
 /// Default LLM-backed agent with ReAct tool loop and streaming support.
 #[derive(Debug)]
 pub struct LlmAgent {

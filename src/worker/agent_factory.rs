@@ -118,7 +118,7 @@ fn merge_agents(
                     temperature: stage.agent_config.temperature,
                     max_tokens: stage.agent_config.max_tokens,
                     model: stage.agent_config.model_role.clone(),
-                    max_tool_rounds: stage.agent_config.max_tool_rounds,
+                    max_tool_rounds: crate::worker::agent::DEFAULT_MAX_TOOL_ROUNDS,
                     content_resolver: ctx.content_resolver.clone(),
                 })
             }

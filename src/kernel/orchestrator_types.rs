@@ -407,9 +407,6 @@ pub struct AgentConfig {
     /// Model role (e.g. "fast", "reasoning") — resolved by LLM provider.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub model_role: Option<String>,
-    /// Maximum tool call rounds in the ReAct loop (default: 10).
-    #[serde(default = "default_max_tool_rounds")]
-    pub max_tool_rounds: u32,
 }
 
 impl Default for AgentConfig {
@@ -420,7 +417,6 @@ impl Default for AgentConfig {
             temperature: None,
             max_tokens: None,
             model_role: None,
-            max_tool_rounds: 10,
         }
     }
 }
@@ -523,10 +519,6 @@ pub struct PipelineStage {
 
 fn default_has_llm() -> bool {
     false
-}
-
-fn default_max_tool_rounds() -> u32 {
-    10
 }
 
 /// Join strategy for parallel execution groups.
