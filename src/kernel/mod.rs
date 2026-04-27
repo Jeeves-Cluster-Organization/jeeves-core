@@ -31,7 +31,6 @@ pub use lifecycle::LifecycleManager;
 pub use resources::ResourceTracker;
 pub use types::{
     ProcessControlBlock, ProcessState, QuotaViolation, ResourceQuota, ResourceUsage,
-    SchedulingPriority,
 };
 
 use crate::envelope::Envelope;
@@ -209,20 +208,15 @@ mod tests {
 
         let pid1 = ProcessId::must("pid1");
         let pid2 = ProcessId::must("pid2");
-        let pid3 = ProcessId::must("pid3");
 
-        kernel.lifecycle.submit(pid1.clone(), RequestId::must("req1"), UserId::must("user1"), SessionId::must("sess1"), SchedulingPriority::Normal, None).unwrap();
-        kernel.lifecycle.submit(pid2.clone(), RequestId::must("req2"), UserId::must("user2"), SessionId::must("sess2"), SchedulingPriority::Normal, None).unwrap();
-        kernel.lifecycle.submit(pid3.clone(), RequestId::must("req3"), UserId::must("user3"), SessionId::must("sess3"), SchedulingPriority::Normal, None).unwrap();
+        kernel.lifecycle.create(pid1.clone(), RequestId::must("req1"), UserId::must("user1"), SessionId::must("sess1"), None).unwrap();
+        kernel.lifecycle.create(pid2.clone(), RequestId::must("req2"), UserId::must("user2"), SessionId::must("sess2"), None).unwrap();
 
-        kernel.lifecycle.schedule(&pid1).unwrap();
-        kernel.lifecycle.schedule(&pid2).unwrap();
-        kernel.lifecycle.start(&pid1).unwrap();
+        kernel.lifecycle.run(&pid1).unwrap();
 
         let status = kernel.get_system_status();
 
-        assert_eq!(status.processes_total, 3);
-        assert_eq!(*status.processes_by_state.get(&ProcessState::New).unwrap(), 1);
+        assert_eq!(status.processes_total, 2);
         assert_eq!(*status.processes_by_state.get(&ProcessState::Ready).unwrap(), 1);
         assert_eq!(*status.processes_by_state.get(&ProcessState::Running).unwrap(), 1);
     }
@@ -248,7 +242,7 @@ mod tests {
         let mut kernel = Kernel::new();
         let pid = ProcessId::must("p1");
 
-        kernel.create_process(pid.clone(), RequestId::must("req1"), UserId::must("user1"), SessionId::must("sess1"), SchedulingPriority::Normal, None).unwrap();
+        kernel.create_process(pid.clone(), RequestId::must("req1"), UserId::must("user1"), SessionId::must("sess1"), None).unwrap();
         kernel.record_usage(&pid, "user1", 3, 5, 1000, 500);
 
         let pcb = kernel.lifecycle.get(&pid).unwrap();
@@ -263,13 +257,12 @@ mod tests {
         let mut kernel = Kernel::new();
         let pid = ProcessId::must("p1");
 
-        kernel.create_process(pid.clone(), RequestId::must("req1"), UserId::must("user1"), SessionId::must("sess1"), SchedulingPriority::Normal, None).unwrap();
+        kernel.create_process(pid.clone(), RequestId::must("req1"), UserId::must("user1"), SessionId::must("sess1"), None).unwrap();
         assert!(kernel.lifecycle.get(&pid).is_some());
         assert_eq!(kernel.lifecycle.count(), 1);
 
-        kernel.lifecycle.start(&pid).unwrap();
+        kernel.lifecycle.run(&pid).unwrap();
         kernel.terminate_process(&pid).unwrap();
-        kernel.cleanup_process(&pid).unwrap();
 
         assert!(kernel.lifecycle.get(&pid).is_none());
         assert_eq!(kernel.lifecycle.count(), 0);
@@ -280,7 +273,7 @@ mod tests {
         let mut kernel = Kernel::new();
         let pid = ProcessId::must("p1");
 
-        kernel.create_process(pid.clone(), RequestId::must("req1"), UserId::must("user1"), SessionId::must("sess1"), SchedulingPriority::Normal, None).unwrap();
+        kernel.create_process(pid.clone(), RequestId::must("req1"), UserId::must("user1"), SessionId::must("sess1"), None).unwrap();
 
         kernel.record_tool_call(&pid).unwrap();
         kernel.record_tool_call(&pid).unwrap();

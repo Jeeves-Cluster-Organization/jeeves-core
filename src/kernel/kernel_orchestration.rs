@@ -10,7 +10,7 @@ use crate::types::{Error, ProcessId, RequestId, Result, SessionId, UserId};
 use super::merge_state_field;
 use super::orchestrator;
 use super::orchestrator_types::ContextOverflow;
-use super::{Kernel, ProcessState, RemainingBudget, ResourceQuota, SchedulingPriority, SystemStatus};
+use super::{Kernel, ProcessState, RemainingBudget, ResourceQuota, SystemStatus};
 
 impl Kernel {
     /// Initialize an orchestration session.
@@ -384,19 +384,9 @@ impl Kernel {
         request_id: RequestId,
         user_id: UserId,
         session_id: SessionId,
-        priority: SchedulingPriority,
         quota: Option<ResourceQuota>,
     ) -> Result<super::ProcessControlBlock> {
-        let pcb = self.lifecycle.submit(
-            pid.clone(),
-            request_id,
-            user_id,
-            session_id,
-            priority,
-            quota,
-        )?;
-        self.lifecycle.schedule(&pid)?;
-        Ok(pcb)
+        self.lifecycle.create(pid, request_id, user_id, session_id, quota)
     }
 
     /// Check process quota.
@@ -428,25 +418,11 @@ impl Kernel {
         }
     }
 
-    /// Wait a process (e.g., awaiting interrupt response).
-    ///
-    /// Requires lifecycle state = Running. For pipeline-loop interrupt flow
-    /// (where lifecycle stays Ready), use `set_process_interrupt` instead.
-    pub fn wait_process(&mut self, pid: &ProcessId, interrupt: FlowInterrupt) -> Result<()> {
-        self.lifecycle.wait(pid, interrupt.kind)?;
-        if let Some(env) = self.process_envelopes.get_mut(pid) {
-            env.set_interrupt(interrupt);
-        }
-        Ok(())
-    }
-
-    /// Set an interrupt on a process without lifecycle state transition.
-    ///
-    /// Used by the worker pipeline loop, which stays in Ready state throughout
-    /// execution. Sets the interrupt on the envelope and registers it in the
-    /// interrupt manager so `resolve_interrupt` can find it.
+    /// Set a tool-confirmation interrupt on a process. The pipeline loop
+    /// suspends the stage; the consumer resolves via `resolve_process_interrupt`.
     pub fn set_process_interrupt(&mut self, pid: &ProcessId, interrupt: FlowInterrupt) -> Result<()> {
         // Register in interrupt manager (so resolve_interrupt can find it by ID)
+        let interrupt_id = interrupt.id.clone();
         if let Some(env) = self.process_envelopes.get(pid) {
             self.interrupts.register_flow_interrupt(
                 interrupt.clone(),
@@ -457,6 +433,11 @@ impl Kernel {
             );
         }
 
+        // Mark on PCB for resolve_interrupt's awareness.
+        if let Some(pcb) = self.lifecycle.get_mut(pid) {
+            pcb.pending_interrupt = Some(interrupt_id);
+        }
+
         // Set on envelope (get_next_instruction will see it → WaitInterrupt)
         let env = self.process_envelopes.get_mut(pid)
             .ok_or_else(|| Error::not_found(format!("Envelope not found: {}", pid)))?;
@@ -464,92 +445,34 @@ impl Kernel {
         Ok(())
     }
 
-    /// Resume a process from waiting/blocked (lifecycle transition).
-    ///
-    /// For pipeline-loop processes (lifecycle stays Ready), use
-    /// `clear_process_interrupt` instead.
-    pub fn resume_process(&mut self, pid: &ProcessId) -> Result<()> {
-        self.lifecycle.resume(pid)?;
-        if let Some(env) = self.process_envelopes.get_mut(pid) {
-            env.clear_interrupt();
-        }
-        Ok(())
-    }
-
-    /// Clear an interrupt on a process without lifecycle state transition.
-    ///
-    /// Counterpart to `set_process_interrupt`. Used when resolving interrupts
-    /// for pipeline-loop processes that never leave Ready state.
-    pub fn clear_process_interrupt(&mut self, pid: &ProcessId) -> Result<()> {
-        if let Some(env) = self.process_envelopes.get_mut(pid) {
-            env.clear_interrupt();
-        }
-        Ok(())
-    }
-
-    /// Resolve an interrupt on a process, regardless of how it was created.
-    ///
-    /// Handles both lifecycle-managed interrupts (process in Waiting/Blocked state)
-    /// and pipeline-loop interrupts (process stays in Ready state). Stores the
-    /// interrupt response in envelope metadata for the next agent dispatch.
+    /// Resolve a pending interrupt and stash the response for the next agent dispatch.
     pub fn resolve_process_interrupt(
         &mut self,
         pid: &ProcessId,
         interrupt_id: &str,
         response: crate::envelope::InterruptResponse,
     ) -> Result<()> {
-        // 1. Resolve in interrupt manager
         let response_json = serde_json::to_value(&response).unwrap_or_default();
         if !self.interrupts.resolve(interrupt_id, response, None) {
             return Err(Error::not_found(format!("Interrupt {} not found", interrupt_id)));
         }
 
-        // 2. Store response for the re-dispatched agent (extracted by get_next_instruction)
         if let Some(env) = self.process_envelopes.get_mut(pid) {
             env.audit.metadata.insert("_interrupt_response".to_string(), response_json);
-        }
-
-        // 3. Clear interrupt + resume lifecycle if applicable
-        let is_lifecycle_managed = self.lifecycle.get(pid)
-            .map(|p| matches!(p.state, ProcessState::Waiting | ProcessState::Blocked))
-            .unwrap_or(false);
-
-        if is_lifecycle_managed {
-            self.resume_process(pid)
-        } else {
-            self.clear_process_interrupt(pid)
-        }
-    }
-
-    /// Resume a process with optional envelope updates.
-    pub fn resume_process_with_update(
-        &mut self,
-        pid: &ProcessId,
-        envelope_update: Option<HashMap<String, serde_json::Value>>,
-    ) -> Result<()> {
-        self.lifecycle.resume(pid)?;
-        if let Some(env) = self.process_envelopes.get_mut(pid) {
             env.clear_interrupt();
-            if let Some(updates) = envelope_update {
-                env.merge_updates(updates);
-            }
+        }
+        if let Some(pcb) = self.lifecycle.get_mut(pid) {
+            pcb.pending_interrupt = None;
         }
         Ok(())
     }
 
-    /// Terminate a process.
+    /// Terminate a process and remove it from the kernel.
     pub fn terminate_process(&mut self, pid: &ProcessId) -> Result<()> {
         self.lifecycle.terminate(pid)?;
         if let Some(env) = self.process_envelopes.get_mut(pid) {
             env.terminate("Process terminated");
         }
-        Ok(())
-    }
-
-    /// Cleanup and remove a terminated process.
-    pub fn cleanup_process(&mut self, pid: &ProcessId) -> Result<()> {
-        self.lifecycle.cleanup(pid)?;
-        self.lifecycle.remove(pid)?;
         self.process_envelopes.remove(pid);
         self.orchestrator.cleanup_session(pid);
         Ok(())
@@ -599,15 +522,7 @@ impl Kernel {
     pub fn get_system_status(&self) -> SystemStatus {
         let total = self.lifecycle.count();
         let mut by_state = HashMap::new();
-        for state in &[
-            ProcessState::New,
-            ProcessState::Ready,
-            ProcessState::Running,
-            ProcessState::Waiting,
-            ProcessState::Blocked,
-            ProcessState::Terminated,
-            ProcessState::Zombie,
-        ] {
+        for state in &[ProcessState::Ready, ProcessState::Running, ProcessState::Terminated] {
             by_state.insert(*state, self.lifecycle.count_by_state(*state));
         }
 
@@ -645,7 +560,7 @@ mod tests {
     use crate::kernel::orchestrator::{
         Instruction, PipelineConfig, PipelineStage,
     };
-    use crate::kernel::{Kernel, SchedulingPriority};
+    use crate::kernel::Kernel;
     use crate::types::{ProcessId, RequestId, UserId, SessionId};
 
     fn test_stage(name: &str) -> PipelineStage {
@@ -666,7 +581,6 @@ mod tests {
             RequestId::must("req-1"),
             UserId::must("user-1"),
             SessionId::must("sess-1"),
-            SchedulingPriority::Normal,
             None,
         );
     }

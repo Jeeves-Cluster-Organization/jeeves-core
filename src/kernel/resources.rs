@@ -95,8 +95,6 @@ impl ResourceTracker {
             total.iterations += usage.iterations;
             total.tokens_in += usage.tokens_in;
             total.tokens_out += usage.tokens_out;
-            total.inference_requests += usage.inference_requests;
-            total.inference_input_chars += usage.inference_input_chars;
         }
         total
     }

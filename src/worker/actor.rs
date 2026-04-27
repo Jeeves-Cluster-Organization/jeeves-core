@@ -6,7 +6,7 @@
 use tracing::Instrument;
 
 use crate::kernel::orchestrator_types::Instruction;
-use crate::kernel::{Kernel, SchedulingPriority};
+use crate::kernel::Kernel;
 use crate::worker::handle::{KernelCommand, KernelHandle};
 use tokio::sync::mpsc;
 use tokio_util::sync::CancellationToken;
@@ -60,7 +60,6 @@ async fn dispatch(kernel: &mut Kernel, cmd: KernelCommand) {
                     envelope.identity.request_id.clone(),
                     envelope.identity.user_id.clone(),
                     envelope.identity.session_id.clone(),
-                    SchedulingPriority::Normal,
                     None,
                 );
             }
@@ -124,7 +123,6 @@ async fn dispatch(kernel: &mut Kernel, cmd: KernelCommand) {
             request_id,
             user_id,
             session_id,
-            priority,
             resp_tx,
         } => {
             let result = kernel.create_process(
@@ -132,7 +130,6 @@ async fn dispatch(kernel: &mut Kernel, cmd: KernelCommand) {
                 request_id,
                 user_id,
                 session_id,
-                priority,
                 None,
             );
             let _ = resp_tx.send(result);

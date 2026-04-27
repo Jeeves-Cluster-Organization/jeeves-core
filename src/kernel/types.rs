@@ -2,104 +2,34 @@
 
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
-use crate::envelope::InterruptKind;
 use crate::types::{ProcessId, RequestId, SessionId, UserId};
 
-/// Process lifecycle state (Unix-like).
+/// Process lifecycle state.
 ///
-/// State transitions:
-/// ```text
-/// NEW → READY → RUNNING → {WAITING | BLOCKED | TERMINATED}
-///                    ↓         ↓
-///                  READY     ZOMBIE
-/// ```
+/// 3-state machine. A process pauses on a tool-confirmation interrupt by
+/// staying in `Running` and stamping `pending_interrupt` on its PCB; the
+/// kernel doesn't have a separate Waiting/Blocked state for that case.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Hash)]
 #[serde(rename_all = "SCREAMING_SNAKE_CASE")]
 pub enum ProcessState {
-    New,
+    /// Created and ready to run; not yet started.
     Ready,
+    /// Active execution. May be suspended on a pending interrupt; consult
+    /// `ProcessControlBlock::pending_interrupt` to differentiate.
     Running,
-    Waiting,
-    Blocked,
+    /// Terminated. Processes in this state are immediately removed by the
+    /// kernel; they don't linger as zombies.
     Terminated,
-    Zombie,
 }
 
 impl ProcessState {
     /// Check if this is a terminal state.
     pub fn is_terminal(self) -> bool {
-        matches!(self, ProcessState::Terminated | ProcessState::Zombie)
-    }
-
-    /// Check if process can be scheduled.
-    pub fn can_schedule(self) -> bool {
-        matches!(self, ProcessState::New | ProcessState::Ready)
-    }
-
-    /// Check if process is runnable.
-    pub fn is_runnable(self) -> bool {
-        self == ProcessState::Ready
-    }
-
-    /// Check if transition is valid.
-    pub fn can_transition_to(self, to: ProcessState) -> bool {
-        match (self, to) {
-            // NEW
-            (ProcessState::New, ProcessState::Ready) => true,
-            (ProcessState::New, ProcessState::Terminated) => true,
-            // READY
-            (ProcessState::Ready, ProcessState::Running) => true,
-            (ProcessState::Ready, ProcessState::Terminated) => true,
-            // RUNNING
-            (ProcessState::Running, ProcessState::Ready) => true, // Preempted
-            (ProcessState::Running, ProcessState::Waiting) => true, // I/O
-            (ProcessState::Running, ProcessState::Blocked) => true, // Resource exhausted
-            (ProcessState::Running, ProcessState::Terminated) => true,
-            // WAITING
-            (ProcessState::Waiting, ProcessState::Ready) => true,
-            (ProcessState::Waiting, ProcessState::Terminated) => true,
-            // BLOCKED
-            (ProcessState::Blocked, ProcessState::Ready) => true,
-            (ProcessState::Blocked, ProcessState::Terminated) => true,
-            // TERMINATED
-            (ProcessState::Terminated, ProcessState::Zombie) => true,
-            // ZOMBIE is terminal
-            (ProcessState::Zombie, _) => false,
-            // All other transitions invalid
-            _ => false,
-        }
+        self == ProcessState::Terminated
     }
 }
 
-/// Scheduling priority.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Hash, Default)]
-#[serde(rename_all = "SCREAMING_SNAKE_CASE")]
-pub enum SchedulingPriority {
-    Realtime,
-    High,
-    #[default]
-    Normal,
-    Low,
-    Idle,
-}
-
-impl SchedulingPriority {
-    /// Get heap priority value (lower = higher priority).
-    pub fn to_heap_value(self) -> i32 {
-        match self {
-            SchedulingPriority::Realtime => 0,
-            SchedulingPriority::High => 1,
-            SchedulingPriority::Normal => 2,
-            SchedulingPriority::Low => 3,
-            SchedulingPriority::Idle => 4,
-        }
-    }
-}
-
-// Default derived via #[default] attribute on Normal variant above.
-
-/// Resource quota (cgroup-style limits).
-/// Matches proto ResourceQuota exactly.
+/// Resource quota — bounds enforced per process.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct ResourceQuota {
     pub max_input_tokens: i32,
@@ -110,12 +40,6 @@ pub struct ResourceQuota {
     pub max_agent_hops: i32,
     pub max_iterations: i32,
     pub timeout_seconds: i32,
-    pub soft_timeout_seconds: i32,
-    pub rate_limit_rpm: i32,
-    pub rate_limit_rph: i32,
-    pub rate_limit_burst: i32,
-    pub max_inference_requests: i32,
-    pub max_inference_input_chars: i32,
 }
 
 impl ResourceQuota {
@@ -129,12 +53,6 @@ impl ResourceQuota {
             max_agent_hops: 10,
             max_iterations: 20,
             timeout_seconds: 300,
-            soft_timeout_seconds: 240,
-            rate_limit_rpm: 60,
-            rate_limit_rph: 1000,
-            rate_limit_burst: 10,
-            max_inference_requests: 50,
-            max_inference_input_chars: 500_000,
         }
     }
 }
@@ -155,8 +73,6 @@ pub struct ResourceUsage {
     pub tokens_in: i64,
     pub tokens_out: i64,
     pub elapsed_seconds: f64,
-    pub inference_requests: i32,
-    pub inference_input_chars: i64,
 }
 
 /// Which quota was exceeded and by how much.
@@ -168,10 +84,7 @@ pub enum QuotaViolation {
     Iterations { used: i32, limit: i32 },
     TokensIn { used: i64, limit: i64 },
     TokensOut { used: i64, limit: i64 },
-    SoftTimeout { elapsed: f64, limit: f64 },
     Timeout { elapsed: f64, limit: f64 },
-    InferenceRequests { used: i32, limit: i32 },
-    InferenceInputChars { used: i64, limit: i64 },
 }
 
 impl std::fmt::Display for QuotaViolation {
@@ -183,10 +96,7 @@ impl std::fmt::Display for QuotaViolation {
             Self::Iterations { used, limit } => write!(f, "iterations {} > {}", used, limit),
             Self::TokensIn { used, limit } => write!(f, "tokens_in {} > {}", used, limit),
             Self::TokensOut { used, limit } => write!(f, "tokens_out {} > {}", used, limit),
-            Self::SoftTimeout { elapsed, limit } => write!(f, "soft_timeout {} > {}", elapsed, limit),
             Self::Timeout { elapsed, limit } => write!(f, "elapsed_seconds {} > {}", elapsed, limit),
-            Self::InferenceRequests { used, limit } => write!(f, "inference_requests {} > {}", used, limit),
-            Self::InferenceInputChars { used, limit } => write!(f, "inference_input_chars {} > {}", used, limit),
         }
     }
 }
@@ -212,31 +122,21 @@ impl ResourceUsage {
         if self.tokens_out > quota.max_output_tokens as i64 {
             return Some(QuotaViolation::TokensOut { used: self.tokens_out, limit: quota.max_output_tokens as i64 });
         }
-        if quota.soft_timeout_seconds > 0 && self.elapsed_seconds > quota.soft_timeout_seconds as f64 {
-            return Some(QuotaViolation::SoftTimeout { elapsed: self.elapsed_seconds, limit: quota.soft_timeout_seconds as f64 });
-        }
         if quota.timeout_seconds > 0 && self.elapsed_seconds > quota.timeout_seconds as f64 {
             return Some(QuotaViolation::Timeout { elapsed: self.elapsed_seconds, limit: quota.timeout_seconds as f64 });
-        }
-        if self.inference_requests > quota.max_inference_requests {
-            return Some(QuotaViolation::InferenceRequests { used: self.inference_requests, limit: quota.max_inference_requests });
-        }
-        if self.inference_input_chars > quota.max_inference_input_chars as i64 {
-            return Some(QuotaViolation::InferenceInputChars { used: self.inference_input_chars, limit: quota.max_inference_input_chars as i64 });
         }
         None
     }
 }
 
-/// Process Control Block - kernel's metadata about a running process.
+/// Process Control Block — kernel's metadata about a running process.
 ///
-/// The actual request state is in Envelope; this tracks:
-/// - Scheduling state
-/// - Resource accounting
-/// - Interrupt status
+/// The actual request state is in `Envelope`; this tracks scheduling state,
+/// resource accounting, and a pointer to any pending tool-confirmation
+/// interrupt by ID (resolved through the interrupts service, not the PCB).
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct ProcessControlBlock {
-    // Identity (typed — validated at construction)
+    // Identity
     pub pid: ProcessId,
     pub request_id: RequestId,
     pub user_id: UserId,
@@ -244,36 +144,22 @@ pub struct ProcessControlBlock {
 
     // State
     pub state: ProcessState,
-    pub priority: SchedulingPriority,
 
     // Resource tracking
     pub quota: ResourceQuota,
     pub usage: ResourceUsage,
 
-    // Scheduling timestamps
+    // Timestamps
     pub created_at: DateTime<Utc>,
-
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub started_at: Option<DateTime<Utc>>,
-
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub completed_at: Option<DateTime<Utc>>,
 
+    /// ID of a tool-confirmation interrupt this process is currently
+    /// suspended on. None when actively running.
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub last_scheduled_at: Option<DateTime<Utc>>,
-
-    // Interrupt handling
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub pending_interrupt: Option<InterruptKind>,
-
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub block_reason: Option<String>,
-
-    // Parent/child relationships
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub parent_pid: Option<ProcessId>,
-
-    pub child_pids: Vec<ProcessId>,
+    pub pending_interrupt: Option<String>,
 }
 
 impl ProcessControlBlock {
@@ -283,56 +169,29 @@ impl ProcessControlBlock {
             request_id,
             user_id,
             session_id,
-            state: ProcessState::New,
-            priority: SchedulingPriority::default(),
+            state: ProcessState::Ready,
             quota: ResourceQuota::default(),
             usage: ResourceUsage::default(),
             created_at: Utc::now(),
             started_at: None,
             completed_at: None,
-            last_scheduled_at: None,
             pending_interrupt: None,
-            block_reason: None,
-            parent_pid: None,
-            child_pids: Vec::new(),
         }
     }
 
     /// Transition to RUNNING state.
     pub(crate) fn start(&mut self) {
-        let now = Utc::now();
         self.state = ProcessState::Running;
-        self.started_at = Some(now);
-        self.last_scheduled_at = Some(now);
+        self.started_at = Some(Utc::now());
     }
 
-    /// Transition to TERMINATED state.
+    /// Transition to TERMINATED state and stamp elapsed time.
     pub(crate) fn complete(&mut self) {
         let now = Utc::now();
         self.state = ProcessState::Terminated;
         self.completed_at = Some(now);
         if let Some(started) = self.started_at {
             self.usage.elapsed_seconds = (now - started).num_milliseconds() as f64 / 1000.0;
-        }
-    }
-
-    /// Transition to BLOCKED state.
-    pub(crate) fn block(&mut self, reason: String) {
-        self.state = ProcessState::Blocked;
-        self.block_reason = Some(reason);
-    }
-
-    /// Transition to WAITING state.
-    pub(crate) fn wait(&mut self, interrupt_kind: InterruptKind) {
-        self.state = ProcessState::Waiting;
-        self.pending_interrupt = Some(interrupt_kind);
-    }
-
-    /// Resume from WAITING/BLOCKED to READY.
-    pub(crate) fn resume(&mut self) {
-        if matches!(self.state, ProcessState::Waiting | ProcessState::Blocked) {
-            self.state = ProcessState::Ready;
-            self.pending_interrupt = None;
         }
     }
 
@@ -344,22 +203,11 @@ impl ProcessControlBlock {
         let mut usage = self.usage.clone();
         if let Some(started) = self.started_at {
             if self.completed_at.is_none() {
-                // Process still running — compute live elapsed time
                 let now = Utc::now();
                 usage.elapsed_seconds = (now - started).num_milliseconds() as f64 / 1000.0;
             }
         }
         usage.exceeds_quota(&self.quota)
-    }
-
-    /// Check if process can be scheduled.
-    pub fn can_schedule(&self) -> bool {
-        self.state.can_schedule()
-    }
-
-    /// Check if process is runnable.
-    pub fn is_runnable(&self) -> bool {
-        self.state.is_runnable()
     }
 
     /// Check if process terminated.

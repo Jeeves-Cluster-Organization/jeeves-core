@@ -8,7 +8,7 @@ use crate::envelope::Envelope;
 use crate::kernel::orchestrator_types::{
     AgentExecutionMetrics, Instruction, PipelineConfig, SessionState,
 };
-use crate::kernel::{ProcessControlBlock, SchedulingPriority, SystemStatus};
+use crate::kernel::{ProcessControlBlock, SystemStatus};
 use crate::types::{ProcessId, RequestId, Result, SessionId, UserId};
 use std::collections::HashMap;
 use tokio::sync::{mpsc, oneshot};
@@ -51,7 +51,6 @@ pub enum KernelCommand {
         request_id: RequestId,
         user_id: UserId,
         session_id: SessionId,
-        priority: SchedulingPriority,
         resp_tx: oneshot::Sender<Result<ProcessControlBlock>>,
     },
     /// Terminate a process.
@@ -235,14 +234,12 @@ impl KernelHandle {
         request_id: RequestId,
         user_id: UserId,
         session_id: SessionId,
-        priority: SchedulingPriority,
     ) -> Result<ProcessControlBlock> {
         kernel_request!(self, CreateProcess {
             process_id: process_id,
             request_id: request_id,
             user_id: user_id,
             session_id: session_id,
-            priority: priority,
         })
     }
 
