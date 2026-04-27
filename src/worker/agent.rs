@@ -237,9 +237,8 @@ impl Agent for LlmAgent {
                 // Tool confirmation gate: check before executing
                 if ctx.interrupt_response.is_none() {
                     if let Some(confirmation) = self.tools.requires_confirmation(&tc.name, &tc.arguments) {
-                        let mut interrupt = crate::envelope::FlowInterrupt::new(
-                            crate::envelope::InterruptKind::Confirmation,
-                        ).with_message(confirmation.message.clone());
+                        let mut interrupt = crate::envelope::FlowInterrupt::new()
+                            .with_message(confirmation.message.clone());
                         if let Some(data) = confirmation.action_data {
                             interrupt = interrupt.with_data(HashMap::from([("action_data".to_string(), data)]));
                         }
@@ -419,9 +418,8 @@ impl Agent for ToolDelegatingAgent {
         // Tool confirmation gate: check before executing
         if ctx.interrupt_response.is_none() {
             if let Some(confirmation) = self.tools.requires_confirmation(&self.tool_name, &params) {
-                let mut interrupt = crate::envelope::FlowInterrupt::new(
-                    crate::envelope::InterruptKind::Confirmation,
-                ).with_message(confirmation.message.clone());
+                let mut interrupt = crate::envelope::FlowInterrupt::new()
+                    .with_message(confirmation.message.clone());
                 if let Some(data) = confirmation.action_data {
                     interrupt = interrupt.with_data(HashMap::from([("action_data".to_string(), data)]));
                 }

@@ -6,7 +6,6 @@ use std::collections::{HashMap, HashSet};
 
 use crate::types::{EnvelopeId, RequestId, SessionId, UserId};
 
-use super::enums::InterruptKind;
 
 /// Response to a flow interrupt.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -26,10 +25,13 @@ pub struct InterruptResponse {
     pub received_at: DateTime<Utc>,
 }
 
-/// Flow interrupt (clarification, confirmation, etc.).
+/// Flow interrupt — pipeline pause awaiting consumer response.
+///
+/// Self-describes via `message`, `question`, and `data`. There is no
+/// kind discriminator; if a future need arises for typed variants the
+/// enum can be re-introduced.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct FlowInterrupt {
-    pub kind: InterruptKind,
     pub id: String,
 
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -51,9 +53,8 @@ pub struct FlowInterrupt {
 }
 
 impl FlowInterrupt {
-    pub fn new(kind: InterruptKind) -> Self {
+    pub fn new() -> Self {
         Self {
-            kind,
             id: format!("int_{}", &uuid::Uuid::new_v4().simple().to_string()[..16]),
             question: None,
             message: None,
@@ -82,6 +83,12 @@ impl FlowInterrupt {
     pub fn with_expiry(mut self, duration: std::time::Duration) -> Self {
         self.expires_at = Some(Utc::now() + chrono::Duration::from_std(duration).unwrap_or(chrono::TimeDelta::MAX));
         self
+    }
+}
+
+impl Default for FlowInterrupt {
+    fn default() -> Self {
+        Self::new()
     }
 }
 

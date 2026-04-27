@@ -320,11 +320,11 @@ mod tests {
 
     #[test]
     fn pending_interrupt_returns_wait() {
-        use crate::envelope::{FlowInterrupt, InterruptKind};
+        use crate::envelope::FlowInterrupt;
         let config = PipelineConfig::test_default("p", vec![linear_stage("s1", None)]);
         let pid = ProcessId::must("p1");
         let mut envelope = make_envelope(&config);
-        envelope.set_interrupt(FlowInterrupt::new(InterruptKind::Confirmation));
+        envelope.set_interrupt(FlowInterrupt::new());
 
         let mut orch = Orchestrator::new();
         orch.initialize_session(pid.clone(), config, &mut envelope, false).unwrap();

@@ -927,7 +927,6 @@ async fn test_confirmation_gate_mcp_agent_buffered() {
     assert!(output.interrupt_request.is_some(), "Should request confirmation");
     assert!(output.success, "Interrupt request is not a failure");
     let interrupt = output.interrupt_request.unwrap();
-    assert_eq!(interrupt.kind, jeeves_core::envelope::InterruptKind::Confirmation);
     assert!(interrupt.message.as_ref().unwrap().contains("destructive"));
 
     // Second call: with interrupt_response → should skip confirmation and execute

@@ -494,14 +494,13 @@ mod tests {
         assert!(env.interrupts.interrupt.is_none());
 
         // Set an interrupt
-        let interrupt = FlowInterrupt::new(InterruptKind::Clarification)
+        let interrupt = FlowInterrupt::new()
             .with_question("Which database?".to_string());
         env.set_interrupt(interrupt);
 
         assert!(env.interrupts.is_pending());
         assert!(env.interrupts.interrupt.is_some());
         let int = env.interrupts.interrupt.as_ref().unwrap();
-        assert_eq!(int.kind, InterruptKind::Clarification);
         assert_eq!(int.question.as_deref(), Some("Which database?"));
 
         // Clear the interrupt
@@ -562,29 +561,7 @@ mod tests {
         }
     }
 
-    // ── 11. serde: InterruptKind ────────────────────────────────────────
-
-    #[test]
-    fn test_serde_interrupt_kind() {
-        let cases = vec![
-            (InterruptKind::Clarification, "\"clarification\""),
-            (InterruptKind::Confirmation, "\"confirmation\""),
-            (InterruptKind::AgentReview, "\"agent_review\""),
-            (InterruptKind::Checkpoint, "\"checkpoint\""),
-            (InterruptKind::ResourceExhausted, "\"resource_exhausted\""),
-            (InterruptKind::Timeout, "\"timeout\""),
-            (InterruptKind::SystemError, "\"system_error\""),
-        ];
-
-        for (variant, expected_json) in cases {
-            let serialized = serde_json::to_string(&variant).unwrap();
-            assert_eq!(serialized, expected_json, "serialize {:?}", variant);
-            let deserialized: InterruptKind = serde_json::from_str(&serialized).unwrap();
-            assert_eq!(deserialized, variant, "round-trip {:?}", variant);
-        }
-    }
-
-    // ── 12. serde: ProcessingStatus ─────────────────────────────────────
+    // ── 11. serde: ProcessingStatus ─────────────────────────────────────
 
     #[test]
     fn test_serde_processing_status() {

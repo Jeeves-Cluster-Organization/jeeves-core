@@ -37,19 +37,6 @@ impl TerminalReason {
     }
 }
 
-/// Interrupt type.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case")]
-pub enum InterruptKind {
-    Clarification,
-    Confirmation,
-    AgentReview,
-    Checkpoint,
-    ResourceExhausted,
-    Timeout,
-    SystemError,
-}
-
 /// Risk semantic for tool execution behavior.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]

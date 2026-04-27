@@ -26,7 +26,7 @@ pub mod routing;
 mod kernel_orchestration;
 
 // Re-export key types
-pub use interrupts::{InterruptConfig, InterruptService, InterruptStatus, KernelInterrupt};
+pub use interrupts::{InterruptService, PendingInterrupt};
 pub use lifecycle::LifecycleManager;
 pub use resources::ResourceTracker;
 pub use types::{
