@@ -242,7 +242,7 @@ When using `PipelineRunner.from_json()`, agents are auto-created from stage conf
 | `node_kind: Gate` | `DeterministicAgent` |
 | `child_pipeline` set | `PipelineAgent` |
 | `has_llm: true` | `LlmAgent` |
-| `has_llm: false` + matching tool | `McpDelegatingAgent` |
+| `has_llm: false` + matching tool | `ToolDelegatingAgent` |
 | `has_llm: false` + no tool | `DeterministicAgent` |
 
 ---

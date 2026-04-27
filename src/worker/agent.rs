@@ -381,19 +381,19 @@ impl LlmAgent {
     }
 }
 
-/// MCP-delegating agent — forwards to an MCP tool, returns its output.
+/// Tool-delegating agent — forwards to a named `ToolExecutor`, returns its output.
 ///
-/// Bridges deterministic Python agents: kernel dispatches to this Agent impl,
-/// which calls an MCP tool with the full agent context as params, returns
-/// the tool output as agent output.
+/// Used for non-LLM stages whose `agent` name matches a registered tool.
+/// The kernel dispatches to this Agent impl, which calls the tool with the
+/// full agent context as params and returns the tool output as agent output.
 #[derive(Debug)]
-pub struct McpDelegatingAgent {
+pub struct ToolDelegatingAgent {
     pub tool_name: String,
     pub tools: Arc<ToolRegistry>,
 }
 
 #[async_trait]
-impl Agent for McpDelegatingAgent {
+impl Agent for ToolDelegatingAgent {
     #[instrument(skip(self, ctx), fields(tool = %self.tool_name))]
     async fn process(&self, ctx: &AgentContext) -> crate::types::Result<AgentOutput> {
         let call_id = format!("mcp_{}", self.tool_name);

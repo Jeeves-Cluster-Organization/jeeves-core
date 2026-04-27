@@ -7,7 +7,7 @@ use std::sync::Arc;
 
 use crate::kernel::orchestrator_types::{NodeKind, PipelineConfig};
 use crate::worker::agent::{
-    Agent, AgentRegistry, DeterministicAgent, LlmAgent, McpDelegatingAgent,
+    Agent, AgentRegistry, DeterministicAgent, LlmAgent, ToolDelegatingAgent,
 };
 use crate::worker::llm::LlmProvider;
 use crate::worker::prompts::PromptRegistry;
@@ -125,7 +125,7 @@ fn merge_agents(
 
             _ => {
                 if ctx.tools.get(agent_name).is_some() {
-                    Arc::new(McpDelegatingAgent {
+                    Arc::new(ToolDelegatingAgent {
                         tool_name: agent_name.clone(),
                         tools: stage_tools, // ACL-filtered if allowed_tools set
                     })
@@ -222,7 +222,7 @@ mod tests {
             .build();
 
         let agent = agents.get("my_tool").expect("my_tool should exist");
-        assert!((agent.as_ref() as &dyn Any).downcast_ref::<McpDelegatingAgent>().is_some());
+        assert!((agent.as_ref() as &dyn Any).downcast_ref::<ToolDelegatingAgent>().is_some());
     }
 
     #[test]

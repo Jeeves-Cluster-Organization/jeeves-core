@@ -225,7 +225,7 @@ impl ToolRegistryBuilder {
 
 /// ACL-enforcing wrapper — filters tool access at the ToolRegistry layer.
 ///
-/// All agent types (LlmAgent, McpDelegatingAgent, etc.) get ACL enforcement
+/// All agent types (LlmAgent, ToolDelegatingAgent, etc.) get ACL enforcement
 /// automatically when their ToolRegistry is wrapped with this.
 ///
 /// - `list_tools()` returns only allowed tools (LLM never sees disallowed ones)

@@ -966,10 +966,10 @@ impl ToolExecutor for ConfirmableToolExecutor {
     }
 }
 
-/// McpDelegatingAgent with confirmable tool → first run returns interrupt, resolve → re-run executes.
+/// ToolDelegatingAgent with confirmable tool → first run returns interrupt, resolve → re-run executes.
 #[tokio::test]
 async fn test_confirmation_gate_mcp_agent_buffered() {
-    use jeeves_core::worker::agent::{McpDelegatingAgent, Agent, AgentContext};
+    use jeeves_core::worker::agent::{ToolDelegatingAgent, Agent, AgentContext};
     use std::collections::HashMap;
 
     let mut tool_reg = ToolRegistry::new();
@@ -979,7 +979,7 @@ async fn test_confirmation_gate_mcp_agent_buffered() {
     }
     let tools = Arc::new(tool_reg);
 
-    let agent = McpDelegatingAgent {
+    let agent = ToolDelegatingAgent {
         tool_name: "dangerous_op".to_string(),
         tools: tools.clone(),
     };
@@ -1018,10 +1018,10 @@ async fn test_confirmation_gate_mcp_agent_buffered() {
     assert_eq!(output2.output["executed"], true);
 }
 
-/// McpDelegatingAgent with safe tool → no interrupt, executes directly.
+/// ToolDelegatingAgent with safe tool → no interrupt, executes directly.
 #[tokio::test]
 async fn test_confirmation_gate_safe_tool_no_interrupt() {
-    use jeeves_core::worker::agent::{McpDelegatingAgent, Agent, AgentContext};
+    use jeeves_core::worker::agent::{ToolDelegatingAgent, Agent, AgentContext};
     use std::collections::HashMap;
 
     let mut tool_reg = ToolRegistry::new();
@@ -1030,7 +1030,7 @@ async fn test_confirmation_gate_safe_tool_no_interrupt() {
         tool_reg.register(t.name.clone(), executor.clone());
     }
 
-    let agent = McpDelegatingAgent {
+    let agent = ToolDelegatingAgent {
         tool_name: "safe_op".to_string(),
         tools: Arc::new(tool_reg),
     };
@@ -1059,7 +1059,7 @@ async fn test_confirmation_gate_safe_tool_no_interrupt() {
 #[tokio::test]
 async fn test_confirmation_gate_full_pipeline_buffered() {
     use jeeves_core::envelope::Envelope;
-    use jeeves_core::worker::agent::McpDelegatingAgent;
+    use jeeves_core::worker::agent::ToolDelegatingAgent;
 
     let cancel = CancellationToken::new();
     let handle = spawn_kernel(Kernel::new(), cancel.clone());
@@ -1086,7 +1086,7 @@ async fn test_confirmation_gate_full_pipeline_buffered() {
     }
 
     let mut agents = AgentRegistry::new();
-    agents.register("execute", Arc::new(McpDelegatingAgent {
+    agents.register("execute", Arc::new(ToolDelegatingAgent {
         tool_name: "dangerous_op".to_string(),
         tools: Arc::new(tool_reg),
     }));

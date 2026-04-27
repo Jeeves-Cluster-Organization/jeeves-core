@@ -80,7 +80,7 @@ Rust capability crate
 │       ▼                    │                 │
 │  Agent tasks (concurrent tokio tasks)        │
 │  ├── LlmAgent (genai HTTP)                   │
-│  ├── McpDelegatingAgent (tool dispatch)      │
+│  ├── ToolDelegatingAgent (tool dispatch)      │
 │  └── DeterministicAgent (passthrough)        │
 └──────────────────────────────────────────────┘
 ```
