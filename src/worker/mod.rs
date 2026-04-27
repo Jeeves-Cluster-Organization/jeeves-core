@@ -7,7 +7,6 @@ pub mod agent;
 pub mod agent_factory;
 pub mod handle;
 pub mod llm;
-pub mod mcp;
 pub mod prompts;
 pub mod tools;
 
