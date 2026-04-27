@@ -86,6 +86,11 @@ pub struct LlmAgent {
     pub max_tool_rounds: u32,
     /// Optional content resolver for lazy `ContentPart::Ref` resolution.
     pub content_resolver: Option<Arc<dyn ContentResolver>>,
+    /// Lifecycle hooks for the ReAct loop. Each hook may override any
+    /// subset of `before_llm_call` / `before_tool_call` / `after_tool_call`.
+    /// Hooks run in registration order; for `before_tool_call`, the first
+    /// non-`Continue` decision wins.
+    pub hooks: Vec<crate::worker::hooks::DynHook>,
 }
 
 impl Default for LlmAgent {
@@ -100,6 +105,7 @@ impl Default for LlmAgent {
             model: None,
             max_tool_rounds: 10,
             content_resolver: None,
+            hooks: Vec::new(),
         }
     }
 }
@@ -197,6 +203,11 @@ impl Agent for LlmAgent {
                 }
             }
 
+            // Run before_llm_call hooks before each LLM call.
+            for hook in &self.hooks {
+                hook.before_llm_call(&mut messages).await;
+            }
+
             let req = ChatRequest {
                 messages: messages.clone(),
                 temperature: self.temperature,
@@ -274,24 +285,63 @@ impl Agent for LlmAgent {
                         .await;
                 }
 
+                // Run before_tool_call hooks; first non-Continue decision wins.
+                let mut hook_decision: Option<crate::worker::hooks::HookDecision> = None;
+                for hook in &self.hooks {
+                    let d = hook.before_tool_call(tc).await;
+                    if !matches!(d, crate::worker::hooks::HookDecision::Continue) {
+                        hook_decision = Some(d);
+                        break;
+                    }
+                }
+
                 let params = tc.arguments.clone();
                 let tool_start = Instant::now();
-                let (result_text, result_content, tool_success, tool_error) = match self.tools.execute(&tc.name, params).await {
-                    Ok(tool_output) => {
-                        let text = tool_output.data.to_string();
-                        let content = if tool_output.content.is_empty() {
-                            None
-                        } else {
-                            Some(self.resolve_content_parts(&tool_output.content))
-                        };
-                        (text, content, true, None)
-                    }
-                    Err(e) => (
-                        serde_json::json!({"error": e.to_string()}).to_string(),
+                let (mut hook_short_circuit_output, exec_result) = match hook_decision {
+                    Some(crate::worker::hooks::HookDecision::Replace(out)) => (Some(out), None),
+                    Some(crate::worker::hooks::HookDecision::Block { reason }) => (
+                        Some(crate::worker::tools::ToolOutput::json(serde_json::json!({
+                            "error": "tool_call_blocked",
+                            "reason": reason,
+                        }))),
                         None,
-                        false,
-                        Some(e.to_string()),
                     ),
+                    _ => (None, Some(self.tools.execute(&tc.name, params).await)),
+                };
+
+                let (result_text, result_content, tool_success, tool_error) = if let Some(ref mut output) = hook_short_circuit_output {
+                    // after_tool_call still fires on Replace/Block outputs (audit/redact use cases).
+                    for hook in &self.hooks {
+                        hook.after_tool_call(tc, output).await;
+                    }
+                    let text = output.data.to_string();
+                    let content = if output.content.is_empty() {
+                        None
+                    } else {
+                        Some(self.resolve_content_parts(&output.content))
+                    };
+                    (text, content, true, None)
+                } else {
+                    match exec_result.unwrap() {
+                        Ok(mut tool_output) => {
+                            for hook in &self.hooks {
+                                hook.after_tool_call(tc, &mut tool_output).await;
+                            }
+                            let text = tool_output.data.to_string();
+                            let content = if tool_output.content.is_empty() {
+                                None
+                            } else {
+                                Some(self.resolve_content_parts(&tool_output.content))
+                            };
+                            (text, content, true, None)
+                        }
+                        Err(e) => (
+                            serde_json::json!({"error": e.to_string()}).to_string(),
+                            None,
+                            false,
+                            Some(e.to_string()),
+                        ),
+                    }
                 };
                 tool_results.push(ToolCallResult {
                     name: tc.name.clone(),
@@ -699,6 +749,7 @@ mod tests {
             model: None,
             max_tool_rounds: 10,
             content_resolver: None,
+            hooks: Vec::new(),
         };
 
         let long_input = "x".repeat(200); // 200 chars = ~50 tokens
@@ -773,6 +824,7 @@ mod tests {
             model: None,
             max_tool_rounds: 5,
             content_resolver: None,
+            hooks: Vec::new(),
         };
 
         // Set a low token limit: 50 tokens = 200 chars.
@@ -805,6 +857,7 @@ mod tests {
             model: None,
             max_tool_rounds: 10,
             content_resolver: None,
+            hooks: Vec::new(),
         };
 
         let long_input = "y".repeat(500); // 500 chars = ~125 tokens
@@ -834,6 +887,7 @@ mod tests {
             model: None,
             max_tool_rounds: 10,
             content_resolver: None,
+            hooks: Vec::new(),
         };
 
         let ctx = AgentContext {

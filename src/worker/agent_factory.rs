@@ -27,6 +27,7 @@ pub struct AgentFactoryBuilder {
     tools: Arc<ToolRegistry>,
     pipeline_configs: HashMap<String, PipelineConfig>,
     content_resolver: Option<Arc<dyn ContentResolver>>,
+    hooks: Vec<crate::worker::hooks::DynHook>,
 }
 
 impl std::fmt::Debug for AgentFactoryBuilder {
@@ -49,12 +50,21 @@ impl AgentFactoryBuilder {
             tools,
             pipeline_configs: HashMap::new(),
             content_resolver: None,
+            hooks: Vec::new(),
         }
     }
 
     /// Set a content resolver for lazy `ContentPart::Ref` resolution in LLM agents.
     pub fn with_content_resolver(mut self, resolver: Arc<dyn ContentResolver>) -> Self {
         self.content_resolver = Some(resolver);
+        self
+    }
+
+    /// Register an `LlmAgentHook` applied to every `LlmAgent` built by this
+    /// factory. Hooks run in registration order; for `before_tool_call`,
+    /// the first non-`Continue` decision wins.
+    pub fn with_hook(mut self, hook: crate::worker::hooks::DynHook) -> Self {
+        self.hooks.push(hook);
         self
     }
 
@@ -117,6 +127,7 @@ fn merge_agents(
                 model: stage.agent_config.model_role.clone(),
                 max_tool_rounds: crate::worker::agent::DEFAULT_MAX_TOOL_ROUNDS,
                 content_resolver: ctx.content_resolver.clone(),
+                hooks: ctx.hooks.clone(),
             })
         } else if ctx.tools.get(agent_name).is_some() {
             Arc::new(ToolDelegatingAgent {

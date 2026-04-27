@@ -51,6 +51,7 @@ pub mod prelude {
     pub use crate::worker::agent::AgentRegistry;
     pub use crate::worker::agent_factory::AgentFactoryBuilder;
     pub use crate::worker::handle::KernelHandle;
+    pub use crate::worker::hooks::{DynHook, HookDecision, LlmAgentHook};
     pub use crate::worker::llm::{LlmProvider, MessageContent, PipelineEvent};
     pub use crate::worker::prompts::PromptRegistry;
     pub use crate::worker::tools::{ConfirmationRequest, ContentPart, ContentResolver, ToolExecutor, ToolInfo, ToolOutput, ToolRegistry, ToolRegistryBuilder};

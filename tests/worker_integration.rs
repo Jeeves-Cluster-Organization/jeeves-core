@@ -137,6 +137,7 @@ fn make_llm_agent(
         model: None,
         max_tool_rounds: 10,
         content_resolver: None,
+        hooks: Vec::new(),
     }
 }
 
