@@ -572,72 +572,6 @@ async fn test_gate_routing() {
     cancel.cancel();
 }
 
-#[tokio::test]
-async fn test_fork_join_parallel() {
-    use jeeves_core::kernel::orchestrator::{RoutingResult, RoutingContext};
-
-    let mut kernel = Kernel::new();
-    kernel.register_routing_fn("fan_ab", Arc::new(|_: &RoutingContext<'_>| {
-        RoutingResult::Fan(vec!["branch_a".into(), "branch_b".into()])
-    }));
-    let cancel = CancellationToken::new();
-    let handle = spawn_kernel(kernel, cancel.clone());
-
-    // Fork node: routing_fn fans out to branch_a + branch_b, then join into "final"
-    let config: PipelineConfig = serde_json::from_value(serde_json::json!({
-        "name": "fork_join_test",
-        "stages": [
-            {
-                "name": "entry",
-                "agent": "entry",
-                "default_next": "splitter",
-                "has_llm": false
-            },
-            {
-                "name": "splitter",
-                "agent": "splitter",
-                "node_kind": "Fork",
-                "routing_fn": "fan_ab",
-                "default_next": "final",
-                "has_llm": false
-            },
-            {"name": "branch_a", "agent": "branch_a", "has_llm": false},
-            {"name": "branch_b", "agent": "branch_b", "has_llm": false},
-            {"name": "final", "agent": "final", "has_llm": false}
-        ],
-        "max_iterations": 30,
-        "max_llm_calls": 10,
-        "max_agent_hops": 20,
-        "edge_limits": []
-    }))
-    .unwrap();
-
-    let mut agents = AgentRegistry::new();
-    agents.register("entry", Arc::new(DeterministicAgent));
-    agents.register("branch_a", Arc::new(DeterministicAgent));
-    agents.register("branch_b", Arc::new(DeterministicAgent));
-    agents.register("final", Arc::new(DeterministicAgent));
-
-    let result = run_pipeline(
-        &handle,
-        ProcessId::must("fork-join"),
-        config,
-        "hello",
-        "user",
-        "sess",
-        &agents,
-    )
-    .await
-    .expect("fork/join pipeline should complete without deadlock");
-
-    assert!(result.terminated());
-    assert_eq!(result.terminal_reason(), Some(TerminalReason::Completed));
-
-    // Pipeline completed without deadlock — fork/join works
-    // (output keys depend on agent registration names, not stage names)
-
-    cancel.cancel();
-}
 
 // =============================================================================
 // Group D: Routing & Bounds
@@ -892,34 +826,25 @@ async fn test_valid_complex_pipeline() {
     use jeeves_core::kernel::orchestrator::{RoutingResult, RoutingContext};
 
     let mut kernel = Kernel::new();
-    kernel.register_routing_fn("fan_ab", Arc::new(|_: &RoutingContext<'_>| {
-        RoutingResult::Fan(vec!["a".into(), "b".into()])
+    kernel.register_routing_fn("decide", Arc::new(|_: &RoutingContext<'_>| {
+        RoutingResult::Next("middle".into())
     }));
     let cancel = CancellationToken::new();
     let handle = spawn_kernel(kernel, cancel.clone());
 
-    // Complex pipeline with Gate + Fork
+    // Linear pipeline with a routing_fn-driven branch
     let config: PipelineConfig = serde_json::from_value(serde_json::json!({
         "name": "complex",
         "stages": [
-            {"name": "entry", "agent": "entry", "default_next": "gate", "has_llm": false},
-            {"name": "gate", "agent": "gate", "node_kind": "Gate", "default_next": "fork", "has_llm": false},
-            {
-                "name": "fork",
-                "agent": "fork",
-                "node_kind": "Fork",
-                "routing_fn": "fan_ab",
-                "default_next": "final",
-                "has_llm": false
-            },
-            {"name": "a", "agent": "a", "has_llm": false},
-            {"name": "b", "agent": "b", "has_llm": false},
+            {"name": "entry", "agent": "entry", "default_next": "router", "has_llm": false},
+            {"name": "router", "agent": "router", "routing_fn": "decide", "default_next": "fallback", "has_llm": false},
+            {"name": "middle", "agent": "middle", "default_next": "final", "has_llm": false},
+            {"name": "fallback", "agent": "fallback", "has_llm": false},
             {"name": "final", "agent": "final", "has_llm": false}
         ],
         "max_iterations": 30,
         "max_llm_calls": 10,
-        "max_agent_hops": 20,
-        "edge_limits": []
+        "max_agent_hops": 20
     }))
     .unwrap();
 

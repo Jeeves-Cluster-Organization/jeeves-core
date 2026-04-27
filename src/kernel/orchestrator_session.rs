@@ -3,7 +3,6 @@
 use crate::envelope::Envelope;
 use crate::types::{Error, ProcessId, Result};
 use chrono::Utc;
-use std::collections::HashMap;
 use tracing::instrument;
 
 use super::orchestrator::{Orchestrator, PipelineSession};
@@ -53,9 +52,7 @@ impl Orchestrator {
         let session = PipelineSession {
             process_id: process_id.clone(),
             pipeline_config,
-            edge_traversals: HashMap::new(),
-            stage_visits: HashMap::new(),
-            active_parallel: None,
+            stage_visits: std::collections::HashMap::new(),
             created_at: now,
             last_activity_at: now,
             last_routing_decision: None,
@@ -107,18 +104,9 @@ impl Orchestrator {
             current_stage: envelope.pipeline.current_stage.clone(),
             stage_order: envelope.pipeline.stage_order.clone(),
             envelope: envelope_value,
-            edge_traversals: session.edge_traversals.iter()
-                .map(|(k, v)| (k.to_string(), *v))
-                .collect(),
             terminated: envelope.bounds.is_terminated(),
             terminal_reason: envelope.bounds.terminal_reason(),
         }
-    }
-}
-
-impl Default for Orchestrator {
-    fn default() -> Self {
-        Self::new()
     }
 }
 

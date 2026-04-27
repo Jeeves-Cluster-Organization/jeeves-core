@@ -87,26 +87,6 @@ impl Kernel {
                     context.allowed_tools = Some(allowed);
                 }
             }
-            orchestrator::Instruction::RunAgents { agents, context } => {
-                let enrichment = self.build_enrichment_context(process_id);
-                if let Some((agent_context, max_ctx, overflow)) = enrichment {
-                    context.agent_context = Some(agent_context);
-                    context.max_context_tokens = max_ctx;
-                    context.context_overflow = overflow;
-                }
-
-                if let Some(agent_name) = agents.first() {
-                    let stage_name = self.process_envelopes.get(process_id)
-                        .map(|e| e.pipeline.current_stage.clone())
-                        .unwrap_or_default();
-                    context.output_schema = self.orchestrator.get_stage_output_schema(process_id, &stage_name);
-
-                    let allowed = self.tools.access.tools_for_agent(agent_name);
-                    if !allowed.is_empty() {
-                        context.allowed_tools = Some(allowed);
-                    }
-                }
-            }
             orchestrator::Instruction::Terminate { context, .. } => {
                 // Attach final outputs + aggregate metrics so the worker can return them
                 if let Some(envelope) = self.process_envelopes.get(process_id) {
@@ -133,9 +113,6 @@ impl Kernel {
             match &mut instruction {
                 orchestrator::Instruction::RunAgent { context, .. } |
                 orchestrator::Instruction::Terminate { context, .. } => {
-                    context.last_routing_decision = Some(decision);
-                }
-                orchestrator::Instruction::RunAgents { context, .. } => {
                     context.last_routing_decision = Some(decision);
                 }
                 _ => {}

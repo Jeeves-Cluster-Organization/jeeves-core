@@ -230,13 +230,6 @@ pub async fn run_pipeline_loop(
                     .await?;
             }
 
-            Instruction::RunAgents { agents: ref agent_names, ref context } => {
-                execute_parallel(handle, process_id, agent_names, context, agents, event_tx.clone(), pipeline_name.clone())
-                    .await?;
-            }
-
-            Instruction::WaitParallel => continue,
-
             Instruction::WaitInterrupt { ref interrupt } => {
                 let interrupt_id = interrupt.as_ref().map(|i| i.id.clone()).unwrap_or_default();
 
@@ -245,7 +238,7 @@ pub async fn run_pipeline_loop(
                     let _ = tx.send(PipelineEvent::InterruptPending {
                         process_id: process_id.as_str().to_string(),
                         interrupt_id: interrupt_id.clone(),
-                        kind: interrupt.as_ref().map(|i| format!("{:?}", i.kind)).unwrap_or_default(),
+                        kind: String::new(),
                         question: interrupt.as_ref().and_then(|i| i.question.clone()),
                         message: interrupt.as_ref().and_then(|i| i.message.clone()),
                         pipeline: pipeline_name.clone(),
@@ -269,84 +262,6 @@ pub async fn run_pipeline_loop(
             }
         }
     }
-}
-
-/// Execute agents in parallel (fork fan-out) and report each result.
-async fn execute_parallel(
-    handle: &KernelHandle,
-    process_id: &ProcessId,
-    agent_names: &[String],
-    context: &AgentDispatchContext,
-    agents: &AgentRegistry,
-    event_tx: Option<mpsc::Sender<PipelineEvent>>,
-    pipeline_name: Arc<str>,
-) -> Result<()> {
-    let mut join_handles = Vec::new();
-
-    let timeout_secs = context.timeout_seconds;
-
-    for agent_name in agent_names {
-        let ctx = build_agent_context(context, event_tx.clone(), Some(agent_name.clone()), pipeline_name.clone());
-        let agent_name = agent_name.clone();
-        let agent_impl = agents.get(&agent_name).cloned();
-
-        let agent_name_for_span = agent_name.clone();
-        join_handles.push(tokio::spawn(async move {
-            let agent_future = async {
-                if let Some(a) = agent_impl {
-                    a.process(&ctx).await.unwrap_or_else(|e| AgentOutput {
-                        output: serde_json::json!({"error": e.to_string()}),
-                        metrics: Default::default(),
-                        success: false,
-                        error_message: e.to_string(),
-                        interrupt_request: None,
-                    })
-                } else {
-                    DeterministicAgent.process(&ctx).await.unwrap_or_else(|e| AgentOutput {
-                        output: serde_json::json!({"error": e.to_string()}),
-                        metrics: Default::default(),
-                        success: false,
-                        error_message: e.to_string(),
-                        interrupt_request: None,
-                    })
-                }
-            };
-            let output = if let Some(secs) = timeout_secs {
-                match tokio::time::timeout(std::time::Duration::from_secs(secs), agent_future).await {
-                    Ok(output) => output,
-                    Err(_) => AgentOutput {
-                        output: serde_json::json!({"error": format!("Stage timeout after {}s", secs)}),
-                        metrics: Default::default(),
-                        success: false,
-                        error_message: format!("Stage timeout after {}s", secs),
-                        interrupt_request: None,
-                    },
-                }
-            } else {
-                agent_future.await
-            };
-            (agent_name, output)
-        }.instrument(tracing::debug_span!("parallel_agent", agent = %agent_name_for_span))));
-    }
-
-    for task in join_handles {
-        if let Ok((agent_name, output)) = task.await {
-            handle
-                .process_agent_result(
-                    process_id,
-                    &agent_name,
-                    output.output,
-                    None,
-                    output.metrics,
-                    output.success,
-                    &output.error_message,
-                    false,
-                )
-                .await?;
-        }
-    }
-
-    Ok(())
 }
 
 /// Build an AgentContext from an AgentDispatchContext.

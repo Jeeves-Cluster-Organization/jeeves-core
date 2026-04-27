@@ -5,7 +5,7 @@
 use std::collections::HashMap;
 use std::sync::Arc;
 
-use crate::kernel::orchestrator_types::{NodeKind, PipelineConfig};
+use crate::kernel::orchestrator_types::PipelineConfig;
 use crate::worker::agent::{
     Agent, AgentRegistry, DeterministicAgent, LlmAgent, ToolDelegatingAgent,
 };
@@ -101,38 +101,30 @@ fn merge_agents(
             None => ctx.tools.clone(),
         };
 
-        let agent: Arc<dyn Agent> = match stage.node_kind {
-            NodeKind::Gate => Arc::new(DeterministicAgent),
-
-            _ if stage.agent_config.has_llm => {
-                let prompt_key = stage
-                    .agent_config
-                    .prompt_key
-                    .clone()
-                    .unwrap_or_else(|| agent_name.clone());
-                Arc::new(LlmAgent {
-                    llm: ctx.llm.clone(),
-                    prompts: ctx.prompts.clone(),
-                    tools: stage_tools, // ACL-filtered if allowed_tools set
-                    prompt_key,
-                    temperature: stage.agent_config.temperature,
-                    max_tokens: stage.agent_config.max_tokens,
-                    model: stage.agent_config.model_role.clone(),
-                    max_tool_rounds: crate::worker::agent::DEFAULT_MAX_TOOL_ROUNDS,
-                    content_resolver: ctx.content_resolver.clone(),
-                })
-            }
-
-            _ => {
-                if ctx.tools.get(agent_name).is_some() {
-                    Arc::new(ToolDelegatingAgent {
-                        tool_name: agent_name.clone(),
-                        tools: stage_tools, // ACL-filtered if allowed_tools set
-                    })
-                } else {
-                    Arc::new(DeterministicAgent)
-                }
-            }
+        let agent: Arc<dyn Agent> = if stage.agent_config.has_llm {
+            let prompt_key = stage
+                .agent_config
+                .prompt_key
+                .clone()
+                .unwrap_or_else(|| agent_name.clone());
+            Arc::new(LlmAgent {
+                llm: ctx.llm.clone(),
+                prompts: ctx.prompts.clone(),
+                tools: stage_tools,
+                prompt_key,
+                temperature: stage.agent_config.temperature,
+                max_tokens: stage.agent_config.max_tokens,
+                model: stage.agent_config.model_role.clone(),
+                max_tool_rounds: crate::worker::agent::DEFAULT_MAX_TOOL_ROUNDS,
+                content_resolver: ctx.content_resolver.clone(),
+            })
+        } else if ctx.tools.get(agent_name).is_some() {
+            Arc::new(ToolDelegatingAgent {
+                tool_name: agent_name.clone(),
+                tools: stage_tools,
+            })
+        } else {
+            Arc::new(DeterministicAgent)
         };
 
         registry.register(agent_name.clone(), agent);
@@ -147,11 +139,10 @@ mod tests {
     use crate::worker::tools::{ToolExecutor, ToolInfo, ToolRegistryBuilder};
     use std::any::Any;
 
-    fn test_stage(name: &str, has_llm: bool, node_kind: NodeKind) -> PipelineStage {
+    fn test_stage(name: &str, has_llm: bool) -> PipelineStage {
         PipelineStage {
             name: name.to_string(),
             agent: name.to_string(),
-            node_kind,
             agent_config: AgentConfig {
                 has_llm,
                 ..Default::default()
@@ -182,27 +173,13 @@ mod tests {
     }
 
     #[test]
-    fn gate_creates_deterministic() {
-        let tools = ToolRegistryBuilder::new().build();
-        let llm = Arc::new(MockLlmProvider::default());
-        let prompts = Arc::new(PromptRegistry::empty());
-
-        let agents = AgentFactoryBuilder::new(llm, prompts, tools)
-            .add_pipeline(test_config("p", vec![test_stage("gate1", false, NodeKind::Gate)]))
-            .build();
-
-        let agent = agents.get("gate1").expect("gate1 should exist");
-        assert!((agent.as_ref() as &dyn Any).downcast_ref::<DeterministicAgent>().is_some());
-    }
-
-    #[test]
     fn has_llm_creates_llm_agent() {
         let tools = ToolRegistryBuilder::new().build();
         let llm = Arc::new(MockLlmProvider::default());
         let prompts = Arc::new(PromptRegistry::empty());
 
         let agents = AgentFactoryBuilder::new(llm, prompts, tools)
-            .add_pipeline(test_config("p", vec![test_stage("llm1", true, NodeKind::Agent)]))
+            .add_pipeline(test_config("p", vec![test_stage("llm1", true)]))
             .build();
 
         let agent = agents.get("llm1").expect("llm1 should exist");
@@ -210,7 +187,7 @@ mod tests {
     }
 
     #[test]
-    fn tool_match_creates_mcp_agent() {
+    fn tool_match_creates_tool_delegating_agent() {
         let tools = ToolRegistryBuilder::new()
             .add_executor(Arc::new(DummyToolExecutor))
             .build();
@@ -218,7 +195,7 @@ mod tests {
         let prompts = Arc::new(PromptRegistry::empty());
 
         let agents = AgentFactoryBuilder::new(llm, prompts, tools)
-            .add_pipeline(test_config("p", vec![test_stage("my_tool", false, NodeKind::Agent)]))
+            .add_pipeline(test_config("p", vec![test_stage("my_tool", false)]))
             .build();
 
         let agent = agents.get("my_tool").expect("my_tool should exist");
@@ -232,7 +209,7 @@ mod tests {
         let prompts = Arc::new(PromptRegistry::empty());
 
         let agents = AgentFactoryBuilder::new(llm, prompts, tools)
-            .add_pipeline(test_config("p", vec![test_stage("unknown", false, NodeKind::Agent)]))
+            .add_pipeline(test_config("p", vec![test_stage("unknown", false)]))
             .build();
 
         let agent = agents.get("unknown").expect("unknown should exist");
@@ -245,8 +222,8 @@ mod tests {
         let llm = Arc::new(MockLlmProvider::default());
         let prompts = Arc::new(PromptRegistry::empty());
 
-        let stage1 = test_stage("agent1", true, NodeKind::Agent);
-        let stage2 = test_stage("agent1", false, NodeKind::Gate); // same name, different config
+        let stage1 = test_stage("agent1", true);
+        let stage2 = test_stage("agent1", false);
 
         let agents = AgentFactoryBuilder::new(llm, prompts, tools)
             .add_pipeline(test_config("p", vec![stage1, stage2]))
@@ -264,8 +241,8 @@ mod tests {
         let prompts = Arc::new(PromptRegistry::empty());
 
         let agents = AgentFactoryBuilder::new(llm, prompts, tools)
-            .add_pipeline(test_config("p1", vec![test_stage("a", true, NodeKind::Agent)]))
-            .add_pipeline(test_config("p2", vec![test_stage("b", false, NodeKind::Gate)]))
+            .add_pipeline(test_config("p1", vec![test_stage("a", true)]))
+            .add_pipeline(test_config("p2", vec![test_stage("b", false)]))
             .build();
 
         assert!(agents.get("a").is_some(), "agent from p1");
@@ -280,7 +257,7 @@ mod tests {
         let llm = Arc::new(MockLlmProvider::default());
         let prompts = Arc::new(PromptRegistry::empty());
 
-        let mut stage = test_stage("filtered", true, NodeKind::Agent);
+        let mut stage = test_stage("filtered", true);
         stage.allowed_tools = Some(vec!["nonexistent_tool".to_string()]);
 
         let agents = AgentFactoryBuilder::new(llm, prompts, tools)

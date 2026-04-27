@@ -42,3 +42,16 @@ pub fn create_test_envelope() -> Envelope {
     env.pipeline.current_stage = String::new();
     env
 }
+
+/// Build an envelope with the pipeline's bounds and stage_order populated.
+pub fn make_envelope(config: &PipelineConfig) -> Envelope {
+    let mut env = create_test_envelope();
+    env.pipeline.max_iterations = config.max_iterations;
+    env.bounds.max_llm_calls = config.max_llm_calls;
+    env.bounds.max_agent_hops = config.max_agent_hops;
+    env.pipeline.stage_order = config.get_stage_order();
+    if !env.pipeline.stage_order.is_empty() {
+        env.pipeline.current_stage = env.pipeline.stage_order[0].clone();
+    }
+    env
+}

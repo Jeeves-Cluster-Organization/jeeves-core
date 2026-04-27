@@ -18,7 +18,6 @@ pub enum TerminalReason {
     LlmFailedFatally,
     PolicyViolation,
     BreakRequested,
-    EdgeLimitExceeded,
 }
 
 impl TerminalReason {
@@ -32,8 +31,7 @@ impl TerminalReason {
             Self::MaxIterationsExceeded
             | Self::MaxLlmCallsExceeded
             | Self::MaxAgentHopsExceeded
-            | Self::MaxStageVisitsExceeded
-            | Self::EdgeLimitExceeded => "bounds_exceeded",
+            | Self::MaxStageVisitsExceeded => "bounds_exceeded",
             _ => "failed",
         }
     }

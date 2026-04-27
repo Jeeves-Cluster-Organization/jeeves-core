@@ -6,24 +6,12 @@ use crate::envelope::{FlowInterrupt, TerminalReason};
 use crate::types::{Error, ProcessId, Result};
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
-use std::collections::{HashMap, HashSet};
+use std::collections::HashSet;
 
 
 // =============================================================================
 // Graph Primitive Types
 // =============================================================================
-
-/// Node kind in the pipeline graph.
-#[derive(Debug, Clone, Copy, Serialize, Deserialize, Default, PartialEq, Eq, JsonSchema)]
-pub enum NodeKind {
-    /// Standard agent execution node
-    #[default]
-    Agent,
-    /// Pure routing node — evaluates routing without running an agent
-    Gate,
-    /// Parallel fan-out node — routing function returns Fan(targets)
-    Fork,
-}
 
 /// Merge strategy for state fields.
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, Default, PartialEq, Eq, JsonSchema)]
@@ -100,12 +88,6 @@ pub enum Instruction {
         #[serde(flatten)]
         context: AgentDispatchContext,
     },
-    /// Dispatch multiple agents in parallel (emitted by Fork nodes).
-    RunAgents {
-        agents: Vec<String>,
-        #[serde(flatten)]
-        context: AgentDispatchContext,
-    },
     /// Stop the pipeline with the given reason.
     Terminate {
         reason: TerminalReason,
@@ -114,8 +96,7 @@ pub enum Instruction {
         #[serde(flatten)]
         context: AgentDispatchContext,
     },
-    /// Wait for all parallel agents to complete (Fork join point).
-    WaitParallel,
+    /// Wait for the consumer to resolve a pending tool-confirmation interrupt.
     WaitInterrupt {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         interrupt: Option<FlowInterrupt>,
@@ -137,14 +118,6 @@ impl Instruction {
     pub fn run_agent(name: impl Into<String>) -> Self {
         Self::RunAgent { agent: name.into(), context: Default::default() }
     }
-
-    /// Create a RunAgents instruction for parallel fan-out.
-    pub fn run_agents(names: Vec<String>) -> Self {
-        Self::RunAgents { agents: names, context: Default::default() }
-    }
-
-    /// Create a WaitParallel instruction.
-    pub fn wait_parallel() -> Self { Self::WaitParallel }
 
     /// Create a WaitInterrupt instruction.
     pub fn wait_interrupt(interrupt: FlowInterrupt) -> Self {
@@ -194,13 +167,6 @@ pub struct PipelineConfig {
     pub max_llm_calls: i32,
     /// Global agent hop bound (transitions between stages). Terminates with `MaxAgentHopsExceeded`.
     pub max_agent_hops: i32,
-    /// Per-edge transition limits (e.g. max 3 trips from stage A→B).
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub edge_limits: Vec<EdgeLimit>,
-    /// Maximum routing steps per `get_next_instruction` call (default: 100).
-    /// Prevents infinite Gate/Fork chains from blocking the orchestration loop.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub step_limit: Option<i32>,
     /// Typed state fields with merge strategies for loop-back accumulation.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub state_schema: Vec<StateField>,
@@ -237,13 +203,6 @@ impl PipelineConfig {
                 "max_agent_hops must be > 0, got {}", self.max_agent_hops
             )));
         }
-        if let Some(sl) = self.step_limit {
-            if sl <= 0 {
-                return Err(Error::validation(format!(
-                    "step_limit must be > 0, got {}", sl
-                )));
-            }
-        }
 
         // Validate stage names: non-empty and unique
         let mut stage_names: HashSet<&str> = HashSet::new();
@@ -268,26 +227,10 @@ impl PipelineConfig {
         }
 
         for stage in &self.stages {
-            // Validate node-kind constraints
-            match stage.node_kind {
-                NodeKind::Agent => {
-                    if stage.agent.is_empty() {
-                        return Err(Error::validation(format!(
-                            "Agent stage '{}' must have a non-empty agent field", stage.name
-                        )));
-                    }
-                }
-                NodeKind::Gate => {
-                    // Gate stages route without running an agent.
-                    // Must have routing_fn or default_next to be useful.
-                }
-                NodeKind::Fork => {
-                    if stage.routing_fn.is_none() {
-                        return Err(Error::validation(format!(
-                            "Fork stage '{}' must have a routing_fn", stage.name
-                        )));
-                    }
-                }
+            if stage.agent.is_empty() {
+                return Err(Error::validation(format!(
+                    "Stage '{}' must have a non-empty agent field", stage.name
+                )));
             }
 
             // Detect unbounded self-loops
@@ -340,26 +283,6 @@ impl PipelineConfig {
             }
         }
 
-        // Validate edge limits reference existing stages
-        for limit in &self.edge_limits {
-            if !stage_names.contains(limit.from_stage.as_str()) {
-                return Err(Error::validation(format!(
-                    "Edge limit from_stage '{}' does not exist", limit.from_stage
-                )));
-            }
-            if !stage_names.contains(limit.to_stage.as_str()) {
-                return Err(Error::validation(format!(
-                    "Edge limit to_stage '{}' does not exist", limit.to_stage
-                )));
-            }
-            if limit.max_count <= 0 {
-                return Err(Error::validation(format!(
-                    "Edge limit {}->{} has max_count {} which must be > 0",
-                    limit.from_stage, limit.to_stage, limit.max_count
-                )));
-            }
-        }
-
         // Validate state_schema: no duplicate keys
         let mut state_keys: HashSet<&str> = HashSet::new();
         for field in &self.state_schema {
@@ -382,8 +305,6 @@ impl PipelineConfig {
             max_iterations: 10,
             max_llm_calls: 50,
             max_agent_hops: 10,
-            edge_limits: vec![],
-            step_limit: None,
             state_schema: vec![],
         }
     }
@@ -482,18 +403,12 @@ pub struct PipelineStage {
     /// Per-stage visit limit. Terminates with `MaxStageVisitsExceeded` when reached.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub max_visits: Option<i32>,
-    /// How to join parallel branches from a Fork (WaitAll or WaitFirst).
-    #[serde(default)]
-    pub join_strategy: JoinStrategy,
     /// JSON Schema for validating agent output before writing to state.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub output_schema: Option<serde_json::Value>,
     /// Tool whitelist — only these tools are available to this stage's agent.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub allowed_tools: Option<Vec<String>>,
-    /// Node kind: Agent (run agent + route), Gate (route only), Fork (parallel fan-out).
-    #[serde(default)]
-    pub node_kind: NodeKind,
     /// State field key for this stage's output (defaults to stage name).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub output_key: Option<String>,
@@ -521,62 +436,9 @@ fn default_has_llm() -> bool {
     false
 }
 
-/// Join strategy for parallel execution groups.
-#[derive(Debug, Clone, Copy, Serialize, Deserialize, Default, PartialEq, Eq, JsonSchema)]
-pub enum JoinStrategy {
-    /// Wait for all agents to complete
-    #[default]
-    WaitAll,
-    /// Advance when the first agent completes
-    WaitFirst,
-}
-
-/// Per-edge transition limit.
-#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
-pub struct EdgeLimit {
-    pub from_stage: String,
-    pub to_stage: String,
-    pub max_count: i32,
-}
-
-/// Type-safe key for edge traversal tracking.
-///
-/// Replaces string concatenation `"from->to"` to eliminate collision risk
-/// (e.g., stage names containing "->").
-#[derive(Debug, Clone, Hash, Eq, PartialEq, Serialize, Deserialize)]
-pub struct EdgeKey {
-    pub from_stage: String,
-    pub to_stage: String,
-}
-
-impl EdgeKey {
-    pub fn new(from: impl Into<String>, to: impl Into<String>) -> Self {
-        Self { from_stage: from.into(), to_stage: to.into() }
-    }
-}
-
-impl std::fmt::Display for EdgeKey {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}->{}", self.from_stage, self.to_stage)
-    }
-}
-
-/// State for an active parallel execution group.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct ParallelGroupState {
-    pub group_name: String,
-    pub stages: Vec<String>,
-    pub pending_agents: HashSet<String>,
-    pub completed_agents: HashSet<String>,
-    pub failed_agents: HashMap<String, String>,
-    pub join_strategy: JoinStrategy,
-}
-
 /// External representation of a pipeline session's state.
 ///
-/// Returned by `KernelHandle::get_session_state()` and included in
-/// `CheckpointSnapshot`. Contains full execution state serialized as JSON
-/// for cross-language consumption (PyO3, MCP).
+/// Returned by `KernelHandle::get_session_state()`.
 #[must_use]
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SessionState {
@@ -588,8 +450,6 @@ pub struct SessionState {
     pub stage_order: Vec<String>,
     /// Full Envelope serialized as JSON (outputs, bounds, audit trail, interrupts).
     pub envelope: serde_json::Value,
-    /// Per-edge traversal counts, keyed as `"from_stage->to_stage"`.
-    pub edge_traversals: HashMap<String, i32>,
     /// Whether the pipeline has terminated.
     pub terminated: bool,
     /// Reason for termination, if terminated.
@@ -639,30 +499,12 @@ mod tests {
     }
 
     #[test]
-    fn test_validate_gate_allows_agent_field() {
-        // Gate stages may have agent field populated (ignored at runtime)
-        let mut stage = minimal_stage("router");
-        stage.node_kind = NodeKind::Gate;
-        let config = minimal_config(vec![stage]);
-        assert!(config.validate().is_ok());
-    }
-
-    #[test]
     fn test_validate_agent_empty_agent_field() {
         let mut stage = minimal_stage("worker");
         stage.agent = String::new();
         let config = minimal_config(vec![stage]);
         let err = config.validate().unwrap_err();
         assert!(err.to_string().contains("must have a non-empty agent field"));
-    }
-
-    #[test]
-    fn test_validate_fork_requires_routing_fn() {
-        let mut stage = minimal_stage("splitter");
-        stage.node_kind = NodeKind::Fork;
-        let config = minimal_config(vec![stage]);
-        let err = config.validate().unwrap_err();
-        assert!(err.to_string().contains("Fork stage 'splitter' must have a routing_fn"));
     }
 
     #[test]
@@ -696,14 +538,13 @@ mod tests {
     }
 
     #[test]
-    fn test_validate_valid_complex_pipeline() {
-        let mut gate = minimal_stage("router");
-        gate.node_kind = NodeKind::Gate;
-        gate.agent = String::new(); // Gate has no agent
-        gate.default_next = Some("fallback".to_string());
+    fn test_validate_valid_pipeline() {
+        let mut router = minimal_stage("router");
+        router.routing_fn = Some("decide".to_string());
+        router.default_next = Some("fallback".to_string());
 
         let fallback = minimal_stage("fallback");
-        let config = minimal_config(vec![gate, fallback]);
+        let config = minimal_config(vec![router, fallback]);
         assert!(config.validate().is_ok());
     }
 

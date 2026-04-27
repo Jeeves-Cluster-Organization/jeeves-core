@@ -36,8 +36,6 @@ pub struct RoutingContext<'a> {
 pub enum RoutingResult {
     /// Route to a single target stage.
     Next(String),
-    /// Fan out to multiple stages in parallel (Fork semantics).
-    Fan(Vec<String>),
     /// End the pipeline.
     Terminate,
 }
@@ -166,11 +164,6 @@ pub fn evaluate_routing_with_reason(
             );
             let target = match result {
                 RoutingResult::Next(t) => Some(t),
-                RoutingResult::Fan(targets) => {
-                    // Fan is handled by the caller (Fork dispatch).
-                    // For non-Fork stages, take the first target.
-                    targets.into_iter().next()
-                }
                 RoutingResult::Terminate => None,
             };
             return RoutingDecision {
@@ -206,42 +199,6 @@ pub fn evaluate_routing_with_reason(
     }
 }
 
-/// Evaluate routing for a Fork node — returns all fan-out targets.
-///
-/// If the routing function returns Fan(targets), returns those targets.
-/// If it returns Next(target), returns a single-element vec.
-/// If no routing function, falls back to default_next.
-pub fn evaluate_fork_routing(
-    stage: &super::orchestrator_types::PipelineStage,
-    registry: &RoutingRegistry,
-    ctx: &RoutingContext<'_>,
-) -> Vec<String> {
-    if let Some(ref fn_name) = stage.routing_fn {
-        if let Some(routing_fn) = registry.get(fn_name) {
-            let result = routing_fn.route(ctx);
-            tracing::debug!(
-                stage = %stage.name,
-                routing_fn = %fn_name,
-                ?result,
-                "fork_routing_fn_evaluated"
-            );
-            return match result {
-                RoutingResult::Fan(targets) => targets,
-                RoutingResult::Next(t) => vec![t],
-                RoutingResult::Terminate => vec![],
-            };
-        } else {
-            tracing::warn!(
-                stage = %stage.name,
-                routing_fn = %fn_name,
-                "fork_routing_fn_not_found"
-            );
-        }
-    }
-
-    // Fallback: default_next as single target
-    stage.default_next.iter().cloned().collect()
-}
 
 #[cfg(test)]
 mod tests {
@@ -255,9 +212,6 @@ mod tests {
         }));
         reg.register("terminate", Arc::new(|_ctx: &RoutingContext| -> RoutingResult {
             RoutingResult::Terminate
-        }));
-        reg.register("fan_ab", Arc::new(|_ctx: &RoutingContext| -> RoutingResult {
-            RoutingResult::Fan(vec!["a".to_string(), "b".to_string()])
         }));
         reg
     }
@@ -376,24 +330,6 @@ mod tests {
         let decision = evaluate_routing_with_reason(&stage, &reg, &ctx, "s1");
         assert_eq!(decision.target, None);
         assert!(matches!(decision.reason, RoutingReason::RoutingFn { .. }));
-    }
-
-    #[test]
-    fn test_fork_routing() {
-        let reg = test_registry();
-        let (outputs, metadata) = empty_ctx();
-        let state = HashMap::new();
-        let ctx = make_ctx(&outputs, &metadata, &state);
-
-        let stage = PipelineStage {
-            name: "fork1".to_string(),
-            agent: "a1".to_string(),
-            routing_fn: Some("fan_ab".to_string()),
-            ..PipelineStage::default()
-        };
-
-        let targets = evaluate_fork_routing(&stage, &reg, &ctx);
-        assert_eq!(targets, vec!["a".to_string(), "b".to_string()]);
     }
 
     #[test]
