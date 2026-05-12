@@ -15,10 +15,10 @@ pub fn stage(
     default_next: Option<&str>,
 ) -> Stage {
     Stage {
-        name: name.to_string(),
-        agent: agent.to_string(),
-        routing_fn: routing_fn.map(|s| s.to_string()),
-        default_next: default_next.map(|s| s.to_string()),
+        name: name.into(),
+        agent: agent.into(),
+        routing_fn: routing_fn.map(Into::into),
+        default_next: default_next.map(Into::into),
         ..Default::default()
     }
 }

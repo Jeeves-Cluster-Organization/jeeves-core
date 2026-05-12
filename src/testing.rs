@@ -127,9 +127,9 @@ mod tests {
 
     fn stage(name: &str, default_next: Option<&str>) -> Stage {
         Stage {
-            name: name.to_string(),
-            agent: name.to_string(),
-            default_next: default_next.map(|s| s.to_string()),
+            name: name.into(),
+            agent: name.into(),
+            default_next: default_next.map(Into::into),
             ..Stage::default()
         }
     }

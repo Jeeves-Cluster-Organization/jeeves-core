@@ -187,8 +187,8 @@ mod tests {
 
     fn minimal_stage(name: &str) -> Stage {
         Stage {
-            name: name.to_string(),
-            agent: name.to_string(),
+            name: name.into(),
+            agent: name.into(),
             ..Stage::default()
         }
     }
@@ -206,7 +206,12 @@ mod tests {
 
     #[test]
     fn test_validate_empty_stage_name() {
-        let config = minimal_config(vec![minimal_stage("")]);
+        // `From<&str>` / `must` panic on empty input, so an empty StageName can
+        // only arrive via `Default::default()` or deserialisation. validate()
+        // still has to catch it for the deserialise path.
+        let mut stage = minimal_stage("placeholder");
+        stage.name = crate::types::StageName::default();
+        let config = minimal_config(vec![stage]);
         let err = config.validate().unwrap_err();
         assert!(err.to_string().contains("Stage name must not be empty"));
     }
@@ -214,7 +219,7 @@ mod tests {
     #[test]
     fn test_validate_agent_empty_agent_field() {
         let mut stage = minimal_stage("worker");
-        stage.agent = String::new();
+        stage.agent = crate::types::AgentName::default();
         let config = minimal_config(vec![stage]);
         let err = config.validate().unwrap_err();
         assert!(err.to_string().contains("must have a non-empty agent field"));
@@ -223,7 +228,7 @@ mod tests {
     #[test]
     fn test_validate_self_loop_without_max_visits() {
         let mut stage = minimal_stage("loop");
-        stage.default_next = Some("loop".to_string());
+        stage.default_next = Some("loop".into());
         let config = minimal_config(vec![stage]);
         let err = config.validate().unwrap_err();
         assert!(err.to_string().contains("infinite loop"));
@@ -232,7 +237,7 @@ mod tests {
     #[test]
     fn test_validate_self_loop_with_max_visits_ok() {
         let mut stage = minimal_stage("loop");
-        stage.default_next = Some("loop".to_string());
+        stage.default_next = Some("loop".into());
         stage.max_visits = Some(3);
         let config = minimal_config(vec![stage]);
         assert!(config.validate().is_ok());
@@ -241,9 +246,9 @@ mod tests {
     #[test]
     fn test_validate_duplicate_output_key() {
         let mut a = minimal_stage("a");
-        a.output_key = Some("shared".to_string());
+        a.output_key = Some("shared".into());
         let mut b = minimal_stage("b");
-        b.output_key = Some("shared".to_string());
+        b.output_key = Some("shared".into());
         let config = minimal_config(vec![a, b]);
         let err = config.validate().unwrap_err();
         assert!(err.to_string().contains("Duplicate output_key 'shared'"));
@@ -252,8 +257,8 @@ mod tests {
     #[test]
     fn test_validate_valid_pipeline() {
         let mut router = minimal_stage("router");
-        router.routing_fn = Some("decide".to_string());
-        router.default_next = Some("fallback".to_string());
+        router.routing_fn = Some("decide".into());
+        router.default_next = Some("fallback".into());
 
         let fallback = minimal_stage("fallback");
         let config = minimal_config(vec![router, fallback]);

@@ -40,7 +40,7 @@ impl Orchestrator {
         self.pipelines.get(run_id)
             .and_then(|session| {
                 session.pipeline_config.stages.iter()
-                    .find(|s| s.name == stage_name)
+                    .find(|s| s.name.as_str() == stage_name)
                     .and_then(|s| s.response_format.clone())
             })
     }
@@ -56,8 +56,13 @@ impl Orchestrator {
         self.pipelines.get(run_id)
             .and_then(|session| {
                 session.pipeline_config.stages.iter()
-                    .find(|s| s.name == stage_name)
-                    .map(|s| s.output_key.clone().unwrap_or_else(|| s.name.clone()))
+                    .find(|s| s.name.as_str() == stage_name)
+                    .map(|s| {
+                        s.output_key
+                            .as_ref()
+                            .map(|k| k.as_str().to_string())
+                            .unwrap_or_else(|| s.name.as_str().to_string())
+                    })
             })
     }
 
@@ -66,7 +71,7 @@ impl Orchestrator {
         self.pipelines.get(run_id)
             .and_then(|session| {
                 session.pipeline_config.stages.iter()
-                    .find(|s| s.name == stage_name)
+                    .find(|s| s.name.as_str() == stage_name)
             })
     }
 

@@ -6,7 +6,7 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::sync::Arc;
 
-use crate::types::{AgentName, OutputKey, RoutingFnName};
+use crate::types::{AgentName, OutputKey, RoutingFnName, StageName};
 
 /// Read-only snapshot passed to a [`RoutingFn`].
 #[derive(Debug)]
@@ -76,9 +76,9 @@ impl std::fmt::Debug for RoutingRegistry {
 /// [`RunEvent::RoutingDecision`]: crate::agent::llm::RunEvent::RoutingDecision
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct RoutingDecision {
-    pub from_stage: String,
+    pub from_stage: StageName,
     /// `None` means the pipeline terminated.
-    pub target: Option<String>,
+    pub target: Option<StageName>,
     pub reason: RoutingReason,
 }
 
@@ -102,7 +102,7 @@ pub fn evaluate_routing_with_reason(
     if ctx.agent_failed {
         if let Some(ref error_next) = stage.error_next {
             return RoutingDecision {
-                from_stage: from_stage.to_string(),
+                from_stage: from_stage.into(),
                 target: Some(error_next.clone()),
                 reason: RoutingReason::ErrorRoute,
             };
@@ -110,7 +110,7 @@ pub fn evaluate_routing_with_reason(
     }
 
     if let Some(ref fn_name) = stage.routing_fn {
-        if let Some(routing_fn) = registry.get(fn_name) {
+        if let Some(routing_fn) = registry.get(fn_name.as_str()) {
             let result = routing_fn.route(ctx);
             tracing::debug!(
                 stage = %from_stage,
@@ -119,13 +119,13 @@ pub fn evaluate_routing_with_reason(
                 "routing_fn_evaluated"
             );
             let target = match result {
-                RoutingResult::Next(t) => Some(t),
+                RoutingResult::Next(t) => Some(t.into()),
                 RoutingResult::Terminate => None,
             };
             return RoutingDecision {
-                from_stage: from_stage.to_string(),
+                from_stage: from_stage.into(),
                 target,
-                reason: RoutingReason::RoutingFn { name: RoutingFnName::must(fn_name.clone()) },
+                reason: RoutingReason::RoutingFn { name: fn_name.clone() },
             };
         } else {
             tracing::warn!(
@@ -139,7 +139,7 @@ pub fn evaluate_routing_with_reason(
     if let Some(ref default_next) = stage.default_next {
         tracing::debug!(stage = %from_stage, target = %default_next, "default_route_taken");
         return RoutingDecision {
-            from_stage: from_stage.to_string(),
+            from_stage: from_stage.into(),
             target: Some(default_next.clone()),
             reason: RoutingReason::DefaultRoute,
         };
@@ -147,7 +147,7 @@ pub fn evaluate_routing_with_reason(
 
     tracing::debug!(stage = %from_stage, "no_routing_match");
     RoutingDecision {
-        from_stage: from_stage.to_string(),
+        from_stage: from_stage.into(),
         target: None,
         reason: RoutingReason::NoMatch,
     }
@@ -198,14 +198,14 @@ mod tests {
         let ctx = make_ctx(&outputs, &metadata, &state);
 
         let stage = Stage {
-            name: "s1".to_string(),
-            agent: "a1".to_string(),
-            routing_fn: Some("always_s2".to_string()),
+            name: "s1".into(),
+            agent: "a1".into(),
+            routing_fn: Some("always_s2".into()),
             ..Stage::default()
         };
 
         let decision = evaluate_routing_with_reason(&stage, &reg, &ctx, "s1");
-        assert_eq!(decision.target, Some("s2".to_string()));
+        assert_eq!(decision.target.as_ref().map(|s| s.as_str()), Some("s2"));
         assert!(matches!(decision.reason, RoutingReason::RoutingFn { ref name } if name.as_str() == "always_s2"));
     }
 
@@ -218,15 +218,15 @@ mod tests {
         ctx.agent_failed = true;
 
         let stage = Stage {
-            name: "s1".to_string(),
-            agent: "a1".to_string(),
-            routing_fn: Some("always_s2".to_string()),
-            error_next: Some("s_err".to_string()),
+            name: "s1".into(),
+            agent: "a1".into(),
+            routing_fn: Some("always_s2".into()),
+            error_next: Some("s_err".into()),
             ..Stage::default()
         };
 
         let decision = evaluate_routing_with_reason(&stage, &reg, &ctx, "s1");
-        assert_eq!(decision.target, Some("s_err".to_string()));
+        assert_eq!(decision.target.as_ref().map(|s| s.as_str()), Some("s_err"));
         assert!(matches!(decision.reason, RoutingReason::ErrorRoute));
     }
 
@@ -238,14 +238,14 @@ mod tests {
         let ctx = make_ctx(&outputs, &metadata, &state);
 
         let stage = Stage {
-            name: "s1".to_string(),
-            agent: "a1".to_string(),
-            default_next: Some("s2".to_string()),
+            name: "s1".into(),
+            agent: "a1".into(),
+            default_next: Some("s2".into()),
             ..Stage::default()
         };
 
         let decision = evaluate_routing_with_reason(&stage, &reg, &ctx, "s1");
-        assert_eq!(decision.target, Some("s2".to_string()));
+        assert_eq!(decision.target.as_ref().map(|s| s.as_str()), Some("s2"));
         assert!(matches!(decision.reason, RoutingReason::DefaultRoute));
     }
 
@@ -257,8 +257,8 @@ mod tests {
         let ctx = make_ctx(&outputs, &metadata, &state);
 
         let stage = Stage {
-            name: "s1".to_string(),
-            agent: "a1".to_string(),
+            name: "s1".into(),
+            agent: "a1".into(),
             ..Stage::default()
         };
 
@@ -275,9 +275,9 @@ mod tests {
         let ctx = make_ctx(&outputs, &metadata, &state);
 
         let stage = Stage {
-            name: "s1".to_string(),
-            agent: "a1".to_string(),
-            routing_fn: Some("terminate".to_string()),
+            name: "s1".into(),
+            agent: "a1".into(),
+            routing_fn: Some("terminate".into()),
             ..Stage::default()
         };
 
@@ -294,15 +294,15 @@ mod tests {
         let ctx = make_ctx(&outputs, &metadata, &state);
 
         let stage = Stage {
-            name: "s1".to_string(),
-            agent: "a1".to_string(),
-            routing_fn: Some("nonexistent".to_string()),
-            default_next: Some("s2".to_string()),
+            name: "s1".into(),
+            agent: "a1".into(),
+            routing_fn: Some("nonexistent".into()),
+            default_next: Some("s2".into()),
             ..Stage::default()
         };
 
         let decision = evaluate_routing_with_reason(&stage, &reg, &ctx, "s1");
-        assert_eq!(decision.target, Some("s2".to_string()));
+        assert_eq!(decision.target.as_ref().map(|s| s.as_str()), Some("s2"));
         assert!(matches!(decision.reason, RoutingReason::DefaultRoute));
     }
 

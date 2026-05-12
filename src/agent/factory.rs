@@ -99,7 +99,7 @@ fn merge_agents(
 ) {
     for stage in &config.stages {
         let agent_name = &stage.agent;
-        if agent_name.is_empty() || registry.get(agent_name).is_some() {
+        if agent_name.is_empty() || registry.get(agent_name.as_str()).is_some() {
             continue; // Skip empty or already-registered (first wins)
         }
 
@@ -107,7 +107,7 @@ fn merge_agents(
         let allowed = ctx
             .tools
             .access_policy()
-            .map(|p| p.tools_for_agent(agent_name))
+            .map(|p| p.tools_for_agent(agent_name.as_str()))
             .unwrap_or_default();
         let stage_tools = AclToolExecutor::wrap_registry(ctx.tools.clone(), &allowed);
 
@@ -121,7 +121,7 @@ fn merge_agents(
                 llm: ctx.llm.clone(),
                 prompts: ctx.prompts.clone(),
                 tools: stage_tools,
-                agent_name: agent_name.as_str().into(),
+                agent_name: agent_name.clone(),
                 prompt_key,
                 temperature: stage.agent_config.temperature,
                 max_tokens: stage.agent_config.max_tokens,
@@ -130,9 +130,9 @@ fn merge_agents(
                 content_resolver: ctx.content_resolver.clone(),
                 hooks: ctx.hooks.clone(),
             })
-        } else if ctx.tools.get(agent_name).is_some() {
+        } else if ctx.tools.get(agent_name.as_str()).is_some() {
             Arc::new(ToolDelegatingAgent {
-                agent_name: agent_name.as_str().into(),
+                agent_name: agent_name.clone(),
                 tool_name: agent_name.as_str().into(),
                 tools: stage_tools,
             })
@@ -154,8 +154,8 @@ mod tests {
 
     fn test_stage(name: &str, has_llm: bool) -> Stage {
         Stage {
-            name: name.to_string(),
-            agent: name.to_string(),
+            name: name.into(),
+            agent: name.into(),
             agent_config: AgentConfig {
                 has_llm,
                 ..Default::default()

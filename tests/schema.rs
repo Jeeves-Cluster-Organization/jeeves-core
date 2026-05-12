@@ -132,7 +132,7 @@ fn representative_pipeline_json_deserializes() {
         serde_json::from_value(json).expect("deserialize dialogue-shape pipeline");
     assert_eq!(config.name, "npc_dialogue");
     assert_eq!(config.state_schema.len(), 1);
-    assert_eq!(config.stages[0].routing_fn.as_deref(), Some("think_router"));
+    assert_eq!(config.stages[0].routing_fn.as_ref().map(|r| r.as_str()), Some("think_router"));
     assert_eq!(config.stages[0].max_visits, Some(3));
     assert!(config.stages[0].retry_policy.is_some());
 
@@ -145,6 +145,6 @@ fn representative_pipeline_json_deserializes() {
         "stages": [{ "name": "only", "agent": "only" }]
     });
     let config: Workflow = serde_json::from_value(json).expect("deserialize minimal pipeline");
-    assert_eq!(config.stages[0].name, "only");
+    assert_eq!(config.stages[0].name.as_str(), "only");
     assert!(!config.stages[0].agent_config.has_llm);
 }

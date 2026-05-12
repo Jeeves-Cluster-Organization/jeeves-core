@@ -20,7 +20,7 @@ use tokio::sync::mpsc;
 pub struct WorkerResult {
     pub run_id: RunId,
     pub termination: Option<crate::run::Termination>,
-    pub outputs: std::collections::HashMap<String, std::collections::HashMap<String, serde_json::Value>>,
+    pub outputs: std::collections::HashMap<crate::types::AgentName, std::collections::HashMap<crate::types::OutputKey, serde_json::Value>>,
     pub aggregate_metrics: Option<llm::AggregateMetrics>,
 }
 
@@ -95,8 +95,8 @@ pub async fn run_loop(
                     if let Some(ref tx) = event_tx {
                         let _ = tx
                             .send(RunEvent::RoutingDecision {
-                                from_stage: decision.from_stage.clone(),
-                                to_stage: decision.target.clone(),
+                                from_stage: decision.from_stage.as_str().to_string(),
+                                to_stage: decision.target.as_ref().map(|s| s.as_str().to_string()),
                                 reason: decision.reason.clone(),
                                 pipeline: workflow_name.clone(),
                             })
@@ -144,8 +144,8 @@ pub async fn run_loop(
                     if let Some(ref tx) = event_tx {
                         let _ = tx
                             .send(RunEvent::RoutingDecision {
-                                from_stage: decision.from_stage.clone(),
-                                to_stage: decision.target.clone(),
+                                from_stage: decision.from_stage.as_str().to_string(),
+                                to_stage: decision.target.as_ref().map(|s| s.as_str().to_string()),
                                 reason: decision.reason.clone(),
                                 pipeline: workflow_name.clone(),
                             })

@@ -461,8 +461,8 @@ mod tests {
 
     fn test_stage(name: &str) -> Stage {
         Stage {
-            name: name.to_string(),
-            agent: name.to_string(),
+            name: name.into(),
+            agent: name.into(),
             ..Stage::default()
         }
     }

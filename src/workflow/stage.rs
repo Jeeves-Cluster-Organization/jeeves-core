@@ -5,7 +5,7 @@ use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
 use super::policy::{ContextOverflow, RetryPolicy};
-use crate::types::PromptKey;
+use crate::types::{AgentName, OutputKey, PromptKey, RoutingFnName, StageName};
 
 /// Pipeline stage. Routing per stage evaluates in this order:
 /// 1. agent failed + `error_next` set → `error_next`.
@@ -15,19 +15,19 @@ use crate::types::PromptKey;
 #[derive(Debug, Clone, Default, Serialize, Deserialize, JsonSchema)]
 pub struct Stage {
     /// Unique within the pipeline.
-    pub name: String,
+    pub name: StageName,
     /// Agent name to dispatch.
-    pub agent: String,
+    pub agent: AgentName,
     /// Name of a registered routing function. Called after agent completion
     /// to determine the next stage.
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub routing_fn: Option<String>,
+    pub routing_fn: Option<RoutingFnName>,
     /// Fallback target when no routing function is set or it returns Terminate.
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub default_next: Option<String>,
+    pub default_next: Option<StageName>,
     /// Target stage when the agent fails (checked before `routing_fn`).
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub error_next: Option<String>,
+    pub error_next: Option<StageName>,
     /// Per-stage visit limit. Terminates with `MaxStageVisitsExceeded` when reached.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub max_visits: Option<i32>,
@@ -37,7 +37,7 @@ pub struct Stage {
     pub response_format: Option<serde_json::Value>,
     /// State field key for this stage's output (defaults to stage name).
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub output_key: Option<String>,
+    pub output_key: Option<OutputKey>,
     /// Maximum estimated tokens allowed in LLM context for this stage.
     /// Uses chars/4 heuristic. When exceeded, applies `context_overflow`.
     #[serde(default, skip_serializing_if = "Option::is_none")]

@@ -31,11 +31,11 @@ pub use crate::workflow::{Workflow, Stage};
 pub(crate) fn get_agent_for_stage(
     pipeline_config: &Workflow,
     stage_name: &str,
-) -> Result<String> {
+) -> Result<crate::types::AgentName> {
     pipeline_config
         .stages
         .iter()
-        .find(|s| s.name == stage_name)
+        .find(|s| s.name.as_str() == stage_name)
         .map(|s| s.agent.clone())
         .ok_or_else(|| Error::not_found(format!("Stage not found in pipeline: {}", stage_name)))
 }
@@ -126,7 +126,7 @@ impl Orchestrator {
         }
 
         let agent_name = get_agent_for_stage(&session.pipeline_config, current_stage.as_str())?;
-        Ok(Instruction::run_agent(agent_name))
+        Ok(Instruction::run_agent(agent_name.as_str()))
     }
 
     /// Process agent execution result and advance the pipeline.
@@ -192,7 +192,7 @@ impl Orchestrator {
 
         let ctx = RoutingContext {
             current_stage: current_stage.as_str(),
-            agent_name: &agent_lookup,
+            agent_name: agent_lookup.as_str(),
             agent_failed,
             outputs: &run.outputs,
             metadata: &run.audit.metadata,
@@ -219,7 +219,7 @@ impl Orchestrator {
         &mut self,
         run_id: &RunId,
         from_stage: &str,
-        next_target: Option<String>,
+        next_target: Option<crate::types::StageName>,
         run: &mut Run,
     ) -> Result<()> {
         let session = self
@@ -246,7 +246,7 @@ impl Orchestrator {
                 run.metrics.agent_hops += 1;
                 tracing::info!(from = %from_stage, to = %target, "stage_transition");
 
-                run.current_stage = target.into();
+                run.current_stage = target;
                 session.last_activity_at = Utc::now();
             }
             None => {
@@ -279,9 +279,9 @@ mod tests {
 
     fn linear_stage(name: &str, default_next: Option<&str>) -> Stage {
         Stage {
-            name: name.to_string(),
-            agent: name.to_string(),
-            default_next: default_next.map(String::from),
+            name: name.into(),
+            agent: name.into(),
+            default_next: default_next.map(Into::into),
             ..Stage::default()
         }
     }
