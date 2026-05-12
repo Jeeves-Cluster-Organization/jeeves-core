@@ -5,7 +5,7 @@ use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
-use crate::types::{EnvelopeId, RequestId, SessionId, UserId};
+use crate::types::{AgentName, EnvelopeId, OutputKey, RequestId, SessionId, UserId};
 
 pub mod enums;
 pub mod events;
@@ -23,7 +23,7 @@ pub struct Run {
     pub received_at: DateTime<Utc>,
 
     /// `agent_name → output_key → value`. Any agent can write here.
-    pub outputs: HashMap<String, HashMap<String, serde_json::Value>>,
+    pub outputs: HashMap<AgentName, HashMap<OutputKey, serde_json::Value>>,
 
     /// Accumulator merged across loop-backs per `state_schema`.
     #[serde(default, skip_serializing_if = "HashMap::is_empty")]
@@ -235,7 +235,7 @@ impl Run {
                     }
                 }
                 "outputs" => {
-                    if let Ok(output_map) = serde_json::from_value::<HashMap<String, HashMap<String, serde_json::Value>>>(value) {
+                    if let Ok(output_map) = serde_json::from_value::<HashMap<AgentName, HashMap<OutputKey, serde_json::Value>>>(value) {
                         for (agent, output) in output_map {
                             self.outputs.entry(agent).or_default().extend(output);
                         }
@@ -490,9 +490,9 @@ mod tests {
     #[test]
     fn test_merge_updates_empty_outputs() {
         let mut env = Run::anonymous();
-        let mut agent_out = HashMap::new();
-        agent_out.insert("key1".to_string(), serde_json::json!("value1"));
-        env.outputs.insert("agent1".to_string(), agent_out);
+        let mut agent_out: HashMap<OutputKey, serde_json::Value> = HashMap::new();
+        agent_out.insert("key1".into(), serde_json::json!("value1"));
+        env.outputs.insert("agent1".into(), agent_out);
 
         let updates = HashMap::new();
         env.merge_updates(updates);

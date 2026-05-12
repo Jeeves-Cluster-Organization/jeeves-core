@@ -139,16 +139,16 @@ impl Kernel {
             let run = self.runs.get_mut(run_id)
                 .ok_or_else(|| Error::not_found(format!("Run not found: {}", run_id)))?;
 
-            let mut agent_output = std::collections::HashMap::new();
+            let mut agent_output: std::collections::HashMap<crate::types::OutputKey, serde_json::Value> = std::collections::HashMap::new();
             if let serde_json::Value::Object(output_map) = output {
                 for (key, value) in output_map {
-                    agent_output.insert(key, value);
+                    agent_output.insert(key.as_str().into(), value);
                 }
             }
             if !success {
-                agent_output.insert("success".to_string(), serde_json::Value::Bool(false));
+                agent_output.insert("success".into(), serde_json::Value::Bool(false));
                 if !error_message.is_empty() {
-                    agent_output.insert("error".to_string(), serde_json::Value::String(error_message.to_string()));
+                    agent_output.insert("error".into(), serde_json::Value::String(error_message.to_string()));
                 }
                 run.audit.metadata.insert(
                     "last_agent_failure".to_string(),
@@ -158,14 +158,14 @@ impl Kernel {
                     }),
                 );
             }
-            run.outputs.insert(agent_name.to_string(), agent_output);
+            run.outputs.insert(agent_name.into(), agent_output);
 
             let mut state_matched = false;
             for field in &state_schema {
                 if field.key == output_key {
                     let output_value = serde_json::Value::Object(
                         run.outputs.get(agent_name)
-                            .map(|m| m.iter().map(|(k, v)| (k.clone(), v.clone())).collect())
+                            .map(|m| m.iter().map(|(k, v)| (k.as_str().to_string(), v.clone())).collect())
                             .unwrap_or_default()
                     );
                     merge_state_field(&mut run.state, &field.key, output_value, field.merge);

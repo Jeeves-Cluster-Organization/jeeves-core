@@ -6,7 +6,7 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::sync::Arc;
 
-use crate::types::RoutingFnName;
+use crate::types::{AgentName, OutputKey, RoutingFnName};
 
 /// Read-only snapshot passed to a [`RoutingFn`].
 #[derive(Debug)]
@@ -14,7 +14,7 @@ pub struct RoutingContext<'a> {
     pub current_stage: &'a str,
     pub agent_name: &'a str,
     pub agent_failed: bool,
-    pub outputs: &'a HashMap<String, HashMap<String, serde_json::Value>>,
+    pub outputs: &'a HashMap<AgentName, HashMap<OutputKey, serde_json::Value>>,
     pub metadata: &'a HashMap<String, serde_json::Value>,
     pub interrupt_response: Option<&'a serde_json::Value>,
     pub state: &'a HashMap<String, serde_json::Value>,
@@ -170,12 +170,12 @@ mod tests {
         reg
     }
 
-    fn empty_ctx() -> (HashMap<String, HashMap<String, serde_json::Value>>, HashMap<String, serde_json::Value>) {
+    fn empty_ctx() -> (HashMap<AgentName, HashMap<OutputKey, serde_json::Value>>, HashMap<String, serde_json::Value>) {
         (HashMap::new(), HashMap::new())
     }
 
     fn make_ctx<'a>(
-        outputs: &'a HashMap<String, HashMap<String, serde_json::Value>>,
+        outputs: &'a HashMap<AgentName, HashMap<OutputKey, serde_json::Value>>,
         metadata: &'a HashMap<String, serde_json::Value>,
         state: &'a HashMap<String, serde_json::Value>,
     ) -> RoutingContext<'a> {

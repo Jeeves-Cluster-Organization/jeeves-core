@@ -37,8 +37,8 @@ pub struct AgentOutput {
 #[derive(Debug, Clone)]
 pub struct AgentContext {
     pub raw_input: String,
-    /// Outputs from prior stages: `output_key → field → value`.
-    pub outputs: HashMap<String, HashMap<String, serde_json::Value>>,
+    /// Outputs from prior stages: `agent_name → output_key → value`.
+    pub outputs: HashMap<crate::types::AgentName, HashMap<crate::types::OutputKey, serde_json::Value>>,
     /// State fields preserved across pipeline loop-backs (`state_schema`).
     pub state: HashMap<String, serde_json::Value>,
     pub metadata: HashMap<String, serde_json::Value>,
