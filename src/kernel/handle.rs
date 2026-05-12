@@ -2,10 +2,9 @@
 //! variant; the caller waits on a oneshot reply.
 
 use crate::envelope::Envelope;
-use crate::kernel::orchestrator_types::{
-    AgentExecutionMetrics, Instruction, PipelineConfig, SessionState,
-};
+use crate::kernel::protocol::{AgentExecutionMetrics, Instruction, SessionState};
 use crate::kernel::{ProcessControlBlock, SystemStatus};
+use crate::workflow::PipelineConfig;
 use crate::types::{ProcessId, RequestId, Result, SessionId, UserId};
 use std::collections::HashMap;
 use tokio::sync::{mpsc, oneshot};

@@ -17,14 +17,52 @@ use chrono::{DateTime, Utc};
 use std::collections::HashMap;
 use tracing::instrument;
 
-// Re-export types from split modules so existing `orchestrator::X` paths keep working.
-pub use super::orchestrator_types::*;
+pub use super::protocol::{AgentExecutionMetrics, Instruction, SessionState};
 pub use super::routing::{
     evaluate_routing_with_reason, RoutingContext, RoutingDecision, RoutingFn, RoutingReason,
     RoutingRegistry, RoutingResult,
 };
+pub use crate::workflow::{PipelineConfig, PipelineStage};
 
-use super::orchestrator_helpers::{build_stage_snapshot, get_agent_for_stage};
+/// Look up the agent name for a stage in a workflow.
+///
+/// Module-level (not a method on `Orchestrator`) so the orchestrator can pass
+/// its own fields to it while holding a mutable borrow on `pipelines`.
+pub(crate) fn get_agent_for_stage(
+    pipeline_config: &PipelineConfig,
+    stage_name: &str,
+) -> Result<String> {
+    pipeline_config
+        .stages
+        .iter()
+        .find(|s| s.name == stage_name)
+        .map(|s| s.agent.clone())
+        .ok_or_else(|| Error::not_found(format!("Stage not found in pipeline: {}", stage_name)))
+}
+
+/// Build the per-stage snapshot pushed onto `completed_stage_snapshots`.
+pub(crate) fn build_stage_snapshot(
+    stage_name: &str,
+    agent_output: &HashMap<String, serde_json::Value>,
+) -> HashMap<String, serde_json::Value> {
+    [
+        (
+            "stage".to_string(),
+            serde_json::Value::String(stage_name.to_string()),
+        ),
+        (
+            "output".to_string(),
+            serde_json::Value::Object(
+                agent_output
+                    .iter()
+                    .map(|(k, v)| (k.clone(), v.clone()))
+                    .collect(),
+            ),
+        ),
+    ]
+    .into_iter()
+    .collect()
+}
 
 /// PipelineSession represents an active pipeline execution session.
 ///

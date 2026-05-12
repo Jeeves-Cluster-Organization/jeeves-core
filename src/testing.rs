@@ -16,13 +16,13 @@ use std::sync::Arc;
 use tokio_util::sync::CancellationToken;
 
 use crate::envelope::Envelope;
-use crate::kernel::orchestrator_types::PipelineConfig;
+use crate::workflow::PipelineConfig;
 use crate::kernel::Kernel;
 use crate::types::{ProcessId, Result};
-use crate::worker::actor::spawn_kernel;
-use crate::worker::agent::{Agent, AgentRegistry};
-use crate::worker::llm::PipelineEvent;
-use crate::worker::WorkerResult;
+use crate::kernel::actor::spawn_kernel;
+use crate::agent::{Agent, AgentRegistry};
+use crate::agent::llm::PipelineEvent;
+use crate::kernel::runner::WorkerResult;
 
 /// Test harness for running pipelines in isolation.
 ///
@@ -67,7 +67,7 @@ impl PipelineTestHarness {
             .await?;
 
         let agents = Arc::new(self.agents);
-        let result = crate::worker::run_pipeline_loop(&handle, &pid, &agents, None, &pipeline_name).await;
+        let result = crate::kernel::runner::run_pipeline_loop(&handle, &pid, &agents, None, &pipeline_name).await;
 
         cancel.cancel();
         result
@@ -90,7 +90,7 @@ impl PipelineTestHarness {
 
         let agents = Arc::new(self.agents);
 
-        let (jh, mut rx) = crate::worker::run_pipeline_streaming(
+        let (jh, mut rx) = crate::kernel::runner::run_pipeline_streaming(
             handle,
             pid,
             self.config,
@@ -122,8 +122,8 @@ impl std::fmt::Debug for PipelineTestHarness {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::kernel::orchestrator_types::PipelineStage;
-    use crate::worker::agent::DeterministicAgent;
+    use crate::workflow::PipelineStage;
+    use crate::agent::DeterministicAgent;
 
     fn stage(name: &str, default_next: Option<&str>) -> PipelineStage {
         PipelineStage {

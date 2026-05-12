@@ -13,15 +13,15 @@
 
 use jeeves_core::envelope::TerminalReason;
 use jeeves_core::kernel::Kernel;
-use jeeves_core::kernel::orchestrator_types::PipelineConfig;
+use jeeves_core::workflow::PipelineConfig;
 use jeeves_core::types::ProcessId;
-use jeeves_core::worker::actor::spawn_kernel;
-use jeeves_core::worker::agent::{AgentRegistry, DeterministicAgent, LlmAgent};
-use jeeves_core::worker::llm::mock::SequentialMockLlmProvider;
-use jeeves_core::worker::llm::{ChatResponse, PipelineEvent, TokenUsage, ToolCall};
-use jeeves_core::worker::prompts::PromptRegistry;
-use jeeves_core::worker::tools::{ToolExecutor, ToolInfo, ToolRegistry};
-use jeeves_core::worker::{run_pipeline, run_pipeline_loop};
+use jeeves_core::kernel::actor::spawn_kernel;
+use jeeves_core::agent::{AgentRegistry, DeterministicAgent, LlmAgent};
+use jeeves_core::agent::llm::mock::SequentialMockLlmProvider;
+use jeeves_core::agent::llm::{ChatResponse, PipelineEvent, TokenUsage, ToolCall};
+use jeeves_core::agent::prompts::PromptRegistry;
+use jeeves_core::tools::{ToolExecutor, ToolInfo, ToolRegistry};
+use jeeves_core::kernel::runner::{run_pipeline, run_pipeline_loop};
 use std::sync::Arc;
 use tokio_util::sync::CancellationToken;
 
@@ -80,8 +80,8 @@ struct EchoToolExecutor;
 
 #[async_trait::async_trait]
 impl ToolExecutor for EchoToolExecutor {
-    async fn execute(&self, name: &str, params: serde_json::Value) -> jeeves_core::types::Result<jeeves_core::worker::tools::ToolOutput> {
-        Ok(jeeves_core::worker::tools::ToolOutput::json(serde_json::json!({"tool": name, "params": params})))
+    async fn execute(&self, name: &str, params: serde_json::Value) -> jeeves_core::types::Result<jeeves_core::tools::ToolOutput> {
+        Ok(jeeves_core::tools::ToolOutput::json(serde_json::json!({"tool": name, "params": params})))
     }
 
     fn list_tools(&self) -> Vec<ToolInfo> {
@@ -106,7 +106,7 @@ struct FailingToolExecutor;
 
 #[async_trait::async_trait]
 impl ToolExecutor for FailingToolExecutor {
-    async fn execute(&self, name: &str, _params: serde_json::Value) -> jeeves_core::types::Result<jeeves_core::worker::tools::ToolOutput> {
+    async fn execute(&self, name: &str, _params: serde_json::Value) -> jeeves_core::types::Result<jeeves_core::tools::ToolOutput> {
         Err(jeeves_core::types::Error::internal(format!("Tool '{}' failed", name)))
     }
 
@@ -120,7 +120,7 @@ impl ToolExecutor for FailingToolExecutor {
 }
 
 fn make_llm_agent(
-    llm: Arc<dyn jeeves_core::worker::llm::LlmProvider>,
+    llm: Arc<dyn jeeves_core::agent::llm::LlmProvider>,
     tools: Arc<ToolRegistry>,
 ) -> LlmAgent {
     LlmAgent {
@@ -925,18 +925,18 @@ struct ConfirmableToolExecutor;
 
 #[async_trait::async_trait]
 impl ToolExecutor for ConfirmableToolExecutor {
-    async fn execute(&self, name: &str, _params: serde_json::Value) -> jeeves_core::types::Result<jeeves_core::worker::tools::ToolOutput> {
-        Ok(jeeves_core::worker::tools::ToolOutput::json(serde_json::json!({"tool": name, "executed": true})))
+    async fn execute(&self, name: &str, _params: serde_json::Value) -> jeeves_core::types::Result<jeeves_core::tools::ToolOutput> {
+        Ok(jeeves_core::tools::ToolOutput::json(serde_json::json!({"tool": name, "executed": true})))
     }
-    fn list_tools(&self) -> Vec<jeeves_core::worker::tools::ToolInfo> {
+    fn list_tools(&self) -> Vec<jeeves_core::tools::ToolInfo> {
         vec![
             ToolInfo { name: "safe_op".into(), description: "safe".into(), parameters: serde_json::json!({"type": "object"}) },
             ToolInfo { name: "dangerous_op".into(), description: "destructive".into(), parameters: serde_json::json!({"type": "object"}) },
         ]
     }
-    fn requires_confirmation(&self, name: &str, _params: &serde_json::Value) -> Option<jeeves_core::worker::tools::ConfirmationRequest> {
+    fn requires_confirmation(&self, name: &str, _params: &serde_json::Value) -> Option<jeeves_core::tools::ConfirmationRequest> {
         if name == "dangerous_op" {
-            Some(jeeves_core::worker::tools::ConfirmationRequest {
+            Some(jeeves_core::tools::ConfirmationRequest {
                 message: "This is destructive!".into(),
                 action_data: Some(serde_json::json!({"target": "all"})),
             })
@@ -949,7 +949,7 @@ impl ToolExecutor for ConfirmableToolExecutor {
 /// ToolDelegatingAgent with confirmable tool → first run returns interrupt, resolve → re-run executes.
 #[tokio::test]
 async fn test_confirmation_gate_mcp_agent_buffered() {
-    use jeeves_core::worker::agent::{ToolDelegatingAgent, Agent, AgentContext};
+    use jeeves_core::agent::{ToolDelegatingAgent, Agent, AgentContext};
     use std::collections::HashMap;
 
     let mut tool_reg = ToolRegistry::new();
@@ -1002,7 +1002,7 @@ async fn test_confirmation_gate_mcp_agent_buffered() {
 /// ToolDelegatingAgent with safe tool → no interrupt, executes directly.
 #[tokio::test]
 async fn test_confirmation_gate_safe_tool_no_interrupt() {
-    use jeeves_core::worker::agent::{ToolDelegatingAgent, Agent, AgentContext};
+    use jeeves_core::agent::{ToolDelegatingAgent, Agent, AgentContext};
     use std::collections::HashMap;
 
     let mut tool_reg = ToolRegistry::new();
@@ -1042,7 +1042,7 @@ async fn test_confirmation_gate_safe_tool_no_interrupt() {
 #[tokio::test]
 async fn test_confirmation_gate_full_pipeline_buffered() {
     use jeeves_core::envelope::Envelope;
-    use jeeves_core::worker::agent::ToolDelegatingAgent;
+    use jeeves_core::agent::ToolDelegatingAgent;
 
     let cancel = CancellationToken::new();
     let handle = spawn_kernel(Kernel::new(), cancel.clone());
@@ -1086,10 +1086,10 @@ async fn test_confirmation_gate_full_pipeline_buffered() {
 
     // Get next instruction — should be WaitInterrupt
     let instr = handle.get_next_instruction(&pid).await.unwrap();
-    assert!(matches!(instr, jeeves_core::kernel::orchestrator_types::Instruction::WaitInterrupt { .. }));
+    assert!(matches!(instr, jeeves_core::kernel::protocol::Instruction::WaitInterrupt { .. }));
 
     // Resolve the interrupt
-    let interrupt_id = if let jeeves_core::kernel::orchestrator_types::Instruction::WaitInterrupt { ref interrupt } = instr {
+    let interrupt_id = if let jeeves_core::kernel::protocol::Instruction::WaitInterrupt { ref interrupt } = instr {
         interrupt.as_ref().unwrap().id.clone()
     } else {
         panic!("Expected WaitInterrupt");

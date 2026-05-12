@@ -8,9 +8,11 @@ use std::collections::{HashMap, HashSet};
 use crate::types::{EnvelopeId, RequestId, SessionId, UserId};
 
 pub mod enums;
+pub mod events;
 pub mod types;
 
 pub use enums::*;
+pub use events::{AggregateMetrics, PipelineEvent, StageMetrics};
 pub use types::*;
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]

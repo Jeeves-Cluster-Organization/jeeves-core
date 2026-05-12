@@ -4,7 +4,8 @@ use crate::envelope::Envelope;
 use crate::types::{Error, ProcessId, Result};
 
 use super::orchestrator::Orchestrator;
-use super::orchestrator_types::{PipelineStage, SessionState, StateField};
+use crate::workflow::{PipelineStage, StateField};
+use crate::kernel::protocol::{SessionState};
 
 impl Orchestrator {
     /// Get a reference to a pipeline session by process ID.

@@ -6,23 +6,22 @@
 
 use std::collections::HashMap;
 
-// Core types
-pub mod types;
-
-// Subsystem modules
+pub mod actor;
+pub mod handle;
 pub mod interrupts;
 pub mod lifecycle;
 pub mod orchestrator;
-mod orchestrator_session;   // impl Orchestrator — session lifecycle
-mod orchestrator_queries;   // impl Orchestrator — read-only queries
-mod orchestrator_helpers;   // Free functions — routing helpers
-#[cfg(test)]
-pub(crate) mod test_helpers; // Shared test utilities for orchestrator tests
-pub mod orchestrator_types;
+mod orchestrator_queries;
+mod orchestrator_session;
+pub mod protocol;
 pub mod resources;
 pub mod routing;
+pub mod runner;
+pub mod types;
 
-// Kernel impl split across focused files
+#[cfg(test)]
+pub(crate) mod test_helpers;
+
 mod kernel_orchestration;
 
 // Re-export key types
@@ -34,7 +33,7 @@ pub use types::{
 };
 
 use crate::envelope::Envelope;
-use crate::kernel::orchestrator_types::MergeStrategy;
+use crate::workflow::MergeStrategy;
 use crate::types::ProcessId;
 
 /// Merge a value into envelope.state according to the configured strategy.
@@ -79,7 +78,7 @@ fn merge_state_field(
 /// via [`ToolRegistryBuilder::with_access_policy`]; only health tracking
 /// hangs off the kernel.
 ///
-/// [`ToolRegistryBuilder::with_access_policy`]: crate::worker::tools::ToolRegistryBuilder::with_access_policy
+/// [`ToolRegistryBuilder::with_access_policy`]: crate::tools::ToolRegistryBuilder::with_access_policy
 #[derive(Debug)]
 pub struct ToolDomain {
     pub(crate) health: crate::tools::ToolHealthTracker,
@@ -283,7 +282,7 @@ mod tests {
 #[cfg(test)]
 mod merge_tests {
     use super::merge_state_field;
-    use crate::kernel::orchestrator_types::MergeStrategy;
+    use crate::workflow::MergeStrategy;
     use serde_json::json;
     use std::collections::HashMap;
 

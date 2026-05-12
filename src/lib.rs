@@ -20,14 +20,14 @@
 #![warn(missing_debug_implementations)]
 #![warn(rust_2018_idioms)]
 
-// Re-export public API
+pub mod agent;
 pub mod envelope;
 pub mod kernel;
 #[cfg(any(test, feature = "test-harness"))]
 pub mod testing;
 pub mod tools;
 pub mod types;
-pub mod worker;
+pub mod workflow;
 
 // Internal utilities
 pub(crate) mod observability;
@@ -42,18 +42,21 @@ pub use types::{Config, Error, Result};
 ///
 /// Usage: `use jeeves_core::prelude::*;`
 pub mod prelude {
+    pub use crate::agent::factory::AgentFactoryBuilder;
+    pub use crate::agent::hooks::{DynHook, HookDecision, LlmAgentHook};
+    pub use crate::agent::llm::{LlmProvider, MessageContent, PipelineEvent};
+    pub use crate::agent::prompts::PromptRegistry;
+    pub use crate::agent::AgentRegistry;
     pub use crate::envelope::Envelope;
-    pub use crate::kernel::orchestrator_types::PipelineConfig;
+    pub use crate::kernel::actor::spawn_kernel;
+    pub use crate::kernel::handle::KernelHandle;
+    pub use crate::workflow::PipelineConfig;
     pub use crate::kernel::routing::{RoutingContext, RoutingFn, RoutingResult};
+    pub use crate::kernel::runner::{run_pipeline_streaming, run_pipeline_with_envelope, WorkerResult};
     pub use crate::kernel::Kernel;
+    pub use crate::tools::{
+        ConfirmationRequest, ContentPart, ContentResolver, ToolExecutor, ToolInfo, ToolOutput,
+        ToolRegistry, ToolRegistryBuilder,
+    };
     pub use crate::types::ProcessId;
-    pub use crate::worker::actor::spawn_kernel;
-    pub use crate::worker::agent::AgentRegistry;
-    pub use crate::worker::agent_factory::AgentFactoryBuilder;
-    pub use crate::worker::handle::KernelHandle;
-    pub use crate::worker::hooks::{DynHook, HookDecision, LlmAgentHook};
-    pub use crate::worker::llm::{LlmProvider, MessageContent, PipelineEvent};
-    pub use crate::worker::prompts::PromptRegistry;
-    pub use crate::worker::tools::{ConfirmationRequest, ContentPart, ContentResolver, ToolExecutor, ToolInfo, ToolOutput, ToolRegistry, ToolRegistryBuilder};
-    pub use crate::worker::{run_pipeline_streaming, run_pipeline_with_envelope, WorkerResult};
 }

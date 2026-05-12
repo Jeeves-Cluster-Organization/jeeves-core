@@ -23,8 +23,8 @@
 use async_trait::async_trait;
 use std::sync::Arc;
 
-use crate::worker::llm::{ChatMessage, ToolCall};
-use crate::worker::tools::ToolOutput;
+use crate::agent::llm::{ChatMessage, ToolCall};
+use crate::tools::ToolOutput;
 
 /// Decision returned by `LlmAgentHook::before_tool_call`.
 #[derive(Debug)]

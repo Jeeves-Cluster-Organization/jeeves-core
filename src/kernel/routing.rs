@@ -71,7 +71,7 @@ impl std::fmt::Debug for RoutingRegistry {
 /// Routing decision with rationale, emitted into the audit trail and
 /// [`PipelineEvent::RoutingDecision`].
 ///
-/// [`PipelineEvent::RoutingDecision`]: crate::worker::llm::PipelineEvent::RoutingDecision
+/// [`PipelineEvent::RoutingDecision`]: crate::agent::llm::PipelineEvent::RoutingDecision
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct RoutingDecision {
     pub from_stage: String,
@@ -91,7 +91,7 @@ pub enum RoutingReason {
 }
 
 pub fn evaluate_routing_with_reason(
-    stage: &super::orchestrator_types::PipelineStage,
+    stage: &crate::workflow::PipelineStage,
     registry: &RoutingRegistry,
     ctx: &RoutingContext<'_>,
     from_stage: &str,
@@ -154,7 +154,7 @@ pub fn evaluate_routing_with_reason(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::kernel::orchestrator_types::PipelineStage;
+    use crate::workflow::PipelineStage;
 
     fn test_registry() -> RoutingRegistry {
         let mut reg = RoutingRegistry::new();

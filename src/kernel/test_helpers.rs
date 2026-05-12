@@ -4,8 +4,7 @@
 //! and `create_test_envelope()` across orchestrator_*.rs test modules.
 
 use crate::envelope::Envelope;
-
-use super::orchestrator_types::*;
+use crate::workflow::{PipelineConfig, PipelineStage};
 
 /// Build a PipelineStage with optional routing_fn and default_next.
 /// All other fields use defaults.

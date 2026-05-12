@@ -6,7 +6,8 @@ use chrono::Utc;
 use tracing::instrument;
 
 use super::orchestrator::{Orchestrator, PipelineSession};
-use super::orchestrator_types::{PipelineConfig, SessionState};
+use crate::workflow::{PipelineConfig};
+use crate::kernel::protocol::{SessionState};
 
 impl Orchestrator {
     /// Initialize a new pipeline session.

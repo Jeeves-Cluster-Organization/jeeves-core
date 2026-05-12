@@ -9,7 +9,7 @@ use crate::types::{Error, ProcessId, RequestId, Result, SessionId, UserId};
 
 use super::merge_state_field;
 use super::orchestrator;
-use super::orchestrator_types::ContextOverflow;
+use crate::workflow::ContextOverflow;
 use super::{Kernel, ProcessState, RemainingBudget, ResourceQuota, SystemStatus};
 
 impl Kernel {
