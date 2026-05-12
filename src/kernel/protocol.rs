@@ -2,8 +2,8 @@
 
 use serde::{Deserialize, Serialize};
 
-use crate::envelope::{FlowInterrupt, TerminalReason};
-use crate::types::ProcessId;
+use crate::run::{FlowInterrupt, TerminalReason};
+use crate::types::RunId;
 use crate::workflow::{ContextOverflow, RetryPolicy};
 
 use super::routing::RoutingDecision;
@@ -114,13 +114,13 @@ pub struct AgentExecutionMetrics {
 /// `KernelHandle::get_session_state()`.
 #[must_use]
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct SessionState {
-    pub process_id: ProcessId,
+pub struct RunSnapshot {
+    pub run_id: RunId,
     /// Name of the stage currently executing or about to execute.
     pub current_stage: String,
     /// Ordered list of all stage names in the pipeline.
     pub stage_order: Vec<String>,
-    /// Envelope serialized as JSON (outputs, bounds, audit trail, interrupts).
+    /// Run serialized as JSON (outputs, bounds, audit trail, interrupts).
     pub envelope: serde_json::Value,
     pub terminated: bool,
     #[serde(default, skip_serializing_if = "Option::is_none")]

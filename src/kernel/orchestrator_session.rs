@@ -1,13 +1,13 @@
 //! Orchestrator session lifecycle — initialization, cleanup, state building.
 
-use crate::envelope::Envelope;
-use crate::types::{Error, ProcessId, Result};
+use crate::run::Run;
+use crate::types::{Error, RunId, Result};
 use chrono::Utc;
 use tracing::instrument;
 
-use super::orchestrator::{Orchestrator, PipelineSession};
-use crate::workflow::{PipelineConfig};
-use crate::kernel::protocol::{SessionState};
+use super::orchestrator::{Orchestrator, Orchestration};
+use crate::workflow::{Workflow};
+use crate::kernel::protocol::{RunSnapshot};
 
 impl Orchestrator {
     /// Initialize a new pipeline session.
@@ -15,19 +15,19 @@ impl Orchestrator {
     /// Takes a mutable envelope reference to set pipeline bounds (kernel owns the envelope).
     /// If force is false and a session already exists, returns an error.
     /// If force is true, replaces any existing session.
-    #[instrument(skip(self, pipeline_config, envelope), fields(process_id = %process_id))]
+    #[instrument(skip(self, pipeline_config, envelope), fields(run_id = %run_id))]
     pub fn initialize_session(
         &mut self,
-        process_id: ProcessId,
-        pipeline_config: PipelineConfig,
-        envelope: &mut Envelope,
+        run_id: RunId,
+        pipeline_config: Workflow,
+        envelope: &mut Run,
         force: bool,
-    ) -> Result<SessionState> {
+    ) -> Result<RunSnapshot> {
         // Check for duplicate processID
-        if self.pipelines.contains_key(&process_id) && !force {
+        if self.pipelines.contains_key(&run_id) && !force {
             return Err(Error::validation(format!(
                 "Session already exists for process: {} (use force=true to replace)",
-                process_id
+                run_id
             )));
         }
 
@@ -50,8 +50,8 @@ impl Orchestrator {
         }
 
         let now = Utc::now();
-        let session = PipelineSession {
-            process_id: process_id.clone(),
+        let session = Orchestration {
+            run_id: run_id.clone(),
             pipeline_config,
             stage_visits: std::collections::HashMap::new(),
             created_at: now,
@@ -60,25 +60,25 @@ impl Orchestrator {
         };
 
         let state = self.build_session_state(&session, envelope);
-        self.pipelines.insert(process_id, session);
+        self.pipelines.insert(run_id, session);
 
         Ok(state)
     }
 
     /// Check if a pipeline session exists for the given process.
-    pub fn has_session(&self, process_id: &ProcessId) -> bool {
-        self.pipelines.contains_key(process_id)
+    pub fn has_session(&self, run_id: &RunId) -> bool {
+        self.pipelines.contains_key(run_id)
     }
 
     /// Cleanup a pipeline session.
-    pub fn cleanup_session(&mut self, process_id: &ProcessId) -> bool {
-        self.pipelines.remove(process_id).is_some()
+    pub fn cleanup_session(&mut self, run_id: &RunId) -> bool {
+        self.pipelines.remove(run_id).is_some()
     }
 
     /// Cleanup stale pipeline sessions older than the given duration.
     /// Returns the PIDs of removed sessions so the Kernel can also clean up
-    /// the corresponding envelopes from `process_envelopes`.
-    pub fn cleanup_stale_sessions(&mut self, max_age_seconds: i64) -> Vec<ProcessId> {
+    /// the corresponding envelopes from `runs`.
+    pub fn cleanup_stale_sessions(&mut self, max_age_seconds: i64) -> Vec<RunId> {
         let cutoff = Utc::now() - chrono::TimeDelta::seconds(max_age_seconds);
         let mut to_remove = Vec::new();
 
@@ -96,12 +96,12 @@ impl Orchestrator {
     }
 
     /// Build external session state representation.
-    pub(crate) fn build_session_state(&self, session: &PipelineSession, envelope: &Envelope) -> SessionState {
+    pub(crate) fn build_session_state(&self, session: &Orchestration, envelope: &Run) -> RunSnapshot {
         let envelope_value = serde_json::to_value(envelope)
             .unwrap_or_default();
 
-        SessionState {
-            process_id: session.process_id.clone(),
+        RunSnapshot {
+            run_id: session.run_id.clone(),
             current_stage: envelope.pipeline.current_stage.clone(),
             stage_order: envelope.pipeline.stage_order.clone(),
             envelope: envelope_value,
@@ -115,7 +115,7 @@ impl Orchestrator {
 mod tests {
     use super::super::orchestrator::Orchestrator;
     use super::super::test_helpers::*;
-    use crate::types::ProcessId;
+    use crate::types::RunId;
     use chrono::Utc;
 
     #[test]
@@ -125,10 +125,10 @@ mod tests {
         let mut envelope = create_test_envelope();
 
         let state = orch
-            .initialize_session(ProcessId::must("proc1"), pipeline.clone(), &mut envelope, false)
+            .initialize_session(RunId::must("proc1"), pipeline.clone(), &mut envelope, false)
             .unwrap();
 
-        assert_eq!(state.process_id.as_str(), "proc1");
+        assert_eq!(state.run_id.as_str(), "proc1");
         assert_eq!(state.current_stage, "stage1");
         assert_eq!(state.stage_order, vec!["stage1", "stage2"]);
         assert!(!state.terminated);
@@ -140,12 +140,12 @@ mod tests {
         let pipeline = create_test_pipeline();
         let mut envelope = create_test_envelope();
 
-        let _state = orch.initialize_session(ProcessId::must("proc1"), pipeline.clone(), &mut envelope, false)
+        let _state = orch.initialize_session(RunId::must("proc1"), pipeline.clone(), &mut envelope, false)
             .unwrap();
 
         let mut envelope2 = create_test_envelope();
         let result =
-            orch.initialize_session(ProcessId::must("proc1"), pipeline, &mut envelope2, false);
+            orch.initialize_session(RunId::must("proc1"), pipeline, &mut envelope2, false);
 
         assert!(result.is_err());
         assert!(result.unwrap_err().to_string().contains("already exists"));
@@ -157,12 +157,12 @@ mod tests {
         let pipeline = create_test_pipeline();
         let mut envelope = create_test_envelope();
 
-        let _state = orch.initialize_session(ProcessId::must("proc1"), pipeline.clone(), &mut envelope, false)
+        let _state = orch.initialize_session(RunId::must("proc1"), pipeline.clone(), &mut envelope, false)
             .unwrap();
 
         let mut envelope2 = create_test_envelope();
         let result =
-            orch.initialize_session(ProcessId::must("proc1"), pipeline, &mut envelope2, true);
+            orch.initialize_session(RunId::must("proc1"), pipeline, &mut envelope2, true);
 
         assert!(result.is_ok());
     }
@@ -170,7 +170,7 @@ mod tests {
     #[test]
     fn test_has_session_true_after_init() {
         let mut orch = Orchestrator::new();
-        let pid = ProcessId::must("p1");
+        let pid = RunId::must("p1");
         let pipeline = create_test_pipeline();
         let mut envelope = create_test_envelope();
         let _state = orch.initialize_session(pid.clone(), pipeline, &mut envelope, false).unwrap();
@@ -181,7 +181,7 @@ mod tests {
     #[test]
     fn test_has_session_false_for_unknown_pid() {
         let orch = Orchestrator::new();
-        assert!(!orch.has_session(&ProcessId::must("unknown")));
+        assert!(!orch.has_session(&RunId::must("unknown")));
     }
 
     #[test]
@@ -190,16 +190,16 @@ mod tests {
         let pipeline = create_test_pipeline();
         let mut envelope = create_test_envelope();
 
-        let _state = orch.initialize_session(ProcessId::must("proc1"), pipeline, &mut envelope, false)
+        let _state = orch.initialize_session(RunId::must("proc1"), pipeline, &mut envelope, false)
             .unwrap();
 
         assert_eq!(orch.get_session_count(), 1);
 
-        let removed = orch.cleanup_session(&ProcessId::must("proc1"));
+        let removed = orch.cleanup_session(&RunId::must("proc1"));
         assert!(removed);
         assert_eq!(orch.get_session_count(), 0);
 
-        let removed = orch.cleanup_session(&ProcessId::must("proc1"));
+        let removed = orch.cleanup_session(&RunId::must("proc1"));
         assert!(!removed);
     }
 
@@ -207,8 +207,8 @@ mod tests {
     fn test_cleanup_stale_sessions_removes_old_keeps_young() {
         let mut orch = Orchestrator::new();
 
-        let pid_old = ProcessId::must("old");
-        let pid_young = ProcessId::must("young");
+        let pid_old = RunId::must("old");
+        let pid_young = RunId::must("young");
         let pipeline = create_test_pipeline();
 
         let mut env1 = create_test_envelope();

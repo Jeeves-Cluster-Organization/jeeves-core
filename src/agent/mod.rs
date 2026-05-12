@@ -15,7 +15,7 @@ use tokio::sync::mpsc;
 use tracing::instrument;
 
 use crate::agent::llm::{
-    collect_stream, ChatMessage, ChatRequest, LlmProvider, MessageContent, PipelineEvent, ToolCall,
+    collect_stream, ChatMessage, ChatRequest, LlmProvider, MessageContent, RunEvent, ToolCall,
 };
 use crate::agent::prompts::PromptRegistry;
 use crate::workflow::{ContextOverflow};
@@ -31,7 +31,7 @@ pub struct AgentOutput {
     pub error_message: String,
     /// Set when the agent wants the worker to suspend on a flow interrupt
     /// (e.g. tool confirmation). The worker stores it on the envelope.
-    pub interrupt_request: Option<crate::envelope::FlowInterrupt>,
+    pub interrupt_request: Option<crate::run::FlowInterrupt>,
 }
 
 #[derive(Debug, Clone)]
@@ -43,9 +43,9 @@ pub struct AgentContext {
     pub state: HashMap<String, serde_json::Value>,
     pub metadata: HashMap<String, serde_json::Value>,
     /// `None` = buffered execution; `Some` = stream events back to consumer.
-    pub event_tx: Option<mpsc::Sender<PipelineEvent>>,
+    pub event_tx: Option<mpsc::Sender<RunEvent>>,
     pub stage_name: Option<String>,
-    pub pipeline_name: Arc<str>,
+    pub workflow_name: Arc<str>,
     /// chars/4 heuristic; checked at the top of every ReAct round.
     pub max_context_tokens: Option<i64>,
     pub context_overflow: Option<ContextOverflow>,
@@ -198,7 +198,7 @@ impl Agent for LlmAgent {
             };
 
             let resp = match self.llm.chat_stream(&req).await {
-                Ok(stream) => match collect_stream(stream, ctx.event_tx.as_ref(), ctx.stage_name.as_deref(), ctx.pipeline_name.clone()).await {
+                Ok(stream) => match collect_stream(stream, ctx.event_tx.as_ref(), ctx.stage_name.as_deref(), ctx.workflow_name.clone()).await {
                     Ok(resp) => resp,
                     Err(e) => return Ok(make_error_output(e, start, total_llm_calls + 1)),
                 },
@@ -225,7 +225,7 @@ impl Agent for LlmAgent {
 
                 if ctx.interrupt_response.is_none() {
                     if let Some(confirmation) = self.tools.requires_confirmation(&tc.name, &tc.arguments) {
-                        let mut interrupt = crate::envelope::FlowInterrupt::new()
+                        let mut interrupt = crate::run::FlowInterrupt::new()
                             .with_message(confirmation.message.clone());
                         if let Some(data) = confirmation.action_data {
                             interrupt = interrupt.with_data(HashMap::from([("action_data".to_string(), data)]));
@@ -253,11 +253,11 @@ impl Agent for LlmAgent {
 
                 if let Some(ref tx) = ctx.event_tx {
                     let _ = tx
-                        .send(PipelineEvent::ToolCallStart {
+                        .send(RunEvent::ToolCallStart {
                             id: tc.id.clone(),
                             name: tc.name.clone(),
                             stage: ctx.stage_name.clone(),
-                            pipeline: ctx.pipeline_name.clone(),
+                            pipeline: ctx.workflow_name.clone(),
                         })
                         .await;
                 }
@@ -328,11 +328,11 @@ impl Agent for LlmAgent {
 
                 if let Some(ref tx) = ctx.event_tx {
                     let _ = tx
-                        .send(PipelineEvent::ToolResult {
+                        .send(RunEvent::ToolResult {
                             id: tc.id.clone(),
                             content: result_text.clone(),
                             stage: ctx.stage_name.clone(),
-                            pipeline: ctx.pipeline_name.clone(),
+                            pipeline: ctx.workflow_name.clone(),
                         })
                         .await;
                 }
@@ -422,11 +422,11 @@ impl Agent for ToolDelegatingAgent {
 
         if let Some(ref tx) = ctx.event_tx {
             let _ = tx
-                .send(PipelineEvent::ToolCallStart {
+                .send(RunEvent::ToolCallStart {
                     id: call_id.clone(),
                     name: self.tool_name.clone(),
                     stage: ctx.stage_name.clone(),
-                    pipeline: ctx.pipeline_name.clone(),
+                    pipeline: ctx.workflow_name.clone(),
                 })
                 .await;
         }
@@ -440,7 +440,7 @@ impl Agent for ToolDelegatingAgent {
 
         if ctx.interrupt_response.is_none() {
             if let Some(confirmation) = self.tools.requires_confirmation(&self.tool_name, &params) {
-                let mut interrupt = crate::envelope::FlowInterrupt::new()
+                let mut interrupt = crate::run::FlowInterrupt::new()
                     .with_message(confirmation.message.clone());
                 if let Some(data) = confirmation.action_data {
                     interrupt = interrupt.with_data(HashMap::from([("action_data".to_string(), data)]));
@@ -472,10 +472,10 @@ impl Agent for ToolDelegatingAgent {
                 let err_str = e.to_string();
                 if let Some(ref tx) = ctx.event_tx {
                     let _ = tx
-                        .send(PipelineEvent::Error {
+                        .send(RunEvent::Error {
                             message: err_str.clone(),
                             stage: ctx.stage_name.clone(),
-                            pipeline: ctx.pipeline_name.clone(),
+                            pipeline: ctx.workflow_name.clone(),
                         })
                         .await;
                 }
@@ -486,11 +486,11 @@ impl Agent for ToolDelegatingAgent {
 
         if let Some(ref tx) = ctx.event_tx {
             let _ = tx
-                .send(PipelineEvent::ToolResult {
+                .send(RunEvent::ToolResult {
                     id: call_id.clone(),
                     content: result.to_string(),
                     stage: ctx.stage_name.clone(),
-                    pipeline: ctx.pipeline_name.clone(),
+                    pipeline: ctx.workflow_name.clone(),
                 })
                 .await;
         }
@@ -662,7 +662,7 @@ mod tests {
             metadata: HashMap::new(),
             event_tx: None,
             stage_name: Some("test_stage".to_string()),
-            pipeline_name: Arc::from("test"),
+            workflow_name: Arc::from("test"),
             max_context_tokens: Some(max_tokens),
             context_overflow: Some(overflow),
             interrupt_response: None,
@@ -815,7 +815,7 @@ mod tests {
             metadata: HashMap::new(),
             event_tx: None,
             stage_name: Some("test".to_string()),
-            pipeline_name: Arc::from("test"),
+            workflow_name: Arc::from("test"),
             max_context_tokens: None,
             context_overflow: None,
             interrupt_response: None,

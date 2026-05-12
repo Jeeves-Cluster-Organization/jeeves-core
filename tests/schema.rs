@@ -1,6 +1,6 @@
 //! Schema drift regression test.
 //!
-//! Generates the JSON Schema for `PipelineConfig` from the current Rust types
+//! Generates the JSON Schema for `Workflow` from the current Rust types
 //! and compares it to the on-disk `schema/pipeline.schema.json`. Drift between
 //! the two means the schema file is stale.
 //!
@@ -11,7 +11,7 @@
 
 use std::path::PathBuf;
 
-use jeeves_core::workflow::{pipeline_config_json_schema, PipelineConfig};
+use jeeves_core::workflow::{pipeline_config_json_schema, Workflow};
 
 fn schema_path() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("schema/pipeline.schema.json")
@@ -51,7 +51,7 @@ fn schema_matches_on_disk() {
 }
 
 /// Representative pipeline JSON shapes that game-mvp uses. Drift between this
-/// fixture and `PipelineConfig` deserialization surfaces wire-format breakage
+/// fixture and `Workflow` deserialization surfaces wire-format breakage
 /// before it reaches the consumer.
 #[test]
 fn representative_pipeline_json_deserializes() {
@@ -89,7 +89,7 @@ fn representative_pipeline_json_deserializes() {
             }
         ]
     });
-    let config: PipelineConfig =
+    let config: Workflow =
         serde_json::from_value(json).expect("deserialize newspaper-shape pipeline");
     assert_eq!(config.name, "newspaper_publish");
     assert_eq!(config.stages.len(), 2);
@@ -128,7 +128,7 @@ fn representative_pipeline_json_deserializes() {
             { "name": "think_general", "agent": "think_general", "has_llm": true }
         ]
     });
-    let config: PipelineConfig =
+    let config: Workflow =
         serde_json::from_value(json).expect("deserialize dialogue-shape pipeline");
     assert_eq!(config.name, "npc_dialogue");
     assert_eq!(config.state_schema.len(), 1);
@@ -144,7 +144,7 @@ fn representative_pipeline_json_deserializes() {
         "max_agent_hops": 1,
         "stages": [{ "name": "only", "agent": "only" }]
     });
-    let config: PipelineConfig = serde_json::from_value(json).expect("deserialize minimal pipeline");
+    let config: Workflow = serde_json::from_value(json).expect("deserialize minimal pipeline");
     assert_eq!(config.stages[0].name, "only");
     assert!(!config.stages[0].agent_config.has_llm);
 }

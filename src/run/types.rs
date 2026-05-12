@@ -1,4 +1,4 @@
-//! Envelope sub-structs and supporting types.
+//! Run sub-structs and supporting types.
 
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
@@ -130,7 +130,7 @@ pub struct ProcessingRecord {
     pub tokens_out: i64,
 }
 
-/// Envelope identity fields.
+/// Run identity fields.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct Identity {
     pub envelope_id: EnvelopeId,

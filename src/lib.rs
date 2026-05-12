@@ -21,8 +21,8 @@
 #![warn(rust_2018_idioms)]
 
 pub mod agent;
-pub mod envelope;
 pub mod kernel;
+pub mod run;
 #[cfg(any(test, feature = "test-harness"))]
 pub mod testing;
 pub mod tools;
@@ -44,19 +44,19 @@ pub use types::{Config, Error, Result};
 pub mod prelude {
     pub use crate::agent::factory::AgentFactoryBuilder;
     pub use crate::agent::hooks::{DynHook, HookDecision, LlmAgentHook};
-    pub use crate::agent::llm::{LlmProvider, MessageContent, PipelineEvent};
+    pub use crate::agent::llm::{LlmProvider, MessageContent, RunEvent};
     pub use crate::agent::prompts::PromptRegistry;
     pub use crate::agent::AgentRegistry;
-    pub use crate::envelope::Envelope;
-    pub use crate::kernel::actor::spawn_kernel;
+    pub use crate::run::Run;
+    pub use crate::kernel::actor::spawn;
     pub use crate::kernel::handle::KernelHandle;
-    pub use crate::workflow::PipelineConfig;
+    pub use crate::workflow::Workflow;
     pub use crate::kernel::routing::{RoutingContext, RoutingFn, RoutingResult};
-    pub use crate::kernel::runner::{run_pipeline_streaming, run_pipeline_with_envelope, WorkerResult};
+    pub use crate::kernel::runner::{run, run_streaming, WorkerResult};
     pub use crate::kernel::Kernel;
     pub use crate::tools::{
         ConfirmationRequest, ContentPart, ContentResolver, ToolExecutor, ToolInfo, ToolOutput,
         ToolRegistry, ToolRegistryBuilder,
     };
-    pub use crate::types::ProcessId;
+    pub use crate::types::RunId;
 }

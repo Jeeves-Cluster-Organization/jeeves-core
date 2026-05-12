@@ -7,7 +7,7 @@
 use chrono::{DateTime, Utc};
 use std::collections::HashMap;
 
-use crate::envelope::{FlowInterrupt, InterruptResponse};
+use crate::run::{FlowInterrupt, InterruptResponse};
 
 /// Lightweight bookkeeping for a pending interrupt.
 #[derive(Debug, Clone)]

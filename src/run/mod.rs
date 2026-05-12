@@ -1,4 +1,4 @@
-//! Envelope: mutable state for a request flowing through the pipeline.
+//! Run: mutable state for a request flowing through the pipeline.
 //! Fields group into `Identity`, `Pipeline`, `Bounds`, `InterruptState`, `Audit`.
 
 use chrono::{DateTime, Utc};
@@ -12,11 +12,11 @@ pub mod events;
 pub mod types;
 
 pub use enums::*;
-pub use events::{AggregateMetrics, PipelineEvent, StageMetrics};
+pub use events::{AggregateMetrics, RunEvent, StageMetrics};
 pub use types::*;
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-pub struct Envelope {
+pub struct Run {
     pub identity: Identity,
     pub raw_input: String,
     pub received_at: DateTime<Utc>,
@@ -34,11 +34,11 @@ pub struct Envelope {
     pub audit: Audit,
 }
 
-impl Envelope {
-    /// Anonymous envelope, generated identity. Test convenience.
-    pub fn new() -> Self {
+impl Run {
+    /// Anonymous Run with a generated identity. Test convenience.
+    pub fn anonymous() -> Self {
         let uuid_short = || uuid::Uuid::new_v4().simple().to_string()[..16].to_string();
-        Self::new_minimal(
+        Self::new(
             "anonymous",
             &format!("sess_{}", uuid_short()),
             "",
@@ -46,9 +46,10 @@ impl Envelope {
         )
     }
 
-    /// Minimal envelope. Bounds are safe placeholders that
-    /// `initialize_orchestration` overwrites from `PipelineConfig`.
-    pub fn new_minimal(
+    /// Run instance with the given identity and inputs. Pipeline bounds are
+    /// safe placeholders that `initialize_orchestration` overwrites from the
+    /// `Workflow`.
+    pub fn new(
         user_id: &str,
         session_id: &str,
         raw_input: &str,
@@ -281,9 +282,9 @@ impl Envelope {
     }
 }
 
-impl Default for Envelope {
+impl Default for Run {
     fn default() -> Self {
-        Self::new()
+        Self::anonymous()
     }
 }
 
@@ -295,7 +296,7 @@ mod tests {
 
     #[test]
     fn test_new_envelope_defaults() {
-        let env = Envelope::new();
+        let env = Run::anonymous();
 
         // Identity: generated UUIDs are prefixed
         assert!(env.identity.envelope_id.as_str().starts_with("env_"));
@@ -319,7 +320,7 @@ mod tests {
         assert!(env.pipeline.failed_stages.is_empty());
         assert!(!env.pipeline.parallel_mode);
 
-        // Bounds defaults (via new_minimal — placeholders overwritten by PipelineConfig)
+        // Bounds defaults (via new_minimal — placeholders overwritten by Workflow)
         assert_eq!(env.bounds.llm_call_count, 0);
         assert_eq!(env.bounds.max_llm_calls, 100);
         assert_eq!(env.bounds.tool_call_count, 0);
@@ -348,7 +349,7 @@ mod tests {
 
     #[test]
     fn test_stage_lifecycle() {
-        let mut env = Envelope::new();
+        let mut env = Run::anonymous();
 
         // Start a stage
         env.start_stage("perception");
@@ -365,7 +366,7 @@ mod tests {
 
     #[test]
     fn test_stage_failure() {
-        let mut env = Envelope::new();
+        let mut env = Run::anonymous();
 
         env.start_stage("planning");
         assert!(env.pipeline.active_stages.contains("planning"));
@@ -385,7 +386,7 @@ mod tests {
 
     #[test]
     fn test_at_limit_llm_calls() {
-        let mut env = Envelope::new();
+        let mut env = Run::anonymous();
         env.bounds.max_llm_calls = 10;
         assert!(!env.at_limit());
 
@@ -399,7 +400,7 @@ mod tests {
 
     #[test]
     fn test_at_limit_agent_hops() {
-        let mut env = Envelope::new();
+        let mut env = Run::anonymous();
         env.bounds.max_agent_hops = 21;
         assert!(!env.at_limit());
 
@@ -415,7 +416,7 @@ mod tests {
 
     #[test]
     fn test_at_limit_iterations() {
-        let mut env = Envelope::new();
+        let mut env = Run::anonymous();
         env.pipeline.max_iterations = 3;
         assert!(!env.at_limit());
 
@@ -431,7 +432,7 @@ mod tests {
 
     #[test]
     fn test_not_at_limit_below_max() {
-        let mut env = Envelope::new();
+        let mut env = Run::anonymous();
         env.increment_llm_calls(5);
         for _ in 0..10 {
             env.increment_agent_hops();
@@ -445,7 +446,7 @@ mod tests {
 
     #[test]
     fn test_terminate() {
-        let mut env = Envelope::new();
+        let mut env = Run::anonymous();
 
         assert!(!env.bounds.is_terminated());
         assert!(env.audit.completed_at.is_none());
@@ -464,7 +465,7 @@ mod tests {
 
     #[test]
     fn test_interrupt_flow() {
-        let mut env = Envelope::new();
+        let mut env = Run::anonymous();
 
         assert!(!env.interrupts.is_pending());
         assert!(env.interrupts.interrupt.is_none());
@@ -489,7 +490,7 @@ mod tests {
 
     #[test]
     fn test_processing_record() {
-        let mut env = Envelope::new();
+        let mut env = Run::anonymous();
         assert!(env.audit.processing_history.is_empty());
 
         let record = ProcessingRecord {
@@ -560,8 +561,8 @@ mod tests {
 
     #[test]
     fn test_default_equals_new() {
-        let a = Envelope::new();
-        let b = Envelope::default();
+        let a = Run::anonymous();
+        let b = Run::default();
 
         // Pipeline
         assert_eq!(a.pipeline.current_stage, b.pipeline.current_stage);
@@ -591,7 +592,7 @@ mod tests {
 
     #[test]
     fn test_merge_updates_empty_outputs() {
-        let mut env = Envelope::new();
+        let mut env = Run::anonymous();
         let mut agent_out = HashMap::new();
         agent_out.insert("key1".to_string(), serde_json::json!("value1"));
         env.outputs.insert("agent1".to_string(), agent_out);
@@ -610,7 +611,7 @@ mod tests {
 
     #[test]
     fn test_merge_updates_metadata_merge() {
-        let mut env = Envelope::new();
+        let mut env = Run::anonymous();
         env.audit.metadata.insert("existing_key".to_string(), serde_json::json!("original"));
         env.audit.metadata.insert("shared_key".to_string(), serde_json::json!("old_value"));
 
@@ -639,7 +640,7 @@ mod tests {
 
     #[test]
     fn test_merge_updates_bounds_preservation() {
-        let mut env = Envelope::new();
+        let mut env = Run::anonymous();
         env.bounds.llm_call_count = 5;
         env.bounds.max_llm_calls = 10;
 
@@ -657,7 +658,7 @@ mod tests {
 
     #[test]
     fn test_validate_default_passes() {
-        let env = Envelope::new();
+        let env = Run::anonymous();
         assert!(env.validate().is_ok());
     }
 
@@ -665,7 +666,7 @@ mod tests {
 
     #[test]
     fn test_validate_terminated_passes() {
-        let mut env = Envelope::new();
+        let mut env = Run::anonymous();
         env.bounds.terminate(TerminalReason::Completed, None);
         assert!(env.validate().is_ok());
     }
@@ -674,7 +675,7 @@ mod tests {
 
     #[test]
     fn test_validate_negative_llm_count_fails() {
-        let mut env = Envelope::new();
+        let mut env = Run::anonymous();
         env.bounds.llm_call_count = -1;
         assert!(env.validate().is_err());
     }
@@ -683,7 +684,7 @@ mod tests {
 
     #[test]
     fn test_validate_zero_max_llm_calls_fails() {
-        let mut env = Envelope::new();
+        let mut env = Run::anonymous();
         env.bounds.max_llm_calls = 0;
         assert!(env.validate().is_err());
     }
@@ -692,7 +693,7 @@ mod tests {
 
     #[test]
     fn test_validate_current_stage_not_in_order_fails() {
-        let mut env = Envelope::new();
+        let mut env = Run::anonymous();
         env.pipeline.stage_order = vec!["understand".to_string(), "respond".to_string()];
         env.pipeline.current_stage = "missing_stage".to_string();
         assert!(env.validate().is_err());
@@ -700,7 +701,7 @@ mod tests {
 
     #[test]
     fn test_validate_current_stage_in_order_passes() {
-        let mut env = Envelope::new();
+        let mut env = Run::anonymous();
         env.pipeline.stage_order = vec!["understand".to_string(), "respond".to_string()];
         env.pipeline.current_stage = "understand".to_string();
         assert!(env.validate().is_ok());

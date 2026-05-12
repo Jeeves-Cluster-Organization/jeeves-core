@@ -1,8 +1,8 @@
-//! Kernel types: ProcessState, ProcessControlBlock, Resource tracking.
+//! Kernel types: RunStatus, RunRecord, Resource tracking.
 
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
-use crate::types::{ProcessId, RequestId, SessionId, UserId};
+use crate::types::{RunId, RequestId, SessionId, UserId};
 
 /// Process lifecycle state.
 ///
@@ -11,21 +11,21 @@ use crate::types::{ProcessId, RequestId, SessionId, UserId};
 /// kernel doesn't have a separate Waiting/Blocked state for that case.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Hash)]
 #[serde(rename_all = "SCREAMING_SNAKE_CASE")]
-pub enum ProcessState {
+pub enum RunStatus {
     /// Created and ready to run; not yet started.
     Ready,
     /// Active execution. May be suspended on a pending interrupt; consult
-    /// `ProcessControlBlock::pending_interrupt` to differentiate.
+    /// `RunRecord::pending_interrupt` to differentiate.
     Running,
     /// Terminated. Processes in this state are immediately removed by the
     /// kernel; they don't linger as zombies.
     Terminated,
 }
 
-impl ProcessState {
+impl RunStatus {
     /// Check if this is a terminal state.
     pub fn is_terminal(self) -> bool {
-        self == ProcessState::Terminated
+        self == RunStatus::Terminated
     }
 }
 
@@ -131,19 +131,19 @@ impl ResourceUsage {
 
 /// Process Control Block — kernel's metadata about a running process.
 ///
-/// The actual request state is in `Envelope`; this tracks scheduling state,
+/// The actual request state is in `Run`; this tracks scheduling state,
 /// resource accounting, and a pointer to any pending tool-confirmation
 /// interrupt by ID (resolved through the interrupts service, not the PCB).
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-pub struct ProcessControlBlock {
+pub struct RunRecord {
     // Identity
-    pub pid: ProcessId,
+    pub pid: RunId,
     pub request_id: RequestId,
     pub user_id: UserId,
     pub session_id: SessionId,
 
     // State
-    pub state: ProcessState,
+    pub state: RunStatus,
 
     // Resource tracking
     pub quota: ResourceQuota,
@@ -162,14 +162,14 @@ pub struct ProcessControlBlock {
     pub pending_interrupt: Option<String>,
 }
 
-impl ProcessControlBlock {
-    pub fn new(pid: ProcessId, request_id: RequestId, user_id: UserId, session_id: SessionId) -> Self {
+impl RunRecord {
+    pub fn new(pid: RunId, request_id: RequestId, user_id: UserId, session_id: SessionId) -> Self {
         Self {
             pid,
             request_id,
             user_id,
             session_id,
-            state: ProcessState::Ready,
+            state: RunStatus::Ready,
             quota: ResourceQuota::default(),
             usage: ResourceUsage::default(),
             created_at: Utc::now(),
@@ -181,14 +181,14 @@ impl ProcessControlBlock {
 
     /// Transition to RUNNING state.
     pub(crate) fn start(&mut self) {
-        self.state = ProcessState::Running;
+        self.state = RunStatus::Running;
         self.started_at = Some(Utc::now());
     }
 
     /// Transition to TERMINATED state and stamp elapsed time.
     pub(crate) fn complete(&mut self) {
         let now = Utc::now();
-        self.state = ProcessState::Terminated;
+        self.state = RunStatus::Terminated;
         self.completed_at = Some(now);
         if let Some(started) = self.started_at {
             self.usage.elapsed_seconds = (now - started).num_milliseconds() as f64 / 1000.0;

@@ -5,27 +5,27 @@
 //!
 //! Test groups:
 //! A. Tool execution loop (SequentialMockLlmProvider + tool dispatch)
-//! B. Streaming (PipelineEvent emission)
+//! B. Streaming (RunEvent emission)
 //! C. Pipeline topologies (Gate, Fork, linear)
 //! D. Routing & bounds (max_visits, error_next, conditional)
 //! E. Error handling (LLM failure, tool failure)
 //! F. Validation (definition-time rejection)
 
-use jeeves_core::envelope::TerminalReason;
+use jeeves_core::run::{Run, TerminalReason};
 use jeeves_core::kernel::Kernel;
-use jeeves_core::workflow::PipelineConfig;
-use jeeves_core::types::ProcessId;
-use jeeves_core::kernel::actor::spawn_kernel;
+use jeeves_core::workflow::Workflow;
+use jeeves_core::types::RunId;
+use jeeves_core::kernel::actor::spawn;
 use jeeves_core::agent::{AgentRegistry, DeterministicAgent, LlmAgent};
 use jeeves_core::agent::llm::mock::SequentialMockLlmProvider;
-use jeeves_core::agent::llm::{ChatResponse, PipelineEvent, TokenUsage, ToolCall};
+use jeeves_core::agent::llm::{ChatResponse, RunEvent, TokenUsage, ToolCall};
 use jeeves_core::agent::prompts::PromptRegistry;
 use jeeves_core::tools::{ToolExecutor, ToolInfo, ToolRegistry};
-use jeeves_core::kernel::runner::{run_pipeline, run_pipeline_loop};
+use jeeves_core::kernel::runner::{run, run_loop};
 use std::sync::Arc;
 use tokio_util::sync::CancellationToken;
 
-fn two_stage_pipeline() -> PipelineConfig {
+fn two_stage_pipeline() -> Workflow {
     serde_json::from_value(serde_json::json!({
         "name": "test_pipeline",
         "stages": [
@@ -142,15 +142,15 @@ fn make_llm_agent(
 async fn test_kernel_actor_pipeline_round_trip() {
     let kernel = Kernel::new();
     let cancel = CancellationToken::new();
-    let handle = spawn_kernel(kernel, cancel.clone());
+    let handle = spawn(kernel, cancel.clone());
 
     let mut agents = AgentRegistry::new();
     agents.register("understand", Arc::new(DeterministicAgent));
     agents.register("respond", Arc::new(DeterministicAgent));
 
-    let pid = ProcessId::must("test-p1");
-    let result = run_pipeline(
-        &handle, pid, two_stage_pipeline(), "hello world", "test-user", "test-session", &agents,
+    let pid = RunId::must("test-p1");
+    let result = run(
+        &handle, pid, two_stage_pipeline(), Run::new("test-user", "test-session", "hello world", None), &agents,
     )
     .await
     .expect("pipeline should complete");
@@ -164,22 +164,22 @@ async fn test_kernel_actor_pipeline_round_trip() {
 async fn test_kernel_actor_session_state() {
     let kernel = Kernel::new();
     let cancel = CancellationToken::new();
-    let handle = spawn_kernel(kernel, cancel.clone());
+    let handle = spawn(kernel, cancel.clone());
 
-    let pid = ProcessId::must("state-test");
-    let envelope = jeeves_core::envelope::Envelope::new_minimal("user1", "sess1", "test input", None);
+    let pid = RunId::must("state-test");
+    let envelope = jeeves_core::run::Run::new("user1", "sess1", "test input", None);
 
     let session = handle
         .initialize_session(pid.clone(), two_stage_pipeline(), envelope, false)
         .await
         .expect("init should succeed");
 
-    assert_eq!(session.process_id.as_str(), "state-test");
+    assert_eq!(session.run_id.as_str(), "state-test");
     assert_eq!(session.stage_order.len(), 2);
     assert!(!session.terminated);
 
     let state = handle.get_session_state(&pid).await.expect("state query should succeed");
-    assert_eq!(state.process_id.as_str(), "state-test");
+    assert_eq!(state.run_id.as_str(), "state-test");
     cancel.cancel();
 }
 
@@ -187,7 +187,7 @@ async fn test_kernel_actor_session_state() {
 async fn test_kernel_actor_system_status() {
     let kernel = Kernel::new();
     let cancel = CancellationToken::new();
-    let handle = spawn_kernel(kernel, cancel.clone());
+    let handle = spawn(kernel, cancel.clone());
 
     let status = handle.get_system_status().await;
     assert_eq!(status.processes_total, 0);
@@ -199,10 +199,10 @@ async fn test_kernel_actor_system_status() {
 async fn test_kernel_actor_terminate_process() {
     let kernel = Kernel::new();
     let cancel = CancellationToken::new();
-    let handle = spawn_kernel(kernel, cancel.clone());
+    let handle = spawn(kernel, cancel.clone());
 
-    let pid = ProcessId::must("term-test");
-    let envelope = jeeves_core::envelope::Envelope::new_minimal("user1", "sess1", "hello", None);
+    let pid = RunId::must("term-test");
+    let envelope = jeeves_core::run::Run::new("user1", "sess1", "hello", None);
 
     let _state = handle
         .initialize_session(pid.clone(), two_stage_pipeline(), envelope, false)
@@ -217,9 +217,9 @@ async fn test_kernel_actor_terminate_process() {
 async fn test_pipeline_with_three_stages() {
     let kernel = Kernel::new();
     let cancel = CancellationToken::new();
-    let handle = spawn_kernel(kernel, cancel.clone());
+    let handle = spawn(kernel, cancel.clone());
 
-    let config: PipelineConfig = serde_json::from_value(serde_json::json!({
+    let config: Workflow = serde_json::from_value(serde_json::json!({
         "name": "three_stage",
         "stages": [
             {"name": "a", "agent": "a", "default_next": "b", "has_llm": false},
@@ -238,8 +238,8 @@ async fn test_pipeline_with_three_stages() {
     agents.register("b", Arc::new(DeterministicAgent));
     agents.register("c", Arc::new(DeterministicAgent));
 
-    let result = run_pipeline(
-        &handle, ProcessId::must("three-stage"), config, "input", "user", "sess", &agents,
+    let result = run(
+        &handle, RunId::must("three-stage"), config, Run::new("user", "sess", "input", None), &agents,
     )
     .await
     .expect("three-stage pipeline should complete");
@@ -253,7 +253,7 @@ async fn test_pipeline_with_three_stages() {
 async fn test_single_tool_call_round_trip() {
     let kernel = Kernel::new();
     let cancel = CancellationToken::new();
-    let handle = spawn_kernel(kernel, cancel.clone());
+    let handle = spawn(kernel, cancel.clone());
 
     // LLM first returns a tool call, then returns final text
     let llm = Arc::new(SequentialMockLlmProvider::new(vec![
@@ -270,7 +270,7 @@ async fn test_single_tool_call_round_trip() {
     let mut agents = AgentRegistry::new();
     agents.register("worker", Arc::new(agent));
 
-    let config: PipelineConfig = serde_json::from_value(serde_json::json!({
+    let config: Workflow = serde_json::from_value(serde_json::json!({
         "name": "tool_test",
         "stages": [{"name": "worker", "agent": "worker", "has_llm": true}],
         "max_iterations": 10,
@@ -280,8 +280,8 @@ async fn test_single_tool_call_round_trip() {
     }))
     .unwrap();
 
-    let result = run_pipeline(
-        &handle, ProcessId::must("tool-1"), config, "what's the weather?", "user", "sess", &agents,
+    let result = run(
+        &handle, RunId::must("tool-1"), config, Run::new("user", "sess", "what's the weather?", None), &agents,
     )
     .await
     .expect("pipeline should complete");
@@ -295,7 +295,7 @@ async fn test_single_tool_call_round_trip() {
 async fn test_multi_tool_sequential() {
     let kernel = Kernel::new();
     let cancel = CancellationToken::new();
-    let handle = spawn_kernel(kernel, cancel.clone());
+    let handle = spawn(kernel, cancel.clone());
 
     // LLM returns 2 tool calls in one response, then final text
     let llm = Arc::new(SequentialMockLlmProvider::new(vec![
@@ -314,7 +314,7 @@ async fn test_multi_tool_sequential() {
     let mut agents = AgentRegistry::new();
     agents.register("worker", Arc::new(agent));
 
-    let config: PipelineConfig = serde_json::from_value(serde_json::json!({
+    let config: Workflow = serde_json::from_value(serde_json::json!({
         "name": "multi_tool",
         "stages": [{"name": "worker", "agent": "worker", "has_llm": true}],
         "max_iterations": 10,
@@ -324,8 +324,8 @@ async fn test_multi_tool_sequential() {
     }))
     .unwrap();
 
-    let result = run_pipeline(
-        &handle, ProcessId::must("multi-tool"), config, "weather and news", "user", "sess", &agents,
+    let result = run(
+        &handle, RunId::must("multi-tool"), config, Run::new("user", "sess", "weather and news", None), &agents,
     )
     .await
     .expect("pipeline should complete");
@@ -338,7 +338,7 @@ async fn test_multi_tool_sequential() {
 async fn test_tool_loop_max_rounds() {
     let kernel = Kernel::new();
     let cancel = CancellationToken::new();
-    let handle = spawn_kernel(kernel, cancel.clone());
+    let handle = spawn(kernel, cancel.clone());
 
     // LLM always returns tool calls — should stop after max_tool_rounds
     let responses: Vec<ChatResponse> = (0..15)
@@ -355,7 +355,7 @@ async fn test_tool_loop_max_rounds() {
     let mut agents = AgentRegistry::new();
     agents.register("worker", Arc::new(agent));
 
-    let config: PipelineConfig = serde_json::from_value(serde_json::json!({
+    let config: Workflow = serde_json::from_value(serde_json::json!({
         "name": "max_rounds",
         "stages": [{"name": "worker", "agent": "worker", "has_llm": true}],
         "max_iterations": 20,
@@ -365,8 +365,8 @@ async fn test_tool_loop_max_rounds() {
     }))
     .unwrap();
 
-    let result = run_pipeline(
-        &handle, ProcessId::must("max-rounds"), config, "loop forever", "user", "sess", &agents,
+    let result = run(
+        &handle, RunId::must("max-rounds"), config, Run::new("user", "sess", "loop forever", None), &agents,
     )
     .await
     .expect("pipeline should complete (tool loop capped)");
@@ -379,13 +379,13 @@ async fn test_tool_loop_max_rounds() {
 async fn test_streaming_emits_stage_events() {
     let kernel = Kernel::new();
     let cancel = CancellationToken::new();
-    let handle = spawn_kernel(kernel, cancel.clone());
+    let handle = spawn(kernel, cancel.clone());
 
     let mut agents = AgentRegistry::new();
     agents.register("a", Arc::new(DeterministicAgent));
     agents.register("b", Arc::new(DeterministicAgent));
 
-    let config: PipelineConfig = serde_json::from_value(serde_json::json!({
+    let config: Workflow = serde_json::from_value(serde_json::json!({
         "name": "stream_test",
         "stages": [
             {"name": "a", "agent": "a", "default_next": "b", "has_llm": false},
@@ -398,12 +398,12 @@ async fn test_streaming_emits_stage_events() {
     }))
     .unwrap();
 
-    let pid = ProcessId::must("stream-1");
-    let envelope = jeeves_core::envelope::Envelope::new_minimal("user", "sess", "hello", None);
+    let pid = RunId::must("stream-1");
+    let envelope = jeeves_core::run::Run::new("user", "sess", "hello", None);
     let _state = handle.initialize_session(pid.clone(), config, envelope, false).await.unwrap();
 
     let (tx, mut rx) = tokio::sync::mpsc::channel(64);
-    let result = run_pipeline_loop(&handle, &pid, &agents, Some(tx), "test").await.unwrap();
+    let result = run_loop(&handle, &pid, &agents, Some(tx), "test").await.unwrap();
 
     assert!(result.terminated());
 
@@ -430,7 +430,7 @@ async fn test_streaming_emits_stage_events() {
 async fn test_streaming_emits_tool_events() {
     let kernel = Kernel::new();
     let cancel = CancellationToken::new();
-    let handle = spawn_kernel(kernel, cancel.clone());
+    let handle = spawn(kernel, cancel.clone());
 
     let llm = Arc::new(SequentialMockLlmProvider::new(vec![
         make_tool_call_response(vec![("call_1", "search", r#"{"q":"test"}"#)]),
@@ -445,7 +445,7 @@ async fn test_streaming_emits_tool_events() {
     let mut agents = AgentRegistry::new();
     agents.register("worker", Arc::new(agent));
 
-    let config: PipelineConfig = serde_json::from_value(serde_json::json!({
+    let config: Workflow = serde_json::from_value(serde_json::json!({
         "name": "stream_tool_test",
         "stages": [{"name": "worker", "agent": "worker", "has_llm": true}],
         "max_iterations": 10,
@@ -455,12 +455,12 @@ async fn test_streaming_emits_tool_events() {
     }))
     .unwrap();
 
-    let pid = ProcessId::must("stream-tool");
-    let envelope = jeeves_core::envelope::Envelope::new_minimal("user", "sess", "hello", None);
+    let pid = RunId::must("stream-tool");
+    let envelope = jeeves_core::run::Run::new("user", "sess", "hello", None);
     let _state = handle.initialize_session(pid.clone(), config, envelope, false).await.unwrap();
 
     let (tx, mut rx) = tokio::sync::mpsc::channel(64);
-    let _ = run_pipeline_loop(&handle, &pid, &agents, Some(tx), "test").await.unwrap();
+    let _ = run_loop(&handle, &pid, &agents, Some(tx), "test").await.unwrap();
 
     let mut events = Vec::new();
     while let Ok(event) = rx.try_recv() {
@@ -478,12 +478,12 @@ async fn test_streaming_emits_tool_events() {
 async fn test_streaming_emits_done() {
     let kernel = Kernel::new();
     let cancel = CancellationToken::new();
-    let handle = spawn_kernel(kernel, cancel.clone());
+    let handle = spawn(kernel, cancel.clone());
 
     let mut agents = AgentRegistry::new();
     agents.register("worker", Arc::new(DeterministicAgent));
 
-    let config: PipelineConfig = serde_json::from_value(serde_json::json!({
+    let config: Workflow = serde_json::from_value(serde_json::json!({
         "name": "done_test",
         "stages": [{"name": "worker", "agent": "worker", "has_llm": false}],
         "max_iterations": 10,
@@ -493,12 +493,12 @@ async fn test_streaming_emits_done() {
     }))
     .unwrap();
 
-    let pid = ProcessId::must("done-test");
-    let envelope = jeeves_core::envelope::Envelope::new_minimal("user", "sess", "hi", None);
+    let pid = RunId::must("done-test");
+    let envelope = jeeves_core::run::Run::new("user", "sess", "hi", None);
     let _state = handle.initialize_session(pid.clone(), config, envelope, false).await.unwrap();
 
     let (tx, mut rx) = tokio::sync::mpsc::channel(64);
-    let _ = run_pipeline_loop(&handle, &pid, &agents, Some(tx), "test").await.unwrap();
+    let _ = run_loop(&handle, &pid, &agents, Some(tx), "test").await.unwrap();
 
     let mut events = Vec::new();
     while let Ok(event) = rx.try_recv() {
@@ -508,8 +508,8 @@ async fn test_streaming_emits_done() {
     // Last event should be Done
     let last = events.last().expect("should have events");
     assert_eq!(last.event_type(), "done");
-    if let PipelineEvent::Done { process_id, terminated, .. } = last {
-        assert_eq!(process_id, "done-test");
+    if let RunEvent::Done { run_id, terminated, .. } = last {
+        assert_eq!(run_id, "done-test");
         assert!(*terminated);
     } else {
         panic!("last event should be Done");
@@ -527,7 +527,7 @@ async fn test_streaming_event_ordering() {
     //   - RoutingDecision appears between StageCompleted and the next StageStarted
     let kernel = Kernel::new();
     let cancel = CancellationToken::new();
-    let handle = spawn_kernel(kernel, cancel.clone());
+    let handle = spawn(kernel, cancel.clone());
 
     let llm = Arc::new(SequentialMockLlmProvider::new(vec![
         make_tool_call_response(vec![("call_alpha", "echo", r#"{"x":1}"#)]),
@@ -542,7 +542,7 @@ async fn test_streaming_event_ordering() {
     agents.register("alpha", Arc::new(agent));
     agents.register("beta", Arc::new(DeterministicAgent));
 
-    let config: PipelineConfig = serde_json::from_value(serde_json::json!({
+    let config: Workflow = serde_json::from_value(serde_json::json!({
         "name": "ordering_test",
         "stages": [
             {"name": "alpha", "agent": "alpha", "has_llm": true, "default_next": "beta"},
@@ -553,12 +553,12 @@ async fn test_streaming_event_ordering() {
         "max_agent_hops": 5
     })).unwrap();
 
-    let pid = ProcessId::must("order-1");
-    let envelope = jeeves_core::envelope::Envelope::new_minimal("user", "sess", "hi", None);
+    let pid = RunId::must("order-1");
+    let envelope = jeeves_core::run::Run::new("user", "sess", "hi", None);
     let _state = handle.initialize_session(pid.clone(), config, envelope, false).await.unwrap();
 
     let (tx, mut rx) = tokio::sync::mpsc::channel(64);
-    let _ = run_pipeline_loop(&handle, &pid, &agents, Some(tx), "test").await.unwrap();
+    let _ = run_loop(&handle, &pid, &agents, Some(tx), "test").await.unwrap();
 
     let mut events = Vec::new();
     while let Ok(event) = rx.try_recv() {
@@ -572,23 +572,23 @@ async fn test_streaming_event_ordering() {
 
     for (i, evt) in events.iter().enumerate() {
         match evt {
-            PipelineEvent::StageStarted { stage, .. } => {
+            RunEvent::StageStarted { stage, .. } => {
                 started.insert(stage.clone(), i);
             }
-            PipelineEvent::StageCompleted { stage, .. } => {
+            RunEvent::StageCompleted { stage, .. } => {
                 let start = started.get(stage).copied()
                     .unwrap_or_else(|| panic!("StageCompleted({stage}) without prior StageStarted"));
                 assert!(start < i, "StageStarted must precede StageCompleted for stage {stage}");
             }
-            PipelineEvent::ToolCallStart { id, .. } => {
+            RunEvent::ToolCallStart { id, .. } => {
                 tool_starts.insert(id.clone(), i);
             }
-            PipelineEvent::ToolResult { id, .. } => {
+            RunEvent::ToolResult { id, .. } => {
                 let start = tool_starts.get(id).copied()
                     .unwrap_or_else(|| panic!("ToolResult({id}) without prior ToolCallStart"));
                 assert!(start < i, "ToolCallStart must precede ToolResult for id {id}");
             }
-            PipelineEvent::Done { .. } => {
+            RunEvent::Done { .. } => {
                 done_index = Some(i);
             }
             _ => {}
@@ -611,10 +611,10 @@ async fn test_streaming_event_ordering() {
 async fn test_gate_routing() {
     let kernel = Kernel::new();
     let cancel = CancellationToken::new();
-    let handle = spawn_kernel(kernel, cancel.clone());
+    let handle = spawn(kernel, cancel.clone());
 
     // Gate node with default_next → skips agent execution, routes directly
-    let config: PipelineConfig = serde_json::from_value(serde_json::json!({
+    let config: Workflow = serde_json::from_value(serde_json::json!({
         "name": "gate_test",
         "stages": [
             {"name": "entry", "agent": "entry", "default_next": "router", "has_llm": false},
@@ -632,8 +632,8 @@ async fn test_gate_routing() {
     agents.register("entry", Arc::new(DeterministicAgent));
     agents.register("target", Arc::new(DeterministicAgent));
 
-    let result = run_pipeline(
-        &handle, ProcessId::must("gate-1"), config, "hello", "user", "sess", &agents,
+    let result = run(
+        &handle, RunId::must("gate-1"), config, Run::new("user", "sess", "hello", None), &agents,
     )
     .await
     .expect("gate pipeline should complete");
@@ -648,10 +648,10 @@ async fn test_gate_routing() {
 async fn test_max_visits_terminates() {
     let kernel = Kernel::new();
     let cancel = CancellationToken::new();
-    let handle = spawn_kernel(kernel, cancel.clone());
+    let handle = spawn(kernel, cancel.clone());
 
     // Loop stage with max_visits=2 — should terminate after 2 visits
-    let config: PipelineConfig = serde_json::from_value(serde_json::json!({
+    let config: Workflow = serde_json::from_value(serde_json::json!({
         "name": "max_visits_test",
         "stages": [{
             "name": "looper",
@@ -670,8 +670,8 @@ async fn test_max_visits_terminates() {
     let mut agents = AgentRegistry::new();
     agents.register("looper", Arc::new(DeterministicAgent));
 
-    let result = run_pipeline(
-        &handle, ProcessId::must("max-visits"), config, "loop", "user", "sess", &agents,
+    let result = run(
+        &handle, RunId::must("max-visits"), config, Run::new("user", "sess", "loop", None), &agents,
     )
     .await
     .expect("should terminate via max_visits");
@@ -688,10 +688,10 @@ async fn test_max_visits_terminates() {
 async fn test_error_next_routing() {
     let kernel = Kernel::new();
     let cancel = CancellationToken::new();
-    let handle = spawn_kernel(kernel, cancel.clone());
+    let handle = spawn(kernel, cancel.clone());
 
     // Stage with error_next — on failure, routes to error handler
-    let config: PipelineConfig = serde_json::from_value(serde_json::json!({
+    let config: Workflow = serde_json::from_value(serde_json::json!({
         "name": "error_next_test",
         "stages": [
             {"name": "worker", "agent": "worker", "error_next": "handler", "has_llm": true},
@@ -713,8 +713,8 @@ async fn test_error_next_routing() {
     agents.register("worker", Arc::new(agent));
     agents.register("handler", Arc::new(DeterministicAgent));
 
-    let result = run_pipeline(
-        &handle, ProcessId::must("error-next"), config, "hello", "user", "sess", &agents,
+    let result = run(
+        &handle, RunId::must("error-next"), config, Run::new("user", "sess", "hello", None), &agents,
     )
     .await
     .expect("should route to error handler");
@@ -729,10 +729,10 @@ async fn test_error_next_routing() {
 async fn test_conditional_routing() {
     let kernel = Kernel::new();
     let cancel = CancellationToken::new();
-    let handle = spawn_kernel(kernel, cancel.clone());
+    let handle = spawn(kernel, cancel.clone());
 
     // Stage with routing rule: if understand.choice == "a" → go to agent_a
-    let config: PipelineConfig = serde_json::from_value(serde_json::json!({
+    let config: Workflow = serde_json::from_value(serde_json::json!({
         "name": "conditional_test",
         "stages": [
             {
@@ -763,8 +763,8 @@ async fn test_conditional_routing() {
     agents.register("agent_a", Arc::new(DeterministicAgent));
     agents.register("agent_b", Arc::new(DeterministicAgent));
 
-    let result = run_pipeline(
-        &handle, ProcessId::must("cond-1"), config, "hello", "user", "sess", &agents,
+    let result = run(
+        &handle, RunId::must("cond-1"), config, Run::new("user", "sess", "hello", None), &agents,
     )
     .await
     .expect("conditional pipeline should complete");
@@ -778,7 +778,7 @@ async fn test_conditional_routing() {
 async fn test_llm_failure_propagates() {
     let kernel = Kernel::new();
     let cancel = CancellationToken::new();
-    let handle = spawn_kernel(kernel, cancel.clone());
+    let handle = spawn(kernel, cancel.clone());
 
     // Empty sequential mock = fails on first call
     let llm = Arc::new(SequentialMockLlmProvider::new(vec![]));
@@ -788,7 +788,7 @@ async fn test_llm_failure_propagates() {
     let mut agents = AgentRegistry::new();
     agents.register("worker", Arc::new(agent));
 
-    let config: PipelineConfig = serde_json::from_value(serde_json::json!({
+    let config: Workflow = serde_json::from_value(serde_json::json!({
         "name": "llm_fail_test",
         "stages": [{"name": "worker", "agent": "worker", "has_llm": true}],
         "max_iterations": 10,
@@ -798,8 +798,8 @@ async fn test_llm_failure_propagates() {
     }))
     .unwrap();
 
-    let result = run_pipeline(
-        &handle, ProcessId::must("llm-fail"), config, "hello", "user", "sess", &agents,
+    let result = run(
+        &handle, RunId::must("llm-fail"), config, Run::new("user", "sess", "hello", None), &agents,
     )
     .await
     .expect("pipeline should still complete (agent reports failure)");
@@ -813,7 +813,7 @@ async fn test_llm_failure_propagates() {
 async fn test_tool_execution_failure() {
     let kernel = Kernel::new();
     let cancel = CancellationToken::new();
-    let handle = spawn_kernel(kernel, cancel.clone());
+    let handle = spawn(kernel, cancel.clone());
 
     // LLM calls a tool that fails, then gets error message, then returns text
     let llm = Arc::new(SequentialMockLlmProvider::new(vec![
@@ -829,7 +829,7 @@ async fn test_tool_execution_failure() {
     let mut agents = AgentRegistry::new();
     agents.register("worker", Arc::new(agent));
 
-    let config: PipelineConfig = serde_json::from_value(serde_json::json!({
+    let config: Workflow = serde_json::from_value(serde_json::json!({
         "name": "tool_fail_test",
         "stages": [{"name": "worker", "agent": "worker", "has_llm": true}],
         "max_iterations": 10,
@@ -839,8 +839,8 @@ async fn test_tool_execution_failure() {
     }))
     .unwrap();
 
-    let result = run_pipeline(
-        &handle, ProcessId::must("tool-fail"), config, "hello", "user", "sess", &agents,
+    let result = run(
+        &handle, RunId::must("tool-fail"), config, Run::new("user", "sess", "hello", None), &agents,
     )
     .await
     .expect("pipeline should complete (tool error sent back to LLM)");
@@ -853,10 +853,10 @@ async fn test_tool_execution_failure() {
 async fn test_invalid_pipeline_rejected() {
     let kernel = Kernel::new();
     let cancel = CancellationToken::new();
-    let handle = spawn_kernel(kernel, cancel.clone());
+    let handle = spawn(kernel, cancel.clone());
 
     // Pipeline with duplicate stage names
-    let config: PipelineConfig = serde_json::from_value(serde_json::json!({
+    let config: Workflow = serde_json::from_value(serde_json::json!({
         "name": "invalid",
         "stages": [
             {"name": "a", "agent": "a", "has_llm": false},
@@ -869,8 +869,8 @@ async fn test_invalid_pipeline_rejected() {
     }))
     .unwrap();
 
-    let pid = ProcessId::must("invalid-pipeline");
-    let envelope = jeeves_core::envelope::Envelope::new_minimal("user", "sess", "hello", None);
+    let pid = RunId::must("invalid-pipeline");
+    let envelope = jeeves_core::run::Run::new("user", "sess", "hello", None);
 
     let result = handle
         .initialize_session(pid, config, envelope, false)
@@ -889,10 +889,10 @@ async fn test_valid_complex_pipeline() {
         RoutingResult::Next("middle".into())
     }));
     let cancel = CancellationToken::new();
-    let handle = spawn_kernel(kernel, cancel.clone());
+    let handle = spawn(kernel, cancel.clone());
 
     // Linear pipeline with a routing_fn-driven branch
-    let config: PipelineConfig = serde_json::from_value(serde_json::json!({
+    let config: Workflow = serde_json::from_value(serde_json::json!({
         "name": "complex",
         "stages": [
             {"name": "entry", "agent": "entry", "default_next": "router", "has_llm": false},
@@ -907,8 +907,8 @@ async fn test_valid_complex_pipeline() {
     }))
     .unwrap();
 
-    let pid = ProcessId::must("complex-pipeline");
-    let envelope = jeeves_core::envelope::Envelope::new_minimal("user", "sess", "hello", None);
+    let pid = RunId::must("complex-pipeline");
+    let envelope = jeeves_core::run::Run::new("user", "sess", "hello", None);
 
     let result = handle
         .initialize_session(pid, config, envelope, false)
@@ -973,7 +973,7 @@ async fn test_confirmation_gate_mcp_agent_buffered() {
         metadata: HashMap::new(),
         event_tx: None,
         stage_name: Some("execute".into()),
-        pipeline_name: Arc::from("test"),
+        workflow_name: Arc::from("test"),
         max_context_tokens: None,
         context_overflow: None,
         interrupt_response: None,
@@ -1024,7 +1024,7 @@ async fn test_confirmation_gate_safe_tool_no_interrupt() {
         metadata: HashMap::new(),
         event_tx: None,
         stage_name: Some("execute".into()),
-        pipeline_name: Arc::from("test"),
+        workflow_name: Arc::from("test"),
         max_context_tokens: None,
         context_overflow: None,
         interrupt_response: None,
@@ -1041,13 +1041,13 @@ async fn test_confirmation_gate_safe_tool_no_interrupt() {
 /// Full pipeline: stage with confirmable tool → WaitInterrupt (buffered) → resolve → re-run → complete.
 #[tokio::test]
 async fn test_confirmation_gate_full_pipeline_buffered() {
-    use jeeves_core::envelope::Envelope;
+    use jeeves_core::run::Run;
     use jeeves_core::agent::ToolDelegatingAgent;
 
     let cancel = CancellationToken::new();
-    let handle = spawn_kernel(Kernel::new(), cancel.clone());
+    let handle = spawn(Kernel::new(), cancel.clone());
 
-    let pipeline: PipelineConfig = serde_json::from_value(serde_json::json!({
+    let pipeline: Workflow = serde_json::from_value(serde_json::json!({
         "name": "confirm_test",
         "stages": [
             {
@@ -1074,14 +1074,14 @@ async fn test_confirmation_gate_full_pipeline_buffered() {
         tools: Arc::new(tool_reg),
     }));
 
-    let pid = ProcessId::new();
-    let envelope = Envelope::new_minimal("user-1", "sess-1", "delete everything", None);
+    let pid = RunId::new();
+    let envelope = Run::new("user-1", "sess-1", "delete everything", None);
 
     // Initialize session
     let _state = handle.initialize_session(pid.clone(), pipeline.clone(), envelope, false).await.unwrap();
 
     // Run pipeline loop in buffered mode — should return incomplete (WaitInterrupt)
-    let result = run_pipeline_loop(&handle, &pid, &agents, None, "confirm_test").await.unwrap();
+    let result = run_loop(&handle, &pid, &agents, None, "confirm_test").await.unwrap();
     assert!(!result.terminated(), "Pipeline should NOT terminate — waiting for interrupt");
 
     // Get next instruction — should be WaitInterrupt
@@ -1094,7 +1094,7 @@ async fn test_confirmation_gate_full_pipeline_buffered() {
     } else {
         panic!("Expected WaitInterrupt");
     };
-    handle.resolve_interrupt(&pid, &interrupt_id, jeeves_core::envelope::InterruptResponse {
+    handle.resolve_interrupt(&pid, &interrupt_id, jeeves_core::run::InterruptResponse {
         text: None,
         approved: Some(true),
         decision: None,
@@ -1103,7 +1103,7 @@ async fn test_confirmation_gate_full_pipeline_buffered() {
     }).await.unwrap();
 
     // Re-run pipeline loop — should now execute the tool and complete
-    let result2 = run_pipeline_loop(&handle, &pid, &agents, None, "confirm_test").await.unwrap();
+    let result2 = run_loop(&handle, &pid, &agents, None, "confirm_test").await.unwrap();
     assert!(result2.terminated(), "Pipeline should complete after interrupt resolved");
     assert_eq!(result2.terminal_reason(), Some(TerminalReason::Completed));
 

@@ -5,7 +5,7 @@
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
 
-use super::types::{ProcessControlBlock, ResourceUsage};
+use super::types::{RunRecord, ResourceUsage};
 use crate::types::{Error, Result};
 
 /// Resource tracker - tracks usage across all processes.
@@ -25,7 +25,7 @@ impl ResourceTracker {
     }
 
     /// Check if process quota is exceeded.
-    pub fn check_quota(&self, pcb: &ProcessControlBlock) -> Result<()> {
+    pub fn check_quota(&self, pcb: &RunRecord) -> Result<()> {
         if let Some(violation) = pcb.check_quota() {
             return Err(Error::quota_exceeded(format!(
                 "Process {} quota exceeded: {}",
@@ -103,8 +103,8 @@ impl ResourceTracker {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::kernel::types::{ProcessControlBlock, ProcessState, ResourceQuota};
-    use crate::types::{ProcessId, RequestId, SessionId, UserId};
+    use crate::kernel::types::{RunRecord, RunStatus, ResourceQuota};
+    use crate::types::{RunId, RequestId, SessionId, UserId};
 
     #[test]
     fn test_record_usage() {
@@ -122,13 +122,13 @@ mod tests {
     fn test_check_quota_within_bounds() {
         let tracker = ResourceTracker::new();
 
-        let mut pcb = ProcessControlBlock::new(
-            ProcessId::must("env1"),
+        let mut pcb = RunRecord::new(
+            RunId::must("env1"),
             RequestId::must("req1"),
             UserId::must("user1"),
             SessionId::must("sess1"),
         );
-        pcb.state = ProcessState::Running;
+        pcb.state = RunStatus::Running;
         pcb.quota = ResourceQuota {
             max_llm_calls: 10,
             max_input_tokens: 10000,
@@ -154,13 +154,13 @@ mod tests {
     fn test_check_quota_exceeded_llm_calls() {
         let tracker = ResourceTracker::new();
 
-        let mut pcb = ProcessControlBlock::new(
-            ProcessId::must("env1"),
+        let mut pcb = RunRecord::new(
+            RunId::must("env1"),
             RequestId::must("req1"),
             UserId::must("user1"),
             SessionId::must("sess1"),
         );
-        pcb.state = ProcessState::Running;
+        pcb.state = RunStatus::Running;
         pcb.quota = ResourceQuota {
             max_llm_calls: 10,
             max_input_tokens: 10000,
@@ -188,13 +188,13 @@ mod tests {
     fn test_check_quota_exceeded_tokens() {
         let tracker = ResourceTracker::new();
 
-        let mut pcb = ProcessControlBlock::new(
-            ProcessId::must("env1"),
+        let mut pcb = RunRecord::new(
+            RunId::must("env1"),
             RequestId::must("req1"),
             UserId::must("user1"),
             SessionId::must("sess1"),
         );
-        pcb.state = ProcessState::Running;
+        pcb.state = RunStatus::Running;
         pcb.quota = ResourceQuota {
             max_llm_calls: 10,
             max_input_tokens: 10000,
@@ -222,13 +222,13 @@ mod tests {
     fn test_check_quota_exceeded_agent_hops() {
         let tracker = ResourceTracker::new();
 
-        let mut pcb = ProcessControlBlock::new(
-            ProcessId::must("env1"),
+        let mut pcb = RunRecord::new(
+            RunId::must("env1"),
             RequestId::must("req1"),
             UserId::must("user1"),
             SessionId::must("sess1"),
         );
-        pcb.state = ProcessState::Running;
+        pcb.state = RunStatus::Running;
         pcb.quota = ResourceQuota {
             max_llm_calls: 10,
             max_input_tokens: 10000,

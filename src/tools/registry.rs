@@ -495,7 +495,7 @@ mod tests {
 
     #[tokio::test]
     async fn execute_for_validates_params_against_catalog() {
-        use crate::envelope::enums::{RiskSemantic, RiskSeverity, ToolCategory};
+        use crate::run::enums::{RiskSemantic, RiskSeverity, ToolCategory};
         use crate::tools::catalog::{ParamDef, ParamType, ToolEntry};
 
         let mut catalog = ToolCatalog::new();

@@ -43,7 +43,40 @@
         }
       ]
     },
-    "PipelineStage": {
+    "RetryPolicy": {
+      "description": "Retry-with-backoff for transient agent failures (Temporal activity retry pattern). Applied before routing to `error_next`; no retry on interrupt requests.",
+      "properties": {
+        "backoff_multiplier": {
+          "default": 2.0,
+          "description": "Backoff multiplier (default: 2.0).",
+          "format": "double",
+          "type": "number"
+        },
+        "initial_backoff_ms": {
+          "default": 1000,
+          "description": "Initial backoff in milliseconds (default: 1000).",
+          "format": "uint64",
+          "minimum": 0.0,
+          "type": "integer"
+        },
+        "max_backoff_ms": {
+          "default": 30000,
+          "description": "Maximum backoff in milliseconds (default: 30000).",
+          "format": "uint64",
+          "minimum": 0.0,
+          "type": "integer"
+        },
+        "max_retries": {
+          "default": 0,
+          "description": "Maximum retry attempts (0 = no retry, default).",
+          "format": "uint32",
+          "minimum": 0.0,
+          "type": "integer"
+        }
+      },
+      "type": "object"
+    },
+    "Stage": {
       "description": "Pipeline stage. Routing per stage evaluates in this order: 1. agent failed + `error_next` set → `error_next`. 2. `routing_fn` registered → call it. 3. `default_next` → that stage. 4. otherwise → terminate `Completed`.",
       "properties": {
         "agent": {
@@ -169,39 +202,6 @@
       ],
       "type": "object"
     },
-    "RetryPolicy": {
-      "description": "Retry-with-backoff for transient agent failures (Temporal activity retry pattern). Applied before routing to `error_next`; no retry on interrupt requests.",
-      "properties": {
-        "backoff_multiplier": {
-          "default": 2.0,
-          "description": "Backoff multiplier (default: 2.0).",
-          "format": "double",
-          "type": "number"
-        },
-        "initial_backoff_ms": {
-          "default": 1000,
-          "description": "Initial backoff in milliseconds (default: 1000).",
-          "format": "uint64",
-          "minimum": 0.0,
-          "type": "integer"
-        },
-        "max_backoff_ms": {
-          "default": 30000,
-          "description": "Maximum backoff in milliseconds (default: 30000).",
-          "format": "uint64",
-          "minimum": 0.0,
-          "type": "integer"
-        },
-        "max_retries": {
-          "default": 0,
-          "description": "Maximum retry attempts (0 = no retry, default).",
-          "format": "uint32",
-          "minimum": 0.0,
-          "type": "integer"
-        }
-      },
-      "type": "object"
-    },
     "StateField": {
       "description": "Schema entry for a state field — keyed lookup with a merge strategy.",
       "properties": {
@@ -234,13 +234,13 @@
       "type": "integer"
     },
     "name": {
-      "description": "Used in `PipelineEvent.pipeline` for event attribution.",
+      "description": "Used in `RunEvent.pipeline` for event attribution.",
       "type": "string"
     },
     "stages": {
       "description": "First stage is the entry point.",
       "items": {
-        "$ref": "#/definitions/PipelineStage"
+        "$ref": "#/definitions/Stage"
       },
       "type": "array"
     },
@@ -259,6 +259,6 @@
     "name",
     "stages"
   ],
-  "title": "PipelineConfig",
+  "title": "Workflow",
   "type": "object"
 }

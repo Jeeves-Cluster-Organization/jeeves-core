@@ -5,21 +5,21 @@ use std::sync::Arc;
 
 use tracing::{instrument, Instrument};
 
-use crate::agent::llm::{self, PipelineEvent};
+use crate::agent::llm::{self, RunEvent};
 use crate::agent::{Agent, AgentContext, AgentOutput, AgentRegistry, DeterministicAgent};
-use crate::envelope::Envelope;
+use crate::run::Run;
 use crate::kernel::handle::KernelHandle;
 use crate::kernel::protocol::{AgentDispatchContext, AgentExecutionMetrics, Instruction};
-use crate::types::{ProcessId, Result};
-use crate::workflow::PipelineConfig;
+use crate::types::{RunId, Result};
+use crate::workflow::Workflow;
 use tokio::sync::mpsc;
 
 /// Result of running a pipeline to completion.
 #[must_use]
 #[derive(Debug)]
 pub struct WorkerResult {
-    pub process_id: ProcessId,
-    pub termination: Option<crate::envelope::Termination>,
+    pub run_id: RunId,
+    pub termination: Option<crate::run::Termination>,
     pub outputs: std::collections::HashMap<String, std::collections::HashMap<String, serde_json::Value>>,
     pub aggregate_metrics: Option<llm::AggregateMetrics>,
 }
@@ -28,79 +28,65 @@ impl WorkerResult {
     pub fn terminated(&self) -> bool {
         self.termination.is_some()
     }
-    pub fn terminal_reason(&self) -> Option<crate::envelope::TerminalReason> {
+    pub fn terminal_reason(&self) -> Option<crate::run::TerminalReason> {
         self.termination.as_ref().map(|t| t.reason)
     }
 }
 
-/// Run a pipeline to completion: init session + loop (buffered, no streaming).
-pub async fn run_pipeline(
+/// Run a workflow to completion with a pre-built `Run` (supports metadata).
+pub async fn run(
     handle: &KernelHandle,
-    process_id: ProcessId,
-    pipeline_config: PipelineConfig,
-    raw_input: &str,
-    user_id: &str,
-    session_id: &str,
+    run_id: RunId,
+    workflow: Workflow,
+    run: Run,
     agents: &AgentRegistry,
 ) -> Result<WorkerResult> {
-    let envelope = Envelope::new_minimal(user_id, session_id, raw_input, None);
-    run_pipeline_with_envelope(handle, process_id, pipeline_config, envelope, agents).await
-}
-
-/// Run a pipeline to completion with a pre-built Envelope (supports metadata).
-pub async fn run_pipeline_with_envelope(
-    handle: &KernelHandle,
-    process_id: ProcessId,
-    pipeline_config: PipelineConfig,
-    envelope: Envelope,
-    agents: &AgentRegistry,
-) -> Result<WorkerResult> {
-    let pipeline_name = pipeline_config.name.clone();
+    let workflow_name = workflow.name.clone();
     let _session = handle
-        .initialize_session(process_id.clone(), pipeline_config, envelope, false)
+        .initialize_session(run_id.clone(), workflow, run, false)
         .await?;
-    run_pipeline_loop(handle, &process_id, agents, None, &pipeline_name).await
+    run_loop(handle, &run_id, agents, None, &workflow_name).await
 }
 
-/// Run a pipeline with streaming events. Returns a join handle and event receiver.
-/// The receiver yields PipelineEvent items (StageStarted, Delta, ToolCallStart, etc.).
+/// Run a workflow with streaming events. Returns a join handle and event receiver.
+/// The receiver yields `RunEvent` items (StageStarted, Delta, ToolCallStart, etc.).
 /// Session is initialized before spawning so rate-limit errors surface to the caller.
-pub async fn run_pipeline_streaming(
+pub async fn run_streaming(
     handle: KernelHandle,
-    process_id: ProcessId,
-    pipeline_config: PipelineConfig,
-    envelope: Envelope,
+    run_id: RunId,
+    workflow: Workflow,
+    run: Run,
     agents: Arc<AgentRegistry>,
 ) -> Result<(
     tokio::task::JoinHandle<Result<WorkerResult>>,
-    mpsc::Receiver<PipelineEvent>,
+    mpsc::Receiver<RunEvent>,
 )> {
-    let pipeline_name = pipeline_config.name.clone();
+    let workflow_name = workflow.name.clone();
     let _state = handle
-        .initialize_session(process_id.clone(), pipeline_config, envelope, false)
+        .initialize_session(run_id.clone(), workflow, run, false)
         .await?;
     let (tx, rx) = mpsc::channel(64);
-    let process_id_for_span = process_id.clone();
-    let pipeline_name_for_span = pipeline_name.clone();
+    let run_id_for_span = run_id.clone();
+    let workflow_name_for_span = workflow_name.clone();
     let task = tokio::spawn(async move {
-        run_pipeline_loop(&handle, &process_id, &agents, Some(tx), &pipeline_name).await
-    }.instrument(tracing::info_span!("pipeline_stream", process_id = %process_id_for_span, pipeline = %pipeline_name_for_span)));
+        run_loop(&handle, &run_id, &agents, Some(tx), &workflow_name).await
+    }.instrument(tracing::info_span!("run_stream", run_id = %run_id_for_span, workflow = %workflow_name_for_span)));
     Ok((task, rx))
 }
 
-/// Run the pipeline loop for an already-initialized session.
+/// Run the dispatch loop for an already-initialized session.
 /// Pass `event_tx = Some(tx)` for streaming events, `None` for buffered mode.
-#[instrument(skip(handle, agents, event_tx), fields(process_id = %process_id, pipeline = %pipeline_name))]
-pub async fn run_pipeline_loop(
+#[instrument(skip(handle, agents, event_tx), fields(run_id = %run_id, workflow = %workflow_name))]
+pub async fn run_loop(
     handle: &KernelHandle,
-    process_id: &ProcessId,
+    run_id: &RunId,
     agents: &AgentRegistry,
-    event_tx: Option<mpsc::Sender<PipelineEvent>>,
-    pipeline_name: &str,
+    event_tx: Option<mpsc::Sender<RunEvent>>,
+    workflow_name: &str,
 ) -> Result<WorkerResult> {
-    let pipeline_name: Arc<str> = Arc::from(pipeline_name);
+    let workflow_name: Arc<str> = Arc::from(workflow_name);
     loop {
-        let instruction = handle.get_next_instruction(process_id).await?;
+        let instruction = handle.get_next_instruction(run_id).await?;
 
         match instruction {
             Instruction::Terminate { reason, message, context } => {
@@ -108,11 +94,11 @@ pub async fn run_pipeline_loop(
                 if let Some(ref decision) = context.last_routing_decision {
                     if let Some(ref tx) = event_tx {
                         let _ = tx
-                            .send(PipelineEvent::RoutingDecision {
+                            .send(RunEvent::RoutingDecision {
                                 from_stage: decision.from_stage.clone(),
                                 to_stage: decision.target.clone(),
                                 reason: decision.reason.clone(),
-                                pipeline: pipeline_name.clone(),
+                                pipeline: workflow_name.clone(),
                             })
                             .await;
                     }
@@ -133,20 +119,20 @@ pub async fn run_pipeline_loop(
 
                 if let Some(ref tx) = event_tx {
                     let _ = tx
-                        .send(PipelineEvent::Done {
-                            process_id: process_id.as_str().to_string(),
+                        .send(RunEvent::Done {
+                            run_id: run_id.as_str().to_string(),
                             terminated: true,
                             terminal_reason: Some(format!("{:?}", reason)),
                             outputs: Some(serde_json::to_value(&outputs).unwrap_or_default()),
-                            pipeline: pipeline_name.clone(),
+                            pipeline: workflow_name.clone(),
                             aggregate_metrics: aggregate_metrics.clone(),
                         })
                         .await;
                 }
 
                 return Ok(WorkerResult {
-                    process_id: process_id.clone(),
-                    termination: Some(crate::envelope::Termination { reason, message }),
+                    run_id: run_id.clone(),
+                    termination: Some(crate::run::Termination { reason, message }),
                     outputs,
                     aggregate_metrics,
                 });
@@ -157,11 +143,11 @@ pub async fn run_pipeline_loop(
                 if let Some(ref decision) = context.last_routing_decision {
                     if let Some(ref tx) = event_tx {
                         let _ = tx
-                            .send(PipelineEvent::RoutingDecision {
+                            .send(RunEvent::RoutingDecision {
                                 from_stage: decision.from_stage.clone(),
                                 to_stage: decision.target.clone(),
                                 reason: decision.reason.clone(),
-                                pipeline: pipeline_name.clone(),
+                                pipeline: workflow_name.clone(),
                             })
                             .await;
                     }
@@ -169,14 +155,14 @@ pub async fn run_pipeline_loop(
 
                 if let Some(ref tx) = event_tx {
                     let _ = tx
-                        .send(PipelineEvent::StageStarted {
+                        .send(RunEvent::StageStarted {
                             stage: agent.clone(),
-                            pipeline: pipeline_name.clone(),
+                            pipeline: workflow_name.clone(),
                         })
                         .await;
                 }
 
-                let ctx = build_agent_context(context, event_tx.clone(), Some(agent.clone()), pipeline_name.clone());
+                let ctx = build_agent_context(context, event_tx.clone(), Some(agent.clone()), workflow_name.clone());
                 let output = execute_agent_with_policy(
                     agents, agent, &ctx,
                     context.timeout_seconds,
@@ -185,15 +171,15 @@ pub async fn run_pipeline_loop(
 
                 // Tool confirmation gate: if agent requests an interrupt, suspend stage
                 if let Some(interrupt) = output.interrupt_request {
-                    handle.set_process_interrupt(process_id, interrupt).await?;
+                    handle.set_process_interrupt(run_id, interrupt).await?;
                     continue; // get_next_instruction → WaitInterrupt
                 }
 
                 if let Some(ref tx) = event_tx {
                     let _ = tx
-                        .send(PipelineEvent::StageCompleted {
+                        .send(RunEvent::StageCompleted {
                             stage: agent.clone(),
-                            pipeline: pipeline_name.clone(),
+                            pipeline: workflow_name.clone(),
                             metrics: Some(llm::StageMetrics {
                                 duration_ms: output.metrics.duration_ms,
                                 llm_calls: output.metrics.llm_calls,
@@ -209,7 +195,7 @@ pub async fn run_pipeline_loop(
 
                 handle
                     .process_agent_result(
-                        process_id,
+                        run_id,
                         agent,
                         output.output,
                         None,
@@ -226,25 +212,25 @@ pub async fn run_pipeline_loop(
 
                 if let Some(ref tx) = event_tx {
                     // Streaming: emit event, poll until resolved
-                    let _ = tx.send(PipelineEvent::InterruptPending {
-                        process_id: process_id.as_str().to_string(),
+                    let _ = tx.send(RunEvent::InterruptPending {
+                        run_id: run_id.as_str().to_string(),
                         interrupt_id: interrupt_id.clone(),
                         kind: String::new(),
                         question: interrupt.as_ref().and_then(|i| i.question.clone()),
                         message: interrupt.as_ref().and_then(|i| i.message.clone()),
-                        pipeline: pipeline_name.clone(),
+                        pipeline: workflow_name.clone(),
                     }).await;
                     // Poll: kernel returns WaitInterrupt until resolved, then RunAgent/Terminate
                     loop {
                         tokio::time::sleep(tokio::time::Duration::from_millis(500)).await;
-                        if !matches!(handle.get_next_instruction(process_id).await?, Instruction::WaitInterrupt { .. }) {
+                        if !matches!(handle.get_next_instruction(run_id).await?, Instruction::WaitInterrupt { .. }) {
                             break; // resolved — outer loop re-fetches
                         }
                     }
                 } else {
                     // Buffered: return incomplete result, caller resolves + re-enters
                     return Ok(WorkerResult {
-                        process_id: process_id.clone(),
+                        run_id: run_id.clone(),
                         termination: None,
                         outputs: Default::default(),
                         aggregate_metrics: None,
@@ -258,9 +244,9 @@ pub async fn run_pipeline_loop(
 /// Build an AgentContext from an AgentDispatchContext.
 fn build_agent_context(
     context: &AgentDispatchContext,
-    event_tx: Option<mpsc::Sender<PipelineEvent>>,
+    event_tx: Option<mpsc::Sender<RunEvent>>,
     stage_name: Option<String>,
-    pipeline_name: Arc<str>,
+    workflow_name: Arc<str>,
 ) -> AgentContext {
     let dispatch_payload = context.agent_context.as_ref();
 
@@ -284,7 +270,7 @@ fn build_agent_context(
             .unwrap_or_default(),
         event_tx,
         stage_name,
-        pipeline_name,
+        workflow_name,
         max_context_tokens: context.max_context_tokens,
         context_overflow: context.context_overflow,
         interrupt_response: context.interrupt_response.clone(),
@@ -364,10 +350,10 @@ async fn execute_agent_with_timeout(
             let msg = format!("Stage timeout after {}s (attempt {})", secs, attempt);
             tracing::warn!(agent = %agent_name, timeout_secs = secs, attempt, "stage_timeout");
             if let Some(ref tx) = ctx.event_tx {
-                let _ = tx.send(PipelineEvent::Error {
+                let _ = tx.send(RunEvent::Error {
                     message: msg.clone(),
                     stage: ctx.stage_name.clone(),
-                    pipeline: ctx.pipeline_name.clone(),
+                    pipeline: ctx.workflow_name.clone(),
                 }).await;
             }
             AgentOutput {
@@ -382,7 +368,7 @@ async fn execute_agent_with_timeout(
 }
 
 /// Execute a single agent. Falls back to DeterministicAgent if not registered.
-/// Emits PipelineEvent::Error on agent failure when streaming.
+/// Emits RunEvent::Error on agent failure when streaming.
 #[instrument(skip(agents, ctx), fields(agent = %agent_name))]
 async fn execute_agent(
     agents: &AgentRegistry,
@@ -400,10 +386,10 @@ async fn execute_agent(
             if !output.success {
                 if let Some(ref tx) = ctx.event_tx {
                     let _ = tx
-                        .send(PipelineEvent::Error {
+                        .send(RunEvent::Error {
                             message: output.error_message.clone(),
                             stage: ctx.stage_name.clone(),
-                            pipeline: ctx.pipeline_name.clone(),
+                            pipeline: ctx.workflow_name.clone(),
                         })
                         .await;
                 }
@@ -413,10 +399,10 @@ async fn execute_agent(
         Err(e) => {
             if let Some(ref tx) = ctx.event_tx {
                 let _ = tx
-                    .send(PipelineEvent::Error {
+                    .send(RunEvent::Error {
                         message: e.to_string(),
                         stage: ctx.stage_name.clone(),
-                        pipeline: ctx.pipeline_name.clone(),
+                        pipeline: ctx.workflow_name.clone(),
                     })
                     .await;
             }

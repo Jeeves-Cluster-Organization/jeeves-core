@@ -1,4 +1,4 @@
-//! `PipelineStage` (one position in the workflow) and `AgentConfig`
+//! `Stage` (one position in the workflow) and `AgentConfig`
 //! (LLM/agent-side settings, flattened into the stage on the wire).
 
 use schemars::JsonSchema;
@@ -12,7 +12,7 @@ use super::policy::{ContextOverflow, RetryPolicy};
 /// 3. `default_next` → that stage.
 /// 4. otherwise → terminate `Completed`.
 #[derive(Debug, Clone, Default, Serialize, Deserialize, JsonSchema)]
-pub struct PipelineStage {
+pub struct Stage {
     /// Unique within the pipeline.
     pub name: String,
     /// Agent name to dispatch.

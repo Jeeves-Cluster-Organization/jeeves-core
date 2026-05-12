@@ -1,6 +1,6 @@
 //! Routing is code, not data: consumers register named functions on the
 //! kernel; stages reference them by name. Static `default_next` / `error_next`
-//! remain declarative on `PipelineStage`.
+//! remain declarative on `Stage`.
 
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
@@ -69,9 +69,9 @@ impl std::fmt::Debug for RoutingRegistry {
 }
 
 /// Routing decision with rationale, emitted into the audit trail and
-/// [`PipelineEvent::RoutingDecision`].
+/// [`RunEvent::RoutingDecision`].
 ///
-/// [`PipelineEvent::RoutingDecision`]: crate::agent::llm::PipelineEvent::RoutingDecision
+/// [`RunEvent::RoutingDecision`]: crate::agent::llm::RunEvent::RoutingDecision
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct RoutingDecision {
     pub from_stage: String,
@@ -91,7 +91,7 @@ pub enum RoutingReason {
 }
 
 pub fn evaluate_routing_with_reason(
-    stage: &crate::workflow::PipelineStage,
+    stage: &crate::workflow::Stage,
     registry: &RoutingRegistry,
     ctx: &RoutingContext<'_>,
     from_stage: &str,
@@ -154,7 +154,7 @@ pub fn evaluate_routing_with_reason(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::workflow::PipelineStage;
+    use crate::workflow::Stage;
 
     fn test_registry() -> RoutingRegistry {
         let mut reg = RoutingRegistry::new();
@@ -194,11 +194,11 @@ mod tests {
         let state = HashMap::new();
         let ctx = make_ctx(&outputs, &metadata, &state);
 
-        let stage = PipelineStage {
+        let stage = Stage {
             name: "s1".to_string(),
             agent: "a1".to_string(),
             routing_fn: Some("always_s2".to_string()),
-            ..PipelineStage::default()
+            ..Stage::default()
         };
 
         let decision = evaluate_routing_with_reason(&stage, &reg, &ctx, "s1");
@@ -214,12 +214,12 @@ mod tests {
         let mut ctx = make_ctx(&outputs, &metadata, &state);
         ctx.agent_failed = true;
 
-        let stage = PipelineStage {
+        let stage = Stage {
             name: "s1".to_string(),
             agent: "a1".to_string(),
             routing_fn: Some("always_s2".to_string()),
             error_next: Some("s_err".to_string()),
-            ..PipelineStage::default()
+            ..Stage::default()
         };
 
         let decision = evaluate_routing_with_reason(&stage, &reg, &ctx, "s1");
@@ -234,11 +234,11 @@ mod tests {
         let state = HashMap::new();
         let ctx = make_ctx(&outputs, &metadata, &state);
 
-        let stage = PipelineStage {
+        let stage = Stage {
             name: "s1".to_string(),
             agent: "a1".to_string(),
             default_next: Some("s2".to_string()),
-            ..PipelineStage::default()
+            ..Stage::default()
         };
 
         let decision = evaluate_routing_with_reason(&stage, &reg, &ctx, "s1");
@@ -253,10 +253,10 @@ mod tests {
         let state = HashMap::new();
         let ctx = make_ctx(&outputs, &metadata, &state);
 
-        let stage = PipelineStage {
+        let stage = Stage {
             name: "s1".to_string(),
             agent: "a1".to_string(),
-            ..PipelineStage::default()
+            ..Stage::default()
         };
 
         let decision = evaluate_routing_with_reason(&stage, &reg, &ctx, "s1");
@@ -271,11 +271,11 @@ mod tests {
         let state = HashMap::new();
         let ctx = make_ctx(&outputs, &metadata, &state);
 
-        let stage = PipelineStage {
+        let stage = Stage {
             name: "s1".to_string(),
             agent: "a1".to_string(),
             routing_fn: Some("terminate".to_string()),
-            ..PipelineStage::default()
+            ..Stage::default()
         };
 
         let decision = evaluate_routing_with_reason(&stage, &reg, &ctx, "s1");
@@ -290,12 +290,12 @@ mod tests {
         let state = HashMap::new();
         let ctx = make_ctx(&outputs, &metadata, &state);
 
-        let stage = PipelineStage {
+        let stage = Stage {
             name: "s1".to_string(),
             agent: "a1".to_string(),
             routing_fn: Some("nonexistent".to_string()),
             default_next: Some("s2".to_string()),
-            ..PipelineStage::default()
+            ..Stage::default()
         };
 
         let decision = evaluate_routing_with_reason(&stage, &reg, &ctx, "s1");

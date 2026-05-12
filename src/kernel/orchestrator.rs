@@ -11,25 +11,25 @@
 //!   - Report results back
 //!   - Have NO control over what runs next
 
-use crate::envelope::{Envelope, TerminalReason};
-use crate::types::{Error, ProcessId, Result};
+use crate::run::{Run, TerminalReason};
+use crate::types::{Error, RunId, Result};
 use chrono::{DateTime, Utc};
 use std::collections::HashMap;
 use tracing::instrument;
 
-pub use super::protocol::{AgentExecutionMetrics, Instruction, SessionState};
+pub use super::protocol::{AgentExecutionMetrics, Instruction, RunSnapshot};
 pub use super::routing::{
     evaluate_routing_with_reason, RoutingContext, RoutingDecision, RoutingFn, RoutingReason,
     RoutingRegistry, RoutingResult,
 };
-pub use crate::workflow::{PipelineConfig, PipelineStage};
+pub use crate::workflow::{Workflow, Stage};
 
 /// Look up the agent name for a stage in a workflow.
 ///
 /// Module-level (not a method on `Orchestrator`) so the orchestrator can pass
 /// its own fields to it while holding a mutable borrow on `pipelines`.
 pub(crate) fn get_agent_for_stage(
-    pipeline_config: &PipelineConfig,
+    pipeline_config: &Workflow,
     stage_name: &str,
 ) -> Result<String> {
     pipeline_config
@@ -64,15 +64,15 @@ pub(crate) fn build_stage_snapshot(
     .collect()
 }
 
-/// PipelineSession represents an active pipeline execution session.
+/// Orchestration represents an active pipeline execution session.
 ///
 /// The session tracks pipeline execution state only (config, stage visits,
 /// last routing decision). The envelope is owned by the Kernel's
-/// `process_envelopes` store.
+/// `runs` store.
 #[derive(Debug, Clone)]
-pub struct PipelineSession {
-    pub process_id: ProcessId,
-    pub pipeline_config: PipelineConfig,
+pub struct Orchestration {
+    pub run_id: RunId,
+    pub pipeline_config: Workflow,
     pub(crate) stage_visits: HashMap<String, i32>,
     #[allow(dead_code)] // Retained for diagnostics
     pub(crate) created_at: DateTime<Utc>,
@@ -84,7 +84,7 @@ pub struct PipelineSession {
 /// Orchestrator manages kernel-side pipeline execution.
 #[derive(Debug)]
 pub struct Orchestrator {
-    pub(crate) pipelines: HashMap<ProcessId, PipelineSession>,
+    pub(crate) pipelines: HashMap<RunId, Orchestration>,
     pub(crate) routing_registry: RoutingRegistry,
 }
 
@@ -100,19 +100,19 @@ impl Orchestrator {
         self.routing_registry.register(name, f);
     }
 
-    /// Decide what to run next for `process_id`. Returns one of `RunAgent`,
+    /// Decide what to run next for `run_id`. Returns one of `RunAgent`,
     /// `Terminate`, or `WaitInterrupt`. The envelope may be mutated for
     /// bounds-driven termination.
-    #[instrument(skip(self, envelope), fields(process_id = %process_id))]
+    #[instrument(skip(self, envelope), fields(run_id = %run_id))]
     pub fn get_next_instruction(
         &mut self,
-        process_id: &ProcessId,
-        envelope: &mut Envelope,
+        run_id: &RunId,
+        envelope: &mut Run,
     ) -> Result<Instruction> {
         let session = self
             .pipelines
-            .get_mut(process_id)
-            .ok_or_else(|| Error::not_found(format!("Unknown process: {}", process_id)))?;
+            .get_mut(run_id)
+            .ok_or_else(|| Error::not_found(format!("Unknown process: {}", run_id)))?;
         session.last_activity_at = Utc::now();
 
         if envelope.bounds.is_terminated() {
@@ -160,20 +160,20 @@ impl Orchestrator {
     /// 2. If `routing_fn` registered → call it
     /// 3. If no routing_fn → use `default_next`
     /// 4. If no `default_next` → terminate (Completed)
-    #[instrument(skip(self, metrics, envelope), fields(process_id = %process_id, agent_failed))]
+    #[instrument(skip(self, metrics, envelope), fields(run_id = %run_id, agent_failed))]
     pub fn report_agent_result(
         &mut self,
-        process_id: &ProcessId,
+        run_id: &RunId,
         agent_name: &str,
         metrics: AgentExecutionMetrics,
-        envelope: &mut Envelope,
+        envelope: &mut Run,
         agent_failed: bool,
         break_loop: bool,
     ) -> Result<()> {
         let session = self
             .pipelines
-            .get_mut(process_id)
-            .ok_or_else(|| Error::not_found(format!("Unknown process: {}", process_id)))?;
+            .get_mut(run_id)
+            .ok_or_else(|| Error::not_found(format!("Unknown process: {}", run_id)))?;
 
         // Bookkeeping
         envelope.bounds.llm_call_count += metrics.llm_calls;
@@ -238,25 +238,25 @@ impl Orchestrator {
         );
         let next_target = routing_decision.target.clone();
 
-        if let Some(session) = self.pipelines.get_mut(process_id) {
+        if let Some(session) = self.pipelines.get_mut(run_id) {
             session.last_routing_decision = Some(routing_decision);
         }
 
-        self.apply_routing_result(process_id, &current_stage, next_target, envelope)
+        self.apply_routing_result(run_id, &current_stage, next_target, envelope)
     }
 
     /// Advance to the next stage or terminate.
     fn apply_routing_result(
         &mut self,
-        process_id: &ProcessId,
+        run_id: &RunId,
         from_stage: &str,
         next_target: Option<String>,
-        envelope: &mut Envelope,
+        envelope: &mut Run,
     ) -> Result<()> {
         let session = self
             .pipelines
-            .get_mut(process_id)
-            .ok_or_else(|| Error::not_found(format!("Unknown process: {}", process_id)))?;
+            .get_mut(run_id)
+            .ok_or_else(|| Error::not_found(format!("Unknown process: {}", run_id)))?;
 
         match next_target {
             Some(target) => {
@@ -304,26 +304,26 @@ impl Default for Orchestrator {
 mod tests {
     use super::*;
     use super::super::test_helpers::*;
-    use crate::types::ProcessId;
+    use crate::types::RunId;
     use std::sync::Arc;
 
     fn zero_metrics() -> AgentExecutionMetrics {
         AgentExecutionMetrics::default()
     }
 
-    fn linear_stage(name: &str, default_next: Option<&str>) -> PipelineStage {
-        PipelineStage {
+    fn linear_stage(name: &str, default_next: Option<&str>) -> Stage {
+        Stage {
             name: name.to_string(),
             agent: name.to_string(),
             default_next: default_next.map(String::from),
-            ..PipelineStage::default()
+            ..Stage::default()
         }
     }
 
     #[test]
     fn run_agent_dispatch() {
-        let config = PipelineConfig::test_default("p", vec![linear_stage("s1", None)]);
-        let pid = ProcessId::must("p1");
+        let config = Workflow::test_default("p", vec![linear_stage("s1", None)]);
+        let pid = RunId::must("p1");
         let mut envelope = make_envelope(&config);
         let mut orch = Orchestrator::new();
         orch.initialize_session(pid.clone(), config, &mut envelope, false).unwrap();
@@ -337,8 +337,8 @@ mod tests {
 
     #[test]
     fn already_terminated_returns_terminate() {
-        let config = PipelineConfig::test_default("p", vec![linear_stage("s1", None)]);
-        let pid = ProcessId::must("p1");
+        let config = Workflow::test_default("p", vec![linear_stage("s1", None)]);
+        let pid = RunId::must("p1");
         let mut envelope = make_envelope(&config);
         envelope.bounds.terminate(TerminalReason::Completed, None);
 
@@ -350,9 +350,9 @@ mod tests {
 
     #[test]
     fn pending_interrupt_returns_wait() {
-        use crate::envelope::FlowInterrupt;
-        let config = PipelineConfig::test_default("p", vec![linear_stage("s1", None)]);
-        let pid = ProcessId::must("p1");
+        use crate::run::FlowInterrupt;
+        let config = Workflow::test_default("p", vec![linear_stage("s1", None)]);
+        let pid = RunId::must("p1");
         let mut envelope = make_envelope(&config);
         envelope.set_interrupt(FlowInterrupt::new());
 
@@ -364,11 +364,11 @@ mod tests {
 
     #[test]
     fn linear_chain_advances() {
-        let config = PipelineConfig::test_default("p", vec![
+        let config = Workflow::test_default("p", vec![
             linear_stage("s1", Some("s2")),
             linear_stage("s2", None),
         ]);
-        let pid = ProcessId::must("p1");
+        let pid = RunId::must("p1");
         let mut envelope = make_envelope(&config);
         let mut orch = Orchestrator::new();
         orch.initialize_session(pid.clone(), config, &mut envelope, false).unwrap();
@@ -387,18 +387,18 @@ mod tests {
 
     #[test]
     fn routing_fn_overrides_default_next() {
-        let config = PipelineConfig::test_default("p", vec![
-            PipelineStage {
+        let config = Workflow::test_default("p", vec![
+            Stage {
                 name: "s1".into(),
                 agent: "s1".into(),
                 routing_fn: Some("decide".into()),
                 default_next: Some("fallback".into()),
-                ..PipelineStage::default()
+                ..Stage::default()
             },
             linear_stage("target", None),
             linear_stage("fallback", None),
         ]);
-        let pid = ProcessId::must("p1");
+        let pid = RunId::must("p1");
         let mut envelope = make_envelope(&config);
         let mut orch = Orchestrator::new();
         orch.register_routing_fn("decide", Arc::new(|_ctx: &RoutingContext<'_>| {
@@ -412,18 +412,18 @@ mod tests {
 
     #[test]
     fn error_next_routes_on_failure() {
-        let config = PipelineConfig::test_default("p", vec![
-            PipelineStage {
+        let config = Workflow::test_default("p", vec![
+            Stage {
                 name: "s1".into(),
                 agent: "s1".into(),
                 default_next: Some("s_ok".into()),
                 error_next: Some("s_err".into()),
-                ..PipelineStage::default()
+                ..Stage::default()
             },
             linear_stage("s_ok", None),
             linear_stage("s_err", None),
         ]);
-        let pid = ProcessId::must("p1");
+        let pid = RunId::must("p1");
         let mut envelope = make_envelope(&config);
         let mut orch = Orchestrator::new();
         orch.initialize_session(pid.clone(), config, &mut envelope, false).unwrap();
@@ -434,14 +434,14 @@ mod tests {
 
     #[test]
     fn max_visits_terminates_self_loop() {
-        let config = PipelineConfig::test_default("p", vec![PipelineStage {
+        let config = Workflow::test_default("p", vec![Stage {
             name: "loop".into(),
             agent: "loop".into(),
             default_next: Some("loop".into()),
             max_visits: Some(2),
-            ..PipelineStage::default()
+            ..Stage::default()
         }]);
-        let pid = ProcessId::must("p1");
+        let pid = RunId::must("p1");
         let mut envelope = make_envelope(&config);
         let mut orch = Orchestrator::new();
         orch.initialize_session(pid.clone(), config, &mut envelope, false).unwrap();
@@ -456,8 +456,8 @@ mod tests {
 
     #[test]
     fn break_loop_terminates() {
-        let config = PipelineConfig::test_default("p", vec![linear_stage("s1", Some("s2")), linear_stage("s2", None)]);
-        let pid = ProcessId::must("p1");
+        let config = Workflow::test_default("p", vec![linear_stage("s1", Some("s2")), linear_stage("s2", None)]);
+        let pid = RunId::must("p1");
         let mut envelope = make_envelope(&config);
         let mut orch = Orchestrator::new();
         orch.initialize_session(pid.clone(), config, &mut envelope, false).unwrap();
@@ -468,15 +468,15 @@ mod tests {
 
     #[test]
     fn bounds_terminate_when_exceeded() {
-        let mut config = PipelineConfig::test_default("p", vec![PipelineStage {
+        let mut config = Workflow::test_default("p", vec![Stage {
             name: "s1".into(),
             agent: "s1".into(),
             default_next: Some("s1".into()),
             max_visits: Some(100),
-            ..PipelineStage::default()
+            ..Stage::default()
         }]);
         config.max_iterations = 1;
-        let pid = ProcessId::must("p1");
+        let pid = RunId::must("p1");
         let mut envelope = make_envelope(&config);
         let mut orch = Orchestrator::new();
         orch.initialize_session(pid.clone(), config, &mut envelope, false).unwrap();

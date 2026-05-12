@@ -3,7 +3,7 @@
 //! In-memory sliding-window health metrics per tool. Compile-time-safe,
 //! configurable health tracking with circuit breaking.
 
-use crate::envelope::enums::HealthStatus;
+use crate::run::enums::HealthStatus;
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, VecDeque};
 use std::time::{Duration, Instant};

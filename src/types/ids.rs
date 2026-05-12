@@ -110,7 +110,7 @@ macro_rules! define_id {
 }
 
 // Run-instance identifiers (UUID-generated).
-define_id!(ProcessId, uuid);
+define_id!(RunId, uuid);
 define_id!(EnvelopeId, uuid);
 define_id!(RequestId, uuid);
 define_id!(SessionId, uuid);
@@ -172,8 +172,8 @@ mod tests {
 
     #[test]
     fn process_id_default_is_unique() {
-        let a = ProcessId::default();
-        let b = ProcessId::default();
+        let a = RunId::default();
+        let b = RunId::default();
         assert_ne!(a, b);
     }
 

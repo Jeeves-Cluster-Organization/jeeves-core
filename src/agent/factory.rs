@@ -5,7 +5,7 @@
 use std::collections::HashMap;
 use std::sync::Arc;
 
-use crate::workflow::PipelineConfig;
+use crate::workflow::Workflow;
 use crate::agent::{
     Agent, AgentRegistry, DeterministicAgent, LlmAgent, ToolDelegatingAgent,
 };
@@ -25,7 +25,7 @@ pub struct AgentFactoryBuilder {
     llm: Arc<dyn LlmProvider>,
     prompts: Arc<PromptRegistry>,
     tools: Arc<ToolRegistry>,
-    pipeline_configs: HashMap<String, PipelineConfig>,
+    pipeline_configs: HashMap<String, Workflow>,
     content_resolver: Option<Arc<dyn ContentResolver>>,
     hooks: Vec<crate::agent::hooks::DynHook>,
 }
@@ -69,13 +69,13 @@ impl AgentFactoryBuilder {
     }
 
     /// Add a single pipeline config.
-    pub fn add_pipeline(mut self, config: PipelineConfig) -> Self {
+    pub fn add_pipeline(mut self, config: Workflow) -> Self {
         self.pipeline_configs.insert(config.name.clone(), config);
         self
     }
 
     /// Add multiple pipeline configs.
-    pub fn add_pipelines(mut self, configs: impl IntoIterator<Item = PipelineConfig>) -> Self {
+    pub fn add_pipelines(mut self, configs: impl IntoIterator<Item = Workflow>) -> Self {
         for config in configs {
             self.pipeline_configs.insert(config.name.clone(), config);
         }
@@ -94,7 +94,7 @@ impl AgentFactoryBuilder {
 
 fn merge_agents(
     registry: &mut AgentRegistry,
-    config: &PipelineConfig,
+    config: &Workflow,
     ctx: &AgentFactoryBuilder,
 ) {
     for stage in &config.stages {
@@ -147,13 +147,13 @@ fn merge_agents(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::workflow::{AgentConfig, PipelineStage};
+    use crate::workflow::{AgentConfig, Stage};
     use crate::agent::llm::mock::MockLlmProvider;
     use crate::tools::{ToolExecutor, ToolInfo, ToolRegistryBuilder};
     use std::any::Any;
 
-    fn test_stage(name: &str, has_llm: bool) -> PipelineStage {
-        PipelineStage {
+    fn test_stage(name: &str, has_llm: bool) -> Stage {
+        Stage {
             name: name.to_string(),
             agent: name.to_string(),
             agent_config: AgentConfig {
@@ -164,8 +164,8 @@ mod tests {
         }
     }
 
-    fn test_config(name: &str, stages: Vec<PipelineStage>) -> PipelineConfig {
-        PipelineConfig::test_default(name, stages)
+    fn test_config(name: &str, stages: Vec<Stage>) -> Workflow {
+        Workflow::test_default(name, stages)
     }
 
     #[derive(Debug)]

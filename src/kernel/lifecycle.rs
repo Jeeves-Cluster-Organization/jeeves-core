@@ -3,24 +3,24 @@
 //! Three-state machine: `Ready → Running → Terminated`. Processes that pause
 //! on a tool-confirmation interrupt stay in `Running`; the kernel doesn't
 //! have a dedicated waiting/blocked state for that case (the pending interrupt
-//! ID lives on `ProcessControlBlock::pending_interrupt`).
+//! ID lives on `RunRecord::pending_interrupt`).
 
 use std::collections::HashMap;
 
-use crate::types::{Error, ProcessId, RequestId, Result, SessionId, UserId};
+use crate::types::{Error, RunId, RequestId, Result, SessionId, UserId};
 
-pub use super::types::{ProcessControlBlock, ProcessState, ResourceQuota};
+pub use super::types::{RunRecord, RunStatus, ResourceQuota};
 
 /// Lifecycle manager — owns the process map and quota defaults.
 ///
 /// Not a separate actor; held by `Kernel` and accessed via `&mut self`.
 #[derive(Debug)]
-pub struct LifecycleManager {
+pub struct RunRegistry {
     default_quota: ResourceQuota,
-    pub(crate) processes: HashMap<ProcessId, ProcessControlBlock>,
+    pub(crate) processes: HashMap<RunId, RunRecord>,
 }
 
-impl LifecycleManager {
+impl RunRegistry {
     pub fn new(default_quota: Option<ResourceQuota>) -> Self {
         Self {
             default_quota: default_quota.unwrap_or_default(),
@@ -32,26 +32,26 @@ impl LifecycleManager {
     /// pid, returns the existing one unchanged.
     pub fn create(
         &mut self,
-        pid: ProcessId,
+        pid: RunId,
         request_id: RequestId,
         user_id: UserId,
         session_id: SessionId,
         quota: Option<ResourceQuota>,
-    ) -> Result<ProcessControlBlock> {
+    ) -> Result<RunRecord> {
         if let Some(existing) = self.processes.get(&pid) {
             return Ok(existing.clone());
         }
-        let mut pcb = ProcessControlBlock::new(pid.clone(), request_id, user_id, session_id);
+        let mut pcb = RunRecord::new(pid.clone(), request_id, user_id, session_id);
         pcb.quota = quota.unwrap_or_else(|| self.default_quota.clone());
         self.processes.insert(pid, pcb.clone());
         Ok(pcb)
     }
 
     /// Transition `Ready → Running`.
-    pub fn run(&mut self, pid: &ProcessId) -> Result<()> {
+    pub fn run(&mut self, pid: &RunId) -> Result<()> {
         let pcb = self.processes.get_mut(pid)
             .ok_or_else(|| Error::not_found(format!("unknown pid: {}", pid)))?;
-        if pcb.state != ProcessState::Ready {
+        if pcb.state != RunStatus::Ready {
             return Err(Error::state_transition(format!(
                 "cannot run pid {}: state is {:?}, expected Ready",
                 pid, pcb.state
@@ -63,7 +63,7 @@ impl LifecycleManager {
 
     /// Terminate a process and remove it from the map.
     /// Idempotent: if the pid is unknown, returns Ok(()).
-    pub fn terminate(&mut self, pid: &ProcessId) -> Result<()> {
+    pub fn terminate(&mut self, pid: &RunId) -> Result<()> {
         if let Some(pcb) = self.processes.get_mut(pid) {
             if !pcb.state.is_terminal() {
                 pcb.complete();
@@ -74,17 +74,17 @@ impl LifecycleManager {
     }
 
     /// Get process by PID.
-    pub fn get(&self, pid: &ProcessId) -> Option<&ProcessControlBlock> {
+    pub fn get(&self, pid: &RunId) -> Option<&RunRecord> {
         self.processes.get(pid)
     }
 
     /// Get mutable process by PID.
-    pub fn get_mut(&mut self, pid: &ProcessId) -> Option<&mut ProcessControlBlock> {
+    pub fn get_mut(&mut self, pid: &RunId) -> Option<&mut RunRecord> {
         self.processes.get_mut(pid)
     }
 
     /// List all processes.
-    pub fn list(&self) -> Vec<ProcessControlBlock> {
+    pub fn list(&self) -> Vec<RunRecord> {
         self.processes.values().cloned().collect()
     }
 
@@ -94,7 +94,7 @@ impl LifecycleManager {
     }
 
     /// Count processes in a given state.
-    pub fn count_by_state(&self, state: ProcessState) -> usize {
+    pub fn count_by_state(&self, state: RunStatus) -> usize {
         self.processes.values().filter(|pcb| pcb.state == state).count()
     }
 
@@ -113,7 +113,7 @@ impl LifecycleManager {
     }
 }
 
-impl Default for LifecycleManager {
+impl Default for RunRegistry {
     fn default() -> Self {
         Self::new(None)
     }
@@ -123,9 +123,9 @@ impl Default for LifecycleManager {
 mod tests {
     use super::*;
 
-    fn submit(lm: &mut LifecycleManager, pid: &str) -> ProcessControlBlock {
+    fn submit(lm: &mut RunRegistry, pid: &str) -> RunRecord {
         lm.create(
-            ProcessId::must(pid),
+            RunId::must(pid),
             RequestId::must(format!("req-{}", pid)),
             UserId::must(format!("user-{}", pid)),
             SessionId::must(format!("sess-{}", pid)),
@@ -135,13 +135,13 @@ mod tests {
 
     #[test]
     fn ready_run_terminate() {
-        let mut lm = LifecycleManager::default();
-        let pid = ProcessId::must("p1");
+        let mut lm = RunRegistry::default();
+        let pid = RunId::must("p1");
         let pcb = submit(&mut lm, "p1");
-        assert_eq!(pcb.state, ProcessState::Ready);
+        assert_eq!(pcb.state, RunStatus::Ready);
 
         lm.run(&pid).unwrap();
-        assert_eq!(lm.get(&pid).unwrap().state, ProcessState::Running);
+        assert_eq!(lm.get(&pid).unwrap().state, RunStatus::Running);
 
         lm.terminate(&pid).unwrap();
         assert!(lm.get(&pid).is_none(), "terminate removes the PCB immediately");
@@ -149,10 +149,10 @@ mod tests {
 
     #[test]
     fn create_duplicate_returns_existing() {
-        let mut lm = LifecycleManager::default();
+        let mut lm = RunRegistry::default();
         let _first = submit(&mut lm, "p1");
         let again = lm.create(
-            ProcessId::must("p1"),
+            RunId::must("p1"),
             RequestId::must("other-req"),
             UserId::must("other-user"),
             SessionId::must("other-sess"),
@@ -163,8 +163,8 @@ mod tests {
 
     #[test]
     fn run_invalid_state_fails() {
-        let mut lm = LifecycleManager::default();
-        let pid = ProcessId::must("p1");
+        let mut lm = RunRegistry::default();
+        let pid = RunId::must("p1");
         submit(&mut lm, "p1");
         lm.run(&pid).unwrap();
         assert!(lm.run(&pid).is_err(), "cannot run a Running process");
@@ -172,29 +172,29 @@ mod tests {
 
     #[test]
     fn terminate_idempotent_on_missing() {
-        let mut lm = LifecycleManager::default();
-        assert!(lm.terminate(&ProcessId::must("nonexistent")).is_ok());
+        let mut lm = RunRegistry::default();
+        assert!(lm.terminate(&RunId::must("nonexistent")).is_ok());
     }
 
     #[test]
     fn count_and_list() {
-        let mut lm = LifecycleManager::default();
+        let mut lm = RunRegistry::default();
         submit(&mut lm, "a");
         submit(&mut lm, "b");
         submit(&mut lm, "c");
         assert_eq!(lm.count(), 3);
-        assert_eq!(lm.count_by_state(ProcessState::Ready), 3);
-        lm.run(&ProcessId::must("a")).unwrap();
-        assert_eq!(lm.count_by_state(ProcessState::Ready), 2);
-        assert_eq!(lm.count_by_state(ProcessState::Running), 1);
+        assert_eq!(lm.count_by_state(RunStatus::Ready), 3);
+        lm.run(&RunId::must("a")).unwrap();
+        assert_eq!(lm.count_by_state(RunStatus::Ready), 2);
+        assert_eq!(lm.count_by_state(RunStatus::Running), 1);
     }
 
     #[test]
     fn active_user_ids_excludes_terminated() {
-        let mut lm = LifecycleManager::default();
+        let mut lm = RunRegistry::default();
         submit(&mut lm, "x");
         submit(&mut lm, "y");
-        let pid_x = ProcessId::must("x");
+        let pid_x = RunId::must("x");
         lm.run(&pid_x).unwrap();
         lm.terminate(&pid_x).unwrap();
         let users = lm.get_active_user_ids();

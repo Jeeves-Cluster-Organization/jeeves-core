@@ -14,7 +14,7 @@ use crate::tools::ContentPart;
 use crate::types::Result;
 
 // Streaming events live with the envelope (pipeline-level, not LLM-specific).
-pub use crate::envelope::events::{AggregateMetrics, PipelineEvent, StageMetrics};
+pub use crate::run::events::{AggregateMetrics, RunEvent, StageMetrics};
 
 /// LLM message body — text or multimodal parts.
 ///
@@ -173,13 +173,13 @@ pub trait LlmProvider: Send + Sync + std::fmt::Debug {
 }
 
 /// Collect a StreamChunk stream into a ChatResponse, optionally forwarding content deltas
-/// as PipelineEvent::Delta through the event channel.
+/// as RunEvent::Delta through the event channel.
 ///
 /// `stage` tags every emitted Delta with the originating pipeline stage.
 /// `pipeline` identifies which pipeline produced the event.
 pub async fn collect_stream(
     stream: Pin<Box<dyn Stream<Item = Result<StreamChunk>> + Send>>,
-    event_tx: Option<&mpsc::Sender<PipelineEvent>>,
+    event_tx: Option<&mpsc::Sender<RunEvent>>,
     stage: Option<&str>,
     pipeline: Arc<str>,
 ) -> Result<ChatResponse> {
@@ -194,7 +194,7 @@ pub async fn collect_stream(
             content.push_str(delta);
             if let Some(tx) = event_tx {
                 let _ = tx
-                    .send(PipelineEvent::Delta {
+                    .send(RunEvent::Delta {
                         content: delta.clone(),
                         stage: stage.map(String::from),
                         pipeline: pipeline.clone(),

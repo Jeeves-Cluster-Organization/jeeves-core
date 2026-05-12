@@ -2,7 +2,7 @@
 //!
 //! Owns tool *metadata* (not implementations — those live in the worker layer).
 
-use crate::envelope::enums::{RiskSemantic, RiskSeverity, ToolCategory};
+use crate::run::enums::{RiskSemantic, RiskSeverity, ToolCategory};
 use crate::types::Error;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;

@@ -1,11 +1,11 @@
 //! Typed channel to the kernel actor. Each command is a `KernelCommand`
 //! variant; the caller waits on a oneshot reply.
 
-use crate::envelope::Envelope;
-use crate::kernel::protocol::{AgentExecutionMetrics, Instruction, SessionState};
-use crate::kernel::{ProcessControlBlock, SystemStatus};
-use crate::workflow::PipelineConfig;
-use crate::types::{ProcessId, RequestId, Result, SessionId, UserId};
+use crate::run::Run;
+use crate::kernel::protocol::{AgentExecutionMetrics, Instruction, RunSnapshot};
+use crate::kernel::{RunRecord, SystemStatus};
+use crate::workflow::Workflow;
+use crate::types::{RunId, RequestId, Result, SessionId, UserId};
 use std::collections::HashMap;
 use tokio::sync::{mpsc, oneshot};
 
@@ -13,20 +13,20 @@ use tokio::sync::{mpsc, oneshot};
 pub enum KernelCommand {
     /// Initialize a pipeline session (auto-creates PCB if needed).
     InitializeSession {
-        process_id: ProcessId,
-        pipeline_config: Box<PipelineConfig>,
-        envelope: Box<Envelope>,
+        run_id: RunId,
+        pipeline_config: Box<Workflow>,
+        envelope: Box<Run>,
         force: bool,
-        resp_tx: oneshot::Sender<Result<SessionState>>,
+        resp_tx: oneshot::Sender<Result<RunSnapshot>>,
     },
     /// Get the next instruction for a process.
     GetNextInstruction {
-        process_id: ProcessId,
+        run_id: RunId,
         resp_tx: oneshot::Sender<Result<Instruction>>,
     },
     /// Report a complete agent result (mutation only, no instruction returned).
     ProcessAgentResult {
-        process_id: ProcessId,
+        run_id: RunId,
         agent_name: String,
         output: serde_json::Value,
         metadata_updates: Option<HashMap<String, serde_json::Value>>,
@@ -38,20 +38,20 @@ pub enum KernelCommand {
     },
     /// Get orchestration session state.
     GetSessionState {
-        process_id: ProcessId,
-        resp_tx: oneshot::Sender<Result<SessionState>>,
+        run_id: RunId,
+        resp_tx: oneshot::Sender<Result<RunSnapshot>>,
     },
     /// Create a process (lifecycle).
     CreateProcess {
-        process_id: ProcessId,
+        run_id: RunId,
         request_id: RequestId,
         user_id: UserId,
         session_id: SessionId,
-        resp_tx: oneshot::Sender<Result<ProcessControlBlock>>,
+        resp_tx: oneshot::Sender<Result<RunRecord>>,
     },
     /// Terminate a process.
     TerminateProcess {
-        process_id: ProcessId,
+        run_id: RunId,
         resp_tx: oneshot::Sender<Result<()>>,
     },
     /// Get system status.
@@ -60,15 +60,15 @@ pub enum KernelCommand {
     },
     /// Resolve a pending interrupt.
     ResolveInterrupt {
-        process_id: ProcessId,
+        run_id: RunId,
         interrupt_id: String,
-        response: crate::envelope::InterruptResponse,
+        response: crate::run::InterruptResponse,
         resp_tx: oneshot::Sender<Result<()>>,
     },
     /// Set an interrupt without a lifecycle transition (tool-confirmation gate).
     SetProcessInterrupt {
-        process_id: ProcessId,
-        interrupt: crate::envelope::FlowInterrupt,
+        run_id: RunId,
+        interrupt: crate::run::FlowInterrupt,
         resp_tx: oneshot::Sender<Result<()>>,
     },
 
@@ -161,13 +161,13 @@ impl KernelHandle {
     /// Initialize a pipeline session.
     pub async fn initialize_session(
         &self,
-        process_id: ProcessId,
-        pipeline_config: PipelineConfig,
-        envelope: Envelope,
+        run_id: RunId,
+        pipeline_config: Workflow,
+        envelope: Run,
         force: bool,
-    ) -> Result<SessionState> {
+    ) -> Result<RunSnapshot> {
         kernel_request!(self, InitializeSession {
-            process_id: process_id,
+            run_id: run_id,
             pipeline_config: Box::new(pipeline_config),
             envelope: Box::new(envelope),
             force: force,
@@ -175,9 +175,9 @@ impl KernelHandle {
     }
 
     /// Get the next instruction for a process.
-    pub async fn get_next_instruction(&self, process_id: &ProcessId) -> Result<Instruction> {
+    pub async fn get_next_instruction(&self, run_id: &RunId) -> Result<Instruction> {
         kernel_request!(self, GetNextInstruction {
-            process_id: process_id.clone(),
+            run_id: run_id.clone(),
         })
     }
 
@@ -185,7 +185,7 @@ impl KernelHandle {
     #[allow(clippy::too_many_arguments)]
     pub async fn process_agent_result(
         &self,
-        process_id: &ProcessId,
+        run_id: &RunId,
         agent_name: &str,
         output: serde_json::Value,
         metadata_updates: Option<HashMap<String, serde_json::Value>>,
@@ -195,7 +195,7 @@ impl KernelHandle {
         break_loop: bool,
     ) -> Result<()> {
         kernel_request!(self, ProcessAgentResult {
-            process_id: process_id.clone(),
+            run_id: run_id.clone(),
             agent_name: agent_name.to_string(),
             output: output,
             metadata_updates: metadata_updates,
@@ -207,22 +207,22 @@ impl KernelHandle {
     }
 
     /// Get orchestration session state.
-    pub async fn get_session_state(&self, process_id: &ProcessId) -> Result<SessionState> {
+    pub async fn get_session_state(&self, run_id: &RunId) -> Result<RunSnapshot> {
         kernel_request!(self, GetSessionState {
-            process_id: process_id.clone(),
+            run_id: run_id.clone(),
         })
     }
 
     /// Create a process.
     pub async fn create_process(
         &self,
-        process_id: ProcessId,
+        run_id: RunId,
         request_id: RequestId,
         user_id: UserId,
         session_id: SessionId,
-    ) -> Result<ProcessControlBlock> {
+    ) -> Result<RunRecord> {
         kernel_request!(self, CreateProcess {
-            process_id: process_id,
+            run_id: run_id,
             request_id: request_id,
             user_id: user_id,
             session_id: session_id,
@@ -230,9 +230,9 @@ impl KernelHandle {
     }
 
     /// Terminate a process.
-    pub async fn terminate_process(&self, process_id: &ProcessId) -> Result<()> {
+    pub async fn terminate_process(&self, run_id: &RunId) -> Result<()> {
         kernel_request!(self, TerminateProcess {
-            process_id: process_id.clone(),
+            run_id: run_id.clone(),
         })
     }
 
@@ -242,11 +242,11 @@ impl KernelHandle {
     /// Does NOT change lifecycle state (process stays Ready).
     pub async fn set_process_interrupt(
         &self,
-        process_id: &ProcessId,
-        interrupt: crate::envelope::FlowInterrupt,
+        run_id: &RunId,
+        interrupt: crate::run::FlowInterrupt,
     ) -> Result<()> {
         kernel_request!(self, SetProcessInterrupt {
-            process_id: process_id.clone(),
+            run_id: run_id.clone(),
             interrupt: interrupt,
         })
     }
@@ -254,12 +254,12 @@ impl KernelHandle {
     /// Resolve a pending interrupt for a process.
     pub async fn resolve_interrupt(
         &self,
-        process_id: &ProcessId,
+        run_id: &RunId,
         interrupt_id: &str,
-        response: crate::envelope::InterruptResponse,
+        response: crate::run::InterruptResponse,
     ) -> Result<()> {
         kernel_request!(self, ResolveInterrupt {
-            process_id: process_id.clone(),
+            run_id: run_id.clone(),
             interrupt_id: interrupt_id.to_string(),
             response: response,
         })

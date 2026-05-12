@@ -26,15 +26,15 @@ mod kernel_orchestration;
 
 // Re-export key types
 pub use interrupts::{InterruptService, PendingInterrupt};
-pub use lifecycle::LifecycleManager;
+pub use lifecycle::RunRegistry;
 pub use resources::ResourceTracker;
 pub use types::{
-    ProcessControlBlock, ProcessState, QuotaViolation, ResourceQuota, ResourceUsage,
+    RunRecord, RunStatus, QuotaViolation, ResourceQuota, ResourceUsage,
 };
 
-use crate::envelope::Envelope;
+use crate::run::Run;
 use crate::workflow::MergeStrategy;
-use crate::types::ProcessId;
+use crate::types::RunId;
 
 /// Merge a value into envelope.state according to the configured strategy.
 fn merge_state_field(
@@ -89,7 +89,7 @@ pub struct ToolDomain {
 #[derive(Debug)]
 pub struct Kernel {
     /// Process lifecycle management
-    pub(crate) lifecycle: LifecycleManager,
+    pub(crate) lifecycle: RunRegistry,
 
     /// Resource tracking and quota enforcement
     pub(crate) resources: ResourceTracker,
@@ -100,8 +100,8 @@ pub struct Kernel {
     /// Pipeline orchestration (kernel-driven execution)
     pub(crate) orchestrator: orchestrator::Orchestrator,
 
-    /// Process envelope storage (process_id -> envelope).
-    pub(crate) process_envelopes: HashMap<ProcessId, Envelope>,
+    /// Process envelope storage (run_id -> envelope).
+    pub(crate) runs: HashMap<RunId, Run>,
 
     /// Tool subsystem (catalog, access, health).
     pub(crate) tools: ToolDomain,
@@ -110,11 +110,11 @@ pub struct Kernel {
 impl Kernel {
     pub fn new() -> Self {
         Self {
-            lifecycle: LifecycleManager::default(),
+            lifecycle: RunRegistry::default(),
             resources: ResourceTracker::default(),
             interrupts: interrupts::InterruptService::new(),
             orchestrator: orchestrator::Orchestrator::new(),
-            process_envelopes: HashMap::new(),
+            runs: HashMap::new(),
             tools: ToolDomain {
                 health: crate::tools::ToolHealthTracker::default(),
             },
@@ -142,11 +142,11 @@ impl Kernel {
     /// Construct a Kernel with an optional default quota for new processes.
     pub fn with_quota(default_quota: Option<ResourceQuota>) -> Self {
         Self {
-            lifecycle: LifecycleManager::new(default_quota),
+            lifecycle: RunRegistry::new(default_quota),
             resources: ResourceTracker::new(),
             interrupts: interrupts::InterruptService::new(),
             orchestrator: orchestrator::Orchestrator::new(),
-            process_envelopes: HashMap::new(),
+            runs: HashMap::new(),
             tools: ToolDomain {
                 health: crate::tools::ToolHealthTracker::default(),
             },
@@ -169,7 +169,7 @@ pub struct RemainingBudget {
 #[derive(Debug, Clone, serde::Serialize)]
 pub struct SystemStatus {
     pub processes_total: usize,
-    pub processes_by_state: HashMap<ProcessState, usize>,
+    pub processes_by_state: HashMap<RunStatus, usize>,
     pub active_orchestration_sessions: usize,
 }
 
@@ -201,8 +201,8 @@ mod tests {
     fn test_get_system_status_with_processes() {
         let mut kernel = Kernel::new();
 
-        let pid1 = ProcessId::must("pid1");
-        let pid2 = ProcessId::must("pid2");
+        let pid1 = RunId::must("pid1");
+        let pid2 = RunId::must("pid2");
 
         kernel.lifecycle.create(pid1.clone(), RequestId::must("req1"), UserId::must("user1"), SessionId::must("sess1"), None).unwrap();
         kernel.lifecycle.create(pid2.clone(), RequestId::must("req2"), UserId::must("user2"), SessionId::must("sess2"), None).unwrap();
@@ -212,14 +212,14 @@ mod tests {
         let status = kernel.get_system_status();
 
         assert_eq!(status.processes_total, 2);
-        assert_eq!(*status.processes_by_state.get(&ProcessState::Ready).unwrap(), 1);
-        assert_eq!(*status.processes_by_state.get(&ProcessState::Running).unwrap(), 1);
+        assert_eq!(*status.processes_by_state.get(&RunStatus::Ready).unwrap(), 1);
+        assert_eq!(*status.processes_by_state.get(&RunStatus::Running).unwrap(), 1);
     }
 
     #[test]
     fn test_record_tool_call_missing_pid_returns_err() {
         let mut kernel = Kernel::new();
-        let result = kernel.record_tool_call(&ProcessId::must("nonexistent"));
+        let result = kernel.record_tool_call(&RunId::must("nonexistent"));
         assert!(result.is_err());
         assert!(result.unwrap_err().to_string().contains("not found"));
     }
@@ -227,7 +227,7 @@ mod tests {
     #[test]
     fn test_record_agent_hop_missing_pid_returns_err() {
         let mut kernel = Kernel::new();
-        let result = kernel.record_agent_hop(&ProcessId::must("nonexistent"));
+        let result = kernel.record_agent_hop(&RunId::must("nonexistent"));
         assert!(result.is_err());
         assert!(result.unwrap_err().to_string().contains("not found"));
     }
@@ -235,7 +235,7 @@ mod tests {
     #[test]
     fn test_pcb_sync_after_agent_result() {
         let mut kernel = Kernel::new();
-        let pid = ProcessId::must("p1");
+        let pid = RunId::must("p1");
 
         kernel.create_process(pid.clone(), RequestId::must("req1"), UserId::must("user1"), SessionId::must("sess1"), None).unwrap();
         kernel.record_usage(&pid, "user1", 3, 5, 1000, 500);
@@ -250,7 +250,7 @@ mod tests {
     #[test]
     fn test_process_lifecycle_create_and_destroy() {
         let mut kernel = Kernel::new();
-        let pid = ProcessId::must("p1");
+        let pid = RunId::must("p1");
 
         kernel.create_process(pid.clone(), RequestId::must("req1"), UserId::must("user1"), SessionId::must("sess1"), None).unwrap();
         assert!(kernel.lifecycle.get(&pid).is_some());
@@ -266,7 +266,7 @@ mod tests {
     #[test]
     fn test_record_tool_call_increments_counter() {
         let mut kernel = Kernel::new();
-        let pid = ProcessId::must("p1");
+        let pid = RunId::must("p1");
 
         kernel.create_process(pid.clone(), RequestId::must("req1"), UserId::must("user1"), SessionId::must("sess1"), None).unwrap();
 

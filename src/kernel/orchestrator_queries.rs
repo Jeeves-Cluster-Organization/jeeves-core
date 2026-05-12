@@ -1,43 +1,43 @@
 //! Orchestrator read-only queries — session state, stage config lookups.
 
-use crate::envelope::Envelope;
-use crate::types::{Error, ProcessId, Result};
+use crate::run::Run;
+use crate::types::{Error, RunId, Result};
 
 use super::orchestrator::Orchestrator;
-use crate::workflow::{PipelineStage, StateField};
-use crate::kernel::protocol::{SessionState};
+use crate::workflow::{Stage, StateField};
+use crate::kernel::protocol::{RunSnapshot};
 
 impl Orchestrator {
     /// Get a reference to a pipeline session by process ID.
-    pub fn get_session(&self, process_id: &ProcessId) -> Option<&super::orchestrator::PipelineSession> {
-        self.pipelines.get(process_id)
+    pub fn get_session(&self, run_id: &RunId) -> Option<&super::orchestrator::Orchestration> {
+        self.pipelines.get(run_id)
     }
 
     /// Get a mutable reference to a pipeline session by process ID.
-    pub fn get_session_mut(&mut self, process_id: &ProcessId) -> Option<&mut super::orchestrator::PipelineSession> {
-        self.pipelines.get_mut(process_id)
+    pub fn get_session_mut(&mut self, run_id: &RunId) -> Option<&mut super::orchestrator::Orchestration> {
+        self.pipelines.get_mut(run_id)
     }
 
     /// Get session state for external queries.
     ///
-    /// Envelope is passed in by the Kernel (which owns it).
+    /// Run is passed in by the Kernel (which owns it).
     pub fn get_session_state(
         &self,
-        process_id: &ProcessId,
-        envelope: &Envelope,
-    ) -> Result<SessionState> {
+        run_id: &RunId,
+        envelope: &Run,
+    ) -> Result<RunSnapshot> {
         let session = self
             .pipelines
-            .get(process_id)
-            .ok_or_else(|| Error::not_found(format!("Unknown process: {}", process_id)))?;
+            .get(run_id)
+            .ok_or_else(|| Error::not_found(format!("Unknown process: {}", run_id)))?;
 
         Ok(self.build_session_state(session, envelope))
     }
 
     /// Get the response_format for a specific stage. The kernel forwards this
     /// verbatim to the LLM provider; it does not interpret the value.
-    pub fn get_stage_response_format(&self, process_id: &ProcessId, stage_name: &str) -> Option<serde_json::Value> {
-        self.pipelines.get(process_id)
+    pub fn get_stage_response_format(&self, run_id: &RunId, stage_name: &str) -> Option<serde_json::Value> {
+        self.pipelines.get(run_id)
             .and_then(|session| {
                 session.pipeline_config.stages.iter()
                     .find(|s| s.name == stage_name)
@@ -46,14 +46,14 @@ impl Orchestrator {
     }
 
     /// Get the state_schema for a process's pipeline.
-    pub fn get_state_schema(&self, process_id: &ProcessId) -> Option<&Vec<StateField>> {
-        self.pipelines.get(process_id)
+    pub fn get_state_schema(&self, run_id: &RunId) -> Option<&Vec<StateField>> {
+        self.pipelines.get(run_id)
             .map(|session| &session.pipeline_config.state_schema)
     }
 
     /// Get the output_key for a stage, defaulting to the stage name.
-    pub fn get_stage_output_key(&self, process_id: &ProcessId, stage_name: &str) -> Option<String> {
-        self.pipelines.get(process_id)
+    pub fn get_stage_output_key(&self, run_id: &RunId, stage_name: &str) -> Option<String> {
+        self.pipelines.get(run_id)
             .and_then(|session| {
                 session.pipeline_config.stages.iter()
                     .find(|s| s.name == stage_name)
@@ -62,8 +62,8 @@ impl Orchestrator {
     }
 
     /// Get the full stage config for a stage by name.
-    pub fn get_stage_config(&self, process_id: &ProcessId, stage_name: &str) -> Option<&PipelineStage> {
-        self.pipelines.get(process_id)
+    pub fn get_stage_config(&self, run_id: &RunId, stage_name: &str) -> Option<&Stage> {
+        self.pipelines.get(run_id)
             .and_then(|session| {
                 session.pipeline_config.stages.iter()
                     .find(|s| s.name == stage_name)
@@ -76,8 +76,8 @@ impl Orchestrator {
     }
 
     /// Take the last routing decision from a session (Option::take — returns and clears).
-    pub fn take_last_routing_decision(&mut self, process_id: &ProcessId) -> Option<super::routing::RoutingDecision> {
-        self.pipelines.get_mut(process_id)
+    pub fn take_last_routing_decision(&mut self, run_id: &RunId) -> Option<super::routing::RoutingDecision> {
+        self.pipelines.get_mut(run_id)
             .and_then(|session| session.last_routing_decision.take())
     }
 }
@@ -86,7 +86,7 @@ impl Orchestrator {
 mod tests {
     use super::super::orchestrator::Orchestrator;
     use super::super::test_helpers::*;
-    use crate::types::ProcessId;
+    use crate::types::RunId;
 
     #[test]
     fn test_get_session_state() {
@@ -94,12 +94,12 @@ mod tests {
         let pipeline = create_test_pipeline();
         let mut envelope = create_test_envelope();
 
-        let _state = orch.initialize_session(ProcessId::must("proc1"), pipeline, &mut envelope, false)
+        let _state = orch.initialize_session(RunId::must("proc1"), pipeline, &mut envelope, false)
             .unwrap();
 
-        let state = orch.get_session_state(&ProcessId::must("proc1"), &envelope).unwrap();
+        let state = orch.get_session_state(&RunId::must("proc1"), &envelope).unwrap();
 
-        assert_eq!(state.process_id.as_str(), "proc1");
+        assert_eq!(state.run_id.as_str(), "proc1");
         assert_eq!(state.current_stage, "stage1");
         assert!(state.envelope.is_object());
         assert!(!state.terminated);
@@ -110,7 +110,7 @@ mod tests {
         let orch = Orchestrator::new();
         let envelope = create_test_envelope();
 
-        let result = orch.get_session_state(&ProcessId::must("nonexistent"), &envelope);
+        let result = orch.get_session_state(&RunId::must("nonexistent"), &envelope);
         assert!(result.is_err());
     }
 
@@ -121,7 +121,7 @@ mod tests {
 
         let pipeline = create_test_pipeline();
         let mut envelope = create_test_envelope();
-        let _state = orch.initialize_session(ProcessId::must("proc1"), pipeline, &mut envelope, false).unwrap();
+        let _state = orch.initialize_session(RunId::must("proc1"), pipeline, &mut envelope, false).unwrap();
         assert_eq!(orch.get_session_count(), 1);
     }
 }

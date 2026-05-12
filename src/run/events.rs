@@ -1,7 +1,7 @@
 //! Streaming events emitted while a pipeline runs.
 //!
-//! Consumers drain a `mpsc::Receiver<PipelineEvent>` from
-//! [`run_pipeline_streaming`](crate::kernel::runner::run_pipeline_streaming).
+//! Consumers drain a `mpsc::Receiver<RunEvent>` from
+//! [`run_streaming`](crate::kernel::runner::run_streaming).
 //! Events are pipeline-level (not LLM-specific) so they live with the envelope
 //! that frames a pipeline execution.
 
@@ -42,7 +42,7 @@ pub struct AggregateMetrics {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
 #[non_exhaustive]
-pub enum PipelineEvent {
+pub enum RunEvent {
     StageStarted {
         stage: String,
         pipeline: Arc<str>,
@@ -74,7 +74,7 @@ pub enum PipelineEvent {
         metrics: Option<StageMetrics>,
     },
     Done {
-        process_id: String,
+        run_id: String,
         terminated: bool,
         terminal_reason: Option<String>,
         #[serde(skip_serializing_if = "Option::is_none")]
@@ -84,7 +84,7 @@ pub enum PipelineEvent {
         aggregate_metrics: Option<AggregateMetrics>,
     },
     InterruptPending {
-        process_id: String,
+        run_id: String,
         interrupt_id: String,
         kind: String,
         question: Option<String>,
@@ -105,7 +105,7 @@ pub enum PipelineEvent {
     },
 }
 
-impl PipelineEvent {
+impl RunEvent {
     pub fn event_type(&self) -> &'static str {
         match self {
             Self::StageStarted { .. } => "stage_started",

@@ -1,7 +1,7 @@
 //! Workflow: the static blueprint a kernel executes.
 //!
-//! A `PipelineConfig` (renamed `Workflow` in step 5) is a sequence of
-//! `PipelineStage`s with global bounds and an optional `state_schema` for
+//! A `Workflow` (renamed `Workflow` in step 5) is a sequence of
+//! `Stage`s with global bounds and an optional `state_schema` for
 //! cross-iteration accumulation. Deterministic pipelines, branching
 //! pipelines, and self-routing agent harnesses all share this shape — the
 //! difference is purely in how stages route to each other.
@@ -11,7 +11,7 @@ pub mod stage;
 pub mod state_schema;
 
 pub use policy::{ContextOverflow, RetryPolicy};
-pub use stage::{AgentConfig, PipelineStage};
+pub use stage::{AgentConfig, Stage};
 pub use state_schema::{MergeStrategy, StateField};
 
 use schemars::JsonSchema;
@@ -23,11 +23,11 @@ use crate::types::{Error, Result};
 /// Pipeline shape. Linear/branching/cyclic flows come from per-stage
 /// `routing_fn` + `default_next`; no graph topology in the kernel.
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
-pub struct PipelineConfig {
-    /// Used in `PipelineEvent.pipeline` for event attribution.
+pub struct Workflow {
+    /// Used in `RunEvent.pipeline` for event attribution.
     pub name: String,
     /// First stage is the entry point.
-    pub stages: Vec<PipelineStage>,
+    pub stages: Vec<Stage>,
     pub max_iterations: i32,
     pub max_llm_calls: i32,
     pub max_agent_hops: i32,
@@ -36,7 +36,7 @@ pub struct PipelineConfig {
     pub state_schema: Vec<StateField>,
 }
 
-impl PipelineConfig {
+impl Workflow {
     pub fn get_stage_order(&self) -> Vec<String> {
         self.stages.iter().map(|s| s.name.clone()).collect()
     }
@@ -160,7 +160,7 @@ impl PipelineConfig {
 
     /// Test-only minimal config constructor. Avoids field boilerplate.
     #[cfg(test)]
-    pub fn test_default(name: &str, stages: Vec<PipelineStage>) -> Self {
+    pub fn test_default(name: &str, stages: Vec<Stage>) -> Self {
         Self {
             name: name.to_string(),
             stages,
@@ -172,28 +172,28 @@ impl PipelineConfig {
     }
 }
 
-/// Generate the JSON Schema for `PipelineConfig` from the current Rust types.
+/// Generate the JSON Schema for `Workflow` from the current Rust types.
 /// Used by `tests/schema.rs` to detect drift between the on-disk schema and
 /// the live types.
 pub fn pipeline_config_json_schema() -> serde_json::Value {
     #[allow(clippy::expect_used)]
-    serde_json::to_value(schemars::schema_for!(PipelineConfig)).expect("schema serialization")
+    serde_json::to_value(schemars::schema_for!(Workflow)).expect("schema serialization")
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
 
-    fn minimal_stage(name: &str) -> PipelineStage {
-        PipelineStage {
+    fn minimal_stage(name: &str) -> Stage {
+        Stage {
             name: name.to_string(),
             agent: name.to_string(),
-            ..PipelineStage::default()
+            ..Stage::default()
         }
     }
 
-    fn minimal_config(stages: Vec<PipelineStage>) -> PipelineConfig {
-        PipelineConfig::test_default("test", stages)
+    fn minimal_config(stages: Vec<Stage>) -> Workflow {
+        Workflow::test_default("test", stages)
     }
 
     #[test]

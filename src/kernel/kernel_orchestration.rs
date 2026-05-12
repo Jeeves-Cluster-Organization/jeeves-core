@@ -4,73 +4,73 @@ use std::collections::HashMap;
 
 use tracing::instrument;
 
-use crate::envelope::{Envelope, FlowInterrupt};
-use crate::types::{Error, ProcessId, RequestId, Result, SessionId, UserId};
+use crate::run::{Run, FlowInterrupt};
+use crate::types::{Error, RunId, RequestId, Result, SessionId, UserId};
 
 use super::merge_state_field;
 use super::orchestrator;
 use crate::workflow::ContextOverflow;
-use super::{Kernel, ProcessState, RemainingBudget, ResourceQuota, SystemStatus};
+use super::{Kernel, RunStatus, RemainingBudget, ResourceQuota, SystemStatus};
 
 impl Kernel {
-    /// Stores `envelope` in `process_envelopes` and hands it to the orchestrator
+    /// Stores `envelope` in `runs` and hands it to the orchestrator
     /// to seed the session. The orchestrator updates the envelope's pipeline
-    /// bounds in place; ownership stays with `process_envelopes`.
-    #[instrument(skip(self, pipeline_config, envelope), fields(process_id = %process_id))]
+    /// bounds in place; ownership stays with `runs`.
+    #[instrument(skip(self, pipeline_config, envelope), fields(run_id = %run_id))]
     pub fn initialize_orchestration(
         &mut self,
-        process_id: ProcessId,
-        pipeline_config: orchestrator::PipelineConfig,
-        mut envelope: Envelope,
+        run_id: RunId,
+        pipeline_config: orchestrator::Workflow,
+        mut envelope: Run,
         force: bool,
-    ) -> Result<orchestrator::SessionState> {
+    ) -> Result<orchestrator::RunSnapshot> {
         let state = self.orchestrator
-            .initialize_session(process_id.clone(), pipeline_config, &mut envelope, force)?;
-        self.process_envelopes.insert(process_id, envelope);
+            .initialize_session(run_id.clone(), pipeline_config, &mut envelope, force)?;
+        self.runs.insert(run_id, envelope);
 
         Ok(state)
     }
 
-    /// Fetches and enriches the next instruction for `process_id`. The
+    /// Fetches and enriches the next instruction for `run_id`. The
     /// orchestrator may mutate the envelope on its way to a `Terminate`
     /// (bounds, errors); enrichment then layers in agent context, stage
     /// timeouts, response format, and any routing decision from the previous
     /// `report_agent_result`.
-    #[instrument(skip(self), fields(process_id = %process_id))]
+    #[instrument(skip(self), fields(run_id = %run_id))]
     pub fn get_next_instruction(
         &mut self,
-        process_id: &ProcessId,
+        run_id: &RunId,
     ) -> Result<orchestrator::Instruction> {
-        let envelope = self.process_envelopes.get_mut(process_id)
-            .ok_or_else(|| Error::not_found(format!("Envelope not found for process: {}", process_id)))?;
-        let mut instruction = self.orchestrator.get_next_instruction(process_id, envelope)?;
+        let envelope = self.runs.get_mut(run_id)
+            .ok_or_else(|| Error::not_found(format!("Run not found for process: {}", run_id)))?;
+        let mut instruction = self.orchestrator.get_next_instruction(run_id, envelope)?;
 
         match &mut instruction {
             orchestrator::Instruction::RunAgent { agent: _, context }=> {
-                let enrichment = self.build_enrichment_context(process_id);
+                let enrichment = self.build_enrichment_context(run_id);
                 if let Some((agent_context, max_ctx, overflow)) = enrichment {
                     context.agent_context = Some(agent_context);
                     context.max_context_tokens = max_ctx;
                     context.context_overflow = overflow;
                 }
 
-                if let Some(env) = self.process_envelopes.get_mut(process_id) {
+                if let Some(env) = self.runs.get_mut(run_id) {
                     context.interrupt_response = env.audit.metadata.remove("_interrupt_response");
                 }
 
-                let stage_name = self.process_envelopes.get(process_id)
+                let stage_name = self.runs.get(run_id)
                     .map(|e| e.pipeline.current_stage.clone())
                     .unwrap_or_default();
 
-                if let Some(sc) = self.orchestrator.get_stage_config(process_id, &stage_name) {
+                if let Some(sc) = self.orchestrator.get_stage_config(run_id, &stage_name) {
                     context.timeout_seconds = sc.timeout_seconds;
                     context.retry_policy = sc.retry_policy.clone();
                 }
 
-                context.response_format = self.orchestrator.get_stage_response_format(process_id, &stage_name);
+                context.response_format = self.orchestrator.get_stage_response_format(run_id, &stage_name);
             }
             orchestrator::Instruction::Terminate { context, .. } => {
-                if let Some(envelope) = self.process_envelopes.get(process_id) {
+                if let Some(envelope) = self.runs.get(run_id) {
                     let total_duration_ms = (chrono::Utc::now() - envelope.audit.created_at)
                         .num_milliseconds();
                     context.agent_context = Some(serde_json::json!({
@@ -89,7 +89,7 @@ impl Kernel {
             _ => {}
         }
 
-        if let Some(decision) = self.orchestrator.take_last_routing_decision(process_id) {
+        if let Some(decision) = self.orchestrator.take_last_routing_decision(run_id) {
             match &mut instruction {
                 orchestrator::Instruction::RunAgent { context, .. } |
                 orchestrator::Instruction::Terminate { context, .. } => {
@@ -107,10 +107,10 @@ impl Kernel {
     /// pulls the next instruction separately — the split is what keeps
     /// fork/parallel paths deadlock-free.
     #[allow(clippy::too_many_arguments)]
-    #[instrument(skip(self, output, metrics), fields(process_id = %process_id))]
+    #[instrument(skip(self, output, metrics), fields(run_id = %run_id))]
     pub fn process_agent_result(
         &mut self,
-        process_id: &ProcessId,
+        run_id: &RunId,
         agent_name: &str,
         output: serde_json::Value,
         metadata_updates: Option<HashMap<String, serde_json::Value>>,
@@ -131,13 +131,13 @@ impl Kernel {
         }
 
         // Lift state_schema + output_key out before the &mut envelope borrow.
-        let state_schema = self.orchestrator.get_state_schema(process_id).cloned().unwrap_or_default();
-        let output_key = self.orchestrator.get_stage_output_key(process_id, agent_name)
+        let state_schema = self.orchestrator.get_state_schema(run_id).cloned().unwrap_or_default();
+        let output_key = self.orchestrator.get_stage_output_key(run_id, agent_name)
             .unwrap_or_else(|| agent_name.to_string());
 
         {
-            let envelope = self.process_envelopes.get_mut(process_id)
-                .ok_or_else(|| Error::not_found(format!("Envelope not found: {}", process_id)))?;
+            let envelope = self.runs.get_mut(run_id)
+                .ok_or_else(|| Error::not_found(format!("Run not found: {}", run_id)))?;
 
             let mut agent_output = std::collections::HashMap::new();
             if let serde_json::Value::Object(output_map) = output {
@@ -184,16 +184,16 @@ impl Kernel {
             }
 
             let effective_failed = !success;
-            self.orchestrator.report_agent_result(process_id, agent_name, metrics, envelope, effective_failed, break_loop)?;
+            self.orchestrator.report_agent_result(run_id, agent_name, metrics, envelope, effective_failed, break_loop)?;
 
             let now = chrono::Utc::now();
-            envelope.audit.processing_history.push(crate::envelope::ProcessingRecord {
+            envelope.audit.processing_history.push(crate::run::ProcessingRecord {
                 agent: agent_name.to_string(),
                 stage_order: envelope.pipeline.current_stage_number,
                 started_at: now - chrono::Duration::milliseconds(duration_ms),
                 completed_at: Some(now),
                 duration_ms: duration_ms as i32,
-                status: if !effective_failed { crate::envelope::ProcessingStatus::Success } else { crate::envelope::ProcessingStatus::Error },
+                status: if !effective_failed { crate::run::ProcessingStatus::Success } else { crate::run::ProcessingStatus::Error },
                 error: if error_message.is_empty() { None } else { Some(error_message.to_string()) },
                 llm_calls,
                 tool_calls,
@@ -202,8 +202,8 @@ impl Kernel {
             });
         }
 
-        if let Some(uid) = self.lifecycle.get(process_id).map(|p| p.user_id.as_str().to_string()) {
-            self.record_usage(process_id, &uid, llm_calls, tool_calls, tokens_in, tokens_out);
+        if let Some(uid) = self.lifecycle.get(run_id).map(|p| p.user_id.as_str().to_string()) {
+            self.record_usage(run_id, &uid, llm_calls, tool_calls, tokens_in, tokens_out);
         }
 
         Ok(())
@@ -212,11 +212,11 @@ impl Kernel {
     /// Get orchestration session state.
     pub fn get_orchestration_state(
         &self,
-        process_id: &ProcessId,
-    ) -> Result<orchestrator::SessionState> {
-        let envelope = self.process_envelopes.get(process_id)
-            .ok_or_else(|| Error::not_found(format!("Envelope not found for process: {}", process_id)))?;
-        self.orchestrator.get_session_state(process_id, envelope)
+        run_id: &RunId,
+    ) -> Result<orchestrator::RunSnapshot> {
+        let envelope = self.runs.get(run_id)
+            .ok_or_else(|| Error::not_found(format!("Run not found for process: {}", run_id)))?;
+        self.orchestrator.get_session_state(run_id, envelope)
     }
 
     /// Reads the envelope and stage config, packs them into the JSON shape
@@ -224,9 +224,9 @@ impl Kernel {
     /// bounds.
     fn build_enrichment_context(
         &self,
-        process_id: &ProcessId,
+        run_id: &RunId,
     ) -> Option<(serde_json::Value, Option<i64>, Option<ContextOverflow>)> {
-        let envelope = self.process_envelopes.get(process_id)?;
+        let envelope = self.runs.get(run_id)?;
 
         let mut template_vars = serde_json::Map::new();
         for (agent_name, output) in &envelope.outputs {
@@ -257,7 +257,7 @@ impl Kernel {
 
         let stage_name = envelope.pipeline.current_stage.clone();
         let (max_context_tokens, context_overflow) = self.orchestrator
-            .get_stage_config(process_id, &stage_name)
+            .get_stage_config(run_id, &stage_name)
             .map(|sc| {
                 let overflow = if sc.max_context_tokens.is_some() {
                     Some(sc.context_overflow)
@@ -275,17 +275,17 @@ impl Kernel {
     #[instrument(skip(self), fields(pid = %pid))]
     pub fn create_process(
         &mut self,
-        pid: ProcessId,
+        pid: RunId,
         request_id: RequestId,
         user_id: UserId,
         session_id: SessionId,
         quota: Option<ResourceQuota>,
-    ) -> Result<super::ProcessControlBlock> {
+    ) -> Result<super::RunRecord> {
         self.lifecycle.create(pid, request_id, user_id, session_id, quota)
     }
 
     /// Check process quota.
-    pub fn check_quota(&self, pid: &ProcessId) -> Result<()> {
+    pub fn check_quota(&self, pid: &RunId) -> Result<()> {
         let pcb = self
             .lifecycle
             .get(pid)
@@ -296,7 +296,7 @@ impl Kernel {
     /// Record resource usage.
     pub fn record_usage(
         &mut self,
-        pid: &ProcessId,
+        pid: &RunId,
         user_id: &str,
         llm_calls: i32,
         tool_calls: i32,
@@ -315,10 +315,10 @@ impl Kernel {
 
     /// Set a tool-confirmation interrupt on a process. The pipeline loop
     /// suspends the stage; the consumer resolves via `resolve_process_interrupt`.
-    pub fn set_process_interrupt(&mut self, pid: &ProcessId, interrupt: FlowInterrupt) -> Result<()> {
+    pub fn set_process_interrupt(&mut self, pid: &RunId, interrupt: FlowInterrupt) -> Result<()> {
         // Register in interrupt manager (so resolve_interrupt can find it by ID)
         let interrupt_id = interrupt.id.clone();
-        if let Some(env) = self.process_envelopes.get(pid) {
+        if let Some(env) = self.runs.get(pid) {
             self.interrupts.register_flow_interrupt(
                 interrupt.clone(),
                 env.identity.request_id.as_str(),
@@ -334,8 +334,8 @@ impl Kernel {
         }
 
         // Set on envelope (get_next_instruction will see it → WaitInterrupt)
-        let env = self.process_envelopes.get_mut(pid)
-            .ok_or_else(|| Error::not_found(format!("Envelope not found: {}", pid)))?;
+        let env = self.runs.get_mut(pid)
+            .ok_or_else(|| Error::not_found(format!("Run not found: {}", pid)))?;
         env.set_interrupt(interrupt);
         Ok(())
     }
@@ -343,16 +343,16 @@ impl Kernel {
     /// Resolve a pending interrupt and stash the response for the next agent dispatch.
     pub fn resolve_process_interrupt(
         &mut self,
-        pid: &ProcessId,
+        pid: &RunId,
         interrupt_id: &str,
-        response: crate::envelope::InterruptResponse,
+        response: crate::run::InterruptResponse,
     ) -> Result<()> {
         let response_json = serde_json::to_value(&response).unwrap_or_default();
         if !self.interrupts.resolve(interrupt_id, response, None) {
             return Err(Error::not_found(format!("Interrupt {} not found", interrupt_id)));
         }
 
-        if let Some(env) = self.process_envelopes.get_mut(pid) {
+        if let Some(env) = self.runs.get_mut(pid) {
             env.audit.metadata.insert("_interrupt_response".to_string(), response_json);
             env.clear_interrupt();
         }
@@ -363,18 +363,18 @@ impl Kernel {
     }
 
     /// Terminate a process and remove it from the kernel.
-    pub fn terminate_process(&mut self, pid: &ProcessId) -> Result<()> {
+    pub fn terminate_process(&mut self, pid: &RunId) -> Result<()> {
         self.lifecycle.terminate(pid)?;
-        if let Some(env) = self.process_envelopes.get_mut(pid) {
+        if let Some(env) = self.runs.get_mut(pid) {
             env.terminate("Process terminated");
         }
-        self.process_envelopes.remove(pid);
+        self.runs.remove(pid);
         self.orchestrator.cleanup_session(pid);
         Ok(())
     }
 
     /// Record a tool call for a process.
-    pub fn record_tool_call(&mut self, pid: &ProcessId) -> Result<()> {
+    pub fn record_tool_call(&mut self, pid: &RunId) -> Result<()> {
         let pcb = self.lifecycle.get_mut(pid)
             .ok_or_else(|| Error::not_found(format!("Process {} not found in record_tool_call", pid)))?;
         pcb.usage.tool_calls += 1;
@@ -382,7 +382,7 @@ impl Kernel {
     }
 
     /// Record an agent hop for a process.
-    pub fn record_agent_hop(&mut self, pid: &ProcessId) -> Result<()> {
+    pub fn record_agent_hop(&mut self, pid: &RunId) -> Result<()> {
         let pcb = self.lifecycle.get_mut(pid)
             .ok_or_else(|| Error::not_found(format!("Process {} not found in record_agent_hop", pid)))?;
         pcb.usage.agent_hops += 1;
@@ -394,7 +394,7 @@ impl Kernel {
         let removed_pids = self.orchestrator.cleanup_stale_sessions(max_age_seconds);
         let count = removed_pids.len();
         for pid in &removed_pids {
-            self.process_envelopes.remove(pid);
+            self.runs.remove(pid);
         }
         count
     }
@@ -409,7 +409,7 @@ impl Kernel {
     pub fn get_system_status(&self) -> SystemStatus {
         let total = self.lifecycle.count();
         let mut by_state = HashMap::new();
-        for state in &[ProcessState::Ready, ProcessState::Running, ProcessState::Terminated] {
+        for state in &[RunStatus::Ready, RunStatus::Running, RunStatus::Terminated] {
             by_state.insert(*state, self.lifecycle.count_by_state(*state));
         }
 
@@ -423,7 +423,7 @@ impl Kernel {
     }
 
     /// Get remaining resource budget for a process.
-    pub fn get_remaining_budget(&self, pid: &ProcessId) -> Option<RemainingBudget> {
+    pub fn get_remaining_budget(&self, pid: &RunId) -> Option<RemainingBudget> {
         let pcb = self.lifecycle.get(pid)?;
         Some(RemainingBudget {
             llm_calls_remaining: (pcb.quota.max_llm_calls - pcb.usage.llm_calls).max(0),
@@ -443,26 +443,26 @@ impl Kernel {
 
 #[cfg(test)]
 mod tests {
-    use crate::envelope::Envelope;
+    use crate::run::Run;
     use crate::kernel::orchestrator::{
-        Instruction, PipelineConfig, PipelineStage,
+        Instruction, Workflow, Stage,
     };
     use crate::kernel::Kernel;
-    use crate::types::{ProcessId, RequestId, UserId, SessionId};
+    use crate::types::{RunId, RequestId, UserId, SessionId};
 
-    fn test_stage(name: &str) -> PipelineStage {
-        PipelineStage {
+    fn test_stage(name: &str) -> Stage {
+        Stage {
             name: name.to_string(),
             agent: name.to_string(),
-            ..PipelineStage::default()
+            ..Stage::default()
         }
     }
 
-    fn _test_config(stages: Vec<PipelineStage>) -> PipelineConfig {
-        PipelineConfig::test_default("test", stages)
+    fn _test_config(stages: Vec<Stage>) -> Workflow {
+        Workflow::test_default("test", stages)
     }
 
-    fn _setup_kernel_with_process(kernel: &mut Kernel, pid: &ProcessId) {
+    fn _setup_kernel_with_process(kernel: &mut Kernel, pid: &RunId) {
         let _ = kernel.create_process(
             pid.clone(),
             RequestId::must("req-1"),

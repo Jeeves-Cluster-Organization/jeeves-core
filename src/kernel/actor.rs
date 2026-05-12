@@ -12,7 +12,7 @@ use tokio::sync::mpsc;
 use tokio_util::sync::CancellationToken;
 
 /// Spawn the kernel actor as a tokio task. Returns a cloneable handle.
-pub fn spawn_kernel(kernel: Kernel, cancel: CancellationToken) -> KernelHandle {
+pub fn spawn(kernel: Kernel, cancel: CancellationToken) -> KernelHandle {
     let (tx, rx) = mpsc::channel(256);
     tokio::spawn(run_kernel_actor(kernel, rx, cancel).instrument(tracing::Span::current()));
     KernelHandle::new(tx)
@@ -47,16 +47,16 @@ async fn run_kernel_actor(
 async fn dispatch(kernel: &mut Kernel, cmd: KernelCommand) {
     match cmd {
         KernelCommand::InitializeSession {
-            process_id,
+            run_id,
             pipeline_config,
             envelope,
             force,
             resp_tx,
         } => {
             // Auto-create PCB if not already registered
-            if kernel.lifecycle.get(&process_id).is_none() {
+            if kernel.lifecycle.get(&run_id).is_none() {
                 let _ = kernel.create_process(
-                    process_id.clone(),
+                    run_id.clone(),
                     envelope.identity.request_id.clone(),
                     envelope.identity.user_id.clone(),
                     envelope.identity.session_id.clone(),
@@ -64,7 +64,7 @@ async fn dispatch(kernel: &mut Kernel, cmd: KernelCommand) {
                 );
             }
             let result = kernel.initialize_orchestration(
-                process_id.clone(),
+                run_id.clone(),
                 *pipeline_config,
                 *envelope,
                 force,
@@ -73,21 +73,21 @@ async fn dispatch(kernel: &mut Kernel, cmd: KernelCommand) {
         }
 
         KernelCommand::GetNextInstruction {
-            process_id,
+            run_id,
             resp_tx,
         } => {
-            let result = kernel.get_next_instruction(&process_id);
+            let result = kernel.get_next_instruction(&run_id);
             // Auto-terminate PCB when orchestrator says TERMINATE
             if let Ok(ref instr) = result {
                 if matches!(instr, Instruction::Terminate { .. }) {
-                    let _ = kernel.terminate_process(&process_id);
+                    let _ = kernel.terminate_process(&run_id);
                 }
             }
             let _ = resp_tx.send(result);
         }
 
         KernelCommand::ProcessAgentResult {
-            process_id,
+            run_id,
             agent_name,
             output,
             metadata_updates,
@@ -98,7 +98,7 @@ async fn dispatch(kernel: &mut Kernel, cmd: KernelCommand) {
             resp_tx,
         } => {
             let result = kernel.process_agent_result(
-                &process_id,
+                &run_id,
                 &agent_name,
                 output,
                 metadata_updates,
@@ -111,22 +111,22 @@ async fn dispatch(kernel: &mut Kernel, cmd: KernelCommand) {
         }
 
         KernelCommand::GetSessionState {
-            process_id,
+            run_id,
             resp_tx,
         } => {
-            let result = kernel.get_orchestration_state(&process_id);
+            let result = kernel.get_orchestration_state(&run_id);
             let _ = resp_tx.send(result);
         }
 
         KernelCommand::CreateProcess {
-            process_id,
+            run_id,
             request_id,
             user_id,
             session_id,
             resp_tx,
         } => {
             let result = kernel.create_process(
-                process_id,
+                run_id,
                 request_id,
                 user_id,
                 session_id,
@@ -136,10 +136,10 @@ async fn dispatch(kernel: &mut Kernel, cmd: KernelCommand) {
         }
 
         KernelCommand::TerminateProcess {
-            process_id,
+            run_id,
             resp_tx,
         } => {
-            let result = kernel.terminate_process(&process_id);
+            let result = kernel.terminate_process(&run_id);
             let _ = resp_tx.send(result);
         }
 
@@ -149,21 +149,21 @@ async fn dispatch(kernel: &mut Kernel, cmd: KernelCommand) {
         }
 
         KernelCommand::ResolveInterrupt {
-            process_id,
+            run_id,
             interrupt_id,
             response,
             resp_tx,
         } => {
-            let result = kernel.resolve_process_interrupt(&process_id, &interrupt_id, response);
+            let result = kernel.resolve_process_interrupt(&run_id, &interrupt_id, response);
             let _ = resp_tx.send(result);
         }
 
         KernelCommand::SetProcessInterrupt {
-            process_id,
+            run_id,
             interrupt,
             resp_tx,
         } => {
-            let result = kernel.set_process_interrupt(&process_id, interrupt);
+            let result = kernel.set_process_interrupt(&run_id, interrupt);
             let _ = resp_tx.send(result);
         }
 

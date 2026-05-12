@@ -15,13 +15,13 @@ use std::sync::Arc;
 
 use tokio_util::sync::CancellationToken;
 
-use crate::envelope::Envelope;
-use crate::workflow::PipelineConfig;
+use crate::run::Run;
+use crate::workflow::Workflow;
 use crate::kernel::Kernel;
-use crate::types::{ProcessId, Result};
-use crate::kernel::actor::spawn_kernel;
+use crate::types::{RunId, Result};
+use crate::kernel::actor::spawn;
 use crate::agent::{Agent, AgentRegistry};
-use crate::agent::llm::PipelineEvent;
+use crate::agent::llm::RunEvent;
 use crate::kernel::runner::WorkerResult;
 
 /// Test harness for running pipelines in isolation.
@@ -30,13 +30,13 @@ use crate::kernel::runner::WorkerResult;
 /// For LLM-backed agents, construct `LlmAgent` with your mock LLM/tools
 /// and register it as a mock agent directly.
 pub struct PipelineTestHarness {
-    config: PipelineConfig,
+    config: Workflow,
     agents: AgentRegistry,
 }
 
 impl PipelineTestHarness {
     /// Create a new test harness with the given pipeline config.
-    pub fn new(config: PipelineConfig) -> Self {
+    pub fn new(config: Workflow) -> Self {
         Self {
             config,
             agents: AgentRegistry::new(),
@@ -53,21 +53,21 @@ impl PipelineTestHarness {
     pub async fn run(self, input: &str) -> Result<WorkerResult> {
         let kernel = Kernel::new();
         let cancel = CancellationToken::new();
-        let handle = spawn_kernel(kernel, cancel.clone());
+        let handle = spawn(kernel, cancel.clone());
 
-        let pid = ProcessId::must(format!(
+        let pid = RunId::must(format!(
             "test_{}",
             &uuid::Uuid::new_v4().simple().to_string()[..12]
         ));
-        let pipeline_name = self.config.name.clone();
-        let envelope = Envelope::new_minimal("test_user", "test_session", input, None);
+        let workflow_name = self.config.name.clone();
+        let envelope = Run::new("test_user", "test_session", input, None);
 
         let _state = handle
             .initialize_session(pid.clone(), self.config, envelope, false)
             .await?;
 
         let agents = Arc::new(self.agents);
-        let result = crate::kernel::runner::run_pipeline_loop(&handle, &pid, &agents, None, &pipeline_name).await;
+        let result = crate::kernel::runner::run_loop(&handle, &pid, &agents, None, &workflow_name).await;
 
         cancel.cancel();
         result
@@ -77,20 +77,20 @@ impl PipelineTestHarness {
     pub async fn run_streaming(
         self,
         input: &str,
-    ) -> Result<(WorkerResult, Vec<PipelineEvent>)> {
+    ) -> Result<(WorkerResult, Vec<RunEvent>)> {
         let kernel = Kernel::new();
         let cancel = CancellationToken::new();
-        let handle = spawn_kernel(kernel, cancel.clone());
+        let handle = spawn(kernel, cancel.clone());
 
-        let pid = ProcessId::must(format!(
+        let pid = RunId::must(format!(
             "test_{}",
             &uuid::Uuid::new_v4().simple().to_string()[..12]
         ));
-        let envelope = Envelope::new_minimal("test_user", "test_session", input, None);
+        let envelope = Run::new("test_user", "test_session", input, None);
 
         let agents = Arc::new(self.agents);
 
-        let (jh, mut rx) = crate::kernel::runner::run_pipeline_streaming(
+        let (jh, mut rx) = crate::kernel::runner::run_streaming(
             handle,
             pid,
             self.config,
@@ -122,21 +122,21 @@ impl std::fmt::Debug for PipelineTestHarness {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::workflow::PipelineStage;
+    use crate::workflow::Stage;
     use crate::agent::DeterministicAgent;
 
-    fn stage(name: &str, default_next: Option<&str>) -> PipelineStage {
-        PipelineStage {
+    fn stage(name: &str, default_next: Option<&str>) -> Stage {
+        Stage {
             name: name.to_string(),
             agent: name.to_string(),
             default_next: default_next.map(|s| s.to_string()),
-            ..PipelineStage::default()
+            ..Stage::default()
         }
     }
 
     #[tokio::test]
     async fn test_harness_simple_pipeline() {
-        let config = PipelineConfig::test_default(
+        let config = Workflow::test_default(
             "test",
             vec![stage("s1", Some("s2")), stage("s2", None)],
         );
@@ -153,7 +153,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_harness_streaming() {
-        let config = PipelineConfig::test_default("stream_test", vec![stage("s1", None)]);
+        let config = Workflow::test_default("stream_test", vec![stage("s1", None)]);
 
         let (result, events) = PipelineTestHarness::new(config)
             .mock_agent("s1", DeterministicAgent)

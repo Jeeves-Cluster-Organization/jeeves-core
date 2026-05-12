@@ -3,18 +3,18 @@
 //! Eliminates copy-paste of `stage()`, `create_test_pipeline()`,
 //! and `create_test_envelope()` across orchestrator_*.rs test modules.
 
-use crate::envelope::Envelope;
-use crate::workflow::{PipelineConfig, PipelineStage};
+use crate::run::Run;
+use crate::workflow::{Workflow, Stage};
 
-/// Build a PipelineStage with optional routing_fn and default_next.
+/// Build a Stage with optional routing_fn and default_next.
 /// All other fields use defaults.
 pub fn stage(
     name: &str,
     agent: &str,
     routing_fn: Option<&str>,
     default_next: Option<&str>,
-) -> PipelineStage {
-    PipelineStage {
+) -> Stage {
+    Stage {
         name: name.to_string(),
         agent: agent.to_string(),
         routing_fn: routing_fn.map(|s| s.to_string()),
@@ -25,8 +25,8 @@ pub fn stage(
 
 /// Linear 2-stage pipeline: stage1 → stage2 → terminate.
 /// stage1 has default_next="stage2", stage2 terminates.
-pub fn create_test_pipeline() -> PipelineConfig {
-    PipelineConfig::test_default(
+pub fn create_test_pipeline() -> Workflow {
+    Workflow::test_default(
         "test_pipeline",
         vec![
             stage("stage1", "agent1", None, Some("stage2")),
@@ -36,14 +36,14 @@ pub fn create_test_pipeline() -> PipelineConfig {
 }
 
 /// Empty envelope with cleared current_stage (ready for pipeline init).
-pub fn create_test_envelope() -> Envelope {
-    let mut env = Envelope::new();
+pub fn create_test_envelope() -> Run {
+    let mut env = Run::anonymous();
     env.pipeline.current_stage = String::new();
     env
 }
 
 /// Build an envelope with the pipeline's bounds and stage_order populated.
-pub fn make_envelope(config: &PipelineConfig) -> Envelope {
+pub fn make_envelope(config: &Workflow) -> Run {
     let mut env = create_test_envelope();
     env.pipeline.max_iterations = config.max_iterations;
     env.bounds.max_llm_calls = config.max_llm_calls;
