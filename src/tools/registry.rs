@@ -279,7 +279,7 @@ mod tests {
             .add_tool("c", mock_executor(&["c"]))
             .build();
         let wrapped =
-            AclToolExecutor::wrap_registry(registry, &["a".to_string(), "c".to_string()]);
+            AclToolExecutor::wrap_registry(registry, &["a".into(), "c".into()]);
         assert_eq!(wrapped.list_all_tools().len(), 2);
         assert!(wrapped.get("a").is_some());
         assert!(wrapped.get("b").is_none());
@@ -294,7 +294,7 @@ mod tests {
 
         let wrapped = AclToolExecutor::wrap_registry(
             registry,
-            &["search".to_string(), "read".to_string()],
+            &["search".into(), "read".into()],
         );
 
         assert!(wrapped.get("search").is_some());
@@ -330,7 +330,7 @@ mod tests {
 
         let wrapped = AclToolExecutor::wrap_registry(
             registry,
-            &["alpha".to_string(), "gamma".to_string()],
+            &["alpha".into(), "gamma".into()],
         );
 
         let tools = wrapped.list_all_tools();
@@ -350,7 +350,7 @@ mod tests {
 
         let wrapped = AclToolExecutor::wrap_registry(
             registry,
-            &["search".to_string(), "nonexistent".to_string()],
+            &["search".into(), "nonexistent".into()],
         );
 
         assert_eq!(wrapped.list_all_tools().len(), 1);

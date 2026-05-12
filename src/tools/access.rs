@@ -4,14 +4,15 @@
 
 use std::collections::{HashMap, HashSet};
 
+use crate::types::{AgentName, ToolName};
+
 /// Agent → tools access policy.
 ///
 /// An agent can only execute tools it has been granted access to.
 /// If no policy is set for an agent, it has access to nothing.
 #[derive(Debug, Default)]
 pub struct ToolAccessPolicy {
-    /// agent_name → set of allowed tool_ids
-    grants: HashMap<String, HashSet<String>>,
+    grants: HashMap<AgentName, HashSet<ToolName>>,
 }
 
 impl ToolAccessPolicy {
@@ -21,19 +22,21 @@ impl ToolAccessPolicy {
         }
     }
 
-    /// Grant an agent access to a tool.
-    pub fn grant(&mut self, agent_name: &str, tool_id: &str) {
-        self.grants
-            .entry(agent_name.to_string())
-            .or_default()
-            .insert(tool_id.to_string());
+    /// Grant an agent access to a tool. Accepts anything coercible to
+    /// `AgentName` / `ToolName` (string literals, `String`, or the newtypes).
+    pub fn grant(&mut self, agent_name: impl Into<AgentName>, tool_id: impl Into<ToolName>) {
+        self.grants.entry(agent_name.into()).or_default().insert(tool_id.into());
     }
 
     /// Grant an agent access to multiple tools at once.
-    pub fn grant_many(&mut self, agent_name: &str, tool_ids: &[String]) {
-        let set = self.grants.entry(agent_name.to_string()).or_default();
+    pub fn grant_many<I>(&mut self, agent_name: impl Into<AgentName>, tool_ids: I)
+    where
+        I: IntoIterator,
+        I::Item: Into<ToolName>,
+    {
+        let set = self.grants.entry(agent_name.into()).or_default();
         for id in tool_ids {
-            set.insert(id.clone());
+            set.insert(id.into());
         }
     }
 
@@ -51,13 +54,13 @@ impl ToolAccessPolicy {
             .is_some_and(|set| set.contains(tool_id))
     }
 
-    /// Get all tool ids an agent has access to.
-    pub fn tools_for_agent(&self, agent_name: &str) -> Vec<String> {
+    /// Get all tool ids an agent has access to (sorted).
+    pub fn tools_for_agent(&self, agent_name: &str) -> Vec<ToolName> {
         self.grants
             .get(agent_name)
             .map(|set| {
-                let mut ids: Vec<String> = set.iter().cloned().collect();
-                ids.sort();
+                let mut ids: Vec<ToolName> = set.iter().cloned().collect();
+                ids.sort_by(|a, b| a.as_str().cmp(b.as_str()));
                 ids
             })
             .unwrap_or_default()
@@ -76,44 +79,44 @@ mod tests {
     #[test]
     fn test_grant_and_check() {
         let mut policy = ToolAccessPolicy::new();
-        policy.grant("reporter", "search_web");
-        policy.grant("reporter", "interview_npc");
+        policy.grant("agent_a", "tool_x");
+        policy.grant("agent_a", "tool_y");
 
-        assert!(policy.check_access("reporter", "search_web"));
-        assert!(policy.check_access("reporter", "interview_npc"));
-        assert!(!policy.check_access("reporter", "delete_data"));
-        assert!(!policy.check_access("editor", "search_web"));
+        assert!(policy.check_access("agent_a", "tool_x"));
+        assert!(policy.check_access("agent_a", "tool_y"));
+        assert!(!policy.check_access("agent_a", "tool_z"));
+        assert!(!policy.check_access("agent_b", "tool_x"));
     }
 
     #[test]
     fn test_grant_many() {
         let mut policy = ToolAccessPolicy::new();
-        policy.grant_many(
-            "reporter",
-            &["search_web".to_string(), "interview_npc".to_string()],
-        );
+        policy.grant_many("agent_a", ["tool_x", "tool_y"]);
 
-        assert!(policy.check_access("reporter", "search_web"));
-        assert!(policy.check_access("reporter", "interview_npc"));
+        assert!(policy.check_access("agent_a", "tool_x"));
+        assert!(policy.check_access("agent_a", "tool_y"));
     }
 
     #[test]
     fn test_revoke() {
         let mut policy = ToolAccessPolicy::new();
-        policy.grant("reporter", "search_web");
-        policy.revoke("reporter", "search_web");
+        policy.grant("agent_a", "tool_x");
+        policy.revoke("agent_a", "tool_x");
 
-        assert!(!policy.check_access("reporter", "search_web"));
+        assert!(!policy.check_access("agent_a", "tool_x"));
     }
 
     #[test]
     fn test_tools_for_agent() {
         let mut policy = ToolAccessPolicy::new();
-        policy.grant("reporter", "b_tool");
-        policy.grant("reporter", "a_tool");
+        policy.grant("agent_a", "tool_b");
+        policy.grant("agent_a", "tool_a");
 
-        let tools = policy.tools_for_agent("reporter");
-        assert_eq!(tools, vec!["a_tool", "b_tool"]); // sorted
+        let tools = policy.tools_for_agent("agent_a");
+        assert_eq!(
+            tools.iter().map(|t| t.as_str()).collect::<Vec<_>>(),
+            vec!["tool_a", "tool_b"],
+        );
 
         assert!(policy.tools_for_agent("unknown").is_empty());
     }
@@ -121,9 +124,9 @@ mod tests {
     #[test]
     fn test_clear_agent() {
         let mut policy = ToolAccessPolicy::new();
-        policy.grant("reporter", "search_web");
-        policy.clear_agent("reporter");
+        policy.grant("agent_a", "tool_x");
+        policy.clear_agent("agent_a");
 
-        assert!(!policy.check_access("reporter", "search_web"));
+        assert!(!policy.check_access("agent_a", "tool_x"));
     }
 }

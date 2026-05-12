@@ -121,8 +121,8 @@ fn merge_agents(
                 llm: ctx.llm.clone(),
                 prompts: ctx.prompts.clone(),
                 tools: stage_tools,
-                agent_name: agent_name.clone(),
-                prompt_key,
+                agent_name: agent_name.as_str().into(),
+                prompt_key: prompt_key.as_str().into(),
                 temperature: stage.agent_config.temperature,
                 max_tokens: stage.agent_config.max_tokens,
                 model: stage.agent_config.model_role.clone(),
@@ -132,8 +132,8 @@ fn merge_agents(
             })
         } else if ctx.tools.get(agent_name).is_some() {
             Arc::new(ToolDelegatingAgent {
-                agent_name: agent_name.clone(),
-                tool_name: agent_name.clone(),
+                agent_name: agent_name.as_str().into(),
+                tool_name: agent_name.as_str().into(),
                 tools: stage_tools,
             })
         } else {

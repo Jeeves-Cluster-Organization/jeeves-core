@@ -69,8 +69,8 @@ pub struct LlmAgent {
     pub prompts: Arc<PromptRegistry>,
     pub tools: Arc<ToolRegistry>,
     /// Identity used by `ToolRegistry::execute_for` to consult `ToolAccessPolicy`.
-    pub agent_name: String,
-    pub prompt_key: String,
+    pub agent_name: crate::types::AgentName,
+    pub prompt_key: crate::types::PromptKey,
     pub temperature: Option<f64>,
     pub max_tokens: Option<i32>,
     pub model: Option<String>,
@@ -86,8 +86,8 @@ impl Default for LlmAgent {
             llm: Arc::new(crate::agent::llm::mock::MockLlmProvider::default()),
             prompts: Arc::new(PromptRegistry::empty()),
             tools: Arc::new(ToolRegistry::new()),
-            agent_name: String::new(),
-            prompt_key: String::new(),
+            agent_name: crate::types::AgentName::default(),
+            prompt_key: crate::types::PromptKey::default(),
             temperature: None,
             max_tokens: None,
             model: None,
@@ -120,7 +120,7 @@ impl Agent for LlmAgent {
 
         let prompt_text = self
             .prompts
-            .render(&self.prompt_key, &vars)
+            .render(self.prompt_key.as_str(), &vars)
             .unwrap_or_else(|| format!("No prompt found for key: {}", self.prompt_key));
 
         let mut messages = vec![
@@ -282,7 +282,7 @@ impl Agent for LlmAgent {
                         }))),
                         None,
                     ),
-                    _ => (None, Some(self.tools.execute_for(&self.agent_name, &tc.name, params).await)),
+                    _ => (None, Some(self.tools.execute_for(self.agent_name.as_str(), &tc.name, params).await)),
                 };
 
                 let (result_text, result_content, tool_success, tool_error) = if let Some(ref mut output) = hook_short_circuit_output {
@@ -409,8 +409,8 @@ impl LlmAgent {
 /// separate so the policy-chain identity is unambiguous.
 #[derive(Debug)]
 pub struct ToolDelegatingAgent {
-    pub agent_name: String,
-    pub tool_name: String,
+    pub agent_name: crate::types::AgentName,
+    pub tool_name: crate::types::ToolName,
     pub tools: Arc<ToolRegistry>,
 }
 
@@ -424,7 +424,7 @@ impl Agent for ToolDelegatingAgent {
             let _ = tx
                 .send(RunEvent::ToolCallStart {
                     id: call_id.clone(),
-                    name: self.tool_name.clone(),
+                    name: self.tool_name.as_str().to_string(),
                     stage: ctx.stage_name.clone(),
                     pipeline: ctx.workflow_name.clone(),
                 })
@@ -439,7 +439,7 @@ impl Agent for ToolDelegatingAgent {
         });
 
         if ctx.interrupt_response.is_none() {
-            if let Some(confirmation) = self.tools.requires_confirmation(&self.tool_name, &params) {
+            if let Some(confirmation) = self.tools.requires_confirmation(self.tool_name.as_str(), &params) {
                 let mut interrupt = crate::run::FlowInterrupt::new()
                     .with_message(confirmation.message.clone());
                 if let Some(data) = confirmation.action_data {
@@ -466,7 +466,7 @@ impl Agent for ToolDelegatingAgent {
         }
 
         let start = std::time::Instant::now();
-        let (result, success, error_message) = match self.tools.execute_for(&self.agent_name, &self.tool_name, params).await {
+        let (result, success, error_message) = match self.tools.execute_for(self.agent_name.as_str(), self.tool_name.as_str(), params).await {
             Ok(tool_output) => (tool_output.data, true, String::new()),
             Err(e) => {
                 let err_str = e.to_string();
@@ -504,7 +504,7 @@ impl Agent for ToolDelegatingAgent {
                 tokens_out: None,
                 duration_ms,
                 tool_results: vec![ToolCallResult {
-                    name: self.tool_name.clone(),
+                    name: self.tool_name.as_str().to_string(),
                     success,
                     latency_ms: duration_ms as u64,
                     error_type: if error_message.is_empty() { None } else { Some(error_message.clone()) },
@@ -680,8 +680,8 @@ mod tests {
             llm,
             prompts: Arc::new(crate::agent::prompts::PromptRegistry::empty()),
             tools: Arc::new(ToolRegistry::new()),
-            agent_name: "test".to_string(),
-            prompt_key: "test".to_string(),
+            agent_name: "test".into(),
+            prompt_key: "test".into(),
             temperature: None,
             max_tokens: None,
             model: None,
@@ -746,8 +746,8 @@ mod tests {
             llm,
             prompts: Arc::new(crate::agent::prompts::PromptRegistry::empty()),
             tools: Arc::new(tool_reg),
-            agent_name: "test".to_string(),
-            prompt_key: "test".to_string(),
+            agent_name: "test".into(),
+            prompt_key: "test".into(),
             temperature: None,
             max_tokens: None,
             model: None,
@@ -771,8 +771,8 @@ mod tests {
             llm,
             prompts: Arc::new(crate::agent::prompts::PromptRegistry::empty()),
             tools: Arc::new(ToolRegistry::new()),
-            agent_name: "test".to_string(),
-            prompt_key: "test".to_string(),
+            agent_name: "test".into(),
+            prompt_key: "test".into(),
             temperature: None,
             max_tokens: None,
             model: None,
@@ -798,8 +798,8 @@ mod tests {
             llm,
             prompts: Arc::new(crate::agent::prompts::PromptRegistry::empty()),
             tools: Arc::new(ToolRegistry::new()),
-            agent_name: "test".to_string(),
-            prompt_key: "test".to_string(),
+            agent_name: "test".into(),
+            prompt_key: "test".into(),
             temperature: None,
             max_tokens: None,
             model: None,

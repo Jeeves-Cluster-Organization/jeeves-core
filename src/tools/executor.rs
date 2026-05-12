@@ -118,24 +118,28 @@ pub trait ToolExecutor: Send + Sync + std::fmt::Debug {
 #[derive(Debug)]
 pub struct AclToolExecutor {
     inner: Arc<dyn ToolExecutor>,
-    allowed: std::collections::HashSet<String>,
+    allowed: std::collections::HashSet<ToolName>,
 }
 
 impl AclToolExecutor {
-    pub fn new(inner: Arc<dyn ToolExecutor>, allowed: impl IntoIterator<Item = String>) -> Self {
+    pub fn new<I>(inner: Arc<dyn ToolExecutor>, allowed: I) -> Self
+    where
+        I: IntoIterator,
+        I::Item: Into<ToolName>,
+    {
         Self {
             inner,
-            allowed: allowed.into_iter().collect(),
+            allowed: allowed.into_iter().map(Into::into).collect(),
         }
     }
 
     /// Empty `allowed` yields a registry with zero tools — pure text generation.
-    pub fn wrap_registry(registry: Arc<ToolRegistry>, allowed: &[String]) -> Arc<ToolRegistry> {
+    pub fn wrap_registry(registry: Arc<ToolRegistry>, allowed: &[ToolName]) -> Arc<ToolRegistry> {
         if allowed.is_empty() {
             return Arc::new(ToolRegistry::new());
         }
         let allowed_set: std::collections::HashSet<&str> =
-            allowed.iter().map(|s| s.as_str()).collect();
+            allowed.iter().map(|t| t.as_str()).collect();
         let mut filtered = ToolRegistry::new();
         for tool in registry.list_all_tools() {
             if allowed_set.contains(tool.name.as_str()) {

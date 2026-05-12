@@ -127,8 +127,8 @@ fn make_llm_agent(
         llm,
         prompts: Arc::new(PromptRegistry::empty()),
         tools,
-        agent_name: "worker".to_string(),
-        prompt_key: "test".to_string(),
+        agent_name: "worker".into(),
+        prompt_key: "test".into(),
         temperature: None,
         max_tokens: None,
         model: None,
@@ -960,8 +960,8 @@ async fn test_confirmation_gate_mcp_agent_buffered() {
     let tools = Arc::new(tool_reg);
 
     let agent = ToolDelegatingAgent {
-        agent_name: "dangerous_op".to_string(),
-        tool_name: "dangerous_op".to_string(),
+        agent_name: "dangerous_op".into(),
+        tool_name: "dangerous_op".into(),
         tools: tools.clone(),
     };
 
@@ -1012,8 +1012,8 @@ async fn test_confirmation_gate_safe_tool_no_interrupt() {
     }
 
     let agent = ToolDelegatingAgent {
-        agent_name: "safe_op".to_string(),
-        tool_name: "safe_op".to_string(),
+        agent_name: "safe_op".into(),
+        tool_name: "safe_op".into(),
         tools: Arc::new(tool_reg),
     };
 
@@ -1069,8 +1069,8 @@ async fn test_confirmation_gate_full_pipeline_buffered() {
 
     let mut agents = AgentRegistry::new();
     agents.register("execute", Arc::new(ToolDelegatingAgent {
-        agent_name: "execute".to_string(),
-        tool_name: "dangerous_op".to_string(),
+        agent_name: "execute".into(),
+        tool_name: "dangerous_op".into(),
         tools: Arc::new(tool_reg),
     }));
 
