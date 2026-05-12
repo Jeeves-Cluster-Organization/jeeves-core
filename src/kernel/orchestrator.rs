@@ -26,10 +26,6 @@ pub use super::routing::{
 
 use super::orchestrator_helpers::{build_stage_snapshot, get_agent_for_stage};
 
-// =============================================================================
-// Orchestration Session
-// =============================================================================
-
 /// PipelineSession represents an active pipeline execution session.
 ///
 /// The session tracks pipeline execution state only (config, stage visits,
@@ -46,10 +42,6 @@ pub struct PipelineSession {
     /// Last routing decision made by report_agent_result (consumed by get_next_instruction).
     pub(crate) last_routing_decision: Option<super::routing::RoutingDecision>,
 }
-
-// =============================================================================
-// Orchestrator
-// =============================================================================
 
 /// Orchestrator manages kernel-side pipeline execution.
 #[derive(Debug)]

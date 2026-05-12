@@ -69,26 +69,24 @@ fn merge_state_field(
                     *existing = serde_json::Value::Object(new_map);
                 }
             } else {
-                // Not an object — fall back to Replace
                 state.insert(key.to_string(), val);
             }
         }
     }
 }
 
-/// Tool subsystem — access policy and health tracking.
+/// Kernel-side tool subsystem. ACL lives on the consumer's `ToolRegistry`
+/// via [`ToolRegistryBuilder::with_access_policy`]; only health tracking
+/// hangs off the kernel.
+///
+/// [`ToolRegistryBuilder::with_access_policy`]: crate::worker::tools::ToolRegistryBuilder::with_access_policy
 #[derive(Debug)]
 pub struct ToolDomain {
-    /// Tool access policy — agent-scoped permissions.
-    pub(crate) access: crate::tools::ToolAccessPolicy,
-    /// Tool health tracking — sliding-window metrics and circuit breaking.
     pub(crate) health: crate::tools::ToolHealthTracker,
 }
 
-/// Kernel - the main orchestrator.
-///
-/// Owns all subsystems and provides unified interface for process management.
-/// NOT an actor in the message-passing sense - called directly via &mut self.
+/// The kernel: orchestrates pipelines, owns lifecycle/resources/interrupts.
+/// Driven through `KernelHandle` (the mpsc channel), never shared `&mut`.
 #[derive(Debug)]
 pub struct Kernel {
     /// Process lifecycle management
@@ -119,7 +117,6 @@ impl Kernel {
             orchestrator: orchestrator::Orchestrator::new(),
             process_envelopes: HashMap::new(),
             tools: ToolDomain {
-                access: crate::tools::ToolAccessPolicy::new(),
                 health: crate::tools::ToolHealthTracker::default(),
             },
         }
@@ -152,7 +149,6 @@ impl Kernel {
             orchestrator: orchestrator::Orchestrator::new(),
             process_envelopes: HashMap::new(),
             tools: ToolDomain {
-                access: crate::tools::ToolAccessPolicy::new(),
                 health: crate::tools::ToolHealthTracker::default(),
             },
         }

@@ -119,16 +119,6 @@
           "description": "Agent name to dispatch (ignored for Gate nodes).",
           "type": "string"
         },
-        "allowed_tools": {
-          "description": "Tool whitelist — only these tools are available to this stage's agent.",
-          "items": {
-            "type": "string"
-          },
-          "type": [
-            "array",
-            "null"
-          ]
-        },
         "context_overflow": {
           "allOf": [
             {
@@ -224,8 +214,8 @@
             "null"
           ]
         },
-        "output_schema": {
-          "description": "JSON Schema for validating agent output before writing to state."
+        "response_format": {
+          "description": "Verbatim hint forwarded to the LLM provider for grammar-constrained generation. Not interpreted by the kernel."
         },
         "prompt_key": {
           "description": "Prompt template key for this agent. None = deterministic (no LLM call).",

@@ -37,16 +37,14 @@ pub struct AggregateMetrics {
     pub stages_executed: Vec<String>,
 }
 
-/// Message content — either plain text or multimodal content parts.
+/// LLM message body — text or multimodal parts.
 ///
-/// Uses `#[serde(untagged)]` so `Text("hello")` serializes as `"hello"` (bare string),
-/// preserving backward compatibility with existing checkpoints and wire formats.
+/// `#[serde(untagged)]` keeps `Text("hello")` serialized as the bare string
+/// `"hello"`, matching the OpenAI-compatible wire format providers expect.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(untagged)]
 pub enum MessageContent {
-    /// Plain text content (backward-compatible path).
     Text(String),
-    /// Multimodal content parts (text + images + refs).
     Parts(Vec<ContentPart>),
 }
 
@@ -328,9 +326,8 @@ pub async fn collect_stream(
     })
 }
 
-/// Merge streaming tool call deltas into accumulated tool calls.
-/// With genai, tool calls arrive complete (genai accumulates internally).
-/// This handles both complete tool calls and legacy delta merging.
+/// Merges streaming tool-call deltas. Genai already accumulates internally;
+/// the per-id merge here covers providers that stream true deltas.
 fn merge_tool_call_deltas(accumulated: &mut Vec<ToolCall>, deltas: &[ToolCall]) {
     for delta in deltas {
         if let Some(existing) = accumulated.iter_mut().find(|tc| tc.id == delta.id && !delta.id.is_empty()) {
@@ -357,8 +354,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn message_content_text_serde_round_trip() {
-        // Text variant serializes as bare string (backward compat)
+    fn message_content_text_serializes_as_bare_string() {
         let content = MessageContent::Text("hello world".into());
         let json = serde_json::to_string(&content).unwrap();
         assert_eq!(json, r#""hello world""#);
@@ -395,21 +391,20 @@ mod tests {
             ContentPart::Text { text: "b".into() },
         ]);
         assert_eq!(parts.as_text(), None);
-        assert_eq!(parts.as_text_lossy(), "ab"); // non-text parts skipped
+        assert_eq!(parts.as_text_lossy(), "ab");
     }
 
     #[test]
-    fn chat_message_backward_compat_serde() {
-        // Old format: {"role":"user","content":"hello"}
-        // MessageContent::Text("hello") serializes as "hello" (untagged)
+    fn chat_message_text_content_uses_openai_wire_shape() {
+        // `{"role":"user","content":"hello"}` is the OpenAI text shape we send
+        // and accept; verify round-trip in both directions.
         let msg = ChatMessage::user("hello");
         let json = serde_json::to_string(&msg).unwrap();
         assert!(json.contains(r#""content":"hello""#));
 
-        // Deserializing old-format JSON still works
-        let old_json = r#"{"role":"user","content":"hello"}"#;
-        let deserialized: ChatMessage = serde_json::from_str(old_json).unwrap();
-        assert_eq!(deserialized.content.as_text(), Some("hello"));
+        let parsed: ChatMessage =
+            serde_json::from_str(r#"{"role":"user","content":"hello"}"#).unwrap();
+        assert_eq!(parsed.content.as_text(), Some("hello"));
     }
 }
 

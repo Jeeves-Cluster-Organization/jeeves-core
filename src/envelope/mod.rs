@@ -1,14 +1,5 @@
-//! Envelope - the core state container.
-//!
-//! The Envelope represents the mutable state of a request as it flows through
-//! the multi-agent pipeline. It tracks inputs, outputs, bounds, and interrupts.
-//!
-//! Fields are organized into semantic sub-structs:
-//! - **Identity**: envelope/request/user/session IDs
-//! - **Pipeline**: stage sequencing and parallel execution
-//! - **Bounds**: resource limits and counters
-//! - **InterruptState**: human-in-the-loop flow control
-//! - **Audit**: processing history, errors, timing, metadata
+//! Envelope: mutable state for a request flowing through the pipeline.
+//! Fields group into `Identity`, `Pipeline`, `Bounds`, `InterruptState`, `Audit`.
 
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
@@ -22,26 +13,16 @@ pub mod types;
 pub use enums::*;
 pub use types::*;
 
-// =============================================================================
-// Envelope
-// =============================================================================
-
-/// Main envelope structure.
-///
-/// Unlike hardcoded per-agent output fields, Envelope uses a dynamic `Outputs` map
-/// where any agent can write results keyed by agent name.
-///
-/// Example: `envelope.outputs.insert("perception", hashmap)` per agent.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct Envelope {
     pub identity: Identity,
     pub raw_input: String,
     pub received_at: DateTime<Utc>,
 
-    /// Outputs from agents: map[agent_name] = map[output_key] = value
+    /// `agent_name → output_key → value`. Any agent can write here.
     pub outputs: HashMap<String, HashMap<String, serde_json::Value>>,
 
-    /// Merged accumulator state: map[key] = value (schema-driven merge)
+    /// Accumulator merged across loop-backs per `state_schema`.
     #[serde(default, skip_serializing_if = "HashMap::is_empty")]
     pub state: HashMap<String, serde_json::Value>,
 
@@ -52,9 +33,7 @@ pub struct Envelope {
 }
 
 impl Envelope {
-    /// Create a new envelope with default values.
-    ///
-    /// Delegates to `new_minimal()` with anonymous identity. Used in tests.
+    /// Anonymous envelope, generated identity. Test convenience.
     pub fn new() -> Self {
         let uuid_short = || uuid::Uuid::new_v4().simple().to_string()[..16].to_string();
         Self::new_minimal(
@@ -65,10 +44,8 @@ impl Envelope {
         )
     }
 
-    /// Create a minimal envelope from 4 required params.
-    ///
-    /// Generates identity fields internally. Bounds are set to safe placeholders
-    /// (the kernel's `initialize_orchestration` overwrites them from PipelineConfig).
+    /// Minimal envelope. Bounds are safe placeholders that
+    /// `initialize_orchestration` overwrites from `PipelineConfig`.
     pub fn new_minimal(
         user_id: &str,
         session_id: &str,
@@ -100,8 +77,7 @@ impl Envelope {
                 current_stage: String::new(),
                 stage_order: Vec::new(),
                 iteration: 0,
-                max_iterations: 100,  // placeholder — overwritten by PipelineConfig
-                active_stages: HashSet::new(),
+                max_iterations: 100,                active_stages: HashSet::new(),
                 completed_stage_set: HashSet::new(),
                 failed_stages: HashMap::new(),
                 parallel_mode: false,
@@ -111,11 +87,9 @@ impl Envelope {
             },
             bounds: Bounds {
                 llm_call_count: 0,
-                max_llm_calls: 100,  // placeholder — overwritten by PipelineConfig
-                tool_call_count: 0,
+                max_llm_calls: 100,                tool_call_count: 0,
                 agent_hop_count: 0,
-                max_agent_hops: 100,  // placeholder — overwritten by PipelineConfig
-                tokens_in: 0,
+                max_agent_hops: 100,                tokens_in: 0,
                 tokens_out: 0,
                 termination: None,
             },

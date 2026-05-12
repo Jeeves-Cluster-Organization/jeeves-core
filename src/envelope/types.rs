@@ -130,10 +130,6 @@ pub struct ProcessingRecord {
     pub tokens_out: i64,
 }
 
-// =============================================================================
-// Sub-structs
-// =============================================================================
-
 /// Envelope identity fields.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct Identity {

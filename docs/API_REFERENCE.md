@@ -1,168 +1,59 @@
 # API Reference
 
-Jeeves Core is consumed as a library (PyO3 or Rust crate), not as an HTTP service.
+`jeeves-core` is a Rust library. Consumers depend on it directly — there is no service binary, no HTTP gateway, no Python module.
 
-## PyO3 API
-
-### PipelineRunner
-
-```python
-from jeeves_core import PipelineRunner, tool
+```rust
+use jeeves_core::prelude::*;
 ```
-
-#### `PipelineRunner.from_json(path, prompts_dir=None)`
-
-Create a runner from a pipeline JSON config file.
-
-- `path` — path to `pipeline.json`
-- `prompts_dir` — optional directory containing prompt templates (`{key}.txt` files)
-
-#### `runner.register_tool(tool_fn)`
-
-Register a Python tool function decorated with `@tool`.
-
-```python
-@tool(name="search", description="Search the web")
-def search(params):
-    return {"results": params.get("query")}
-
-runner.register_tool(search)
-```
-
-#### `runner.run(input, user_id=None, session_id=None, metadata=None)`
-
-Run a pipeline synchronously. Returns a dict:
-
-```python
-result = runner.run("hello", user_id="user1")
-# {
-#     "terminated": True,
-#     "terminal_reason": "COMPLETED",
-#     "outputs": {
-#         "stage_name": {"key": "value"}
-#     }
-# }
-```
-
-#### `runner.stream(input, user_id=None, session_id=None, metadata=None)`
-
-Run a pipeline with streaming events. Returns an iterator:
-
-```python
-for event in runner.stream("hello", user_id="user1"):
-    match event["type"]:
-        case "stage_started":   # {"stage": "understand", "pipeline": "my_pipeline"}
-        case "delta":           # {"content": "Hello", "stage": "respond", "pipeline": "my_pipeline"}
-        case "tool_call_start": # {"id": "...", "name": "search", "stage": "...", "pipeline": "..."}
-        case "tool_result":     # {"id": "...", "content": "...", "stage": "...", "pipeline": "..."}
-        case "stage_completed": # {"stage": "understand", "pipeline": "my_pipeline"}
-        case "done":            # {"process_id": "...", "terminated": true, "terminal_reason": "COMPLETED", "outputs": {...}, "pipeline": "..."}
-        case "error":           # {"message": "...", "stage": "...", "pipeline": "..."}
-        case "interrupt":       # {"process_id": "...", "interrupt_id": "...", "kind": "...", "pipeline": "..."}
-```
-
-#### `runner.describe_pipeline(pipeline_name=None)`
-
-Return the full pipeline config as a Python dict (stages, routing, bounds, state_schema).
-
-#### `runner.list_tools()`
-
-Return all registered tools: `[{"name": str, "description": str, "parameters": dict}, ...]`
-
-#### `PipelineRunner.get_schema()` (static method)
-
-Return JSON Schema for PipelineConfig. Use for editor validation of pipeline.json files.
-
-#### `runner.checkpoint(process_id)`
-
-Capture a serializable snapshot of pipeline state at the current instruction boundary.
-Returns a dict with: version, timestamp, process_id, envelope, pcb, session_state, edge_traversals, stage_visits.
-
-#### `runner.resume_from_checkpoint(snapshot_json, pipeline_name=None)`
-
-Restore a pipeline from a JSON checkpoint string. Returns the restored process_id.
 
 ---
 
 ## Pipeline Config
 
-Pipeline configuration is a JSON document or Rust `PipelineConfig` struct.
+A pipeline is a `PipelineConfig` value (constructed in Rust or deserialized from JSON). The JSON schema in `schema/pipeline.schema.json` matches the Rust types.
 
-### Fields
+### PipelineConfig
 
 | Field | Type | Required | Description |
-|-------|------|----------|-------------|
-| `name` | string | yes | Pipeline name |
-| `stages` | array | yes | Ordered list of stages |
-| `max_iterations` | int | yes | Max pipeline loop iterations |
-| `max_llm_calls` | int | yes | Max total LLM API calls |
-| `max_agent_hops` | int | yes | Max stage transitions |
-| `edge_limits` | array | no | Per-edge traversal limits |
-| `step_limit` | int | no | Global step limit |
-| `state_schema` | array | no | Typed state merge fields |
-| `subscriptions` | array | no | CommBus event types to subscribe to |
-| `publishes` | array | no | CommBus event types this pipeline publishes |
+|---|---|---|---|
+| `name` | string | yes | Pipeline name. Used for event attribution. |
+| `stages` | `[PipelineStage]` | yes | Ordered list of stages. First stage is the entry point. |
+| `max_iterations` | int | yes | Global iteration bound. Terminates with `MaxIterationsExceeded`. |
+| `max_llm_calls` | int | yes | Global LLM-call bound across all stages. |
+| `max_agent_hops` | int | yes | Bound on transitions between stages. |
+| `state_schema` | `[StateField]` | no | Typed state fields with merge strategies for loop-back accumulation. |
 
-### Stage Fields
+### PipelineStage
 
 | Field | Type | Default | Description |
-|-------|------|---------|-------------|
-| `name` | string | — | Stage identifier |
-| `agent` | string | — | Agent to execute |
-| `routing_fn` | string | null | Name of registered routing function |
-| `default_next` | string | null | Fallback target when no routing_fn or it terminates |
-| `error_next` | string | null | Target on agent failure (checked before routing_fn) |
-| `max_visits` | int | null | Per-stage visit limit |
-| `node_kind` | string | `"Agent"` | `Agent`, `Gate`, or `Fork` |
-| `output_key` | string | null | State field key (defaults to stage name) |
-| `join_strategy` | string | `"WaitAll"` | `WaitAll` or `WaitFirst` (for Fork) |
-| `has_llm` | bool | `true` | Whether agent calls LLM |
-| `prompt_key` | string | null | Prompt template key |
-| `temperature` | float | null | LLM temperature |
-| `max_tokens` | int | null | LLM max tokens |
-| `model_role` | string | null | LLM model role override |
-| `allowed_tools` | array | null | Tool whitelist for this stage |
-| `output_schema` | object | null | JSON Schema for output validation |
-| `child_pipeline` | string | null | Run named pipeline as child (composition) |
-| `max_context_tokens` | int | null | Max estimated tokens in LLM context (chars/4 heuristic) |
-| `context_overflow` | string | `"Fail"` | Strategy: `"Fail"` or `"TruncateOldest"` |
+|---|---|---|---|
+| `name` | string | — | Stage identifier (unique within the pipeline). |
+| `agent` | string | — | Agent name to dispatch. |
+| `routing_fn` | string | null | Name of a registered `RoutingFn` called after agent completion. |
+| `default_next` | string | null | Fallback target when `routing_fn` is unset or returns `Terminate`. |
+| `error_next` | string | null | Target when the agent fails (checked before `routing_fn`). |
+| `max_visits` | int | null | Per-stage visit cap. Terminates with `MaxStageVisitsExceeded`. |
+| `response_format` | object | null | Verbatim hint forwarded to the LLM provider for grammar-constrained generation. The kernel does not interpret it — consumers parse agent outputs with `serde::Deserialize` on their own typed structs. |
+| `output_key` | string | null | State-field key for this stage's output (defaults to stage name). |
+| `max_context_tokens` | int | null | Estimated-token cap on LLM context (chars/4 heuristic). |
+| `context_overflow` | enum | `Fail` | `Fail` or `TruncateOldest` when context exceeds the cap. |
+| `timeout_seconds` | int | null | Wall-clock cancellation deadline for agent execution. |
+| `retry_policy` | `RetryPolicy` | null | Retry-with-backoff for transient agent failures. |
+| `has_llm` | bool | `false` | Whether this stage's agent calls an LLM (in `agent_config`). |
+| `prompt_key` | string | null | Prompt template key for LLM agents. |
+| `temperature` | float | null | LLM temperature. |
+| `max_tokens` | int | null | LLM max output tokens. |
+| `model_role` | string | null | Model role override. |
 
-### Example
+### StateField & MergeStrategy
 
-```json
-{
-  "name": "assistant",
-  "stages": [
-    {
-      "name": "understand",
-      "agent": "understand",
-      "has_llm": true,
-      "prompt_key": "understand",
-      "default_next": "respond"
-    },
-    {
-      "name": "respond",
-      "agent": "respond",
-      "has_llm": true,
-      "prompt_key": "respond"
-    }
-  ],
-  "max_iterations": 10,
-  "max_llm_calls": 5,
-  "max_agent_hops": 5,
-  "edge_limits": []
-}
-```
-
-### State Schema (Accumulation)
-
-`state_schema` controls how stage outputs merge into `envelope.state`:
+`state_schema` controls how stage outputs merge into `envelope.state` across pipeline iterations:
 
 | Strategy | Behavior |
-|----------|----------|
-| `Replace` | Overwrite (default) |
-| `Append` | Append to array (creates if missing) |
-| `MergeDict` | Shallow-merge object keys |
+|---|---|
+| `Replace` | Overwrite (default). |
+| `Append` | Append to an array (creates the array if missing). |
+| `MergeDict` | Shallow-merge object keys. |
 
 ```json
 "state_schema": [
@@ -171,139 +62,245 @@ Pipeline configuration is a JSON document or Rust `PipelineConfig` struct.
 ]
 ```
 
-Use `Append` for multi-hop RAG (accumulate docs across loops). Use `MergeDict` for parallel Fork outputs.
-
 ---
 
-## Routing Functions
+## Routing
 
-Routing is code. Consumers register named `RoutingFn` closures on the Kernel before spawning. Pipeline stages reference them by name via `routing_fn`. Static wiring (`default_next`, `error_next`) remains declarative.
+Routing is code, not data. Consumers register named closures on the `Kernel` before spawning; stages reference them by name via `routing_fn`. Static wiring (`default_next`, `error_next`) is declarative on the stage.
 
 ### RoutingContext
 
-Routing functions receive a `RoutingContext` with read-only access to:
+Read-only view of pipeline state passed to a routing function:
+
 - `current_stage`, `agent_name`, `agent_failed`
-- `outputs` — all agent outputs (`agent_name -> {key -> value}`)
+- `outputs` — `agent_name → { key → value }`
 - `metadata` — envelope metadata
+- `state` — accumulated state across iterations
 - `interrupt_response` — resolved interrupt response, if any
-- `state` — accumulated state across loop iterations
 
 ### RoutingResult
 
 | Variant | Description |
-|---------|-------------|
-| `Next(String)` | Route to a single target stage |
-| `Fan(Vec<String>)` | Fan out to multiple stages in parallel (Fork) |
-| `Terminate` | End the pipeline |
+|---|---|
+| `Next(String)` | Route to the named target stage. |
+| `Terminate` | End the pipeline (`COMPLETED`). |
 
-### Evaluation Order
+### Evaluation order
 
-1. Agent failed AND `error_next` set → route to error_next
-2. `routing_fn` registered → call it
-3. No routing_fn + `default_next` set → route to default_next
-4. No routing_fn + no default_next → terminate COMPLETED
+1. Agent failed AND `error_next` set → `error_next`.
+2. `routing_fn` registered → call it.
+3. `default_next` → route there.
+4. None of the above → terminate `COMPLETED`.
 
 ---
 
 ## TerminalReason
 
-`Completed`, `BreakRequested`, `MaxIterationsExceeded`, `MaxLlmCallsExceeded`, `MaxAgentHopsExceeded`, `UserCancelled`, `ToolFailedFatally`, `LlmFailedFatally`, `PolicyViolation`, `MaxStageVisitsExceeded`, `EdgeLimitExceeded`
+`Completed`, `BreakRequested`, `MaxIterationsExceeded`, `MaxLlmCallsExceeded`, `MaxAgentHopsExceeded`, `UserCancelled`, `ToolFailedFatally`, `LlmFailedFatally`, `PolicyViolation`, `MaxStageVisitsExceeded`.
+
+---
+
+## Per-stage stream modes
+
+Each pipeline stage picks one of two LLM stream modes via the presence of `response_format`:
+
+| `response_format` | LLM behavior | `Delta` tokens carry | Output lands at |
+|---|---|---|---|
+| `None` | Free-form generation | **prose tokens** | `outputs[stage]["response"]` (raw text — see `build_output_value` in `src/worker/agent.rs`) |
+| `Some(schema)` | Grammar-constrained JSON | **JSON tokens** | `outputs[stage][field]` per the schema (parsed into the output map automatically) |
+
+Both modes coexist within a single pipeline — pick per stage based on what consumes the output. Prose mode is the right choice when the stage's output is shown to the user directly. JSON mode is the right choice when the next stage or post-pipeline mutation code reads structured fields.
+
+**Display policy belongs to the consumer.** The kernel emits `Delta` events for every stage that runs an LLM, regardless of mode. The consumer decides per stage whether to hide the deltas, render a status label while the stage runs, or stream the deltas into a UI text field. There is no kernel concept of "user-visible stage" — that's a UX decision that lives in the consumer.
+
+## Streaming Events
+
+`run_pipeline_streaming` returns `(JoinHandle<Result<WorkerResult>>, mpsc::Receiver<PipelineEvent>)`. Consumers drain the receiver for real-time events.
+
+`PipelineEvent` is `#[non_exhaustive]` with these variants (current set):
+
+| Variant | Payload | When |
+|---|---|---|
+| `StageStarted` | `stage`, `pipeline` | Right before an agent starts executing a stage. |
+| `Delta` | `content`, `stage?`, `pipeline` | Incremental LLM token chunk. `stage = None` for ad-hoc calls. |
+| `ToolCallStart` | `id`, `name`, `stage?`, `pipeline` | LLM emitted a tool call; before execution. |
+| `ToolResult` | `id`, `content`, `stage?`, `pipeline` | Tool produced a result. Matches a prior `ToolCallStart` by `id`. |
+| `StageCompleted` | `stage`, `pipeline`, `metrics?` | Stage finished (success or recovered failure). |
+| `RoutingDecision` | `from_stage`, `to_stage?`, `reason`, `pipeline` | Kernel selected the next stage (or terminated, `to_stage = None`). |
+| `InterruptPending` | `process_id`, `interrupt_id`, `kind`, `question?`, `message?`, `pipeline` | A tool-confirmation gate is open. |
+| `Error` | `message`, `stage?`, `pipeline` | Error emitted out-of-band; pipeline may continue if `error_next` is set. |
+| `Done` | `process_id`, `terminated`, `terminal_reason?`, `outputs?`, `pipeline`, `aggregate_metrics?` | Pipeline reached a terminal state. Always last. |
+
+### Ordering guarantees
+
+- `StageStarted("X")` precedes any `Delta { stage: Some("X"), .. }`, `ToolCallStart { stage: Some("X"), .. }`, or `StageCompleted("X")`.
+- Every `ToolResult { id, .. }` follows the `ToolCallStart` with the same `id`.
+- `Done` is terminal — no further events follow it on the channel.
+- `RoutingDecision` is emitted after `StageCompleted` and before the next `StageStarted` (or before `Done`).
 
 ---
 
 ## Rust Crate API
 
-### Key Types
+### Key types
 
-| Type | Module | Description |
-|------|--------|-------------|
-| `Kernel` | `kernel` | Process manager + orchestrator |
-| `KernelHandle` | `worker::handle` | Typed channel to kernel actor (Clone, Send+Sync) |
-| `PipelineConfig` | `kernel::orchestrator_types` | Pipeline definition |
-| `PipelineStage` | `kernel::orchestrator_types` | Stage definition |
-| `Envelope` | `envelope` | Request state container |
-| `Instruction` | `kernel::orchestrator_types` | Kernel→Worker command |
-| `Agent` | `worker::agent` | Agent trait |
-| `AgentContext` | `worker::agent` | Execution context passed to agents |
-| `PipelineEvent` | `worker::llm` | Streaming event variants |
-| `CommBus` | `commbus` | Message bus |
-| `AgentCard` | `kernel::agent_card` | Federation discovery |
-| `ToolRegistryBuilder` | `worker::tools` | Composable tool registry builder |
-| `AgentFactoryBuilder` | `worker::agent_factory` | Agent auto-creation from pipeline config |
-| `AclToolExecutor` | `worker::tools` | Composable ACL wrapper for ToolExecutor |
-| `CheckpointSnapshot` | `kernel::checkpoint` | Serializable pipeline state snapshot |
+| Type | Module | Purpose |
+|---|---|---|
+| `Kernel` | `kernel` | Process manager + orchestrator. |
+| `KernelHandle` | `worker::handle` | Typed mpsc channel to the kernel actor (`Clone + Send + Sync`). |
+| `PipelineConfig` | `kernel::orchestrator_types` | Pipeline definition. |
+| `PipelineStage` | `kernel::orchestrator_types` | Stage definition. |
+| `Envelope` | `envelope` | Request state container (raw_input, outputs, state, metadata). |
+| `Instruction` | `kernel::orchestrator_types` | Kernel→worker command. |
+| `Agent` | `worker::agent` | Agent trait. |
+| `AgentContext` | `worker::agent` | Execution context passed to agents (`outputs`, `state`, `metadata`, `stage_name`, `event_tx`, ...). |
+| `LlmAgent` | `worker::agent` | LLM agent with ReAct tool loop + hooks. |
+| `ToolDelegatingAgent` | `worker::agent` | Single-tool dispatcher. |
+| `DeterministicAgent` | `worker::agent` | Passthrough / no-op agent. |
+| `AgentRegistry` | `worker::agent` | `name → Arc<dyn Agent>` map. |
+| `AgentFactoryBuilder` | `worker::agent_factory` | Auto-creates agents from a `PipelineConfig`. |
+| `PipelineEvent` | `worker::llm` | Streaming event variants (see above). |
+| `LlmProvider` | `worker::llm` | Trait for LLM HTTP backends. Default impl: `GenaiProvider`. |
+| `PromptRegistry` | `worker::prompts` | Prompt template loader (`{var}` substitution). |
+| `ToolExecutor` | `worker::tools` | Tool implementation trait. |
+| `ToolRegistry` | `worker::tools` | Composed tool registry with optional ACL / catalog / health gates. |
+| `ToolRegistryBuilder` | `worker::tools` | Composable builder for `ToolRegistry`. |
+| `AclToolExecutor` | `worker::tools` | Wraps a `ToolExecutor` with an explicit allow-list (per-stage filter). |
+| `ToolAccessPolicy` | `tools::access` | Agent×tool ACL consulted by `ToolRegistry::execute_for`. |
+| `ToolCatalog` | `tools::catalog` | Typed `ParamDef` metadata + parameter validation. |
+| `ToolHealthTracker` | `tools::health` | Sliding-window metrics + circuit breaker per tool. |
+| `LlmAgentHook` | `worker::hooks` | Pluggable lifecycle hook around the ReAct loop. |
+| `FlowInterrupt` | `envelope` | Tool-confirmation gate request. |
+| `InterruptService` | `kernel::interrupts` | Pending-interrupt bookkeeping inside the kernel. |
 
-### Agent Auto-Creation
+### Agent auto-creation (AgentFactoryBuilder)
 
-When using `PipelineRunner.from_json()`, agents are auto-created from stage config:
+Given a `PipelineConfig`, agents are created per stage:
 
-| Condition | Agent Type |
-|-----------|-----------|
-| `node_kind: Gate` | `DeterministicAgent` |
-| `child_pipeline` set | `PipelineAgent` |
+| Stage condition | Agent type |
+|---|---|
 | `has_llm: true` | `LlmAgent` |
-| `has_llm: false` + matching tool | `ToolDelegatingAgent` |
-| `has_llm: false` + no tool | `DeterministicAgent` |
+| `has_llm: false` AND a tool with the same name exists | `ToolDelegatingAgent` |
+| `has_llm: false` AND no matching tool | `DeterministicAgent` (passthrough) |
 
 ---
 
-## Consumer Patterns
+## ToolRegistry — policy / catalog / health gates
 
-### Rust
+`ToolRegistry::execute_for(agent_name, tool_name, params)` traverses an optional chain in this order:
+
+1. **`ToolAccessPolicy`** (if attached) — denies tools the agent has not been granted; returns `Error::policy_violation`. Default-deny: when a policy is attached, an agent with no matching grant cannot call any tool.
+2. **`ToolCatalog`** (if attached AND the tool is in the catalog) — validates `params` against the tool's `ParamDef`s; returns `Error::validation`.
+3. **`ToolHealthTracker`** (if attached) — short-circuits with `Error::policy_violation` when the breaker is open.
+4. Executes the tool, recording `(success, latency_ms, error_code)` into the health tracker.
+
+The same `ToolAccessPolicy` is also consulted by `AgentFactoryBuilder` at agent-construction time — each agent's tool registry is wrapped to expose only the tools its grants permit (so the LLM never sees forbidden tool defs in its prompt). One policy, two enforcement points (prompt-construction filter + runtime gate). Without a policy attached, the strict default applies: agents get zero tools. Consumers opt into tool access by declaring grants.
+
+Attach via builder:
+
+```rust
+let policy = Arc::new(ToolAccessPolicy::new()); // .grant("agent", "tool")
+let catalog = Arc::new(ToolCatalog::new());     // .register(ToolEntry { .. })
+let health = Arc::new(Mutex::new(ToolHealthTracker::new(HealthConfig::default())));
+
+let tools = ToolRegistryBuilder::new()
+    .add_executor(my_tools)
+    .with_access_policy(policy)
+    .with_catalog(catalog)
+    .with_health_tracker(health)
+    .build();
+```
+
+All three are independently optional — passing none preserves the original execute path.
+
+---
+
+## LlmAgent hooks
+
+`LlmAgentHook` (in `worker::hooks`) is a single trait with three default-impl methods. Hooks register on `LlmAgent.hooks` (via `AgentFactoryBuilder::with_hook(...)` or direct mutation) and run in registration order.
+
+| Method | When | Return / effect |
+|---|---|---|
+| `before_llm_call(messages: &mut Vec<ChatMessage>)` | Before each LLM call. | Mutate the message window (compaction, redaction, prompt-injection defense). |
+| `before_tool_call(call: &ToolCall) -> HookDecision` | After the LLM emits a tool call, before execution. | `Continue` (run normally), `Replace(ToolOutput)` (skip executor; deliver canned result), `Block { reason }` (skip executor; deliver error). First non-`Continue` decision wins. |
+| `after_tool_call(call, output: &mut ToolOutput)` | After a tool result is produced (real or via `HookDecision::Replace`). | Mutate the output (redact, decorate). Skipped for `Block`. |
+
+---
+
+## Consumer pattern
 
 ```rust
 use jeeves_core::prelude::*;
+use jeeves_core::worker::llm::genai_provider::GenaiProvider;
+use std::sync::Arc;
 
+let llm: Arc<dyn LlmProvider> = Arc::new(GenaiProvider::new("qwen3-14b"));
+let prompts = Arc::new(PromptRegistry::from_dir("prompts/"));
 let tools = ToolRegistryBuilder::new()
     .add_executor(Arc::new(MyTools::new()))
     .build();
-let agents = AgentFactoryBuilder::new(llm, prompts, tools.clone())
+
+let mut kernel = Kernel::new();
+kernel.register_routing_fn("router", Arc::new(|ctx: &RoutingContext<'_>| {
+    RoutingResult::Next("next_stage".into())
+}));
+
+let cancel = tokio_util::sync::CancellationToken::new();
+let handle = jeeves_core::worker::actor::spawn_kernel(kernel, cancel);
+
+let agents = AgentFactoryBuilder::new(llm, prompts, tools)
     .add_pipeline(config.clone())
     .build();
-let result = run_pipeline_with_envelope(&handle, pid, config, envelope, &agents).await?;
+
+let envelope = Envelope::new_minimal("user1", "session1", "hello", None);
+let result = run_pipeline_with_envelope(
+    &handle, ProcessId::new(), config, envelope, &agents,
+).await?;
 ```
 
-### Python
+For streaming:
 
-```python
-runner = PipelineRunner.from_json("pipeline.json", prompts_dir="prompts/",
-    openai_api_key=os.getenv("OPENAI_API_KEY"))
-runner.register_tool(my_tool)
-
-print(runner.list_tools())           # Introspect tools
-print(runner.describe_pipeline())    # Introspect pipeline
-
-result = runner.run("hello", user_id="user1")
-snapshot = runner.checkpoint(result["process_id"])
-```
-
-### pipeline.json (with new features)
-
-```json
-{
-  "$schema": "../jeeves-core/schema/pipeline.schema.json",
-  "name": "my_pipeline",
-  "max_iterations": 10, "max_llm_calls": 20, "max_agent_hops": 15,
-  "state_schema": [{"key": "docs", "merge": "Append"}],
-  "stages": [{
-    "name": "search", "agent": "search", "has_llm": true,
-    "max_context_tokens": 16000, "context_overflow": "TruncateOldest",
-    "allowed_tools": ["web_search"], "default_next": "answer"
-  }]
+```rust
+let (join, mut rx) = run_pipeline_streaming(
+    handle, ProcessId::new(), config, envelope, agents,
+).await?;
+while let Some(event) = rx.recv().await {
+    match event {
+        PipelineEvent::Delta { content, .. } => print!("{content}"),
+        PipelineEvent::Done { terminal_reason, .. } => break,
+        _ => {}
+    }
 }
+let _ = join.await?;
 ```
 
 ---
 
-## Test References
+## Feature flags
 
-| Test File | What's Tested |
-|-----------|--------------|
-| `src/kernel/mod.rs` | MergeStrategy (Replace, Append, MergeDict) |
-| `src/worker/tools.rs` | ToolRegistryBuilder, AclToolExecutor |
-| `src/kernel/checkpoint.rs` | Checkpoint round-trip serialization |
-| `src/worker/agent.rs` | Context overflow (Fail, TruncateOldest) |
-| `src/kernel/orchestrator.rs` | step_limit, EdgeLimitExceeded, routing |
-| `tests/worker_integration.rs` | Full pipeline integration tests |
+| Feature | Purpose |
+|---|---|
+| `test-harness` | Test utilities for consumer integration tests. |
+| `otel` | OpenTelemetry tracing layer (`opentelemetry`, `tracing-opentelemetry`). |
+
+---
+
+## Test references
+
+| Test location | What it covers |
+|---|---|
+| `src/kernel/mod.rs` | `MergeStrategy` (Replace / Append / MergeDict). |
+| `src/kernel/routing.rs` | RoutingFn registry + evaluation order. |
+| `src/kernel/orchestrator.rs` | Routing, `max_visits`, `error_next`. |
+| `src/kernel/resources.rs` | Quota enforcement. |
+| `src/kernel/interrupts.rs` | Tool-confirmation gate. |
+| `src/worker/tools.rs` | `ToolRegistry`, `AclToolExecutor`, policy/catalog/health gates, confirmation. |
+| `src/worker/agent.rs` | LlmAgent ReAct loop, context overflow, hook invocations. |
+| `src/worker/hooks.rs` | `HookDecision` paths. |
+| `src/worker/prompts.rs` | Template rendering. |
+| `src/tools/access.rs` | `ToolAccessPolicy` grant/revoke. |
+| `src/tools/catalog.rs` | `ParamDef` validation, prompt generation. |
+| `src/tools/health.rs` | Sliding-window metrics, circuit breaker. |
+| `tests/worker_integration.rs` | Full pipeline integration tests (linear, routing, streaming, interrupts). |
 
 Use the `test-harness` feature flag for test utilities in consumer integration tests.

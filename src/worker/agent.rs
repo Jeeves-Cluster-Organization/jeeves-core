@@ -1,7 +1,5 @@
-//! Agent execution — the bridge between kernel instructions and LLM calls.
-//!
-//! LlmAgent implements a ReAct-style tool loop: LLM → tool → LLM → ... → final text.
-//! Streaming is opt-in via AgentContext.event_tx (None = fully buffered).
+//! Agent execution. `LlmAgent` runs a ReAct tool loop; streaming is opt-in via
+//! `AgentContext.event_tx`.
 
 use async_trait::async_trait;
 use std::collections::HashMap;
@@ -18,7 +16,6 @@ use crate::worker::llm::{
 use crate::worker::prompts::PromptRegistry;
 use crate::worker::tools::{ContentPart, ContentResolver, ToolRegistry};
 
-/// Output from agent execution.
 #[must_use]
 #[derive(Debug, Clone)]
 pub struct AgentOutput {
@@ -26,73 +23,54 @@ pub struct AgentOutput {
     pub metrics: AgentExecutionMetrics,
     pub success: bool,
     pub error_message: String,
-    /// If set, the agent is requesting a flow interrupt (e.g., tool confirmation).
-    /// The worker loop sets this on the envelope and suspends the stage.
+    /// Set when the agent wants the worker to suspend on a flow interrupt
+    /// (e.g. tool confirmation). The worker stores it on the envelope.
     pub interrupt_request: Option<crate::envelope::FlowInterrupt>,
 }
 
-/// Context provided to an agent for execution.
-///
-/// Built by the worker loop from the current envelope state and pipeline stage config.
 #[derive(Debug, Clone)]
 pub struct AgentContext {
-    /// Original user input for this pipeline run.
     pub raw_input: String,
-    /// Accumulated outputs from prior stages, keyed by `output_key` then field name.
+    /// Outputs from prior stages: `output_key → field → value`.
     pub outputs: HashMap<String, HashMap<String, serde_json::Value>>,
-    /// Pipeline state fields (persisted across loop-backs via `state_schema`).
+    /// State fields preserved across pipeline loop-backs (`state_schema`).
     pub state: HashMap<String, serde_json::Value>,
-    /// Envelope metadata (user_id, session_id, custom fields).
     pub metadata: HashMap<String, serde_json::Value>,
-    /// Channel for streaming `PipelineEvent`s to the consumer (None = buffered mode).
+    /// `None` = buffered execution; `Some` = stream events back to consumer.
     pub event_tx: Option<mpsc::Sender<PipelineEvent>>,
-    /// Pipeline stage name this agent is executing within (None for ad-hoc execution).
     pub stage_name: Option<String>,
-    /// Pipeline name for event attribution (dotted notation for child pipelines).
     pub pipeline_name: Arc<str>,
-    /// Maximum estimated tokens allowed in LLM context (chars/4 heuristic).
+    /// chars/4 heuristic; checked at the top of every ReAct round.
     pub max_context_tokens: Option<i64>,
-    /// Strategy when context exceeds max_context_tokens.
     pub context_overflow: Option<ContextOverflow>,
-    /// Response from a resolved interrupt (e.g., user confirmed a destructive tool).
-    /// Populated by the worker when resuming from an interrupt.
+    /// Set by the worker on resume after a tool-confirmation interrupt.
     pub interrupt_response: Option<serde_json::Value>,
-    /// JSON Schema for grammar-constrained LLM output. Threaded from
-    /// `PipelineStage::output_schema` through `AgentDispatchContext`.
-    pub output_schema: Option<serde_json::Value>,
+    /// Verbatim LLM-provider hint forwarded as-is; kernel does not parse it.
+    pub response_format: Option<serde_json::Value>,
 }
 
-/// Agent trait — implementations provide custom agent behavior.
 #[async_trait]
 pub trait Agent: Send + Sync + std::fmt::Debug + std::any::Any {
-    /// Execute the agent's logic given the pipeline context.
-    ///
-    /// Returns `AgentOutput` containing the output value, execution metrics,
-    /// and success/failure status. Errors in the Result indicate infrastructure
-    /// failures; agent-level failures use `AgentOutput.success = false`.
+    /// `Err` is infrastructure failure; agent-level failure is `success: false`.
     async fn process(&self, ctx: &AgentContext) -> crate::types::Result<AgentOutput>;
 }
 
-/// Default max tool-call rounds in the ReAct loop.
 pub const DEFAULT_MAX_TOOL_ROUNDS: u32 = 10;
 
-/// Default LLM-backed agent with ReAct tool loop and streaming support.
 #[derive(Debug)]
 pub struct LlmAgent {
     pub llm: Arc<dyn LlmProvider>,
     pub prompts: Arc<PromptRegistry>,
     pub tools: Arc<ToolRegistry>,
+    /// Identity used by `ToolRegistry::execute_for` to consult `ToolAccessPolicy`.
+    pub agent_name: String,
     pub prompt_key: String,
     pub temperature: Option<f64>,
     pub max_tokens: Option<i32>,
     pub model: Option<String>,
     pub max_tool_rounds: u32,
-    /// Optional content resolver for lazy `ContentPart::Ref` resolution.
     pub content_resolver: Option<Arc<dyn ContentResolver>>,
-    /// Lifecycle hooks for the ReAct loop. Each hook may override any
-    /// subset of `before_llm_call` / `before_tool_call` / `after_tool_call`.
-    /// Hooks run in registration order; for `before_tool_call`, the first
-    /// non-`Continue` decision wins.
+    /// Hooks run in registration order; the first non-`Continue` decision wins.
     pub hooks: Vec<crate::worker::hooks::DynHook>,
 }
 
@@ -102,6 +80,7 @@ impl Default for LlmAgent {
             llm: Arc::new(crate::worker::llm::mock::MockLlmProvider::default()),
             prompts: Arc::new(PromptRegistry::empty()),
             tools: Arc::new(ToolRegistry::new()),
+            agent_name: String::new(),
             prompt_key: String::new(),
             temperature: None,
             max_tokens: None,
@@ -119,7 +98,6 @@ impl Agent for LlmAgent {
     async fn process(&self, ctx: &AgentContext) -> crate::types::Result<AgentOutput> {
         let start = Instant::now();
 
-        // Build template vars from context
         let mut vars = HashMap::new();
         vars.insert("raw_input".to_string(), ctx.raw_input.clone());
         for (agent_name, output) in &ctx.outputs {
@@ -134,22 +112,18 @@ impl Agent for LlmAgent {
             vars.insert(key.clone(), value_to_string(value));
         }
 
-        // Render prompt
         let prompt_text = self
             .prompts
             .render(&self.prompt_key, &vars)
             .unwrap_or_else(|| format!("No prompt found for key: {}", self.prompt_key));
 
-        // Build initial messages
         let mut messages = vec![
             ChatMessage::system(prompt_text),
             ChatMessage::user(ctx.raw_input.clone()),
         ];
 
-        // Build tool definitions (already ACL-filtered at ToolRegistry layer)
         let tool_defs = Arc::new(build_tool_defs(&self.tools));
 
-        // Accumulated metrics across all rounds
         let mut total_llm_calls = 0i32;
         let mut total_tool_calls = 0i32;
         let mut total_tokens_in = 0i64;
@@ -157,9 +131,7 @@ impl Agent for LlmAgent {
         let mut last_response = None;
         let mut tool_results: Vec<ToolCallResult> = Vec::new();
 
-        // ReAct tool loop
         for _round in 0..self.max_tool_rounds {
-            // Context window safety check
             if let Some(max_tokens) = ctx.max_context_tokens {
                 let estimated_tokens: i64 = messages.iter()
                     .map(|m| (m.content.len() / 4) as i64)
@@ -170,8 +142,8 @@ impl Agent for LlmAgent {
 
                     match overflow_strategy {
                         ContextOverflow::TruncateOldest => {
-                            // Keep system prompt (index 0) and latest user message (last).
-                            // Drop intermediate messages oldest-first until under limit.
+                            // Preserve system prompt (idx 0) and the trailing user/tool
+                            // message; drop oldest intermediates until under the limit.
                             let mut running_est = estimated_tokens;
                             while messages.len() > 2 && running_est > max_tokens {
                                 let dropped_tokens = (messages[1].content.len() / 4) as i64;
@@ -206,7 +178,6 @@ impl Agent for LlmAgent {
                 }
             }
 
-            // Run before_llm_call hooks before each LLM call.
             for hook in &self.hooks {
                 hook.before_llm_call(&mut messages).await;
             }
@@ -217,10 +188,9 @@ impl Agent for LlmAgent {
                 max_tokens: self.max_tokens,
                 model: self.model.clone(),
                 tools: if tool_defs.is_empty() { None } else { Some(tool_defs.clone()) },
-                response_format: ctx.output_schema.clone(),
+                response_format: ctx.response_format.clone(),
             };
 
-            // Use streaming path — collect_stream forwards deltas to event_tx if present
             let resp = match self.llm.chat_stream(&req).await {
                 Ok(stream) => match collect_stream(stream, ctx.event_tx.as_ref(), ctx.stage_name.as_deref(), ctx.pipeline_name.clone()).await {
                     Ok(resp) => resp,
@@ -234,14 +204,12 @@ impl Agent for LlmAgent {
             total_tokens_out += resp.usage.completion_tokens as i64;
 
             if resp.tool_calls.is_empty() {
-                // No tool calls — this is the final response
                 last_response = Some(resp);
                 break;
             }
 
             tracing::debug!(round = _round, tool_count = resp.tool_calls.len(), "tool_loop_round");
 
-            // Tool calls: push assistant message, execute tools, push results
             let content = resp.content.clone().unwrap_or_default();
             messages.push(ChatMessage::assistant(content, Some(resp.tool_calls.clone())));
 
@@ -249,7 +217,6 @@ impl Agent for LlmAgent {
                 total_tool_calls += 1;
                 tracing::debug!(tool_name = %tc.name, "tool_execute");
 
-                // Tool confirmation gate: check before executing
                 if ctx.interrupt_response.is_none() {
                     if let Some(confirmation) = self.tools.requires_confirmation(&tc.name, &tc.arguments) {
                         let mut interrupt = crate::envelope::FlowInterrupt::new()
@@ -289,7 +256,6 @@ impl Agent for LlmAgent {
                         .await;
                 }
 
-                // Run before_tool_call hooks; first non-Continue decision wins.
                 let mut hook_decision: Option<crate::worker::hooks::HookDecision> = None;
                 for hook in &self.hooks {
                     let d = hook.before_tool_call(tc).await;
@@ -310,11 +276,11 @@ impl Agent for LlmAgent {
                         }))),
                         None,
                     ),
-                    _ => (None, Some(self.tools.execute(&tc.name, params).await)),
+                    _ => (None, Some(self.tools.execute_for(&self.agent_name, &tc.name, params).await)),
                 };
 
                 let (result_text, result_content, tool_success, tool_error) = if let Some(ref mut output) = hook_short_circuit_output {
-                    // after_tool_call still fires on Replace/Block outputs (audit/redact use cases).
+                    // after_tool_call still fires on Replace/Block — audit/redact use cases.
                     for hook in &self.hooks {
                         hook.after_tool_call(tc, output).await;
                     }
@@ -365,7 +331,6 @@ impl Agent for LlmAgent {
                         .await;
                 }
 
-                // Use multimodal content if available, otherwise text fallback
                 match result_content {
                     Some(parts) => {
                         let mut all_parts = vec![ContentPart::Text { text: result_text }];
@@ -394,7 +359,6 @@ impl Agent for LlmAgent {
             tool_results,
         };
 
-        // Build output from last response
         let output = match last_response {
             Some(resp) => build_output_value(&resp.content, &resp.tool_calls),
             None => serde_json::json!({}),
@@ -411,8 +375,8 @@ impl Agent for LlmAgent {
 }
 
 impl LlmAgent {
-    /// Resolve `ContentPart::Ref` entries using the registered content resolver.
-    /// Refs that can't be resolved degrade to text placeholders.
+    /// Resolves `ContentPart::Ref`; unresolved refs degrade to a text placeholder
+    /// so the conversation continues instead of erroring.
     fn resolve_content_parts(&self, parts: &[ContentPart]) -> Vec<ContentPart> {
         parts.iter().map(|part| match part {
             ContentPart::Ref { content_type, ref_id } => {
@@ -424,7 +388,6 @@ impl LlmAgent {
                         };
                     }
                 }
-                // Graceful degradation: unresolved ref becomes text placeholder
                 ContentPart::Text {
                     text: format!("[content ref: {} ({})]", ref_id, content_type),
                 }
@@ -434,13 +397,13 @@ impl LlmAgent {
     }
 }
 
-/// Tool-delegating agent — forwards to a named `ToolExecutor`, returns its output.
+/// Non-LLM stage agent that forwards the call to a named `ToolExecutor`.
 ///
-/// Used for non-LLM stages whose `agent` name matches a registered tool.
-/// The kernel dispatches to this Agent impl, which calls the tool with the
-/// full agent context as params and returns the tool output as agent output.
+/// `agent_name == tool_name` is the usual convention, but the fields are kept
+/// separate so the policy-chain identity is unambiguous.
 #[derive(Debug)]
 pub struct ToolDelegatingAgent {
+    pub agent_name: String,
     pub tool_name: String,
     pub tools: Arc<ToolRegistry>,
 }
@@ -469,7 +432,6 @@ impl Agent for ToolDelegatingAgent {
             "metadata": ctx.metadata,
         });
 
-        // Tool confirmation gate: check before executing
         if ctx.interrupt_response.is_none() {
             if let Some(confirmation) = self.tools.requires_confirmation(&self.tool_name, &params) {
                 let mut interrupt = crate::envelope::FlowInterrupt::new()
@@ -498,7 +460,7 @@ impl Agent for ToolDelegatingAgent {
         }
 
         let start = std::time::Instant::now();
-        let (result, success, error_message) = match self.tools.execute(&self.tool_name, params).await {
+        let (result, success, error_message) = match self.tools.execute_for(&self.agent_name, &self.tool_name, params).await {
             Ok(tool_output) => (tool_output.data, true, String::new()),
             Err(e) => {
                 let err_str = e.to_string();
@@ -549,7 +511,8 @@ impl Agent for ToolDelegatingAgent {
     }
 }
 
-/// Deterministic (no-LLM) agent — passthrough with empty output.
+/// Passthrough agent with empty output; used when a stage has no LLM and no
+/// matching tool.
 #[derive(Debug)]
 pub struct DeterministicAgent;
 
@@ -573,7 +536,6 @@ impl Agent for DeterministicAgent {
     }
 }
 
-/// Registry of named agents for pipeline dispatch.
 #[derive(Debug, Default)]
 pub struct AgentRegistry {
     agents: HashMap<String, Arc<dyn Agent>>,
@@ -592,15 +554,10 @@ impl AgentRegistry {
         self.agents.get(name)
     }
 
-    /// List all registered agent names.
     pub fn list_names(&self) -> Vec<String> {
         self.agents.keys().cloned().collect()
     }
 }
-
-// =============================================================================
-// Helpers
-// =============================================================================
 
 fn value_to_string(v: &serde_json::Value) -> String {
     match v {
@@ -609,10 +566,8 @@ fn value_to_string(v: &serde_json::Value) -> String {
     }
 }
 
-/// Build OpenAI function-calling tool definitions from the registry.
-///
-/// No filtering needed — the ToolRegistry is already ACL-filtered by AclToolExecutor
-/// when `allowed_tools` is set on the pipeline stage.
+/// Builds OpenAI function-calling tool defs. No filtering here — the registry
+/// has already been ACL-wrapped by `AgentFactoryBuilder`.
 fn build_tool_defs(tools: &ToolRegistry) -> Vec<serde_json::Value> {
     tools
         .list_all_tools()
@@ -630,7 +585,6 @@ fn build_tool_defs(tools: &ToolRegistry) -> Vec<serde_json::Value> {
         .collect()
 }
 
-/// Build the output JSON value from LLM response content and tool calls.
 fn build_output_value(content: &Option<String>, tool_calls: &[ToolCall]) -> serde_json::Value {
     let mut output_map = serde_json::Map::new();
 
@@ -690,7 +644,6 @@ mod tests {
     use super::*;
     use crate::worker::llm::mock::MockLlmProvider;
 
-    /// Helper: build an AgentContext with context overflow settings.
     fn ctx_with_overflow(
         raw_input: &str,
         max_tokens: i64,
@@ -707,47 +660,21 @@ mod tests {
             max_context_tokens: Some(max_tokens),
             context_overflow: Some(overflow),
             interrupt_response: None,
-            output_schema: None,
+            response_format: None,
         }
     }
 
-    // =========================================================================
-    // 9a: TruncateOldest context overflow tests
-    // =========================================================================
-
     #[tokio::test]
-    async fn test_truncate_oldest_keeps_system_and_drops_intermediate() {
-        // max_context_tokens=100, so the char budget is 400 chars.
-        // We use a MockLlmProvider that returns a fixed response — this means
-        // the ReAct loop runs once. We construct an agent where:
-        //   - system prompt is ~200 chars (50 tokens)
-        //   - user input is ~200 chars (50 tokens)
-        // Total: ~100 tokens — exactly at the limit, no truncation on first call.
-        //
-        // The MockLlmProvider returns tool calls on the first call, which adds
-        // assistant + tool_result messages. On the second iteration of the loop,
-        // the messages exceed the token limit and truncation kicks in.
-        //
-        // Instead, we test with a higher char count: system + user > 400 chars.
-        // The mock will return text on first call, so the loop runs once.
-        // We verify the agent completes without error (truncation removed
-        // intermediate messages until under limit, but with only 2 messages
-        // — system + user — and still over limit, it stops dropping).
-
-        // Use a very low token limit: 20 tokens = 80 chars budget.
-        // System prompt (from PromptRegistry): "No prompt found for key: test" = 30 chars
-        // User input: 200 chars = 50 tokens
-        // Total estimated: ~57 tokens > 20 limit → truncation triggered.
-        //
-        // With TruncateOldest and only 2 messages (system + user), the while
-        // loop condition `messages.len() > 2` is false, so it stops. The LLM
-        // call proceeds with the over-limit messages (best effort).
-
+    async fn test_truncate_oldest_proceeds_when_only_two_messages_remain() {
+        // With only system + user messages, the truncation loop has nothing to
+        // drop, so it falls through to the LLM call (best-effort) — the agent
+        // should still report success.
         let llm = Arc::new(MockLlmProvider::new(r#"{"response":"ok"}"#));
         let agent = LlmAgent {
             llm,
             prompts: Arc::new(crate::worker::prompts::PromptRegistry::empty()),
             tools: Arc::new(ToolRegistry::new()),
+            agent_name: "test".to_string(),
             prompt_key: "test".to_string(),
             temperature: None,
             max_tokens: None,
@@ -757,27 +684,20 @@ mod tests {
             hooks: Vec::new(),
         };
 
-        let long_input = "x".repeat(200); // 200 chars = ~50 tokens
+        let long_input = "x".repeat(200);
         let ctx = ctx_with_overflow(&long_input, 20, ContextOverflow::TruncateOldest);
         let result = agent.process(&ctx).await.unwrap();
-        // With TruncateOldest, even if over limit after dropping all intermediates,
-        // the agent proceeds (best effort). It should succeed.
-        assert!(result.success, "TruncateOldest should allow agent to proceed");
+        assert!(result.success);
         assert_eq!(result.metrics.llm_calls, 1);
     }
 
     #[tokio::test]
     async fn test_truncate_oldest_drops_intermediate_messages_in_tool_loop() {
-        // This test exercises the truncation logic within the ReAct tool loop.
-        // We use SequentialMockLlmProvider to simulate:
-        //   1. First LLM call returns a tool call
-        //   2. After tool execution, messages accumulate (system + user + assistant + tool_result)
-        //   3. On second iteration, total chars exceed budget → truncation drops intermediate
-        //   4. Second LLM call returns final text
+        // Tool result is large enough that the second ReAct round triggers
+        // truncation; the agent must still complete both LLM calls.
         use crate::worker::llm::mock::SequentialMockLlmProvider;
         use crate::worker::llm::{ChatResponse, TokenUsage, ToolCall};
 
-        // Tool call response: LLM asks to call "echo" tool
         let tool_response = ChatResponse {
             content: Some("thinking".to_string()),
             tool_calls: vec![ToolCall {
@@ -788,7 +708,6 @@ mod tests {
             usage: TokenUsage { prompt_tokens: 10, completion_tokens: 5, total_tokens: 15 },
             model: "mock".to_string(),
         };
-        // Final text response
         let final_response = ChatResponse {
             content: Some(r#"{"response":"done"}"#.to_string()),
             tool_calls: vec![],
@@ -798,13 +717,11 @@ mod tests {
 
         let llm = Arc::new(SequentialMockLlmProvider::new(vec![tool_response, final_response]));
 
-        // Echo tool executor
         #[derive(Debug)]
         struct EchoExecutor;
         #[async_trait::async_trait]
         impl crate::worker::tools::ToolExecutor for EchoExecutor {
             async fn execute(&self, _name: &str, _params: serde_json::Value) -> crate::types::Result<crate::worker::tools::ToolOutput> {
-                // Return a large result to inflate context
                 Ok(crate::worker::tools::ToolOutput::json(serde_json::json!({"result": "a]".repeat(100)})))
             }
             fn list_tools(&self) -> Vec<crate::worker::tools::ToolInfo> {
@@ -823,6 +740,7 @@ mod tests {
             llm,
             prompts: Arc::new(crate::worker::prompts::PromptRegistry::empty()),
             tools: Arc::new(tool_reg),
+            agent_name: "test".to_string(),
             prompt_key: "test".to_string(),
             temperature: None,
             max_tokens: None,
@@ -832,30 +750,22 @@ mod tests {
             hooks: Vec::new(),
         };
 
-        // Set a low token limit: 50 tokens = 200 chars.
-        // After first tool call, messages will be:
-        //   system (~30 chars) + user (10 chars) + assistant (~8 chars) + tool_result (~200 chars)
-        //   = ~248 chars = ~62 tokens > 50
-        // Truncation should kick in on second iteration, dropping index 1 (user message).
         let ctx = ctx_with_overflow("short input", 50, ContextOverflow::TruncateOldest);
         let result = agent.process(&ctx).await.unwrap();
 
-        // The agent should complete successfully (truncation allowed it to proceed)
-        assert!(result.success, "Agent should succeed with TruncateOldest truncation");
-        // Should have made 2 LLM calls (tool call + final)
+        assert!(result.success);
         assert_eq!(result.metrics.llm_calls, 2);
         assert_eq!(result.metrics.tool_calls, 1);
     }
 
     #[tokio::test]
     async fn test_context_overflow_fail_strategy_returns_error() {
-        // With Fail strategy and context exceeding limit, agent should return
-        // an error output without making the LLM call.
         let llm = Arc::new(MockLlmProvider::new("should not be called"));
         let agent = LlmAgent {
             llm,
             prompts: Arc::new(crate::worker::prompts::PromptRegistry::empty()),
             tools: Arc::new(ToolRegistry::new()),
+            agent_name: "test".to_string(),
             prompt_key: "test".to_string(),
             temperature: None,
             max_tokens: None,
@@ -865,27 +775,24 @@ mod tests {
             hooks: Vec::new(),
         };
 
-        let long_input = "y".repeat(500); // 500 chars = ~125 tokens
+        let long_input = "y".repeat(500);
         let ctx = ctx_with_overflow(&long_input, 20, ContextOverflow::Fail);
         let result = agent.process(&ctx).await.unwrap();
 
-        assert!(!result.success, "Fail strategy should report failure");
+        assert!(!result.success);
         assert!(result.error_message.contains("Context overflow"));
-        // Should NOT have made any LLM calls
         assert_eq!(result.metrics.llm_calls, 0);
-        // Output should contain error details
-        let output = &result.output;
-        assert_eq!(output["error"], "context_overflow");
+        assert_eq!(result.output["error"], "context_overflow");
     }
 
     #[tokio::test]
     async fn test_no_context_limit_proceeds_normally() {
-        // When max_context_tokens is None, no truncation or failure occurs.
         let llm = Arc::new(MockLlmProvider::new(r#"{"response":"ok"}"#));
         let agent = LlmAgent {
             llm,
             prompts: Arc::new(crate::worker::prompts::PromptRegistry::empty()),
             tools: Arc::new(ToolRegistry::new()),
+            agent_name: "test".to_string(),
             prompt_key: "test".to_string(),
             temperature: None,
             max_tokens: None,
@@ -906,7 +813,7 @@ mod tests {
             max_context_tokens: None,
             context_overflow: None,
             interrupt_response: None,
-            output_schema: None,
+            response_format: None,
         };
 
         let result = agent.process(&ctx).await.unwrap();

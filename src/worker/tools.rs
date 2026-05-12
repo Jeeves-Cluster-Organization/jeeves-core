@@ -3,10 +3,12 @@
 use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
+use std::time::Instant;
 use tracing::instrument;
 
-/// Metadata about a tool.
+use crate::tools::{ToolAccessPolicy, ToolCatalog, ToolHealthTracker};
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ToolInfo {
     pub name: String,
@@ -14,53 +16,40 @@ pub struct ToolInfo {
     pub parameters: serde_json::Value,
 }
 
-// =============================================================================
-// ToolOutput + ContentPart — separates pipeline data from LLM content
-// =============================================================================
-
-/// Output from a tool execution.
+/// Tool execution output.
 ///
-/// Separates two concerns:
-/// - `data`: structured JSON for pipeline mechanics (state merge, checkpoint, output_schema, routing).
-/// - `content`: rich content parts consumed only by the LLM message builder (multimodal).
-///
-/// When `content` is empty, the agent falls back to `data.to_string()` for the LLM message.
+/// `data` is structured JSON for pipeline mechanics (state merge, routing).
+/// `content` is multimodal parts used only when constructing the next LLM
+/// message; empty `content` falls back to `data.to_string()` as text.
 #[derive(Debug, Clone)]
 pub struct ToolOutput {
-    /// Structured data for pipeline orchestration. Always lightweight JSON.
     pub data: serde_json::Value,
-    /// Rich content for LLM message construction only. Empty = text-only (backward compat).
     pub content: Vec<ContentPart>,
 }
 
 impl ToolOutput {
-    /// Create a text-only tool output (no rich content). Backward-compatible path.
     pub fn json(data: serde_json::Value) -> Self {
         Self { data, content: vec![] }
     }
 
-    /// Create a tool output with both pipeline data and rich content parts.
     pub fn with_content(data: serde_json::Value, content: Vec<ContentPart>) -> Self {
         Self { data, content }
     }
 }
 
-/// A content part for multimodal LLM messages.
-///
-/// Uses MIME `content_type` strings (e.g. `image/jpeg`, `audio/wav`) so the kernel
-/// never needs to understand specific content types — the LLM provider maps them
-/// to the appropriate API format.
+/// Multimodal content part for LLM messages. `content_type` is a MIME string;
+/// providers map it to their native format.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum ContentPart {
-    /// Plain text content.
     Text { text: String },
-    /// Reference to content stored externally, resolved lazily via [`ContentResolver`].
+    /// Resolved lazily by a registered [`ContentResolver`]; unresolvable refs
+    /// degrade to a text placeholder.
     Ref {
         content_type: String,
         ref_id: String,
     },
-    /// Inline binary content (small items only — icons, thumbnails, charts).
+    /// Small inline binary (icons, thumbnails, charts) — base64 on the wire.
     Blob {
         content_type: String,
         #[serde(with = "base64_bytes")]
@@ -68,7 +57,6 @@ pub enum ContentPart {
     },
 }
 
-/// Serde helper for base64 encoding of `Vec<u8>` in Blob variant.
 mod base64_bytes {
     use serde::{Deserialize, Deserializer, Serializer};
     use serde::de::Error;
@@ -85,54 +73,49 @@ mod base64_bytes {
     }
 }
 
-// =============================================================================
-// ContentResolver — consumer-provided lazy content resolution
-// =============================================================================
-
-/// Resolves [`ContentPart::Ref`] to actual bytes at LLM-send time.
-///
-/// Consumers register an implementation to bridge external content stores
-/// (e.g. frame buffers, file caches) into the LLM message pipeline.
-/// If no resolver is registered, Ref parts degrade to text placeholders.
+/// Resolves a [`ContentPart::Ref`] to bytes when the next LLM message is built.
+/// Consumers implement this to bridge external content stores (frame buffers,
+/// file caches) into the message pipeline.
 pub trait ContentResolver: Send + Sync + std::fmt::Debug {
-    /// Resolve a content reference to bytes. Returns `None` if the ref is stale or unknown.
+    /// `None` when the ref is stale or unknown.
     fn resolve(&self, ref_id: &str, content_type: &str) -> Option<Vec<u8>>;
 }
 
-/// Request for user confirmation before executing a tool.
-///
-/// Returned by `ToolExecutor::requires_confirmation()` when a tool operation
-/// is destructive and needs explicit approval (e.g., deletes, destructive bash).
+/// Returned by [`ToolExecutor::requires_confirmation`] to gate destructive
+/// calls behind user approval (suspends the agent via `FlowInterrupt`).
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ConfirmationRequest {
     pub message: String,
     pub action_data: Option<serde_json::Value>,
 }
 
-/// Tool executor trait — implementations provide actual tool functionality.
 #[async_trait]
 pub trait ToolExecutor: Send + Sync + std::fmt::Debug {
-    /// Execute a tool by name with JSON params, returning structured output.
-    ///
-    /// `ToolOutput.data` feeds pipeline mechanics (state, routing, checkpoint).
-    /// `ToolOutput.content` feeds the LLM message builder (multimodal).
     async fn execute(&self, name: &str, params: serde_json::Value) -> crate::types::Result<ToolOutput>;
 
-    /// List available tools.
     fn list_tools(&self) -> Vec<ToolInfo>;
 
-    /// Check if a tool operation requires user confirmation before execution.
-    ///
-    /// Default: no confirmation needed. Override for destructive tools.
+    /// Default: no confirmation. Override for destructive tools.
     fn requires_confirmation(&self, _name: &str, _params: &serde_json::Value) -> Option<ConfirmationRequest> {
         None
     }
 }
 
-/// Registry of tool executors keyed by name.
+/// Tool executors keyed by name, with an optional policy / catalog / health
+/// chain gated around every `execute_for` call:
+///
+/// 1. [`ToolAccessPolicy`] — agent × tool ACL; default-deny when attached.
+/// 2. [`ToolCatalog`] — typed param validation for tools listed in the catalog.
+/// 3. [`ToolHealthTracker`] — circuit-breaker + sliding-window metrics.
+///
+/// Each gate is opt-in. Outcomes (success/failure + latency) are recorded into
+/// the health tracker after execution.
 #[derive(Debug, Default)]
 pub struct ToolRegistry {
     executors: HashMap<String, Arc<dyn ToolExecutor>>,
+    access_policy: Option<Arc<ToolAccessPolicy>>,
+    catalog: Option<Arc<ToolCatalog>>,
+    health: Option<Arc<Mutex<ToolHealthTracker>>>,
 }
 
 impl ToolRegistry {
@@ -140,31 +123,81 @@ impl ToolRegistry {
         Self::default()
     }
 
-    /// Register a tool executor.
     pub fn register(&mut self, name: impl Into<String>, executor: Arc<dyn ToolExecutor>) {
         self.executors.insert(name.into(), executor);
     }
 
-    /// Get a tool executor by name.
     pub fn get(&self, name: &str) -> Option<&Arc<dyn ToolExecutor>> {
         self.executors.get(name)
     }
 
-    /// Execute a tool by name.
-    #[instrument(skip(self, params), fields(tool = %name))]
-    pub async fn execute(
+    /// Runs the full policy → catalog → health → executor → record chain.
+    /// `agent_name` must always be supplied; an attached `ToolAccessPolicy`
+    /// rejects calls from agents without a matching grant.
+    #[instrument(skip(self, params), fields(tool = %name, agent = %agent_name))]
+    pub async fn execute_for(
         &self,
+        agent_name: &str,
         name: &str,
         params: serde_json::Value,
     ) -> crate::types::Result<ToolOutput> {
+        if let Some(policy) = &self.access_policy {
+            if !policy.check_access(agent_name, name) {
+                return Err(crate::types::Error::policy_violation(format!(
+                    "Agent '{}' is not granted tool '{}'",
+                    agent_name, name
+                )));
+            }
+        }
+
+        if let Some(catalog) = &self.catalog {
+            if catalog.has_tool(name) {
+                let errors = catalog.validate_params(name, &params)?;
+                if !errors.is_empty() {
+                    return Err(crate::types::Error::validation(format!(
+                        "Invalid params for tool '{}': {}",
+                        name,
+                        errors.join("; ")
+                    )));
+                }
+            }
+        }
+
+        if let Some(health) = &self.health {
+            let broken = health
+                .lock()
+                .map(|h| h.should_circuit_break(name))
+                .unwrap_or(false);
+            if broken {
+                return Err(crate::types::Error::policy_violation(format!(
+                    "Tool '{}' circuit-broken (too many recent failures)",
+                    name
+                )));
+            }
+        }
+
         let executor = self
             .executors
             .get(name)
             .ok_or_else(|| crate::types::Error::not_found(format!("Tool not found: {}", name)))?;
-        executor.execute(name, params).await
+
+        let start = Instant::now();
+        let result = executor.execute(name, params).await;
+        let latency_ms = start.elapsed().as_millis() as u64;
+
+        if let Some(health) = &self.health {
+            let (success, error_type) = match &result {
+                Ok(_) => (true, None),
+                Err(e) => (false, Some(e.to_error_code().to_string())),
+            };
+            if let Ok(mut h) = health.lock() {
+                h.record_execution(name, success, latency_ms, error_type);
+            }
+        }
+
+        result
     }
 
-    /// List all available tools across all executors.
     pub fn list_all_tools(&self) -> Vec<ToolInfo> {
         self.executors
             .values()
@@ -172,34 +205,39 @@ impl ToolRegistry {
             .collect()
     }
 
-    /// Check if a tool requires user confirmation before execution.
     pub fn requires_confirmation(&self, name: &str, params: &serde_json::Value) -> Option<ConfirmationRequest> {
         self.executors.get(name)?.requires_confirmation(name, params)
     }
+
+    pub fn access_policy(&self) -> Option<&Arc<ToolAccessPolicy>> {
+        self.access_policy.as_ref()
+    }
+
+    pub fn catalog(&self) -> Option<&Arc<ToolCatalog>> {
+        self.catalog.as_ref()
+    }
+
+    pub fn health_tracker(&self) -> Option<&Arc<Mutex<ToolHealthTracker>>> {
+        self.health.as_ref()
+    }
 }
 
-/// Builder for composing tool registries from multiple sources.
-///
-/// Replaces the repeated 6-line registration loop in every consumer:
-/// ```text
-/// let tools = ToolRegistryBuilder::new()
-///     .add_executor(Arc::new(MyTools::new()))
-///     .add_executor(Arc::new(SearchTools::new()))
-///     .add_tool("custom", Arc::new(custom_executor))
-///     .build();
-/// ```
+/// Fluent builder for [`ToolRegistry`] — attach executors and the optional
+/// policy / catalog / health chain in one expression.
 #[derive(Debug, Default)]
 pub struct ToolRegistryBuilder {
     executors: Vec<(String, Arc<dyn ToolExecutor>)>,
+    access_policy: Option<Arc<ToolAccessPolicy>>,
+    catalog: Option<Arc<ToolCatalog>>,
+    health: Option<Arc<Mutex<ToolHealthTracker>>>,
 }
 
 impl ToolRegistryBuilder {
-    /// Create a new empty builder.
     pub fn new() -> Self {
         Self::default()
     }
 
-    /// Register all tools from an executor (each tool name maps to the same Arc).
+    /// Registers every tool listed by `executor` against the same Arc.
     pub fn add_executor(mut self, executor: Arc<dyn ToolExecutor>) -> Self {
         for info in executor.list_tools() {
             self.executors.push((info.name, executor.clone()));
@@ -207,29 +245,44 @@ impl ToolRegistryBuilder {
         self
     }
 
-    /// Register a single tool name to a specific executor.
     pub fn add_tool(mut self, name: impl Into<String>, executor: Arc<dyn ToolExecutor>) -> Self {
         self.executors.push((name.into(), executor));
         self
     }
 
-    /// Build into Arc<ToolRegistry>.
+    pub fn with_access_policy(mut self, policy: Arc<ToolAccessPolicy>) -> Self {
+        self.access_policy = Some(policy);
+        self
+    }
+
+    pub fn with_catalog(mut self, catalog: Arc<ToolCatalog>) -> Self {
+        self.catalog = Some(catalog);
+        self
+    }
+
+    pub fn with_health_tracker(mut self, health: Arc<Mutex<ToolHealthTracker>>) -> Self {
+        self.health = Some(health);
+        self
+    }
+
     pub fn build(self) -> Arc<ToolRegistry> {
         let mut registry = ToolRegistry::new();
         for (name, executor) in self.executors {
             registry.register(name, executor);
         }
+        registry.access_policy = self.access_policy;
+        registry.catalog = self.catalog;
+        registry.health = self.health;
         Arc::new(registry)
     }
 }
 
-/// ACL-enforcing wrapper — filters tool access at the ToolRegistry layer.
+/// Wraps a [`ToolExecutor`] (or whole registry, via [`wrap_registry`]) with an
+/// explicit allow-list. The LLM never sees the disallowed tools because
+/// `list_tools()` is filtered; `execute()` rejects them with
+/// `Error::policy_violation`.
 ///
-/// All agent types (LlmAgent, ToolDelegatingAgent, etc.) get ACL enforcement
-/// automatically when their ToolRegistry is wrapped with this.
-///
-/// - `list_tools()` returns only allowed tools (LLM never sees disallowed ones)
-/// - `execute()` rejects disallowed tools with `Error::policy_violation`
+/// [`wrap_registry`]: AclToolExecutor::wrap_registry
 #[derive(Debug)]
 pub struct AclToolExecutor {
     inner: Arc<dyn ToolExecutor>,
@@ -237,7 +290,6 @@ pub struct AclToolExecutor {
 }
 
 impl AclToolExecutor {
-    /// Create a new ACL executor wrapping `inner` with only the `allowed` tool names.
     pub fn new(inner: Arc<dyn ToolExecutor>, allowed: impl IntoIterator<Item = String>) -> Self {
         Self {
             inner,
@@ -245,13 +297,10 @@ impl AclToolExecutor {
         }
     }
 
-    /// Create a filtered ToolRegistry from an existing one.
-    ///
-    /// Returns a new registry containing only the allowed tools.
-    /// Empty `allowed` = zero tools (pure text generation).
+    /// Empty `allowed` yields a registry with zero tools — pure text generation.
     pub fn wrap_registry(registry: Arc<ToolRegistry>, allowed: &[String]) -> Arc<ToolRegistry> {
         if allowed.is_empty() {
-            return Arc::new(ToolRegistry::new()); // Empty = no tools
+            return Arc::new(ToolRegistry::new());
         }
         let allowed_set: std::collections::HashSet<&str> =
             allowed.iter().map(|s| s.as_str()).collect();
@@ -299,7 +348,6 @@ impl ToolExecutor for AclToolExecutor {
     }
 }
 
-/// No-op tool executor for agents that don't need tools.
 #[derive(Debug)]
 pub struct NoopToolExecutor;
 
@@ -441,53 +489,37 @@ mod tests {
         assert!(wrapped.get("c").is_some());
     }
 
-    // =========================================================================
-    // 9c: AclToolExecutor integration tests
-    // =========================================================================
-
     #[tokio::test]
     async fn acl_wrap_registry_search_read_delete() {
-        // Create a registry with tools: "search", "read", "delete"
         let registry = ToolRegistryBuilder::new()
             .add_executor(mock_executor(&["search", "read", "delete"]))
             .build();
 
-        // Wrap with allowed: ["search", "read"]
         let wrapped = AclToolExecutor::wrap_registry(
             registry,
             &["search".to_string(), "read".to_string()],
         );
 
-        // Verify wrapped.get("search") is Some
-        assert!(wrapped.get("search").is_some(), "search should be accessible");
+        assert!(wrapped.get("search").is_some());
+        assert!(wrapped.get("read").is_some());
+        assert!(wrapped.get("delete").is_none());
 
-        // Verify wrapped.get("read") is Some
-        assert!(wrapped.get("read").is_some(), "read should be accessible");
-
-        // Verify wrapped.get("delete") is None
-        assert!(wrapped.get("delete").is_none(), "delete should be filtered out");
-
-        // Execute "delete" on wrapped → verify returns Err containing "not found"
-        // (wrap_registry removes it from the registry entirely, so it's a "not found" error)
-        let delete_result = wrapped.execute("delete", serde_json::json!({})).await;
-        assert!(delete_result.is_err(), "executing delete should fail");
+        let delete_result = wrapped.execute_for("agent", "delete", serde_json::json!({})).await;
+        assert!(delete_result.is_err());
         let err_msg = delete_result.unwrap_err().to_string();
         assert!(
             err_msg.contains("not found") || err_msg.contains("not in allowed_tools"),
-            "error should indicate tool is not available, got: {}",
-            err_msg
+            "unexpected error: {err_msg}",
         );
 
-        // Execute "search" on wrapped → verify returns Ok
-        let search_result = wrapped.execute("search", serde_json::json!({})).await;
-        assert!(search_result.is_ok(), "executing search should succeed");
+        let search_result = wrapped.execute_for("agent", "search", serde_json::json!({})).await;
+        assert!(search_result.is_ok());
     }
 
     #[tokio::test]
     async fn acl_wrap_registry_list_tools_only_shows_allowed() {
-        // Use separate executors per tool so list_all_tools counts correctly.
-        // (A single executor's list_tools() returns all its tools regardless of
-        // which registry key it's stored under.)
+        // Each tool gets its own executor so `list_all_tools` counts correctly;
+        // a shared executor's `list_tools()` returns every tool it knows about.
         let registry = ToolRegistryBuilder::new()
             .add_tool("alpha", mock_executor(&["alpha"]))
             .add_tool("beta", mock_executor(&["beta"]))
@@ -502,16 +534,15 @@ mod tests {
 
         let tools = wrapped.list_all_tools();
         let tool_names: Vec<&str> = tools.iter().map(|t| t.name.as_str()).collect();
-        assert!(tool_names.contains(&"alpha"), "alpha should be listed");
-        assert!(tool_names.contains(&"gamma"), "gamma should be listed");
-        assert!(!tool_names.contains(&"beta"), "beta should NOT be listed");
-        assert!(!tool_names.contains(&"delta"), "delta should NOT be listed");
+        assert!(tool_names.contains(&"alpha"));
+        assert!(tool_names.contains(&"gamma"));
+        assert!(!tool_names.contains(&"beta"));
+        assert!(!tool_names.contains(&"delta"));
         assert_eq!(tools.len(), 2);
     }
 
     #[test]
-    fn acl_wrap_registry_with_nonexistent_allowed_tool() {
-        // If allowed list references a tool not in the registry, it's silently ignored
+    fn acl_wrap_registry_silently_skips_unknown_allowed_tool() {
         let registry = ToolRegistryBuilder::new()
             .add_executor(mock_executor(&["search"]))
             .build();
@@ -521,15 +552,10 @@ mod tests {
             &["search".to_string(), "nonexistent".to_string()],
         );
 
-        // Only "search" should be present (nonexistent is silently skipped)
         assert_eq!(wrapped.list_all_tools().len(), 1);
         assert!(wrapped.get("search").is_some());
         assert!(wrapped.get("nonexistent").is_none());
     }
-
-    // =========================================================================
-    // Confirmation gate tests
-    // =========================================================================
 
     #[derive(Debug)]
     struct ConfirmableExecutor;
@@ -601,13 +627,8 @@ mod tests {
     fn acl_blocks_confirmation_for_disallowed() {
         let inner: Arc<dyn ToolExecutor> = Arc::new(ConfirmableExecutor);
         let acl = AclToolExecutor::new(inner, vec!["safe_op".to_string()]);
-        // delete_all not in allowed set → confirmation check returns None
         assert!(acl.requires_confirmation("delete_all", &serde_json::json!({})).is_none());
     }
-
-    // =========================================================================
-    // ToolOutput + ContentPart tests
-    // =========================================================================
 
     #[test]
     fn tool_output_json_has_empty_content() {
@@ -634,6 +655,139 @@ mod tests {
             }
             other => panic!("Expected Ref, got {:?}", other),
         }
+    }
+
+    #[derive(Debug)]
+    struct FlakyExecutor {
+        fail: bool,
+    }
+
+    #[async_trait]
+    impl ToolExecutor for FlakyExecutor {
+        async fn execute(&self, name: &str, _params: serde_json::Value) -> crate::types::Result<ToolOutput> {
+            if self.fail {
+                Err(crate::types::Error::internal(format!("{} failed", name)))
+            } else {
+                Ok(ToolOutput::json(serde_json::json!({"tool": name, "ok": true})))
+            }
+        }
+        fn list_tools(&self) -> Vec<ToolInfo> {
+            vec![ToolInfo {
+                name: "do_thing".into(),
+                description: "test tool".into(),
+                parameters: serde_json::json!({"type": "object"}),
+            }]
+        }
+    }
+
+    #[tokio::test]
+    async fn execute_for_denies_when_policy_lacks_grant() {
+        let mut policy = ToolAccessPolicy::new();
+        policy.grant("planner", "do_thing");
+        let registry = ToolRegistryBuilder::new()
+            .add_executor(Arc::new(FlakyExecutor { fail: false }))
+            .with_access_policy(Arc::new(policy))
+            .build();
+
+        let denied = registry
+            .execute_for("reporter", "do_thing", serde_json::json!({}))
+            .await;
+        assert!(denied.is_err());
+        let msg = denied.unwrap_err().to_string();
+        assert!(msg.contains("not granted"), "unexpected error: {msg}");
+
+        let allowed = registry
+            .execute_for("planner", "do_thing", serde_json::json!({}))
+            .await;
+        assert!(allowed.is_ok());
+    }
+
+    #[tokio::test]
+    async fn execute_for_default_denies_when_policy_has_no_grants_for_agent() {
+        let policy = ToolAccessPolicy::new();
+        let registry = ToolRegistryBuilder::new()
+            .add_executor(Arc::new(FlakyExecutor { fail: false }))
+            .with_access_policy(Arc::new(policy))
+            .build();
+
+        let result = registry
+            .execute_for("anyone", "do_thing", serde_json::json!({}))
+            .await;
+        assert!(result.is_err());
+    }
+
+    #[tokio::test]
+    async fn execute_for_passes_when_no_policy_is_set() {
+        let registry = ToolRegistryBuilder::new()
+            .add_executor(Arc::new(FlakyExecutor { fail: false }))
+            .build();
+
+        let result = registry
+            .execute_for("anyone", "do_thing", serde_json::json!({}))
+            .await;
+        assert!(result.is_ok());
+    }
+
+    #[tokio::test]
+    async fn execute_for_validates_params_against_catalog() {
+        use crate::envelope::enums::{RiskSemantic, RiskSeverity, ToolCategory};
+        use crate::tools::catalog::{ParamDef, ParamType, ToolEntry};
+
+        let mut catalog = ToolCatalog::new();
+        catalog.register(ToolEntry {
+            id: "do_thing".into(),
+            description: "test".into(),
+            parameters: vec![ParamDef {
+                name: "query".into(),
+                param_type: ParamType::String,
+                description: "search query".into(),
+                default: None,
+            }],
+            category: ToolCategory::Read,
+            risk_semantic: RiskSemantic::ReadOnly,
+            risk_severity: RiskSeverity::Low,
+        }).unwrap();
+
+        let registry = ToolRegistryBuilder::new()
+            .add_executor(Arc::new(FlakyExecutor { fail: false }))
+            .with_catalog(Arc::new(catalog))
+            .build();
+
+        let bad = registry.execute_for("test_agent", "do_thing", serde_json::json!({})).await;
+        assert!(bad.is_err());
+        let msg = bad.unwrap_err().to_string();
+        assert!(
+            msg.contains("Missing required parameter") || msg.contains("Invalid params"),
+            "unexpected error: {msg}",
+        );
+
+        let good = registry.execute_for("test_agent", "do_thing", serde_json::json!({"query": "rust"})).await;
+        assert!(good.is_ok());
+    }
+
+    #[tokio::test]
+    async fn execute_for_circuit_breaks_after_threshold_failures() {
+        let cfg = crate::tools::health::HealthConfig {
+            circuit_break_error_threshold: 3,
+            window_size: 50,
+            ..Default::default()
+        };
+        let tracker = Arc::new(Mutex::new(ToolHealthTracker::new(cfg)));
+        let registry = ToolRegistryBuilder::new()
+            .add_executor(Arc::new(FlakyExecutor { fail: true }))
+            .with_health_tracker(tracker.clone())
+            .build();
+
+        for _ in 0..3 {
+            let _ = registry.execute_for("test_agent", "do_thing", serde_json::json!({})).await;
+        }
+
+        let blocked = registry.execute_for("test_agent", "do_thing", serde_json::json!({})).await;
+        assert!(blocked.is_err());
+        let msg = blocked.unwrap_err().to_string();
+        assert!(msg.contains("circuit-broken"), "unexpected error: {msg}");
+
+        assert!(tracker.lock().unwrap().should_circuit_break("do_thing"));
     }
 
     #[test]

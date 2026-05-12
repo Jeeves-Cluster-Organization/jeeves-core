@@ -8,10 +8,6 @@ use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, VecDeque};
 use std::time::{Duration, Instant};
 
-// =============================================================================
-// Configuration
-// =============================================================================
-
 /// Health assessment thresholds (configurable, not hardcoded).
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct HealthConfig {
@@ -48,10 +44,6 @@ impl Default for HealthConfig {
     }
 }
 
-// =============================================================================
-// Execution record
-// =============================================================================
-
 /// Single tool execution record (in-memory, sliding window).
 #[derive(Debug, Clone)]
 struct ExecutionRecord {
@@ -60,10 +52,6 @@ struct ExecutionRecord {
     timestamp: Instant,
     error_type: Option<String>,
 }
-
-// =============================================================================
-// Per-tool metrics
-// =============================================================================
 
 /// Sliding window metrics for a single tool.
 #[derive(Debug)]
@@ -147,10 +135,6 @@ impl ToolMetrics {
     }
 }
 
-// =============================================================================
-// Health report
-// =============================================================================
-
 /// Health report for a single tool.
 #[derive(Debug, Clone, Serialize)]
 pub struct ToolHealthReport {
@@ -180,10 +164,6 @@ pub struct HealthSummary {
     pub unhealthy: usize,
     pub unknown: usize,
 }
-
-// =============================================================================
-// Health tracker
-// =============================================================================
 
 /// In-memory tool health tracker with sliding-window metrics.
 #[derive(Debug)]
@@ -414,10 +394,6 @@ fn worse_status(a: HealthStatus, b: HealthStatus) -> HealthStatus {
         b
     }
 }
-
-// =============================================================================
-// Tests
-// =============================================================================
 
 #[cfg(test)]
 mod tests {

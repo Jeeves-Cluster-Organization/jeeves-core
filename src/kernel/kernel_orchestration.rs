@@ -13,11 +13,9 @@ use super::orchestrator_types::ContextOverflow;
 use super::{Kernel, ProcessState, RemainingBudget, ResourceQuota, SystemStatus};
 
 impl Kernel {
-    /// Initialize an orchestration session.
-    ///
-    /// Stores the envelope in `process_envelopes`, then initializes the pipeline
-    /// session in the orchestrator. The orchestrator sets pipeline bounds on the
-    /// envelope but does not own it.
+    /// Stores `envelope` in `process_envelopes` and hands it to the orchestrator
+    /// to seed the session. The orchestrator updates the envelope's pipeline
+    /// bounds in place; ownership stays with `process_envelopes`.
     #[instrument(skip(self, pipeline_config, envelope), fields(process_id = %process_id))]
     pub fn initialize_orchestration(
         &mut self,
@@ -26,13 +24,6 @@ impl Kernel {
         mut envelope: Envelope,
         force: bool,
     ) -> Result<orchestrator::SessionState> {
-        // Wire tool access from pipeline stages (before pipeline_config is moved)
-        for stage in &pipeline_config.stages {
-            if let Some(ref tools) = stage.allowed_tools {
-                self.tools.access.grant_many(&stage.agent, tools);
-            }
-        }
-
         let state = self.orchestrator
             .initialize_session(process_id.clone(), pipeline_config, &mut envelope, force)?;
         self.process_envelopes.insert(process_id, envelope);
@@ -40,24 +31,22 @@ impl Kernel {
         Ok(state)
     }
 
-    /// Get the next instruction for a process.
-    ///
-    /// Extracts the envelope from `process_envelopes`, passes it to the orchestrator
-    /// (which may mutate it for bounds termination), then re-stores it.
+    /// Fetches and enriches the next instruction for `process_id`. The
+    /// orchestrator may mutate the envelope on its way to a `Terminate`
+    /// (bounds, errors); enrichment then layers in agent context, stage
+    /// timeouts, response format, and any routing decision from the previous
+    /// `report_agent_result`.
     #[instrument(skip(self), fields(process_id = %process_id))]
     pub fn get_next_instruction(
         &mut self,
         process_id: &ProcessId,
     ) -> Result<orchestrator::Instruction> {
-        // Phase 1: Get instruction (needs &mut envelope)
         let envelope = self.process_envelopes.get_mut(process_id)
             .ok_or_else(|| Error::not_found(format!("Envelope not found for process: {}", process_id)))?;
         let mut instruction = self.orchestrator.get_next_instruction(process_id, envelope)?;
-        // &mut envelope borrow ends here (we don't use it below)
 
-        // Phase 2: Enrich instruction with context for the worker
         match &mut instruction {
-            orchestrator::Instruction::RunAgent { agent, context }=> {
+            orchestrator::Instruction::RunAgent { agent: _, context }=> {
                 let enrichment = self.build_enrichment_context(process_id);
                 if let Some((agent_context, max_ctx, overflow)) = enrichment {
                     context.agent_context = Some(agent_context);
@@ -65,7 +54,6 @@ impl Kernel {
                     context.context_overflow = overflow;
                 }
 
-                // Extract interrupt response from metadata into typed field (consume it)
                 if let Some(env) = self.process_envelopes.get_mut(process_id) {
                     context.interrupt_response = env.audit.metadata.remove("_interrupt_response");
                 }
@@ -74,21 +62,14 @@ impl Kernel {
                     .map(|e| e.pipeline.current_stage.clone())
                     .unwrap_or_default();
 
-                // Pass per-stage timeout + retry policy from stage config
                 if let Some(sc) = self.orchestrator.get_stage_config(process_id, &stage_name) {
                     context.timeout_seconds = sc.timeout_seconds;
                     context.retry_policy = sc.retry_policy.clone();
                 }
 
-                context.output_schema = self.orchestrator.get_stage_output_schema(process_id, &stage_name);
-
-                let allowed = self.tools.access.tools_for_agent(agent);
-                if !allowed.is_empty() {
-                    context.allowed_tools = Some(allowed);
-                }
+                context.response_format = self.orchestrator.get_stage_response_format(process_id, &stage_name);
             }
             orchestrator::Instruction::Terminate { context, .. } => {
-                // Attach final outputs + aggregate metrics so the worker can return them
                 if let Some(envelope) = self.process_envelopes.get(process_id) {
                     let total_duration_ms = (chrono::Utc::now() - envelope.audit.created_at)
                         .num_milliseconds();
@@ -108,7 +89,6 @@ impl Kernel {
             _ => {}
         }
 
-        // Phase 2b: Thread routing decision from last report_agent_result into this instruction's context
         if let Some(decision) = self.orchestrator.take_last_routing_decision(process_id) {
             match &mut instruction {
                 orchestrator::Instruction::RunAgent { context, .. } |
@@ -122,11 +102,10 @@ impl Kernel {
         Ok(instruction)
     }
 
-    /// Process a complete agent result: merge output, report to orchestrator,
-    /// sync PCB counters, and emit snapshot.
-    ///
-    /// Mutation only — caller fetches the next instruction separately via
-    /// `get_next_instruction()`. This decoupling prevents fork/parallel deadlocks.
+    /// Merges an agent's output into the envelope, reports it to the
+    /// orchestrator, and applies the metrics delta to the PCB. The caller
+    /// pulls the next instruction separately — the split is what keeps
+    /// fork/parallel paths deadlock-free.
     #[allow(clippy::too_many_arguments)]
     #[instrument(skip(self, output, metrics), fields(process_id = %process_id))]
     pub fn process_agent_result(
@@ -140,29 +119,26 @@ impl Kernel {
         error_message: &str,
         break_loop: bool,
     ) -> Result<()> {
-        // Extract scalars before passing metrics by value (avoids clone)
+        // Pull scalars now so we can move `metrics` into the orchestrator below.
         let llm_calls = metrics.llm_calls;
         let tool_calls = metrics.tool_calls;
         let tokens_in = metrics.tokens_in.unwrap_or(0);
         let tokens_out = metrics.tokens_out.unwrap_or(0);
         let duration_ms = metrics.duration_ms;
 
-        // Record per-tool health from agent metrics
         for tool_result in &metrics.tool_results {
             self.tools.health.record_execution(&tool_result.name, tool_result.success, tool_result.latency_ms, tool_result.error_type.clone());
         }
 
-        // Clone state_schema + output_key from orchestrator before mutable envelope borrow
+        // Lift state_schema + output_key out before the &mut envelope borrow.
         let state_schema = self.orchestrator.get_state_schema(process_id).cloned().unwrap_or_default();
         let output_key = self.orchestrator.get_stage_output_key(process_id, agent_name)
             .unwrap_or_else(|| agent_name.to_string());
 
-        // Phase 1: Merge output into envelope + run orchestrator
-        let effective_failed = {
+        {
             let envelope = self.process_envelopes.get_mut(process_id)
                 .ok_or_else(|| Error::not_found(format!("Envelope not found: {}", process_id)))?;
 
-            // Build agent output map
             let mut agent_output = std::collections::HashMap::new();
             if let serde_json::Value::Object(output_map) = output {
                 for (key, value) in output_map {
@@ -184,7 +160,6 @@ impl Kernel {
             }
             envelope.outputs.insert(agent_name.to_string(), agent_output);
 
-            // State merge: write to state[output_key] per state_schema
             let mut state_matched = false;
             for field in &state_schema {
                 if field.key == output_key {
@@ -202,55 +177,15 @@ impl Kernel {
                 tracing::debug!(output_key = %output_key, "output_key has no matching state_schema entry");
             }
 
-            // Merge metadata updates from agent hooks
             if let Some(meta_updates) = metadata_updates {
                 for (key, value) in meta_updates {
                     envelope.audit.metadata.insert(key, value);
                 }
             }
 
-            // Validate output against schema
-            let mut agent_failed_override = false;
-            {
-                let schema = self.orchestrator.get_stage_output_schema(process_id, &envelope.pipeline.current_stage);
-                if let Some(ref schema_val) = schema {
-                    let output_value = serde_json::Value::Object(
-                        envelope.outputs.get(agent_name)
-                            .map(|m| m.iter().map(|(k, v)| (k.clone(), v.clone())).collect())
-                            .unwrap_or_default()
-                    );
-                    if !jsonschema::is_valid(schema_val, &output_value) {
-                        tracing::warn!(agent = %agent_name, "output_schema_validation_failed");
-                        if let Some(agent_out) = envelope.outputs.get_mut(agent_name) {
-                            agent_out.insert("_schema_validation_error".to_string(),
-                                serde_json::Value::String("Output does not match declared output_schema".to_string()));
-                        }
-                        agent_failed_override = true;
-                    }
-                }
-            }
-
-            // Validate tool access
-            if let Some(tool_calls_arr) = envelope.outputs.get(agent_name)
-                .and_then(|out| out.get("tool_calls"))
-                .and_then(|v| v.as_array())
-            {
-                for tc in tool_calls_arr {
-                    if let Some(tool_name) = tc.get("name").or_else(|| tc.get("tool_name")).and_then(|v| v.as_str()) {
-                        if !self.tools.access.check_access(agent_name, tool_name) {
-                            tracing::warn!(agent = %agent_name, tool = %tool_name, "unauthorized_tool_call");
-                            agent_failed_override = true;
-                        }
-                    }
-                }
-            }
-
-            let effective_failed = !success || agent_failed_override;
-
-            // Report to orchestrator (consumes metrics, adds to envelope, evaluates routing)
+            let effective_failed = !success;
             self.orchestrator.report_agent_result(process_id, agent_name, metrics, envelope, effective_failed, break_loop)?;
 
-            // Activate audit trail: record per-stage processing history
             let now = chrono::Utc::now();
             envelope.audit.processing_history.push(crate::envelope::ProcessingRecord {
                 agent: agent_name.to_string(),
@@ -265,18 +200,10 @@ impl Kernel {
                 tokens_in,
                 tokens_out,
             });
+        }
 
-            effective_failed
-        }; // envelope borrow dropped
-
-        let _ = effective_failed; // suppress unused warning
-
-        // Phase 2: Apply SAME metrics delta directly to PCB
-        {
-            let user_id = self.lifecycle.get(process_id).map(|p| p.user_id.as_str().to_string());
-            if let Some(uid) = user_id {
-                self.record_usage(process_id, &uid, llm_calls, tool_calls, tokens_in, tokens_out);
-            }
+        if let Some(uid) = self.lifecycle.get(process_id).map(|p| p.user_id.as_str().to_string()) {
+            self.record_usage(process_id, &uid, llm_calls, tool_calls, tokens_in, tokens_out);
         }
 
         Ok(())
@@ -292,14 +219,9 @@ impl Kernel {
         self.orchestrator.get_session_state(process_id, envelope)
     }
 
-    // =============================================================================
-    // Enrichment (private helpers)
-    // =============================================================================
-
-    /// Build the enrichment context for agent dispatch instructions.
-    ///
-    /// Reads the envelope, builds template_vars, constructs the agent_context JSON,
-    /// reads stage config for max_context_tokens/context_overflow, and returns all three.
+    /// Reads the envelope and stage config, packs them into the JSON shape
+    /// the worker expects, and returns it alongside the per-stage context-window
+    /// bounds.
     fn build_enrichment_context(
         &self,
         process_id: &ProcessId,
@@ -348,10 +270,6 @@ impl Kernel {
 
         Some((agent_context, max_context_tokens, context_overflow))
     }
-
-    // =============================================================================
-    // Process Lifecycle (cross-domain coordination)
-    // =============================================================================
 
     /// Create a new process.
     #[instrument(skip(self), fields(pid = %pid))]
@@ -471,10 +389,6 @@ impl Kernel {
         Ok(())
     }
 
-    // =============================================================================
-    // Cleanup (cross-domain coordination)
-    // =============================================================================
-
     /// Cleanup stale orchestration sessions and their envelopes.
     pub fn cleanup_stale_sessions(&mut self, max_age_seconds: i64) -> usize {
         let removed_pids = self.orchestrator.cleanup_stale_sessions(max_age_seconds);
@@ -490,10 +404,6 @@ impl Kernel {
         let active_user_ids = self.lifecycle.get_active_user_ids();
         self.resources.cleanup_stale_users(&active_user_ids, max_entries)
     }
-
-    // =============================================================================
-    // System Status (cross-domain aggregation)
-    // =============================================================================
 
     /// Get a full system status snapshot.
     pub fn get_system_status(&self) -> SystemStatus {

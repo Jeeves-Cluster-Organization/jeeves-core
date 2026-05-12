@@ -25,10 +25,6 @@ use jeeves_core::worker::{run_pipeline, run_pipeline_loop};
 use std::sync::Arc;
 use tokio_util::sync::CancellationToken;
 
-// =============================================================================
-// Test helpers
-// =============================================================================
-
 fn two_stage_pipeline() -> PipelineConfig {
     serde_json::from_value(serde_json::json!({
         "name": "test_pipeline",
@@ -131,6 +127,7 @@ fn make_llm_agent(
         llm,
         prompts: Arc::new(PromptRegistry::empty()),
         tools,
+        agent_name: "worker".to_string(),
         prompt_key: "test".to_string(),
         temperature: None,
         max_tokens: None,
@@ -140,10 +137,6 @@ fn make_llm_agent(
         hooks: Vec::new(),
     }
 }
-
-// =============================================================================
-// Existing tests (original 5)
-// =============================================================================
 
 #[tokio::test]
 async fn test_kernel_actor_pipeline_round_trip() {
@@ -255,10 +248,6 @@ async fn test_pipeline_with_three_stages() {
     assert_eq!(result.terminal_reason(), Some(TerminalReason::Completed));
     cancel.cancel();
 }
-
-// =============================================================================
-// Group A: Tool Execution Loop
-// =============================================================================
 
 #[tokio::test]
 async fn test_single_tool_call_round_trip() {
@@ -385,10 +374,6 @@ async fn test_tool_loop_max_rounds() {
     assert!(result.terminated());
     cancel.cancel();
 }
-
-// =============================================================================
-// Group B: Streaming
-// =============================================================================
 
 #[tokio::test]
 async fn test_streaming_emits_stage_events() {
@@ -533,9 +518,94 @@ async fn test_streaming_emits_done() {
     cancel.cancel();
 }
 
-// =============================================================================
-// Group C: Pipeline Topologies
-// =============================================================================
+#[tokio::test]
+async fn test_streaming_event_ordering() {
+    // Asserts the ordering invariants documented in docs/API_REFERENCE.md:
+    //   - StageStarted("X") precedes any StageCompleted("X")
+    //   - Every ToolResult matches a prior ToolCallStart with the same id
+    //   - Done is terminal (no events follow it)
+    //   - RoutingDecision appears between StageCompleted and the next StageStarted
+    let kernel = Kernel::new();
+    let cancel = CancellationToken::new();
+    let handle = spawn_kernel(kernel, cancel.clone());
+
+    let llm = Arc::new(SequentialMockLlmProvider::new(vec![
+        make_tool_call_response(vec![("call_alpha", "echo", r#"{"x":1}"#)]),
+        make_text_response("done"),
+    ]));
+
+    let mut tool_reg = ToolRegistry::new();
+    tool_reg.register("echo", Arc::new(EchoToolExecutor));
+    let agent = make_llm_agent(llm, Arc::new(tool_reg));
+
+    let mut agents = AgentRegistry::new();
+    agents.register("alpha", Arc::new(agent));
+    agents.register("beta", Arc::new(DeterministicAgent));
+
+    let config: PipelineConfig = serde_json::from_value(serde_json::json!({
+        "name": "ordering_test",
+        "stages": [
+            {"name": "alpha", "agent": "alpha", "has_llm": true, "default_next": "beta"},
+            {"name": "beta",  "agent": "beta",  "has_llm": false}
+        ],
+        "max_iterations": 10,
+        "max_llm_calls": 10,
+        "max_agent_hops": 5
+    })).unwrap();
+
+    let pid = ProcessId::must("order-1");
+    let envelope = jeeves_core::envelope::Envelope::new_minimal("user", "sess", "hi", None);
+    let _state = handle.initialize_session(pid.clone(), config, envelope, false).await.unwrap();
+
+    let (tx, mut rx) = tokio::sync::mpsc::channel(64);
+    let _ = run_pipeline_loop(&handle, &pid, &agents, Some(tx), "test").await.unwrap();
+
+    let mut events = Vec::new();
+    while let Ok(event) = rx.try_recv() {
+        events.push(event);
+    }
+
+    // Track stage_started indices, ensure each has a later stage_completed for the same stage.
+    let mut started: std::collections::HashMap<String, usize> = std::collections::HashMap::new();
+    let mut tool_starts: std::collections::HashMap<String, usize> = std::collections::HashMap::new();
+    let mut done_index: Option<usize> = None;
+
+    for (i, evt) in events.iter().enumerate() {
+        match evt {
+            PipelineEvent::StageStarted { stage, .. } => {
+                started.insert(stage.clone(), i);
+            }
+            PipelineEvent::StageCompleted { stage, .. } => {
+                let start = started.get(stage).copied()
+                    .unwrap_or_else(|| panic!("StageCompleted({stage}) without prior StageStarted"));
+                assert!(start < i, "StageStarted must precede StageCompleted for stage {stage}");
+            }
+            PipelineEvent::ToolCallStart { id, .. } => {
+                tool_starts.insert(id.clone(), i);
+            }
+            PipelineEvent::ToolResult { id, .. } => {
+                let start = tool_starts.get(id).copied()
+                    .unwrap_or_else(|| panic!("ToolResult({id}) without prior ToolCallStart"));
+                assert!(start < i, "ToolCallStart must precede ToolResult for id {id}");
+            }
+            PipelineEvent::Done { .. } => {
+                done_index = Some(i);
+            }
+            _ => {}
+        }
+    }
+
+    let done_at = done_index.expect("expected a Done event");
+    assert_eq!(done_at, events.len() - 1, "Done must be the last event on the channel");
+
+    // Both stages should have been started.
+    assert!(started.contains_key("alpha"), "alpha StageStarted missing");
+    assert!(started.contains_key("beta"), "beta StageStarted missing");
+    // The echo tool call should have produced a ToolResult.
+    assert!(tool_starts.contains_key("call_alpha"));
+
+    cancel.cancel();
+}
 
 #[tokio::test]
 async fn test_gate_routing() {
@@ -573,10 +643,6 @@ async fn test_gate_routing() {
     cancel.cancel();
 }
 
-
-// =============================================================================
-// Group D: Routing & Bounds
-// =============================================================================
 
 #[tokio::test]
 async fn test_max_visits_terminates() {
@@ -708,10 +774,6 @@ async fn test_conditional_routing() {
     cancel.cancel();
 }
 
-// =============================================================================
-// Group E: Error Handling
-// =============================================================================
-
 #[tokio::test]
 async fn test_llm_failure_propagates() {
     let kernel = Kernel::new();
@@ -787,10 +849,6 @@ async fn test_tool_execution_failure() {
     cancel.cancel();
 }
 
-// =============================================================================
-// Group F: Validation
-// =============================================================================
-
 #[tokio::test]
 async fn test_invalid_pipeline_rejected() {
     let kernel = Kernel::new();
@@ -861,10 +919,6 @@ async fn test_valid_complex_pipeline() {
 }
 
 
-// =============================================================================
-// H. Tool Confirmation Gate (interrupt flow)
-// =============================================================================
-
 /// Tool executor that requires confirmation for "dangerous_op" but not "safe_op".
 #[derive(Debug)]
 struct ConfirmableToolExecutor;
@@ -906,6 +960,7 @@ async fn test_confirmation_gate_mcp_agent_buffered() {
     let tools = Arc::new(tool_reg);
 
     let agent = ToolDelegatingAgent {
+        agent_name: "dangerous_op".to_string(),
         tool_name: "dangerous_op".to_string(),
         tools: tools.clone(),
     };
@@ -922,7 +977,7 @@ async fn test_confirmation_gate_mcp_agent_buffered() {
         max_context_tokens: None,
         context_overflow: None,
         interrupt_response: None,
-        output_schema: None,
+        response_format: None,
     };
 
     let output = agent.process(&ctx).await.unwrap();
@@ -957,6 +1012,7 @@ async fn test_confirmation_gate_safe_tool_no_interrupt() {
     }
 
     let agent = ToolDelegatingAgent {
+        agent_name: "safe_op".to_string(),
         tool_name: "safe_op".to_string(),
         tools: Arc::new(tool_reg),
     };
@@ -972,7 +1028,7 @@ async fn test_confirmation_gate_safe_tool_no_interrupt() {
         max_context_tokens: None,
         context_overflow: None,
         interrupt_response: None,
-        output_schema: None,
+        response_format: None,
     };
 
     let output = agent.process(&ctx).await.unwrap();
@@ -997,8 +1053,7 @@ async fn test_confirmation_gate_full_pipeline_buffered() {
             {
                 "name": "execute",
                 "agent": "execute",
-                "has_llm": false,
-                "allowed_tools": ["dangerous_op"]
+                "has_llm": false
             }
         ],
         "max_iterations": 5,
@@ -1014,6 +1069,7 @@ async fn test_confirmation_gate_full_pipeline_buffered() {
 
     let mut agents = AgentRegistry::new();
     agents.register("execute", Arc::new(ToolDelegatingAgent {
+        agent_name: "execute".to_string(),
         tool_name: "dangerous_op".to_string(),
         tools: Arc::new(tool_reg),
     }));

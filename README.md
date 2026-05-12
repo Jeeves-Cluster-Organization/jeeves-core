@@ -1,38 +1,27 @@
 # Jeeves Core
 
-Rust micro-kernel for AI agent orchestration. Consumed as a Rust library — no Python bindings, no service binary.
+Rust micro-kernel for AI agent orchestration. Consumed as a library; no service binary, no language bindings.
+
+See `CONSTITUTION.md` for the architectural principles and `docs/API_REFERENCE.md` for the consumer-facing API.
 
 ## Quick Start
 
 ```bash
-cargo test                              # 242 lib + 23 integration tests
+cargo test                              # 175 lib + 23 integration tests
 cargo clippy --all-features             # lint
 ```
 
-## Repository Structure
+## Layout
 
 ```
-jeeves-core/
-├── src/
-│   ├── kernel/               # Orchestration engine
-│   │   ├── orchestrator.rs   # Pipeline sessions, routing, bounds
-│   │   ├── orchestrator_types.rs  # PipelineConfig, PipelineStage, Instruction
-│   │   ├── routing.rs        # RoutingFn trait, RoutingRegistry, dispatch
-│   │   ├── lifecycle.rs      # Process state machine
-│   │   ├── resources.rs      # Quota enforcement
-│   │   └── interrupts.rs     # Tool confirmation gate
-│   ├── worker/               # Agent execution
-│   │   ├── actor.rs          # Kernel actor (mpsc channel, typed dispatch)
-│   │   ├── handle.rs         # KernelHandle (typed channel wrapper, Clone)
-│   │   ├── agent.rs          # Agent trait, LlmAgent, DeterministicAgent
-│   │   ├── agent_factory.rs  # AgentFactoryBuilder (agent auto-creation)
-│   │   ├── llm/              # LlmProvider trait, GenaiProvider
-│   │   ├── tools.rs          # ToolExecutor trait + ToolRegistry
-│   │   └── prompts.rs        # Prompt template loading + {var} substitution
-│   ├── envelope/             # Envelope types, bounds, TerminalReason
-│   └── types/                # IDs, errors, config
-├── schema/                   # JSON Schema for pipeline.json
-└── tests/                    # Integration tests
+src/
+├── kernel/      # Orchestration: pipeline sessions, routing, bounds, lifecycle, interrupts
+├── worker/      # Agent execution: kernel actor, KernelHandle, Agent impls, LLM provider, tools
+├── envelope/    # Envelope, bounds, TerminalReason
+├── tools/       # ToolAccessPolicy, ToolCatalog, ToolHealthTracker
+└── types/       # IDs, errors, config
+schema/          # JSON Schema for pipeline.json
+tests/           # Integration tests
 ```
 
 ## Consumer Pattern
@@ -40,6 +29,7 @@ jeeves-core/
 ```rust
 use jeeves_core::prelude::*;
 use jeeves_core::worker::llm::genai_provider::GenaiProvider;
+use std::sync::Arc;
 
 let llm: Arc<dyn LlmProvider> = Arc::new(GenaiProvider::new("qwen3-14b"));
 let prompts = Arc::new(PromptRegistry::from_dir("prompts/"));
@@ -62,33 +52,15 @@ let result = run_pipeline_with_envelope(&handle, ProcessId::new(), config, envel
 
 ## Feature Flags
 
-| Feature | Dependencies | Purpose |
-|---------|-------------|---------|
-| `test-harness` | — | Test utilities for integration tests |
-| `otel` | opentelemetry, tracing-opentelemetry | OpenTelemetry observability bridge |
-
-## Architecture
-
-```
-Rust capability crate
-       │ direct fn call
-       ▼
-┌──────────────────────────────────────────────┐
-│  Kernel actor ← mpsc ← KernelHandle         │
-│  (tokio task)   (typed)  (Clone, Send+Sync)  │
-│       │                    ↑                 │
-│       ▼                    │                 │
-│  Agent tasks (concurrent tokio tasks)        │
-│  ├── LlmAgent (genai HTTP)                   │
-│  ├── ToolDelegatingAgent (tool dispatch)      │
-│  └── DeterministicAgent (passthrough)        │
-└──────────────────────────────────────────────┘
-```
+| Feature | Purpose |
+|---------|---------|
+| `test-harness` | Test utilities for consumer integration tests |
+| `otel` | OpenTelemetry tracing layer |
 
 ## Prerequisites
 
-- Rust 1.75+
+Rust 1.75+.
 
 ## License
 
-Apache License 2.0
+Apache 2.0.

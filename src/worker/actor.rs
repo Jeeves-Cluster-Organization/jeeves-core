@@ -167,10 +167,6 @@ async fn dispatch(kernel: &mut Kernel, cmd: KernelCommand) {
             let _ = resp_tx.send(result);
         }
 
-        // =====================================================================
-        // Tool Health
-        // =====================================================================
-
         KernelCommand::GetToolHealth { tool_name, resp_tx } => {
             let report = match tool_name {
                 Some(ref name) => serde_json::to_value(kernel.tools.health.check_tool_health(name)),
@@ -181,10 +177,6 @@ async fn dispatch(kernel: &mut Kernel, cmd: KernelCommand) {
             });
             let _ = resp_tx.send(result);
         }
-
-        // =====================================================================
-        // Routing
-        // =====================================================================
 
         KernelCommand::RegisterRoutingFn { name, routing_fn, resp_tx } => {
             kernel.register_routing_fn(name, routing_fn);

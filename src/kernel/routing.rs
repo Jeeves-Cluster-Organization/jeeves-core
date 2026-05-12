@@ -1,56 +1,33 @@
-//! Routing function dispatch for pipeline orchestration.
-//!
-//! Routing is code, not data. Consumers register named routing functions
-//! that the kernel calls to determine the next stage after agent execution.
-//! Static wiring (default_next, error_next) remains declarative on PipelineStage.
+//! Routing is code, not data: consumers register named functions on the
+//! kernel; stages reference them by name. Static `default_next` / `error_next`
+//! remain declarative on `PipelineStage`.
 
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::sync::Arc;
 
-// =============================================================================
-// Routing Context & Result
-// =============================================================================
-
-/// Context passed to routing functions — read-only view of pipeline state.
+/// Read-only snapshot passed to a [`RoutingFn`].
 #[derive(Debug)]
 pub struct RoutingContext<'a> {
-    /// Name of the stage that just completed (or is being evaluated for Gate).
     pub current_stage: &'a str,
-    /// Name of the agent that ran (same as stage.agent).
     pub agent_name: &'a str,
-    /// Whether the agent execution failed.
     pub agent_failed: bool,
-    /// All agent outputs: agent_name → { key → value }.
     pub outputs: &'a HashMap<String, HashMap<String, serde_json::Value>>,
-    /// Envelope metadata (session context, user info, etc.).
     pub metadata: &'a HashMap<String, serde_json::Value>,
-    /// Response from a resolved interrupt, if any.
     pub interrupt_response: Option<&'a serde_json::Value>,
-    /// Accumulated state across loop iterations.
     pub state: &'a HashMap<String, serde_json::Value>,
 }
 
-/// Result from a routing function.
 #[derive(Debug, Clone)]
 pub enum RoutingResult {
-    /// Route to a single target stage.
     Next(String),
-    /// End the pipeline.
     Terminate,
 }
 
-// =============================================================================
-// Routing Function Trait & Registry
-// =============================================================================
-
-/// Trait for routing functions. Consumers implement this or use the blanket
-/// impl for closures: `Fn(&RoutingContext) -> RoutingResult`.
 pub trait RoutingFn: Send + Sync {
     fn route(&self, ctx: &RoutingContext<'_>) -> RoutingResult;
 }
 
-/// Blanket impl: any closure with the right signature is a RoutingFn.
 impl<F> RoutingFn for F
 where
     F: Fn(&RoutingContext<'_>) -> RoutingResult + Send + Sync,
@@ -60,7 +37,6 @@ where
     }
 }
 
-/// Thread-safe registry of named routing functions.
 #[derive(Default)]
 pub struct RoutingRegistry {
     fns: HashMap<String, Arc<dyn RoutingFn>>,
@@ -71,17 +47,14 @@ impl RoutingRegistry {
         Self { fns: HashMap::new() }
     }
 
-    /// Register a routing function by name.
     pub fn register(&mut self, name: impl Into<String>, f: Arc<dyn RoutingFn>) {
         self.fns.insert(name.into(), f);
     }
 
-    /// Look up a routing function by name.
     pub fn get(&self, name: &str) -> Option<&Arc<dyn RoutingFn>> {
         self.fns.get(name)
     }
 
-    /// Check if a routing function is registered.
     pub fn contains(&self, name: &str) -> bool {
         self.fns.contains_key(name)
     }
@@ -95,53 +68,34 @@ impl std::fmt::Debug for RoutingRegistry {
     }
 }
 
-// =============================================================================
-// Routing Decision Types (audit trail)
-// =============================================================================
-
-/// Result of routing evaluation with decision rationale for audit trails.
+/// Routing decision with rationale, emitted into the audit trail and
+/// [`PipelineEvent::RoutingDecision`].
+///
+/// [`PipelineEvent::RoutingDecision`]: crate::worker::llm::PipelineEvent::RoutingDecision
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct RoutingDecision {
-    /// Stage that made this routing decision.
     pub from_stage: String,
-    /// Target stage (None = pipeline terminated).
+    /// `None` means the pipeline terminated.
     pub target: Option<String>,
-    /// Why this target was chosen.
     pub reason: RoutingReason,
 }
 
-/// Why a particular routing decision was made.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum RoutingReason {
-    /// Agent failed and error_next was set.
     ErrorRoute,
-    /// A registered routing function decided the target.
     RoutingFn { name: String },
-    /// No routing function; used default_next.
     DefaultRoute,
-    /// No routing function, no default_next — pipeline terminates.
+    /// No routing fn, no `default_next` — pipeline terminates `Completed`.
     NoMatch,
 }
 
-// =============================================================================
-// Evaluation
-// =============================================================================
-
-/// Evaluate routing for a stage using the registry.
-///
-/// Evaluation order:
-/// 1. If agent_failed AND error_next set → route to error_next
-/// 2. If routing_fn registered → call it, use result
-/// 3. If no routing_fn → fall through to default_next
-/// 4. If no default_next → None (caller terminates with COMPLETED)
 pub fn evaluate_routing_with_reason(
     stage: &super::orchestrator_types::PipelineStage,
     registry: &RoutingRegistry,
     ctx: &RoutingContext<'_>,
     from_stage: &str,
 ) -> RoutingDecision {
-    // 1. Error path
     if ctx.agent_failed {
         if let Some(ref error_next) = stage.error_next {
             return RoutingDecision {
@@ -152,7 +106,6 @@ pub fn evaluate_routing_with_reason(
         }
     }
 
-    // 2. Routing function
     if let Some(ref fn_name) = stage.routing_fn {
         if let Some(routing_fn) = registry.get(fn_name) {
             let result = routing_fn.route(ctx);
@@ -180,7 +133,6 @@ pub fn evaluate_routing_with_reason(
         }
     }
 
-    // 3. Default fallback
     if let Some(ref default_next) = stage.default_next {
         tracing::debug!(stage = %from_stage, target = %default_next, "default_route_taken");
         return RoutingDecision {
@@ -190,7 +142,6 @@ pub fn evaluate_routing_with_reason(
         };
     }
 
-    // 4. No match — Temporal pattern: kernel terminates
     tracing::debug!(stage = %from_stage, "no_routing_match");
     RoutingDecision {
         from_stage: from_stage.to_string(),

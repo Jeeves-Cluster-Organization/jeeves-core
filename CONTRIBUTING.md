@@ -1,41 +1,26 @@
-# Contributing to Jeeves Core
-
-## Development Setup
+# Contributing
 
 ```bash
-git clone https://github.com/Jeeves-Cluster-Organization/jeeves-core.git
-cd jeeves-core
-cargo test                      # 302 tests
-cargo clippy --all-features     # lint
+cargo test                      # 175 lib + 23 integration
+cargo clippy --all-features
+cargo fmt
 ```
 
-For PyO3 development:
-```bash
-pip install -e .                # builds via maturin
-```
+All three must be clean before submitting.
 
-## Before Submitting
+## Scope
 
-1. `cargo test` — all tests pass
-2. `cargo clippy --all-features` — no warnings
-3. `cargo fmt` — code formatted
+`jeeves-core` is a micro-kernel. Changes belong here only if they extend orchestration primitives, not domain logic.
 
-## What Belongs Here
-
-Jeeves Core is the **micro-kernel**. Changes should provide orchestration primitives, not domain logic.
-
-| Belongs here | Belongs in capability layer |
-|-------------|---------------------------|
-| Process lifecycle | Domain-specific tools |
-| Pipeline orchestration | Prompt templates |
-| Bounds enforcement | Business logic |
-| CommBus (IPC) | Frontend/UI |
+| Belongs here | Belongs in the consumer |
+|---|---|
+| Pipeline orchestration, routing, bounds | Domain-specific tool implementations |
 | Agent trait + base impls | Custom agent implementations |
+| Tool policy / catalog / health gates | Prompt templates, business logic |
+| Streaming event types | Frontend / UI |
 
-## Commit Messages
-
-Follow conventional commits: `feat:`, `fix:`, `docs:`, `test:`, `refactor:`
+See `CONSTITUTION.md` for the full inclusion/exclusion list.
 
 ## License
 
-Contributions are licensed under Apache License 2.0.
+Apache 2.0.

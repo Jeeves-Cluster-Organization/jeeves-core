@@ -1,8 +1,5 @@
-//! KernelHandle — typed channel wrapper replacing all IPC.
-//!
-//! Every kernel operation is a variant of `KernelCommand` sent over an mpsc
-//! channel. The caller gets a oneshot back with the typed result. No
-//! serialization, no TCP, no codec.
+//! Typed channel to the kernel actor. Each command is a `KernelCommand`
+//! variant; the caller waits on a oneshot reply.
 
 use crate::envelope::Envelope;
 use crate::kernel::orchestrator_types::{
@@ -69,28 +66,19 @@ pub enum KernelCommand {
         response: crate::envelope::InterruptResponse,
         resp_tx: oneshot::Sender<Result<()>>,
     },
-    /// Set an interrupt on a process without lifecycle transition (tool confirmation gate).
+    /// Set an interrupt without a lifecycle transition (tool-confirmation gate).
     SetProcessInterrupt {
         process_id: ProcessId,
         interrupt: crate::envelope::FlowInterrupt,
         resp_tx: oneshot::Sender<Result<()>>,
     },
 
-    // =========================================================================
-    // Tool Health
-    // =========================================================================
-
-    /// Query tool health metrics (single tool or full system report).
+    /// Single-tool or full-system health snapshot.
     GetToolHealth {
         tool_name: Option<String>,
         resp_tx: oneshot::Sender<Result<serde_json::Value>>,
     },
 
-    // =========================================================================
-    // Routing
-    // =========================================================================
-
-    /// Register a named routing function on the kernel's orchestrator.
     RegisterRoutingFn {
         name: String,
         routing_fn: std::sync::Arc<dyn crate::kernel::routing::RoutingFn>,
@@ -105,7 +93,6 @@ impl std::fmt::Debug for KernelCommand {
                 f.debug_struct("RegisterRoutingFn").field("name", name).finish()
             }
             other => {
-                // All other variants' fields implement Debug; use variant name only.
                 write!(f, "KernelCommand::{}", match other {
                     Self::InitializeSession { .. } => "InitializeSession",
                     Self::GetNextInstruction { .. } => "GetNextInstruction",
@@ -279,14 +266,8 @@ impl KernelHandle {
         })
     }
 
-    // =========================================================================
-    // Tool Health
-    // =========================================================================
-
-    /// Query tool health metrics.
-    ///
-    /// Returns a single tool's health report if `tool_name` is Some,
-    /// or the full system health report (all tools) if None.
+    /// `Some(name)` returns that tool's health report; `None` returns the
+    /// full-system report.
     pub async fn get_tool_health(&self, tool_name: Option<&str>) -> Result<serde_json::Value> {
         kernel_request!(self, GetToolHealth {
             tool_name: tool_name.map(|s| s.to_string()),

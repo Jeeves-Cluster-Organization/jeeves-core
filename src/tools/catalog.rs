@@ -8,10 +8,6 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::collections::HashMap;
 
-// =============================================================================
-// Parameter types
-// =============================================================================
-
 /// Parameter type for tool inputs.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -123,10 +119,6 @@ fn value_type_name(v: &Value) -> &'static str {
     }
 }
 
-// =============================================================================
-// Parameter definition
-// =============================================================================
-
 /// A single parameter definition for a tool.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ParamDef {
@@ -142,10 +134,6 @@ impl ParamDef {
         self.default.is_none() && !matches!(self.param_type, ParamType::Optional(_))
     }
 }
-
-// =============================================================================
-// Tool entry
-// =============================================================================
 
 /// Complete tool metadata entry.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -175,10 +163,6 @@ impl ToolEntry {
         format!("- {}({}): {}", self.id, params.join(", "), self.description)
     }
 }
-
-// =============================================================================
-// Tool catalog
-// =============================================================================
 
 /// In-memory tool catalog. Owns metadata, not implementations.
 #[derive(Debug, Default)]
@@ -327,10 +311,6 @@ impl ToolCatalog {
         self.entries.is_empty()
     }
 }
-
-// =============================================================================
-// Tests
-// =============================================================================
 
 #[cfg(test)]
 mod tests {

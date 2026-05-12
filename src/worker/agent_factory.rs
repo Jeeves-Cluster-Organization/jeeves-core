@@ -103,13 +103,13 @@ fn merge_agents(
             continue; // Skip empty or already-registered (first wins)
         }
 
-        // Per-stage ACL: wrap ToolRegistry if allowed_tools is set
-        // Some([]) means zero tools allowed (pure text generation)
-        // None means use all tools (no ACL)
-        let stage_tools = match &stage.allowed_tools {
-            Some(allowed) => AclToolExecutor::wrap_registry(ctx.tools.clone(), allowed),
-            None => ctx.tools.clone(),
-        };
+        // Default-deny: with no policy attached, agents get zero tools.
+        let allowed = ctx
+            .tools
+            .access_policy()
+            .map(|p| p.tools_for_agent(agent_name))
+            .unwrap_or_default();
+        let stage_tools = AclToolExecutor::wrap_registry(ctx.tools.clone(), &allowed);
 
         let agent: Arc<dyn Agent> = if stage.agent_config.has_llm {
             let prompt_key = stage
@@ -121,6 +121,7 @@ fn merge_agents(
                 llm: ctx.llm.clone(),
                 prompts: ctx.prompts.clone(),
                 tools: stage_tools,
+                agent_name: agent_name.clone(),
                 prompt_key,
                 temperature: stage.agent_config.temperature,
                 max_tokens: stage.agent_config.max_tokens,
@@ -131,6 +132,7 @@ fn merge_agents(
             })
         } else if ctx.tools.get(agent_name).is_some() {
             Arc::new(ToolDelegatingAgent {
+                agent_name: agent_name.clone(),
                 tool_name: agent_name.clone(),
                 tools: stage_tools,
             })
@@ -261,24 +263,41 @@ mod tests {
     }
 
     #[test]
-    fn allowed_tools_filters_registry() {
+    fn policy_filters_registry_per_agent() {
+        let mut policy = crate::tools::ToolAccessPolicy::new();
+        policy.grant("filtered", "nonexistent_tool");
+        let tools = ToolRegistryBuilder::new()
+            .add_executor(Arc::new(DummyToolExecutor))
+            .with_access_policy(Arc::new(policy))
+            .build();
+        let llm = Arc::new(MockLlmProvider::default());
+        let prompts = Arc::new(PromptRegistry::empty());
+
+        let agents = AgentFactoryBuilder::new(llm, prompts, tools)
+            .add_pipeline(test_config("p", vec![test_stage("filtered", true)]))
+            .build();
+
+        let agent = agents.get("filtered").expect("filtered should exist");
+        let llm_agent = (agent.as_ref() as &dyn Any).downcast_ref::<LlmAgent>()
+            .expect("should be LlmAgent");
+        assert!(llm_agent.tools.get("my_tool").is_none());
+    }
+
+    #[test]
+    fn no_policy_yields_empty_tool_registry() {
         let tools = ToolRegistryBuilder::new()
             .add_executor(Arc::new(DummyToolExecutor))
             .build();
         let llm = Arc::new(MockLlmProvider::default());
         let prompts = Arc::new(PromptRegistry::empty());
 
-        let mut stage = test_stage("filtered", true);
-        stage.allowed_tools = Some(vec!["nonexistent_tool".to_string()]);
-
         let agents = AgentFactoryBuilder::new(llm, prompts, tools)
-            .add_pipeline(test_config("p", vec![stage]))
+            .add_pipeline(test_config("p", vec![test_stage("ungated", true)]))
             .build();
 
-        let agent = agents.get("filtered").expect("filtered should exist");
+        let agent = agents.get("ungated").expect("ungated should exist");
         let llm_agent = (agent.as_ref() as &dyn Any).downcast_ref::<LlmAgent>()
             .expect("should be LlmAgent");
-        // The filtered registry should NOT contain "my_tool" since allowed_tools only has "nonexistent_tool"
-        assert!(llm_agent.tools.get("my_tool").is_none(), "my_tool should be filtered out");
+        assert!(llm_agent.tools.get("my_tool").is_none(), "no policy → no tools");
     }
 }

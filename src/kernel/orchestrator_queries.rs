@@ -33,24 +33,14 @@ impl Orchestrator {
         Ok(self.build_session_state(session, envelope))
     }
 
-    /// Get the output_schema for a specific stage in a process's pipeline.
-    /// Returns a cloned Value so the caller can use it without holding a borrow.
-    pub fn get_stage_output_schema(&self, process_id: &ProcessId, stage_name: &str) -> Option<serde_json::Value> {
+    /// Get the response_format for a specific stage. The kernel forwards this
+    /// verbatim to the LLM provider; it does not interpret the value.
+    pub fn get_stage_response_format(&self, process_id: &ProcessId, stage_name: &str) -> Option<serde_json::Value> {
         self.pipelines.get(process_id)
             .and_then(|session| {
                 session.pipeline_config.stages.iter()
                     .find(|s| s.name == stage_name)
-                    .and_then(|s| s.output_schema.clone())
-            })
-    }
-
-    /// Get the allowed_tools for a specific stage in a process's pipeline.
-    pub fn get_stage_allowed_tools(&self, process_id: &ProcessId, stage_name: &str) -> Option<Vec<String>> {
-        self.pipelines.get(process_id)
-            .and_then(|session| {
-                session.pipeline_config.stages.iter()
-                    .find(|s| s.name == stage_name)
-                    .and_then(|s| s.allowed_tools.clone())
+                    .and_then(|s| s.response_format.clone())
             })
     }
 

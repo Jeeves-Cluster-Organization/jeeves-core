@@ -1,6 +1,5 @@
-//! Pipeline orchestration types — config, instructions, metrics, session state.
-//!
-//! These types are shared between the Orchestrator and Worker modules.
+//! Pipeline config, instructions, metrics, session state. Shared between
+//! orchestrator and worker.
 
 use crate::envelope::{FlowInterrupt, TerminalReason};
 use crate::types::{Error, ProcessId, Result};
@@ -8,30 +7,21 @@ use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use std::collections::HashSet;
 
-
-// =============================================================================
-// Graph Primitive Types
-// =============================================================================
-
-/// Merge strategy for state fields.
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, Default, PartialEq, Eq, JsonSchema)]
 pub enum MergeStrategy {
-    /// Overwrite the existing value
     #[default]
     Replace,
-    /// Append to an array (creates array if not present)
+    /// Append to an array; creates the array if absent.
     Append,
-    /// Shallow-merge object keys
+    /// Shallow-merge object keys.
     MergeDict,
 }
 
-/// Strategy when LLM context exceeds max_context_tokens.
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, Default, PartialEq, Eq, JsonSchema)]
 pub enum ContextOverflow {
-    /// Terminate with error (safest default)
     #[default]
     Fail,
-    /// Drop oldest non-system messages until under limit
+    /// Drop oldest non-system messages until under the limit.
     TruncateOldest,
 }
 
@@ -42,53 +32,42 @@ pub struct StateField {
     pub merge: MergeStrategy,
 }
 
-// =============================================================================
-// Instruction Types
-// =============================================================================
-
-/// Context attached by the kernel enrichment layer (post-orchestrator).
-/// Starts as Default (all None), populated in kernel_orchestration.rs get_next_instruction().
+/// Per-dispatch context layered on after the orchestrator runs. Populated by
+/// `kernel_orchestration::get_next_instruction`.
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct AgentDispatchContext {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub agent_context: Option<serde_json::Value>,
+    /// Verbatim LLM-provider hint; kernel never parses it.
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub output_schema: Option<serde_json::Value>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub allowed_tools: Option<Vec<String>>,
+    pub response_format: Option<serde_json::Value>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub max_context_tokens: Option<i64>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub context_overflow: Option<ContextOverflow>,
-    /// Response from a resolved interrupt, if this dispatch is a resume after confirmation.
-    /// Extracted from envelope metadata by `get_next_instruction()` (not leaked to agents via metadata).
+    /// Set when resuming after a confirmation interrupt; consumed from
+    /// `audit.metadata` so it never leaks to subsequent dispatches.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub interrupt_response: Option<serde_json::Value>,
-    /// Per-stage wall-clock timeout (passed from PipelineStage config).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub timeout_seconds: Option<u64>,
-    /// Retry policy for transient failures (passed from PipelineStage config).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub retry_policy: Option<RetryPolicy>,
-    /// Routing decision that led to this instruction (for audit trail events).
+    /// Routing decision that selected this stage; emitted as an audit event.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub last_routing_decision: Option<super::routing::RoutingDecision>,
 }
 
-/// Instruction from kernel to worker — determines what happens next.
-///
-/// Returned by `KernelHandle::get_next_instruction()` after each agent completes.
+/// Kernel → worker command emitted by `KernelHandle::get_next_instruction`.
 #[must_use]
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "SCREAMING_SNAKE_CASE")]
 pub enum Instruction {
-    /// Dispatch a single agent for execution.
     RunAgent {
         agent: String,
         #[serde(flatten)]
         context: AgentDispatchContext,
     },
-    /// Stop the pipeline with the given reason.
     Terminate {
         reason: TerminalReason,
         #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -96,7 +75,7 @@ pub enum Instruction {
         #[serde(flatten)]
         context: AgentDispatchContext,
     },
-    /// Wait for the consumer to resolve a pending tool-confirmation interrupt.
+    /// Suspend until the consumer resolves a pending tool-confirmation gate.
     WaitInterrupt {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         interrupt: Option<FlowInterrupt>,
@@ -146,28 +125,18 @@ pub struct AgentExecutionMetrics {
     pub tool_results: Vec<ToolCallResult>,
 }
 
-// =============================================================================
-// Pipeline Config
-// =============================================================================
-
-/// Pipeline configuration for orchestration.
-///
-/// The kernel dispatches registered routing functions to determine transitions.
-/// All pipeline shape (linear, branching, cycles) is defined by the capability
-/// layer via routing functions and default_next on each stage.
+/// Pipeline shape. Linear/branching/cyclic flows come from per-stage
+/// `routing_fn` + `default_next`; no graph topology in the kernel.
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
 pub struct PipelineConfig {
-    /// Unique pipeline name (used for event attribution and child pipeline references).
+    /// Used in `PipelineEvent.pipeline` for event attribution.
     pub name: String,
-    /// Ordered list of pipeline stages. First stage is the entry point.
+    /// First stage is the entry point.
     pub stages: Vec<PipelineStage>,
-    /// Global iteration bound. Terminates with `MaxIterationsExceeded` when reached.
     pub max_iterations: i32,
-    /// Global LLM call bound across all stages. Terminates with `MaxLlmCallsExceeded`.
     pub max_llm_calls: i32,
-    /// Global agent hop bound (transitions between stages). Terminates with `MaxAgentHopsExceeded`.
     pub max_agent_hops: i32,
-    /// Typed state fields with merge strategies for loop-back accumulation.
+    /// Merge strategies that govern how stage outputs accumulate across loop-backs.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub state_schema: Vec<StateField>,
 }
@@ -178,7 +147,6 @@ impl PipelineConfig {
         self.stages.iter().map(|s| s.name.clone()).collect()
     }
 
-    /// Validate pipeline configuration.
     pub fn validate(&self) -> Result<()> {
         if self.name.is_empty() {
             return Err(Error::validation("Pipeline name is required"));
@@ -187,7 +155,6 @@ impl PipelineConfig {
             return Err(Error::validation("Pipeline must have at least one stage"));
         }
 
-        // Validate bounds are positive (fail fast on pipeline-level config)
         if self.max_iterations <= 0 {
             return Err(Error::validation(format!(
                 "max_iterations must be > 0, got {}", self.max_iterations
@@ -204,7 +171,6 @@ impl PipelineConfig {
             )));
         }
 
-        // Validate stage names: non-empty and unique
         let mut stage_names: HashSet<&str> = HashSet::new();
         let mut output_keys: HashSet<&str> = HashSet::new();
         for stage in &self.stages {
@@ -216,7 +182,6 @@ impl PipelineConfig {
                     "Duplicate stage name '{}'", stage.name
                 )));
             }
-            // Track explicit output_keys for uniqueness
             if let Some(ref ok) = stage.output_key {
                 if !output_keys.insert(ok.as_str()) {
                     return Err(Error::validation(format!(
@@ -233,7 +198,8 @@ impl PipelineConfig {
                 )));
             }
 
-            // Detect unbounded self-loops
+            // Reject `default_next` self-loops without `max_visits` — that's an
+            // infinite loop hiding behind static config.
             if let Some(ref dn) = stage.default_next {
                 if dn == &stage.name && stage.max_visits.is_none() {
                     return Err(Error::validation(format!(
@@ -243,7 +209,6 @@ impl PipelineConfig {
                 }
             }
 
-            // Validate default_next references existing stage
             if let Some(ref dn) = stage.default_next {
                 if !stage_names.contains(dn.as_str()) {
                     return Err(Error::validation(format!(
@@ -253,7 +218,6 @@ impl PipelineConfig {
                 }
             }
 
-            // Validate error_next references existing stage
             if let Some(ref en) = stage.error_next {
                 if !stage_names.contains(en.as_str()) {
                     return Err(Error::validation(format!(
@@ -263,7 +227,6 @@ impl PipelineConfig {
                 }
             }
 
-            // Validate max_visits is positive
             if let Some(mv) = stage.max_visits {
                 if mv <= 0 {
                     return Err(Error::validation(format!(
@@ -272,7 +235,6 @@ impl PipelineConfig {
                     )));
                 }
             }
-            // Validate max_context_tokens is positive
             if let Some(mct) = stage.max_context_tokens {
                 if mct <= 0 {
                     return Err(Error::validation(format!(
@@ -283,7 +245,6 @@ impl PipelineConfig {
             }
         }
 
-        // Validate state_schema: no duplicate keys
         let mut state_keys: HashSet<&str> = HashSet::new();
         for field in &self.state_schema {
             if !state_keys.insert(field.key.as_str()) {
@@ -377,16 +338,14 @@ fn default_initial_backoff_ms() -> u64 { 1000 }
 fn default_max_backoff_ms() -> u64 { 30000 }
 fn default_backoff_multiplier() -> f64 { 2.0 }
 
-/// Pipeline stage with routing, fallbacks, and parallel config.
-///
-/// Routing evaluation order:
-/// 1. If agent failed AND error_next set → route to error_next
-/// 2. If routing_fn registered → call it, use result
-/// 3. If no routing_fn → fall through to default_next
-/// 4. If no default_next → terminate (COMPLETED)
+/// Pipeline stage. Routing per stage evaluates in this order:
+/// 1. agent failed + `error_next` set → `error_next`.
+/// 2. `routing_fn` registered → call it.
+/// 3. `default_next` → that stage.
+/// 4. otherwise → terminate `Completed`.
 #[derive(Debug, Clone, Default, Serialize, Deserialize, JsonSchema)]
 pub struct PipelineStage {
-    /// Stage identifier (must be unique within the pipeline).
+    /// Unique within the pipeline.
     pub name: String,
     /// Agent name to dispatch (ignored for Gate nodes).
     pub agent: String,
@@ -403,12 +362,10 @@ pub struct PipelineStage {
     /// Per-stage visit limit. Terminates with `MaxStageVisitsExceeded` when reached.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub max_visits: Option<i32>,
-    /// JSON Schema for validating agent output before writing to state.
+    /// Verbatim hint forwarded to the LLM provider for grammar-constrained
+    /// generation. The kernel does not interpret it.
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub output_schema: Option<serde_json::Value>,
-    /// Tool whitelist — only these tools are available to this stage's agent.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub allowed_tools: Option<Vec<String>>,
+    pub response_format: Option<serde_json::Value>,
     /// State field key for this stage's output (defaults to stage name).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub output_key: Option<String>,

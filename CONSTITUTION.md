@@ -12,18 +12,21 @@ Jeeves Core is the **micro-kernel** for AI agent orchestration. It provides mini
 
 The kernel provides only:
 - **Pipeline Orchestration** — declarative stages, routing functions, default/error transitions, termination decisions
-- **Resource Quotas** — defense-in-depth bounds on iterations, LLM calls, agent hops, per-stage visits
+- **Resource Quotas** — defense-in-depth bounds on iterations, LLM calls, agent hops, per-stage visits, per-stage context tokens
 - **Process Lifecycle** — slim state machine for agent execution
 - **Tool Confirmation** — interrupt-and-resume gate for destructive tool calls
-- **Agent Execution** — `Agent` trait, `LlmAgent` (with ReAct tool loop), `DeterministicAgent`
+- **Agent Execution** — `Agent` trait, `LlmAgent` (with ReAct tool loop + hooks), `ToolDelegatingAgent`, `DeterministicAgent`
+- **Tool Policy Chain** — optional `ToolAccessPolicy` (agent×tool ACL), `ToolCatalog` (typed param validation), `ToolHealthTracker` (sliding-window metrics + circuit breaker), all opt-in via `ToolRegistryBuilder`
+- **Streaming Events** — `mpsc::Receiver<PipelineEvent>` channel for token deltas, stage lifecycle, tool calls, routing decisions
 
 The kernel does NOT provide:
 - Pub/sub, command/query buses, or cross-pipeline federation
 - Pipeline checkpoints, durable resume, background cleanup tickers
 - Per-user rate limiting or service registries
 - MCP transports (stdio/HTTP) — consumers wire `ToolExecutor` directly
-- PyO3 bindings — Rust crate is the only consumption surface
+- Language bindings (PyO3, FFI) — Rust crate is the only consumption surface
 - Domain-specific tools or prompt templates (capability layer)
+- Fan-out / fork-join routing — `RoutingResult` is `Next` or `Terminate`; consumers compose pipelines linearly with conditional routing
 
 ### 2. No Backward Compatibility
 
