@@ -108,7 +108,7 @@ pub struct AgentDefinition {
     pub agent_type: String,
     /// Prompt template key (for LLM agents).
     #[serde(default)]
-    pub prompt_key: Option<String>,
+    pub prompt_key: Option<crate::types::PromptKey>,
     /// LLM temperature override.
     #[serde(default)]
     pub temperature: Option<f64>,

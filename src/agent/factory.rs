@@ -116,13 +116,13 @@ fn merge_agents(
                 .agent_config
                 .prompt_key
                 .clone()
-                .unwrap_or_else(|| agent_name.clone());
+                .unwrap_or_else(|| agent_name.as_str().into());
             Arc::new(LlmAgent {
                 llm: ctx.llm.clone(),
                 prompts: ctx.prompts.clone(),
                 tools: stage_tools,
                 agent_name: agent_name.as_str().into(),
-                prompt_key: prompt_key.as_str().into(),
+                prompt_key,
                 temperature: stage.agent_config.temperature,
                 max_tokens: stage.agent_config.max_tokens,
                 model: stage.agent_config.model_role.clone(),

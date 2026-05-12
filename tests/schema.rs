@@ -95,7 +95,7 @@ fn representative_pipeline_json_deserializes() {
     assert_eq!(config.stages.len(), 2);
     assert!(config.stages[0].agent_config.has_llm);
     assert_eq!(
-        config.stages[0].agent_config.prompt_key.as_deref(),
+        config.stages[0].agent_config.prompt_key.as_ref().map(|k| k.as_str()),
         Some("newspaper.analyze")
     );
     assert!(config.stages[0].response_format.is_some());

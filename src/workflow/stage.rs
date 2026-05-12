@@ -5,6 +5,7 @@ use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
 use super::policy::{ContextOverflow, RetryPolicy};
+use crate::types::PromptKey;
 
 /// Pipeline stage. Routing per stage evaluates in this order:
 /// 1. agent failed + `error_next` set → `error_next`.
@@ -61,7 +62,7 @@ pub struct Stage {
 pub struct AgentConfig {
     /// Prompt template key for this agent. None = deterministic (no LLM call).
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub prompt_key: Option<String>,
+    pub prompt_key: Option<PromptKey>,
     /// Whether this agent makes LLM calls (default: false — explicit opt-in).
     #[serde(default = "default_has_llm")]
     pub has_llm: bool,

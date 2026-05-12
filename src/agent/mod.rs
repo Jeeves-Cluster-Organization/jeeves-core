@@ -544,7 +544,7 @@ impl Agent for DeterministicAgent {
 
 #[derive(Debug, Default)]
 pub struct AgentRegistry {
-    agents: HashMap<String, Arc<dyn Agent>>,
+    agents: HashMap<crate::types::AgentName, Arc<dyn Agent>>,
 }
 
 impl AgentRegistry {
@@ -552,7 +552,7 @@ impl AgentRegistry {
         Self::default()
     }
 
-    pub fn register(&mut self, name: impl Into<String>, agent: Arc<dyn Agent>) {
+    pub fn register(&mut self, name: impl Into<crate::types::AgentName>, agent: Arc<dyn Agent>) {
         self.agents.insert(name.into(), agent);
     }
 
@@ -560,7 +560,7 @@ impl AgentRegistry {
         self.agents.get(name)
     }
 
-    pub fn list_names(&self) -> Vec<String> {
+    pub fn list_names(&self) -> Vec<crate::types::AgentName> {
         self.agents.keys().cloned().collect()
     }
 }
