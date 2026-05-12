@@ -48,8 +48,8 @@ async fn dispatch(kernel: &mut Kernel, cmd: KernelCommand) {
     match cmd {
         KernelCommand::InitializeSession {
             run_id,
-            pipeline_config,
-            envelope,
+            workflow,
+            run,
             force,
             resp_tx,
         } => {
@@ -57,16 +57,16 @@ async fn dispatch(kernel: &mut Kernel, cmd: KernelCommand) {
             if kernel.lifecycle.get(&run_id).is_none() {
                 let _ = kernel.create_process(
                     run_id.clone(),
-                    envelope.identity.request_id.clone(),
-                    envelope.identity.user_id.clone(),
-                    envelope.identity.session_id.clone(),
+                    run.identity.request_id.clone(),
+                    run.identity.user_id.clone(),
+                    run.identity.session_id.clone(),
                     None,
                 );
             }
             let result = kernel.initialize_orchestration(
                 run_id.clone(),
-                *pipeline_config,
-                *envelope,
+                *workflow,
+                *run,
                 force,
             );
             let _ = resp_tx.send(result);

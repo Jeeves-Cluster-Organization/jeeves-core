@@ -101,7 +101,7 @@ mod tests {
 
         assert_eq!(state.run_id.as_str(), "proc1");
         assert_eq!(state.current_stage, "stage1");
-        assert!(state.envelope.is_object());
+        assert!(state.run.is_object());
         assert!(!state.terminated);
     }
 

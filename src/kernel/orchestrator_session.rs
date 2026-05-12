@@ -92,17 +92,16 @@ impl Orchestrator {
     }
 
     /// Build external session state representation.
-    pub(crate) fn build_session_state(&self, session: &Orchestration, envelope: &Run) -> RunSnapshot {
-        let envelope_value = serde_json::to_value(envelope)
-            .unwrap_or_default();
+    pub(crate) fn build_session_state(&self, session: &Orchestration, run: &Run) -> RunSnapshot {
+        let run_value = serde_json::to_value(run).unwrap_or_default();
 
         RunSnapshot {
             run_id: session.run_id.clone(),
-            current_stage: envelope.current_stage.clone(),
-            stage_order: envelope.stage_order.clone(),
-            envelope: envelope_value,
-            terminated: envelope.is_terminated(),
-            terminal_reason: envelope.terminal_reason(),
+            current_stage: run.current_stage.clone(),
+            stage_order: run.stage_order.clone(),
+            run: run_value,
+            terminated: run.is_terminated(),
+            terminal_reason: run.terminal_reason(),
         }
     }
 }

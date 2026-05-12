@@ -9,13 +9,14 @@ use crate::types::{RunId, RequestId, Result, SessionId, UserId};
 use std::collections::HashMap;
 use tokio::sync::{mpsc, oneshot};
 
-/// Command variants sent to the kernel actor.
-pub enum KernelCommand {
-    /// Initialize a pipeline session (auto-creates PCB if needed).
+/// Command variants sent to the kernel actor. `pub(crate)` because consumers
+/// drive the kernel through `KernelHandle` methods, never by naming commands.
+pub(crate) enum KernelCommand {
+    /// Initialize a workflow session (auto-creates PCB if needed).
     InitializeSession {
         run_id: RunId,
-        pipeline_config: Box<Workflow>,
-        envelope: Box<Run>,
+        workflow: Box<Workflow>,
+        run: Box<Run>,
         force: bool,
         resp_tx: oneshot::Sender<Result<RunSnapshot>>,
     },
@@ -132,8 +133,10 @@ macro_rules! kernel_request {
 }
 
 impl KernelHandle {
-    /// Create a new handle from a channel sender.
-    pub fn new(tx: mpsc::Sender<KernelCommand>) -> Self {
+    /// Create a new handle from a channel sender. `pub(crate)` because the
+    /// channel half is internal; consumers obtain a `KernelHandle` via
+    /// [`kernel::actor::spawn`](crate::kernel::actor::spawn).
+    pub(crate) fn new(tx: mpsc::Sender<KernelCommand>) -> Self {
         Self { tx }
     }
 
@@ -158,18 +161,18 @@ impl KernelHandle {
         Ok(())
     }
 
-    /// Initialize a pipeline session.
+    /// Initialize a workflow session.
     pub async fn initialize_session(
         &self,
         run_id: RunId,
-        pipeline_config: Workflow,
-        envelope: Run,
+        workflow: Workflow,
+        run: Run,
         force: bool,
     ) -> Result<RunSnapshot> {
         kernel_request!(self, InitializeSession {
             run_id: run_id,
-            pipeline_config: Box::new(pipeline_config),
-            envelope: Box::new(envelope),
+            workflow: Box::new(workflow),
+            run: Box::new(run),
             force: force,
         })
     }

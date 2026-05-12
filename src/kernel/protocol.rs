@@ -10,6 +10,9 @@ use super::routing::RoutingDecision;
 
 /// Per-dispatch context layered on after the orchestrator runs. Populated by
 /// `kernel::dispatch::get_next_instruction`.
+///
+/// `pub` because it's reachable through `Instruction::{RunAgent, Terminate}`,
+/// but consumers see it flattened on the wire — they don't name this type.
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct AgentDispatchContext {
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -122,7 +125,7 @@ pub struct RunSnapshot {
     /// Ordered list of all stage names in the pipeline.
     pub stage_order: Vec<String>,
     /// Run serialized as JSON (outputs, bounds, audit trail, interrupts).
-    pub envelope: serde_json::Value,
+    pub run: serde_json::Value,
     pub terminated: bool,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub terminal_reason: Option<TerminalReason>,
