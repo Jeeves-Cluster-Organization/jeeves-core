@@ -4,6 +4,8 @@
 use std::collections::HashMap;
 use std::sync::{Arc, RwLock};
 use std::time::Instant;
+
+use crate::types::ToolName;
 use tracing::instrument;
 
 use super::access::ToolAccessPolicy;
@@ -22,7 +24,7 @@ use super::health::ToolHealthTracker;
 /// the health tracker after execution.
 #[derive(Debug, Default)]
 pub struct ToolRegistry {
-    executors: HashMap<String, Arc<dyn ToolExecutor>>,
+    executors: HashMap<ToolName, Arc<dyn ToolExecutor>>,
     access_policy: Option<Arc<ToolAccessPolicy>>,
     catalog: Option<Arc<ToolCatalog>>,
     health: Option<Arc<RwLock<ToolHealthTracker>>>,
@@ -33,7 +35,7 @@ impl ToolRegistry {
         Self::default()
     }
 
-    pub fn register(&mut self, name: impl Into<String>, executor: Arc<dyn ToolExecutor>) {
+    pub fn register(&mut self, name: impl Into<ToolName>, executor: Arc<dyn ToolExecutor>) {
         self.executors.insert(name.into(), executor);
     }
 
@@ -137,7 +139,7 @@ impl ToolRegistry {
 /// policy / catalog / health chain in one expression.
 #[derive(Debug, Default)]
 pub struct ToolRegistryBuilder {
-    executors: Vec<(String, Arc<dyn ToolExecutor>)>,
+    executors: Vec<(ToolName, Arc<dyn ToolExecutor>)>,
     access_policy: Option<Arc<ToolAccessPolicy>>,
     catalog: Option<Arc<ToolCatalog>>,
     health: Option<Arc<RwLock<ToolHealthTracker>>>,
@@ -156,7 +158,7 @@ impl ToolRegistryBuilder {
         self
     }
 
-    pub fn add_tool(mut self, name: impl Into<String>, executor: Arc<dyn ToolExecutor>) -> Self {
+    pub fn add_tool(mut self, name: impl Into<ToolName>, executor: Arc<dyn ToolExecutor>) -> Self {
         self.executors.push((name.into(), executor));
         self
     }
@@ -220,7 +222,7 @@ mod tests {
             tools: names
                 .iter()
                 .map(|n| ToolInfo {
-                    name: n.to_string(),
+                    name: (*n).into(),
                     description: format!("{} tool", n),
                     parameters: serde_json::json!({"type": "object"}),
                 })

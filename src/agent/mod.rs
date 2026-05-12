@@ -732,7 +732,7 @@ mod tests {
             }
             fn list_tools(&self) -> Vec<crate::tools::ToolInfo> {
                 vec![crate::tools::ToolInfo {
-                    name: "echo".to_string(),
+                    name: "echo".into(),
                     description: "Echo tool".to_string(),
                     parameters: serde_json::json!({"type": "object"}),
                 }]

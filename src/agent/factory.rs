@@ -178,7 +178,7 @@ mod tests {
         }
         fn list_tools(&self) -> Vec<ToolInfo> {
             vec![ToolInfo {
-                name: "my_tool".to_string(),
+                name: "my_tool".into(),
                 description: "test".to_string(),
                 parameters: serde_json::json!({"type": "object"}),
             }]

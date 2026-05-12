@@ -9,10 +9,11 @@ use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 
 use super::registry::ToolRegistry;
+use crate::types::ToolName;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ToolInfo {
-    pub name: String,
+    pub name: ToolName,
     pub description: String,
     pub parameters: serde_json::Value,
 }
@@ -138,7 +139,7 @@ impl AclToolExecutor {
         let mut filtered = ToolRegistry::new();
         for tool in registry.list_all_tools() {
             if allowed_set.contains(tool.name.as_str()) {
-                if let Some(executor) = registry.get(&tool.name) {
+                if let Some(executor) = registry.get(tool.name.as_str()) {
                     filtered.register(tool.name, executor.clone());
                 }
             }
@@ -167,7 +168,7 @@ impl ToolExecutor for AclToolExecutor {
         self.inner
             .list_tools()
             .into_iter()
-            .filter(|t| self.allowed.contains(&t.name))
+            .filter(|t| self.allowed.contains(t.name.as_str()))
             .collect()
     }
 
@@ -286,7 +287,7 @@ mod tests {
             tools: names
                 .iter()
                 .map(|n| ToolInfo {
-                    name: n.to_string(),
+                    name: (*n).into(),
                     description: format!("{} tool", n),
                     parameters: serde_json::json!({"type": "object"}),
                 })
@@ -317,8 +318,8 @@ mod tests {
         let acl = AclToolExecutor::new(inner, vec!["search".to_string(), "read".to_string()]);
         let tools = acl.list_tools();
         assert_eq!(tools.len(), 2);
-        assert!(tools.iter().any(|t| t.name == "search"));
-        assert!(tools.iter().any(|t| t.name == "read"));
+        assert!(tools.iter().any(|t| t.name.as_str() == "search"));
+        assert!(tools.iter().any(|t| t.name.as_str() == "read"));
     }
 
     #[derive(Debug)]

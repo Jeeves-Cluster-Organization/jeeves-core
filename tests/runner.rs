@@ -87,12 +87,12 @@ impl ToolExecutor for EchoToolExecutor {
     fn list_tools(&self) -> Vec<ToolInfo> {
         vec![
             ToolInfo {
-                name: "search".to_string(),
+                name: "search".into(),
                 description: "Search for something".to_string(),
                 parameters: serde_json::json!({"type": "object", "properties": {"q": {"type": "string"}}}),
             },
             ToolInfo {
-                name: "execute".to_string(),
+                name: "execute".into(),
                 description: "Execute a command".to_string(),
                 parameters: serde_json::json!({"type": "object", "properties": {"cmd": {"type": "string"}}}),
             },
@@ -112,7 +112,7 @@ impl ToolExecutor for FailingToolExecutor {
 
     fn list_tools(&self) -> Vec<ToolInfo> {
         vec![ToolInfo {
-            name: "broken".to_string(),
+            name: "broken".into(),
             description: "A broken tool".to_string(),
             parameters: serde_json::json!({"type": "object"}),
         }]
