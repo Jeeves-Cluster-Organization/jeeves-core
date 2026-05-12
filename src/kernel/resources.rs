@@ -5,12 +5,11 @@
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
 
-use super::types::{RunRecord, ResourceUsage};
-use crate::types::{Error, Result};
+use super::types::ResourceUsage;
 
-/// Resource tracker - tracks usage across all processes.
-///
-/// NOT a separate actor - owned by Kernel and called via &mut self.
+/// Per-user resource tracker. Owned by Kernel; mutated via `&mut self` in the
+/// single-actor loop. Per-run quota lives on `RunRecord.quota` and is checked
+/// via `Kernel::check_quota` against `Run.metrics`.
 #[derive(Debug, Default, Serialize, Deserialize)]
 pub struct ResourceTracker {
     /// Per-user usage aggregation (optional, for multi-tenant quotas)
@@ -22,17 +21,6 @@ impl ResourceTracker {
         Self {
             user_usage: HashMap::new(),
         }
-    }
-
-    /// Check if process quota is exceeded.
-    pub fn check_quota(&self, pcb: &RunRecord) -> Result<()> {
-        if let Some(violation) = pcb.check_quota() {
-            return Err(Error::quota_exceeded(format!(
-                "Process {} quota exceeded: {}",
-                pcb.pid, violation
-            )));
-        }
-        Ok(())
     }
 
     /// Record resource usage for a process.
@@ -103,8 +91,6 @@ impl ResourceTracker {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::kernel::types::{RunRecord, RunStatus, ResourceQuota};
-    use crate::types::{RunId, RequestId, SessionId, UserId};
 
     #[test]
     fn test_record_usage() {
@@ -116,140 +102,6 @@ mod tests {
         assert_eq!(usage.tool_calls, 10);
         assert_eq!(usage.tokens_in, 1000);
         assert_eq!(usage.tokens_out, 500);
-    }
-
-    #[test]
-    fn test_check_quota_within_bounds() {
-        let tracker = ResourceTracker::new();
-
-        let mut pcb = RunRecord::new(
-            RunId::must("env1"),
-            RequestId::must("req1"),
-            UserId::must("user1"),
-            SessionId::must("sess1"),
-        );
-        pcb.state = RunStatus::Running;
-        pcb.quota = ResourceQuota {
-            max_llm_calls: 10,
-            max_input_tokens: 10000,
-            max_output_tokens: 5000,
-            max_agent_hops: 5,
-            max_iterations: 100,
-            timeout_seconds: 300,
-            ..ResourceQuota::default()
-        };
-        pcb.usage = ResourceUsage {
-            llm_calls: 5,
-            tokens_in: 5000,
-            tokens_out: 2000,
-            agent_hops: 2,
-            iterations: 10,
-            ..Default::default()
-        };
-
-        assert!(tracker.check_quota(&pcb).is_ok());
-    }
-
-    #[test]
-    fn test_check_quota_exceeded_llm_calls() {
-        let tracker = ResourceTracker::new();
-
-        let mut pcb = RunRecord::new(
-            RunId::must("env1"),
-            RequestId::must("req1"),
-            UserId::must("user1"),
-            SessionId::must("sess1"),
-        );
-        pcb.state = RunStatus::Running;
-        pcb.quota = ResourceQuota {
-            max_llm_calls: 10,
-            max_input_tokens: 10000,
-            max_output_tokens: 5000,
-            max_agent_hops: 5,
-            max_iterations: 100,
-            timeout_seconds: 300,
-            ..ResourceQuota::default()
-        };
-        pcb.usage = ResourceUsage {
-            llm_calls: 15, // Exceeds max_llm_calls
-            tokens_in: 5000,
-            tokens_out: 2000,
-            agent_hops: 2,
-            iterations: 10,
-            ..Default::default()
-        };
-
-        let result = tracker.check_quota(&pcb);
-        assert!(result.is_err());
-        assert!(result.unwrap_err().to_string().contains("quota exceeded"));
-    }
-
-    #[test]
-    fn test_check_quota_exceeded_tokens() {
-        let tracker = ResourceTracker::new();
-
-        let mut pcb = RunRecord::new(
-            RunId::must("env1"),
-            RequestId::must("req1"),
-            UserId::must("user1"),
-            SessionId::must("sess1"),
-        );
-        pcb.state = RunStatus::Running;
-        pcb.quota = ResourceQuota {
-            max_llm_calls: 10,
-            max_input_tokens: 10000,
-            max_output_tokens: 5000,
-            max_agent_hops: 5,
-            max_iterations: 100,
-            timeout_seconds: 300,
-            ..ResourceQuota::default()
-        };
-        pcb.usage = ResourceUsage {
-            llm_calls: 5,
-            tokens_in: 15000, // Exceeds max_input_tokens
-            tokens_out: 2000,
-            agent_hops: 2,
-            iterations: 10,
-            ..Default::default()
-        };
-
-        let result = tracker.check_quota(&pcb);
-        assert!(result.is_err());
-        assert!(result.unwrap_err().to_string().contains("quota exceeded"));
-    }
-
-    #[test]
-    fn test_check_quota_exceeded_agent_hops() {
-        let tracker = ResourceTracker::new();
-
-        let mut pcb = RunRecord::new(
-            RunId::must("env1"),
-            RequestId::must("req1"),
-            UserId::must("user1"),
-            SessionId::must("sess1"),
-        );
-        pcb.state = RunStatus::Running;
-        pcb.quota = ResourceQuota {
-            max_llm_calls: 10,
-            max_input_tokens: 10000,
-            max_output_tokens: 5000,
-            max_agent_hops: 5,
-            max_iterations: 100,
-            timeout_seconds: 300,
-            ..ResourceQuota::default()
-        };
-        pcb.usage = ResourceUsage {
-            llm_calls: 5,
-            tokens_in: 5000,
-            tokens_out: 2000,
-            agent_hops: 10, // Exceeds max_agent_hops
-            iterations: 10,
-            ..Default::default()
-        };
-
-        let result = tracker.check_quota(&pcb);
-        assert!(result.is_err());
-        assert!(result.unwrap_err().to_string().contains("quota exceeded"));
     }
 
     #[test]

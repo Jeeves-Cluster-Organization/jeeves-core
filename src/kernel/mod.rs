@@ -217,34 +217,15 @@ mod tests {
     }
 
     #[test]
-    fn test_record_tool_call_missing_pid_returns_err() {
+    fn test_user_usage_recorded() {
         let mut kernel = Kernel::new();
-        let result = kernel.record_tool_call(&RunId::must("nonexistent"));
-        assert!(result.is_err());
-        assert!(result.unwrap_err().to_string().contains("not found"));
-    }
+        kernel.record_user_usage("user1", 3, 5, 1000, 500);
 
-    #[test]
-    fn test_record_agent_hop_missing_pid_returns_err() {
-        let mut kernel = Kernel::new();
-        let result = kernel.record_agent_hop(&RunId::must("nonexistent"));
-        assert!(result.is_err());
-        assert!(result.unwrap_err().to_string().contains("not found"));
-    }
-
-    #[test]
-    fn test_pcb_sync_after_agent_result() {
-        let mut kernel = Kernel::new();
-        let pid = RunId::must("p1");
-
-        kernel.create_process(pid.clone(), RequestId::must("req1"), UserId::must("user1"), SessionId::must("sess1"), None).unwrap();
-        kernel.record_usage(&pid, "user1", 3, 5, 1000, 500);
-
-        let pcb = kernel.lifecycle.get(&pid).unwrap();
-        assert_eq!(pcb.usage.llm_calls, 3);
-        assert_eq!(pcb.usage.tool_calls, 5);
-        assert_eq!(pcb.usage.tokens_in, 1000);
-        assert_eq!(pcb.usage.tokens_out, 500);
+        let usage = kernel.resources.get_user_usage("user1").unwrap();
+        assert_eq!(usage.llm_calls, 3);
+        assert_eq!(usage.tool_calls, 5);
+        assert_eq!(usage.tokens_in, 1000);
+        assert_eq!(usage.tokens_out, 500);
     }
 
     #[test]
@@ -263,20 +244,6 @@ mod tests {
         assert_eq!(kernel.lifecycle.count(), 0);
     }
 
-    #[test]
-    fn test_record_tool_call_increments_counter() {
-        let mut kernel = Kernel::new();
-        let pid = RunId::must("p1");
-
-        kernel.create_process(pid.clone(), RequestId::must("req1"), UserId::must("user1"), SessionId::must("sess1"), None).unwrap();
-
-        kernel.record_tool_call(&pid).unwrap();
-        kernel.record_tool_call(&pid).unwrap();
-        kernel.record_tool_call(&pid).unwrap();
-
-        let pcb = kernel.lifecycle.get(&pid).unwrap();
-        assert_eq!(pcb.usage.tool_calls, 3);
-    }
 }
 
 #[cfg(test)]

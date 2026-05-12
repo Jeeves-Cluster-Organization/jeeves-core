@@ -208,7 +208,7 @@ impl Kernel {
         }
 
         if let Some(uid) = self.lifecycle.get(run_id).map(|p| p.user_id.as_str().to_string()) {
-            self.record_usage(run_id, &uid, llm_calls, tool_calls, tokens_in, tokens_out);
+            self.record_user_usage(&uid, llm_calls, tool_calls, tokens_in, tokens_out);
         }
 
         Ok(())
@@ -289,19 +289,45 @@ impl Kernel {
         self.lifecycle.create(pid, request_id, user_id, session_id, quota)
     }
 
-    /// Check process quota.
+    /// Check whether the run has exceeded its quota. Reads live counters from
+    /// `Run.metrics` + `Run.iteration`, the wall-clock elapsed from
+    /// `RunRecord.started_at`, and bounds from `RunRecord.quota` — one source
+    /// of truth per dimension.
     pub fn check_quota(&self, pid: &RunId) -> Result<()> {
         let pcb = self
             .lifecycle
             .get(pid)
             .ok_or_else(|| Error::not_found(format!("Process {} not found", pid)))?;
-        self.resources.check_quota(pcb)
+        let usage = self.usage_from_run(pid, pcb);
+        if let Some(violation) = usage.exceeds_quota(&pcb.quota) {
+            return Err(Error::quota_exceeded(format!(
+                "Process {} quota exceeded: {}",
+                pid, violation
+            )));
+        }
+        Ok(())
     }
 
-    /// Record resource usage.
-    pub fn record_usage(
+    /// Snapshot of usage built from `Run.metrics` + elapsed wall-clock. The
+    /// kernel doesn't store this — it's derived on demand by `check_quota` and
+    /// `get_remaining_budget`.
+    fn usage_from_run(&self, pid: &RunId, pcb: &super::RunRecord) -> super::ResourceUsage {
+        let run = self.runs.get(pid);
+        super::ResourceUsage {
+            llm_calls: run.map_or(0, |r| r.metrics.llm_calls),
+            tool_calls: run.map_or(0, |r| r.metrics.tool_calls),
+            agent_hops: run.map_or(0, |r| r.metrics.agent_hops),
+            iterations: run.map_or(0, |r| r.iteration),
+            tokens_in: run.map_or(0, |r| r.metrics.tokens_in),
+            tokens_out: run.map_or(0, |r| r.metrics.tokens_out),
+            elapsed_seconds: pcb.elapsed_seconds(),
+        }
+    }
+
+    /// Accumulate per-user usage in the cross-run tracker. Per-run counters
+    /// live on `Run.metrics` and are updated by `Orchestrator::report_agent_result`.
+    pub fn record_user_usage(
         &mut self,
-        pid: &RunId,
         user_id: &str,
         llm_calls: i32,
         tool_calls: i32,
@@ -310,12 +336,6 @@ impl Kernel {
     ) {
         self.resources
             .record_usage(user_id, llm_calls, tool_calls, tokens_in, tokens_out);
-        if let Some(pcb) = self.lifecycle.get_mut(pid) {
-            pcb.usage.llm_calls += llm_calls;
-            pcb.usage.tool_calls += tool_calls;
-            pcb.usage.tokens_in += tokens_in;
-            pcb.usage.tokens_out += tokens_out;
-        }
     }
 
     /// Set a tool-confirmation interrupt on a process. The pipeline loop
@@ -378,22 +398,6 @@ impl Kernel {
         Ok(())
     }
 
-    /// Record a tool call for a process.
-    pub fn record_tool_call(&mut self, pid: &RunId) -> Result<()> {
-        let pcb = self.lifecycle.get_mut(pid)
-            .ok_or_else(|| Error::not_found(format!("Process {} not found in record_tool_call", pid)))?;
-        pcb.usage.tool_calls += 1;
-        Ok(())
-    }
-
-    /// Record an agent hop for a process.
-    pub fn record_agent_hop(&mut self, pid: &RunId) -> Result<()> {
-        let pcb = self.lifecycle.get_mut(pid)
-            .ok_or_else(|| Error::not_found(format!("Process {} not found in record_agent_hop", pid)))?;
-        pcb.usage.agent_hops += 1;
-        Ok(())
-    }
-
     /// Cleanup stale orchestration sessions and their envelopes.
     pub fn cleanup_stale_sessions(&mut self, max_age_seconds: i64) -> usize {
         let removed_pids = self.orchestrator.cleanup_stale_sessions(max_age_seconds);
@@ -430,15 +434,15 @@ impl Kernel {
     /// Get remaining resource budget for a process.
     pub fn get_remaining_budget(&self, pid: &RunId) -> Option<RemainingBudget> {
         let pcb = self.lifecycle.get(pid)?;
+        let usage = self.usage_from_run(pid, pcb);
         Some(RemainingBudget {
-            llm_calls_remaining: (pcb.quota.max_llm_calls - pcb.usage.llm_calls).max(0),
-            iterations_remaining: (pcb.quota.max_iterations - pcb.usage.iterations).max(0),
-            agent_hops_remaining: (pcb.quota.max_agent_hops - pcb.usage.agent_hops).max(0),
-            tokens_in_remaining: (pcb.quota.max_input_tokens as i64 - pcb.usage.tokens_in).max(0),
-            tokens_out_remaining: (pcb.quota.max_output_tokens as i64 - pcb.usage.tokens_out)
-                .max(0),
+            llm_calls_remaining: (pcb.quota.max_llm_calls - usage.llm_calls).max(0),
+            iterations_remaining: (pcb.quota.max_iterations - usage.iterations).max(0),
+            agent_hops_remaining: (pcb.quota.max_agent_hops - usage.agent_hops).max(0),
+            tokens_in_remaining: (pcb.quota.max_input_tokens as i64 - usage.tokens_in).max(0),
+            tokens_out_remaining: (pcb.quota.max_output_tokens as i64 - usage.tokens_out).max(0),
             time_remaining_seconds: if pcb.quota.timeout_seconds > 0 {
-                (pcb.quota.timeout_seconds as f64 - pcb.usage.elapsed_seconds).max(0.0)
+                (pcb.quota.timeout_seconds as f64 - usage.elapsed_seconds).max(0.0)
             } else {
                 f64::MAX
             },

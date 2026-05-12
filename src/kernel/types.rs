@@ -145,9 +145,9 @@ pub struct RunRecord {
     // State
     pub state: RunStatus,
 
-    // Resource tracking
+    /// Per-run quota. Live counters live on `Run.metrics`; check via
+    /// `Kernel::check_quota`.
     pub quota: ResourceQuota,
-    pub usage: ResourceUsage,
 
     // Timestamps
     pub created_at: DateTime<Utc>,
@@ -171,7 +171,6 @@ impl RunRecord {
             session_id,
             state: RunStatus::Ready,
             quota: ResourceQuota::default(),
-            usage: ResourceUsage::default(),
             created_at: Utc::now(),
             started_at: None,
             completed_at: None,
@@ -185,29 +184,20 @@ impl RunRecord {
         self.started_at = Some(Utc::now());
     }
 
-    /// Transition to TERMINATED state and stamp elapsed time.
+    /// Transition to TERMINATED state.
     pub(crate) fn complete(&mut self) {
-        let now = Utc::now();
         self.state = RunStatus::Terminated;
-        self.completed_at = Some(now);
-        if let Some(started) = self.started_at {
-            self.usage.elapsed_seconds = (now - started).num_milliseconds() as f64 / 1000.0;
-        }
+        self.completed_at = Some(Utc::now());
     }
 
-    /// Check if any quota exceeded.
-    ///
-    /// Computes elapsed time from `started_at` on the fly so that timeout
-    /// enforcement works during execution, not only after completion.
-    pub fn check_quota(&self) -> Option<QuotaViolation> {
-        let mut usage = self.usage.clone();
-        if let Some(started) = self.started_at {
-            if self.completed_at.is_none() {
-                let now = Utc::now();
-                usage.elapsed_seconds = (now - started).num_milliseconds() as f64 / 1000.0;
-            }
-        }
-        usage.exceeds_quota(&self.quota)
+    /// Elapsed wall-clock seconds since `start()`. `0.0` before start. Frozen
+    /// after `complete()`.
+    pub fn elapsed_seconds(&self) -> f64 {
+        let Some(started) = self.started_at else {
+            return 0.0;
+        };
+        let end = self.completed_at.unwrap_or_else(Utc::now);
+        (end - started).num_milliseconds() as f64 / 1000.0
     }
 
     /// Check if process terminated.
