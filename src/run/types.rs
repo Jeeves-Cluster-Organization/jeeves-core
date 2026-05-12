@@ -4,7 +4,7 @@ use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
-use crate::types::{EnvelopeId, RequestId, SessionId, UserId};
+use crate::types::{EnvelopeId, InterruptId, RequestId, SessionId, UserId};
 
 
 /// Response to a flow interrupt.
@@ -32,7 +32,7 @@ pub struct InterruptResponse {
 /// enum can be re-introduced.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct FlowInterrupt {
-    pub id: String,
+    pub id: InterruptId,
 
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub question: Option<String>,
@@ -55,7 +55,7 @@ pub struct FlowInterrupt {
 impl FlowInterrupt {
     pub fn new() -> Self {
         Self {
-            id: format!("int_{}", &uuid::Uuid::new_v4().simple().to_string()[..16]),
+            id: InterruptId::must(format!("int_{}", &uuid::Uuid::new_v4().simple().to_string()[..16])),
             question: None,
             message: None,
             data: None,

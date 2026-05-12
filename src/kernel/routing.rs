@@ -6,6 +6,8 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::sync::Arc;
 
+use crate::types::RoutingFnName;
+
 /// Read-only snapshot passed to a [`RoutingFn`].
 #[derive(Debug)]
 pub struct RoutingContext<'a> {
@@ -39,7 +41,7 @@ where
 
 #[derive(Default)]
 pub struct RoutingRegistry {
-    fns: HashMap<String, Arc<dyn RoutingFn>>,
+    fns: HashMap<RoutingFnName, Arc<dyn RoutingFn>>,
 }
 
 impl RoutingRegistry {
@@ -47,7 +49,7 @@ impl RoutingRegistry {
         Self { fns: HashMap::new() }
     }
 
-    pub fn register(&mut self, name: impl Into<String>, f: Arc<dyn RoutingFn>) {
+    pub fn register(&mut self, name: impl Into<RoutingFnName>, f: Arc<dyn RoutingFn>) {
         self.fns.insert(name.into(), f);
     }
 
@@ -85,7 +87,7 @@ pub struct RoutingDecision {
 #[non_exhaustive]
 pub enum RoutingReason {
     ErrorRoute,
-    RoutingFn { name: String },
+    RoutingFn { name: RoutingFnName },
     DefaultRoute,
     /// No routing fn, no `default_next` — pipeline terminates `Completed`.
     NoMatch,
@@ -123,7 +125,7 @@ pub fn evaluate_routing_with_reason(
             return RoutingDecision {
                 from_stage: from_stage.to_string(),
                 target,
-                reason: RoutingReason::RoutingFn { name: fn_name.clone() },
+                reason: RoutingReason::RoutingFn { name: RoutingFnName::must(fn_name.clone()) },
             };
         } else {
             tracing::warn!(
@@ -204,7 +206,7 @@ mod tests {
 
         let decision = evaluate_routing_with_reason(&stage, &reg, &ctx, "s1");
         assert_eq!(decision.target, Some("s2".to_string()));
-        assert!(matches!(decision.reason, RoutingReason::RoutingFn { ref name } if name == "always_s2"));
+        assert!(matches!(decision.reason, RoutingReason::RoutingFn { ref name } if name.as_str() == "always_s2"));
     }
 
     #[test]

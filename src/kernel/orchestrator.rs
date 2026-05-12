@@ -72,7 +72,7 @@ impl Orchestrator {
         }
     }
 
-    pub fn register_routing_fn(&mut self, name: impl Into<String>, f: std::sync::Arc<dyn RoutingFn>) {
+    pub fn register_routing_fn(&mut self, name: impl Into<crate::types::RoutingFnName>, f: std::sync::Arc<dyn RoutingFn>) {
         self.routing_registry.register(name, f);
     }
 

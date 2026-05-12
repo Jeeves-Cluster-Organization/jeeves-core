@@ -2,7 +2,7 @@
 
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
-use crate::types::{RunId, RequestId, SessionId, UserId};
+use crate::types::{InterruptId, RunId, RequestId, SessionId, UserId};
 
 /// Process lifecycle state.
 ///
@@ -159,7 +159,7 @@ pub struct RunRecord {
     /// ID of a tool-confirmation interrupt this process is currently
     /// suspended on. None when actively running.
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub pending_interrupt: Option<String>,
+    pub pending_interrupt: Option<InterruptId>,
 }
 
 impl RunRecord {

@@ -8,6 +8,7 @@ use chrono::{DateTime, Utc};
 use std::collections::HashMap;
 
 use crate::run::{FlowInterrupt, InterruptResponse};
+use crate::types::InterruptId;
 
 /// Lightweight bookkeeping for a pending interrupt.
 #[derive(Debug, Clone)]
@@ -27,8 +28,8 @@ pub struct PendingInterrupt {
 /// `message` / `question` / `data` fields.
 #[derive(Debug, Default)]
 pub struct InterruptService {
-    pending: HashMap<String, PendingInterrupt>,
-    resolved: HashMap<String, InterruptResponse>,
+    pending: HashMap<InterruptId, PendingInterrupt>,
+    resolved: HashMap<InterruptId, InterruptResponse>,
 }
 
 impl InterruptService {
@@ -69,7 +70,7 @@ impl InterruptService {
         _ignored: Option<()>,
     ) -> bool {
         if self.pending.remove(interrupt_id).is_some() {
-            self.resolved.insert(interrupt_id.to_string(), response);
+            self.resolved.insert(InterruptId::must(interrupt_id), response);
             true
         } else {
             false
@@ -118,11 +119,11 @@ mod tests {
 
         svc.register_flow_interrupt(interrupt, "req", "user", "sess", "env");
         assert_eq!(svc.pending_count(), 1);
-        assert!(svc.get_pending(&id).is_some());
+        assert!(svc.get_pending(id.as_str()).is_some());
 
-        assert!(svc.resolve(&id, make_response(), None));
+        assert!(svc.resolve(id.as_str(), make_response(), None));
         assert_eq!(svc.pending_count(), 0);
-        assert!(svc.get_response(&id).is_some());
+        assert!(svc.get_response(id.as_str()).is_some());
     }
 
     #[test]

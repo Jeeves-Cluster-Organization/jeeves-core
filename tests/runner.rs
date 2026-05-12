@@ -1094,7 +1094,7 @@ async fn test_confirmation_gate_full_pipeline_buffered() {
     } else {
         panic!("Expected WaitInterrupt");
     };
-    handle.resolve_interrupt(&pid, &interrupt_id, jeeves_core::run::InterruptResponse {
+    handle.resolve_interrupt(&pid, interrupt_id.as_str(), jeeves_core::run::InterruptResponse {
         text: None,
         approved: Some(true),
         decision: None,

@@ -6,13 +6,15 @@
 use std::collections::HashMap;
 use std::path::PathBuf;
 
+use crate::types::PromptKey;
+
 /// Prompt template registry — loads from a directory.
 #[derive(Debug, Clone)]
 pub struct PromptRegistry {
     /// Base directory for prompt files.
     base_dir: Option<PathBuf>,
     /// In-memory overrides (for testing or embedded prompts).
-    overrides: HashMap<String, String>,
+    overrides: HashMap<PromptKey, String>,
 }
 
 impl PromptRegistry {
@@ -33,7 +35,7 @@ impl PromptRegistry {
     }
 
     /// Register an in-memory prompt template.
-    pub fn insert(&mut self, key: impl Into<String>, template: impl Into<String>) {
+    pub fn insert(&mut self, key: impl Into<PromptKey>, template: impl Into<String>) {
         self.overrides.insert(key.into(), template.into());
     }
 

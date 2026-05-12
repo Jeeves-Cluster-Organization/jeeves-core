@@ -208,7 +208,7 @@ pub async fn run_loop(
             }
 
             Instruction::WaitInterrupt { ref interrupt } => {
-                let interrupt_id = interrupt.as_ref().map(|i| i.id.clone()).unwrap_or_default();
+                let interrupt_id = interrupt.as_ref().map(|i| i.id.as_str().to_string()).unwrap_or_default();
 
                 if let Some(ref tx) = event_tx {
                     // Streaming: emit event, poll until resolved
