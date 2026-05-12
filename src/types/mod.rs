@@ -11,4 +11,7 @@ mod ids;
 
 pub use config::{AgentDefinition, Config, ObservabilityConfig};
 pub use errors::{Error, Result};
-pub use ids::{EnvelopeId, RunId, RequestId, SessionId, UserId};
+pub use ids::{
+    AgentName, EnvelopeId, InterruptId, OutputKey, PromptKey, RequestId, RoutingFnName, RunId,
+    SessionId, StageName, ToolName, UserId,
+};

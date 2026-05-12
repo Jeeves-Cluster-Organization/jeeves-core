@@ -8,13 +8,15 @@
 //! Every ID implements `AsRef<str>` and `Borrow<str>` so it works as a
 //! `HashMap` key looked up by `&str` without an allocation.
 
+use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use std::borrow::Borrow;
 use std::fmt;
 
 macro_rules! define_id {
     ($name:ident, uuid) => {
-        #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
+        #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema)]
+        #[serde(transparent)]
         pub struct $name(String);
 
         impl $name {
@@ -38,6 +40,10 @@ macro_rules! define_id {
 
             pub fn as_str(&self) -> &str {
                 &self.0
+            }
+
+            pub fn is_empty(&self) -> bool {
+                self.0.is_empty()
             }
         }
 
@@ -64,9 +70,22 @@ macro_rules! define_id {
                 &self.0
             }
         }
+
+        impl From<&str> for $name {
+            fn from(s: &str) -> Self {
+                Self::must(s)
+            }
+        }
+
+        impl From<String> for $name {
+            fn from(s: String) -> Self {
+                Self::must(s)
+            }
+        }
     };
     ($name:ident) => {
-        #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
+        #[derive(Debug, Clone, Default, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema)]
+        #[serde(transparent)]
         pub struct $name(String);
 
         impl $name {
@@ -87,6 +106,10 @@ macro_rules! define_id {
             pub fn as_str(&self) -> &str {
                 &self.0
             }
+
+            pub fn is_empty(&self) -> bool {
+                self.0.is_empty()
+            }
         }
 
         impl fmt::Display for $name {
@@ -104,6 +127,18 @@ macro_rules! define_id {
         impl Borrow<str> for $name {
             fn borrow(&self) -> &str {
                 &self.0
+            }
+        }
+
+        impl From<&str> for $name {
+            fn from(s: &str) -> Self {
+                Self::must(s)
+            }
+        }
+
+        impl From<String> for $name {
+            fn from(s: String) -> Self {
+                Self::must(s)
             }
         }
     };
