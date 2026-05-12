@@ -2,7 +2,7 @@
 //! health gates, plus the [`ToolRegistryBuilder`] for fluent construction.
 
 use std::collections::HashMap;
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, RwLock};
 use std::time::Instant;
 use tracing::instrument;
 
@@ -25,7 +25,7 @@ pub struct ToolRegistry {
     executors: HashMap<String, Arc<dyn ToolExecutor>>,
     access_policy: Option<Arc<ToolAccessPolicy>>,
     catalog: Option<Arc<ToolCatalog>>,
-    health: Option<Arc<Mutex<ToolHealthTracker>>>,
+    health: Option<Arc<RwLock<ToolHealthTracker>>>,
 }
 
 impl ToolRegistry {
@@ -75,7 +75,7 @@ impl ToolRegistry {
 
         if let Some(health) = &self.health {
             let broken = health
-                .lock()
+                .read()
                 .map(|h| h.should_circuit_break(name))
                 .unwrap_or(false);
             if broken {
@@ -100,7 +100,7 @@ impl ToolRegistry {
                 Ok(_) => (true, None),
                 Err(e) => (false, Some(e.to_error_code().to_string())),
             };
-            if let Ok(mut h) = health.lock() {
+            if let Ok(mut h) = health.write() {
                 h.record_execution(name, success, latency_ms, error_type);
             }
         }
@@ -128,7 +128,7 @@ impl ToolRegistry {
         self.catalog.as_ref()
     }
 
-    pub fn health_tracker(&self) -> Option<&Arc<Mutex<ToolHealthTracker>>> {
+    pub fn health_tracker(&self) -> Option<&Arc<RwLock<ToolHealthTracker>>> {
         self.health.as_ref()
     }
 }
@@ -140,7 +140,7 @@ pub struct ToolRegistryBuilder {
     executors: Vec<(String, Arc<dyn ToolExecutor>)>,
     access_policy: Option<Arc<ToolAccessPolicy>>,
     catalog: Option<Arc<ToolCatalog>>,
-    health: Option<Arc<Mutex<ToolHealthTracker>>>,
+    health: Option<Arc<RwLock<ToolHealthTracker>>>,
 }
 
 impl ToolRegistryBuilder {
@@ -171,7 +171,7 @@ impl ToolRegistryBuilder {
         self
     }
 
-    pub fn with_health_tracker(mut self, health: Arc<Mutex<ToolHealthTracker>>) -> Self {
+    pub fn with_health_tracker(mut self, health: Arc<RwLock<ToolHealthTracker>>) -> Self {
         self.health = Some(health);
         self
     }
@@ -543,7 +543,7 @@ mod tests {
             window_size: 50,
             ..Default::default()
         };
-        let tracker = Arc::new(Mutex::new(ToolHealthTracker::new(cfg)));
+        let tracker = Arc::new(RwLock::new(ToolHealthTracker::new(cfg)));
         let registry = ToolRegistryBuilder::new()
             .add_executor(Arc::new(FlakyExecutor { fail: true }))
             .with_health_tracker(tracker.clone())
@@ -562,6 +562,6 @@ mod tests {
         let msg = blocked.unwrap_err().to_string();
         assert!(msg.contains("circuit-broken"), "unexpected error: {msg}");
 
-        assert!(tracker.lock().unwrap().should_circuit_break("do_thing"));
+        assert!(tracker.read().unwrap().should_circuit_break("do_thing"));
     }
 }
