@@ -5,7 +5,7 @@ use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
-use crate::types::{AgentName, EnvelopeId, OutputKey, RequestId, SessionId, UserId};
+use crate::types::{AgentName, EnvelopeId, OutputKey, RequestId, SessionId, StageName, UserId};
 
 pub mod enums;
 pub mod events;
@@ -29,8 +29,8 @@ pub struct Run {
     #[serde(default, skip_serializing_if = "HashMap::is_empty")]
     pub state: HashMap<String, serde_json::Value>,
 
-    pub current_stage: String,
-    pub stage_order: Vec<String>,
+    pub current_stage: StageName,
+    pub stage_order: Vec<StageName>,
     pub iteration: i32,
     pub max_iterations: i32,
 
@@ -84,7 +84,7 @@ impl Run {
             received_at: now,
             outputs: HashMap::new(),
             state: HashMap::new(),
-            current_stage: String::new(),
+            current_stage: StageName::default(),
             stage_order: Vec::new(),
             iteration: 0,
             max_iterations: 100,
@@ -274,7 +274,7 @@ mod tests {
         assert!(env.raw_input.is_empty());
         assert!(env.outputs.is_empty());
 
-        assert_eq!(env.current_stage, "");
+        assert_eq!(env.current_stage.as_str(), "");
         assert!(env.stage_order.is_empty());
         assert_eq!(env.iteration, 0);
         assert_eq!(env.max_iterations, 100);
@@ -591,16 +591,16 @@ mod tests {
     #[test]
     fn test_validate_current_stage_not_in_order_fails() {
         let mut env = Run::anonymous();
-        env.stage_order = vec!["understand".to_string(), "respond".to_string()];
-        env.current_stage = "missing_stage".to_string();
+        env.stage_order = vec!["understand".into(), "respond".into()];
+        env.current_stage = "missing_stage".into();
         assert!(env.validate().is_err());
     }
 
     #[test]
     fn test_validate_current_stage_in_order_passes() {
         let mut env = Run::anonymous();
-        env.stage_order = vec!["understand".to_string(), "respond".to_string()];
-        env.current_stage = "understand".to_string();
+        env.stage_order = vec!["understand".into(), "respond".into()];
+        env.current_stage = "understand".into();
         assert!(env.validate().is_ok());
     }
 }

@@ -38,7 +38,7 @@ pub fn create_test_pipeline() -> Workflow {
 /// Empty run with cleared current_stage (ready for pipeline init).
 pub fn create_test_envelope() -> Run {
     let mut env = Run::anonymous();
-    env.current_stage = String::new();
+    env.current_stage = crate::types::StageName::default();
     env
 }
 

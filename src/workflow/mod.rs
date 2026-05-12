@@ -38,8 +38,8 @@ pub struct Workflow {
 }
 
 impl Workflow {
-    pub fn get_stage_order(&self) -> Vec<String> {
-        self.stages.iter().map(|s| s.name.clone()).collect()
+    pub fn get_stage_order(&self) -> Vec<crate::types::StageName> {
+        self.stages.iter().map(|s| s.name.as_str().into()).collect()
     }
 
     pub fn validate(&self) -> Result<()> {

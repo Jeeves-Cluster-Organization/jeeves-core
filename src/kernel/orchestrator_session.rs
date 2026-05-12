@@ -124,8 +124,9 @@ mod tests {
             .unwrap();
 
         assert_eq!(state.run_id.as_str(), "proc1");
-        assert_eq!(state.current_stage, "stage1");
-        assert_eq!(state.stage_order, vec!["stage1", "stage2"]);
+        assert_eq!(state.current_stage.as_str(), "stage1");
+        let stage_order_strs: Vec<&str> = state.stage_order.iter().map(|s| s.as_str()).collect();
+        assert_eq!(stage_order_strs, vec!["stage1", "stage2"]);
         assert!(!state.terminated);
     }
 

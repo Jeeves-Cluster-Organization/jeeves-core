@@ -100,7 +100,7 @@ mod tests {
         let state = orch.get_session_state(&RunId::must("proc1"), &run).unwrap();
 
         assert_eq!(state.run_id.as_str(), "proc1");
-        assert_eq!(state.current_stage, "stage1");
+        assert_eq!(state.current_stage.as_str(), "stage1");
         assert!(state.run.is_object());
         assert!(!state.terminated);
     }

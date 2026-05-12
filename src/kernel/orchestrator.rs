@@ -49,7 +49,7 @@ pub(crate) fn get_agent_for_stage(
 pub struct Orchestration {
     pub run_id: RunId,
     pub pipeline_config: Workflow,
-    pub(crate) stage_visits: HashMap<String, i32>,
+    pub(crate) stage_visits: HashMap<crate::types::StageName, i32>,
     #[allow(dead_code)] // Retained for diagnostics
     pub(crate) created_at: DateTime<Utc>,
     pub(crate) last_activity_at: DateTime<Utc>,
@@ -125,7 +125,7 @@ impl Orchestrator {
             return Err(Error::state_transition("No current stage set"));
         }
 
-        let agent_name = get_agent_for_stage(&session.pipeline_config, current_stage)?;
+        let agent_name = get_agent_for_stage(&session.pipeline_config, current_stage.as_str())?;
         Ok(Instruction::run_agent(agent_name))
     }
 
@@ -176,7 +176,7 @@ impl Orchestrator {
         let current_stage = run.current_stage.clone();
         let pipeline_stage = session.pipeline_config.stages
             .iter()
-            .find(|s| s.name == current_stage)
+            .find(|s| s.name.as_str() == current_stage.as_str())
             .ok_or_else(|| Error::state_transition(format!(
                 "Current stage '{}' not found in pipeline config",
                 current_stage
@@ -191,7 +191,7 @@ impl Orchestrator {
             .and_then(|r| serde_json::to_value(r).ok());
 
         let ctx = RoutingContext {
-            current_stage: &current_stage,
+            current_stage: current_stage.as_str(),
             agent_name: &agent_lookup,
             agent_failed,
             outputs: &run.outputs,
@@ -203,7 +203,7 @@ impl Orchestrator {
             &pipeline_stage,
             &self.routing_registry,
             &ctx,
-            &current_stage,
+            current_stage.as_str(),
         );
         let next_target = routing_decision.target.clone();
 
@@ -211,7 +211,7 @@ impl Orchestrator {
             session.last_routing_decision = Some(routing_decision);
         }
 
-        self.apply_routing_result(run_id, &current_stage, next_target, run)
+        self.apply_routing_result(run_id, current_stage.as_str(), next_target, run)
     }
 
     /// Advance to the next stage or terminate.
@@ -231,7 +231,7 @@ impl Orchestrator {
             Some(target) => {
                 if let Some(target_stage) = session.pipeline_config.stages.iter().find(|s| s.name == target) {
                     if let Some(max_visits) = target_stage.max_visits {
-                        let visits = session.stage_visits.get(&target).copied().unwrap_or(0);
+                        let visits = session.stage_visits.get(target.as_str()).copied().unwrap_or(0);
                         if visits >= max_visits {
                             run.terminate_with(
                                 TerminalReason::MaxStageVisitsExceeded,
@@ -246,7 +246,7 @@ impl Orchestrator {
                 run.metrics.agent_hops += 1;
                 tracing::info!(from = %from_stage, to = %target, "stage_transition");
 
-                run.current_stage = target;
+                run.current_stage = target.into();
                 session.last_activity_at = Utc::now();
             }
             None => {
@@ -373,7 +373,7 @@ mod tests {
         orch.initialize_session(pid.clone(), config, &mut run, false).unwrap();
 
         orch.report_agent_result(&pid, "s1", zero_metrics(), &mut run, false, false).unwrap();
-        assert_eq!(run.current_stage, "target");
+        assert_eq!(run.current_stage.as_str(), "target");
     }
 
     #[test]
@@ -395,7 +395,7 @@ mod tests {
         orch.initialize_session(pid.clone(), config, &mut run, false).unwrap();
 
         orch.report_agent_result(&pid, "s1", zero_metrics(), &mut run, true, false).unwrap();
-        assert_eq!(run.current_stage, "s_err");
+        assert_eq!(run.current_stage.as_str(), "s_err");
     }
 
     #[test]

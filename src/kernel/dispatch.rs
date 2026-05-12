@@ -62,12 +62,12 @@ impl Kernel {
                     .map(|e| e.current_stage.clone())
                     .unwrap_or_default();
 
-                if let Some(sc) = self.orchestrator.get_stage_config(run_id, &stage_name) {
+                if let Some(sc) = self.orchestrator.get_stage_config(run_id, stage_name.as_str()) {
                     context.timeout_seconds = sc.timeout_seconds;
                     context.retry_policy = sc.retry_policy.clone();
                 }
 
-                context.response_format = self.orchestrator.get_stage_response_format(run_id, &stage_name);
+                context.response_format = self.orchestrator.get_stage_response_format(run_id, stage_name.as_str());
             }
             orchestrator::Instruction::Terminate { context, .. } => {
                 if let Some(run) = self.runs.get(run_id) {
@@ -262,7 +262,7 @@ impl Kernel {
 
         let stage_name = run.current_stage.clone();
         let (max_context_tokens, context_overflow) = self.orchestrator
-            .get_stage_config(run_id, &stage_name)
+            .get_stage_config(run_id, stage_name.as_str())
             .map(|sc| {
                 let overflow = if sc.max_context_tokens.is_some() {
                     Some(sc.context_overflow)

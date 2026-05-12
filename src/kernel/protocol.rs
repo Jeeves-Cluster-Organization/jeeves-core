@@ -3,7 +3,7 @@
 use serde::{Deserialize, Serialize};
 
 use crate::run::{FlowInterrupt, TerminalReason};
-use crate::types::RunId;
+use crate::types::{RunId, StageName};
 use crate::workflow::{ContextOverflow, RetryPolicy};
 
 use super::routing::RoutingDecision;
@@ -121,9 +121,9 @@ pub struct AgentExecutionMetrics {
 pub struct RunSnapshot {
     pub run_id: RunId,
     /// Name of the stage currently executing or about to execute.
-    pub current_stage: String,
+    pub current_stage: StageName,
     /// Ordered list of all stage names in the pipeline.
-    pub stage_order: Vec<String>,
+    pub stage_order: Vec<StageName>,
     /// Run serialized as JSON (outputs, bounds, audit trail, interrupts).
     pub run: serde_json::Value,
     pub terminated: bool,
