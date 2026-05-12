@@ -1,4 +1,4 @@
-//! Core enumerations for envelope and kernel.
+//! Core enumerations for run and kernel.
 //!
 //! Canonical enum definitions for the Jeeves kernel.
 

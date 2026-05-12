@@ -66,16 +66,16 @@ impl Default for ObservabilityConfig {
 /// Default resource limits.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct DefaultLimits {
-    /// Maximum LLM calls per envelope.
+    /// Maximum LLM calls per run.
     pub max_llm_calls: i32,
 
-    /// Maximum tool calls per envelope.
+    /// Maximum tool calls per run.
     pub max_tool_calls: i32,
 
-    /// Maximum agent hops per envelope.
+    /// Maximum agent hops per run.
     pub max_agent_hops: i32,
 
-    /// Maximum iterations per envelope.
+    /// Maximum iterations per run.
     pub max_iterations: i32,
 
     /// Default process timeout.

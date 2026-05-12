@@ -30,7 +30,7 @@ pub struct AgentOutput {
     pub success: bool,
     pub error_message: String,
     /// Set when the agent wants the worker to suspend on a flow interrupt
-    /// (e.g. tool confirmation). The worker stores it on the envelope.
+    /// (e.g. tool confirmation). The worker stores it on the run.
     pub interrupt_request: Option<crate::run::FlowInterrupt>,
 }
 

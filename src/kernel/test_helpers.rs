@@ -35,14 +35,14 @@ pub fn create_test_pipeline() -> Workflow {
     )
 }
 
-/// Empty envelope with cleared current_stage (ready for pipeline init).
+/// Empty run with cleared current_stage (ready for pipeline init).
 pub fn create_test_envelope() -> Run {
     let mut env = Run::anonymous();
     env.current_stage = String::new();
     env
 }
 
-/// Build an envelope with the pipeline's bounds and stage_order populated.
+/// Build an run with the pipeline's bounds and stage_order populated.
 pub fn make_envelope(config: &Workflow) -> Run {
     let mut env = create_test_envelope();
     env.max_iterations = config.max_iterations;

@@ -11,17 +11,17 @@ Jeeves Core is the **micro-kernel** for AI agent orchestration. It provides mini
 ### 1. Minimal Kernel Surface
 
 The kernel provides only:
-- **Pipeline Orchestration** — declarative stages, routing functions, default/error transitions, termination decisions
+- **Workflow Orchestration** — declarative stages, routing functions, default/error transitions, termination decisions
 - **Resource Quotas** — defense-in-depth bounds on iterations, LLM calls, agent hops, per-stage visits, per-stage context tokens
-- **Process Lifecycle** — slim state machine for agent execution
+- **Run Lifecycle** — slim state machine for agent execution
 - **Tool Confirmation** — interrupt-and-resume gate for destructive tool calls
 - **Agent Execution** — `Agent` trait, `LlmAgent` (with ReAct tool loop + hooks), `ToolDelegatingAgent`, `DeterministicAgent`
 - **Tool Policy Chain** — optional `ToolAccessPolicy` (agent×tool ACL), `ToolCatalog` (typed param validation), `ToolHealthTracker` (sliding-window metrics + circuit breaker), all opt-in via `ToolRegistryBuilder`
-- **Streaming Events** — `mpsc::Receiver<PipelineEvent>` channel for token deltas, stage lifecycle, tool calls, routing decisions
+- **Streaming Events** — `mpsc::Receiver<RunEvent>` channel for token deltas, stage lifecycle, tool calls, routing decisions
 
 The kernel does NOT provide:
-- Pub/sub, command/query buses, or cross-pipeline federation
-- Pipeline checkpoints, durable resume, background cleanup tickers
+- Pub/sub, command/query buses, or cross-workflow federation
+- Workflow checkpoints, durable resume, background cleanup tickers
 - Per-user rate limiting or service registries
 - MCP transports (stdio/HTTP) — consumers wire `ToolExecutor` directly
 - Language bindings (PyO3, FFI) — Rust crate is the only consumption surface

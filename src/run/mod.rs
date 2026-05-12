@@ -158,7 +158,7 @@ impl Run {
         self.interrupts.interrupt = None;
     }
 
-    /// Validate envelope invariants.
+    /// Validate run invariants.
     ///
     /// Called after deserialization from external input to catch
     /// malformed state before it enters the kernel.
@@ -214,7 +214,7 @@ impl Run {
         Ok(())
     }
 
-    /// Merge key-value updates into the envelope.
+    /// Merge key-value updates into the run.
     ///
     /// Supports updating well-known fields: `raw_input`, `metadata` (merged into
     /// `audit.metadata`), and `outputs` (merged into `outputs`). Unknown keys
@@ -551,7 +551,7 @@ mod tests {
         assert_eq!(env.limits.max_llm_calls, 10);
     }
 
-    // ── 17. validate: valid envelope passes ───────────────────────────────
+    // ── 17. validate: valid run passes ───────────────────────────────
 
     #[test]
     fn test_validate_default_passes() {

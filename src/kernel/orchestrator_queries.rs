@@ -24,14 +24,14 @@ impl Orchestrator {
     pub fn get_session_state(
         &self,
         run_id: &RunId,
-        envelope: &Run,
+        run: &Run,
     ) -> Result<RunSnapshot> {
         let session = self
             .pipelines
             .get(run_id)
             .ok_or_else(|| Error::not_found(format!("Unknown process: {}", run_id)))?;
 
-        Ok(self.build_session_state(session, envelope))
+        Ok(self.build_session_state(session, run))
     }
 
     /// Get the response_format for a specific stage. The kernel forwards this
@@ -92,12 +92,12 @@ mod tests {
     fn test_get_session_state() {
         let mut orch = Orchestrator::new();
         let pipeline = create_test_pipeline();
-        let mut envelope = create_test_envelope();
+        let mut run = create_test_envelope();
 
-        let _state = orch.initialize_session(RunId::must("proc1"), pipeline, &mut envelope, false)
+        let _state = orch.initialize_session(RunId::must("proc1"), pipeline, &mut run, false)
             .unwrap();
 
-        let state = orch.get_session_state(&RunId::must("proc1"), &envelope).unwrap();
+        let state = orch.get_session_state(&RunId::must("proc1"), &run).unwrap();
 
         assert_eq!(state.run_id.as_str(), "proc1");
         assert_eq!(state.current_stage, "stage1");
@@ -108,9 +108,9 @@ mod tests {
     #[test]
     fn test_get_session_state_not_found() {
         let orch = Orchestrator::new();
-        let envelope = create_test_envelope();
+        let run = create_test_envelope();
 
-        let result = orch.get_session_state(&RunId::must("nonexistent"), &envelope);
+        let result = orch.get_session_state(&RunId::must("nonexistent"), &run);
         assert!(result.is_err());
     }
 
@@ -120,8 +120,8 @@ mod tests {
         assert_eq!(orch.get_session_count(), 0);
 
         let pipeline = create_test_pipeline();
-        let mut envelope = create_test_envelope();
-        let _state = orch.initialize_session(RunId::must("proc1"), pipeline, &mut envelope, false).unwrap();
+        let mut run = create_test_envelope();
+        let _state = orch.initialize_session(RunId::must("proc1"), pipeline, &mut run, false).unwrap();
         assert_eq!(orch.get_session_count(), 1);
     }
 }

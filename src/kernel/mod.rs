@@ -36,7 +36,7 @@ use crate::run::Run;
 use crate::workflow::MergeStrategy;
 use crate::types::RunId;
 
-/// Merge a value into envelope.state according to the configured strategy.
+/// Merge a value into run.state according to the configured strategy.
 fn merge_state_field(
     state: &mut HashMap<String, serde_json::Value>,
     key: &str,
@@ -100,7 +100,7 @@ pub struct Kernel {
     /// Pipeline orchestration (kernel-driven execution)
     pub(crate) orchestrator: orchestrator::Orchestrator,
 
-    /// Process envelope storage (run_id -> envelope).
+    /// Process run storage (run_id -> run).
     pub(crate) runs: HashMap<RunId, Run>,
 
     /// Tool subsystem (catalog, access, health).

@@ -1,7 +1,9 @@
-//! # Jeeves Core - Multi-Agent Orchestration Kernel
+//! # Jeeves Core — Multi-Agent Orchestration Kernel
 //!
-//! Rust library for multi-agent orchestration: pipeline routing, resource
-//! quotas, embedded agent execution, and tool confirmation gating.
+//! Rust library for multi-agent orchestration: workflow routing, resource
+//! quotas, embedded agent execution, and tool confirmation gating. Supports
+//! both deterministic pipelines and agentic loops (a stage routing to itself
+//! bounded by `max_visits` is a ReAct harness).
 //!
 //! ## Architecture
 //!

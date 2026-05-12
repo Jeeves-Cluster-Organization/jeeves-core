@@ -60,10 +60,10 @@ impl PipelineTestHarness {
             &uuid::Uuid::new_v4().simple().to_string()[..12]
         ));
         let workflow_name = self.config.name.clone();
-        let envelope = Run::new("test_user", "test_session", input, None);
+        let run = Run::new("test_user", "test_session", input, None);
 
         let _state = handle
-            .initialize_session(pid.clone(), self.config, envelope, false)
+            .initialize_session(pid.clone(), self.config, run, false)
             .await?;
 
         let agents = Arc::new(self.agents);
@@ -86,7 +86,7 @@ impl PipelineTestHarness {
             "test_{}",
             &uuid::Uuid::new_v4().simple().to_string()[..12]
         ));
-        let envelope = Run::new("test_user", "test_session", input, None);
+        let run = Run::new("test_user", "test_session", input, None);
 
         let agents = Arc::new(self.agents);
 
@@ -94,7 +94,7 @@ impl PipelineTestHarness {
             handle,
             pid,
             self.config,
-            envelope,
+            run,
             agents,
         )
         .await?;

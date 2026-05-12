@@ -1,13 +1,13 @@
 # Jeeves Core
 
-Rust micro-kernel for AI agent orchestration. Consumed as a library; no service binary, no language bindings.
+Rust kernel for AI agent orchestration. Consumed as a library; no service binary, no language bindings.
 
-See `CONSTITUTION.md` for the architectural principles and `docs/API_REFERENCE.md` for the consumer-facing API.
+See `CONSTITUTION.md` for architectural principles and `docs/API_REFERENCE.md` for the consumer-facing API.
 
 ## Quick Start
 
 ```bash
-cargo test                              # 175 lib + 23 integration tests
+cargo test                              # 170 lib + 23 integration + 2 schema
 cargo clippy --all-features             # lint
 ```
 
@@ -15,23 +15,25 @@ cargo clippy --all-features             # lint
 
 ```
 src/
-├── kernel/      # Orchestration: pipeline sessions, routing, bounds, lifecycle, interrupts
-├── worker/      # Agent execution: kernel actor, KernelHandle, Agent impls, LLM provider, tools
-├── envelope/    # Envelope, bounds, TerminalReason
-├── tools/       # ToolAccessPolicy, ToolCatalog, ToolHealthTracker
-└── types/       # IDs, errors, config
-schema/          # JSON Schema for pipeline.json
-tests/           # Integration tests
+├── kernel/        # Kernel actor, KernelHandle, runner, orchestrator, lifecycle, interrupts
+├── agent/         # Agent trait + impls (LlmAgent, ToolDelegatingAgent, Deterministic), hooks
+├── run/           # Run state, identity, metrics, audit, FlowInterrupt, RunEvent stream
+├── workflow/      # Workflow + Stage definition, retry/context policy, state_schema
+├── tools/         # ToolRegistry, ToolAccessPolicy, ToolCatalog, ToolHealthTracker
+└── types/         # IDs, errors, config
+schema/            # JSON Schema for workflow JSON
+tests/             # Integration tests (runner.rs, schema.rs)
 ```
+
+Dependency direction is one-way: `types → {workflow, run, tools} → agent → kernel`.
 
 ## Consumer Pattern
 
 ```rust
 use jeeves_core::prelude::*;
-use jeeves_core::worker::llm::genai_provider::GenaiProvider;
 use std::sync::Arc;
 
-let llm: Arc<dyn LlmProvider> = Arc::new(GenaiProvider::new("qwen3-14b"));
+let llm: Arc<dyn LlmProvider> = /* your LlmProvider impl */;
 let prompts = Arc::new(PromptRegistry::from_dir("prompts/"));
 let tools = ToolRegistryBuilder::new().add_executor(my_tools).build();
 
@@ -41,14 +43,16 @@ kernel.register_routing_fn("router", Arc::new(|ctx: &RoutingContext<'_>| {
 }));
 
 let cancel = tokio_util::sync::CancellationToken::new();
-let handle = jeeves_core::worker::actor::spawn_kernel(kernel, cancel);
+let handle = jeeves_core::kernel::actor::spawn(kernel, cancel);
 
 let agents = AgentFactoryBuilder::new(llm, prompts, tools)
-    .add_pipeline(config.clone()).build();
+    .add_pipeline(workflow.clone()).build();
 
-let envelope = Envelope::new_minimal("user1", "session1", "hello", None);
-let result = run_pipeline_with_envelope(&handle, ProcessId::new(), config, envelope, &agents).await?;
+let run = Run::new("user1", "session1", "hello", None);
+let result = run(&handle, RunId::new(), workflow, run, &agents).await?;
 ```
+
+For streaming events use `run_streaming` (returns `mpsc::Receiver<RunEvent>`).
 
 ## Feature Flags
 

@@ -12,15 +12,15 @@ use crate::kernel::protocol::{RunSnapshot};
 impl Orchestrator {
     /// Initialize a new pipeline session.
     ///
-    /// Takes a mutable envelope reference to set pipeline bounds (kernel owns the envelope).
+    /// Takes a mutable run reference to set pipeline bounds (kernel owns the run).
     /// If force is false and a session already exists, returns an error.
     /// If force is true, replaces any existing session.
-    #[instrument(skip(self, pipeline_config, envelope), fields(run_id = %run_id))]
+    #[instrument(skip(self, pipeline_config, run), fields(run_id = %run_id))]
     pub fn initialize_session(
         &mut self,
         run_id: RunId,
         pipeline_config: Workflow,
-        envelope: &mut Run,
+        run: &mut Run,
         force: bool,
     ) -> Result<RunSnapshot> {
         // Check for duplicate processID
@@ -34,15 +34,15 @@ impl Orchestrator {
         // Validate pipeline config
         pipeline_config.validate()?;
 
-        // Initialize envelope with pipeline bounds
-        envelope.max_iterations = pipeline_config.max_iterations;
-        envelope.limits.max_llm_calls = pipeline_config.max_llm_calls;
-        envelope.limits.max_agent_hops = pipeline_config.max_agent_hops;
-        envelope.stage_order = pipeline_config.get_stage_order();
+        // Initialize run with pipeline bounds
+        run.max_iterations = pipeline_config.max_iterations;
+        run.limits.max_llm_calls = pipeline_config.max_llm_calls;
+        run.limits.max_agent_hops = pipeline_config.max_agent_hops;
+        run.stage_order = pipeline_config.get_stage_order();
 
         // Set initial stage if not set
-        if envelope.current_stage.is_empty() && !envelope.stage_order.is_empty() {
-            envelope.current_stage = envelope.stage_order[0].clone();
+        if run.current_stage.is_empty() && !run.stage_order.is_empty() {
+            run.current_stage = run.stage_order[0].clone();
         }
 
         let now = Utc::now();
@@ -55,7 +55,7 @@ impl Orchestrator {
             last_routing_decision: None,
         };
 
-        let state = self.build_session_state(&session, envelope);
+        let state = self.build_session_state(&session, run);
         self.pipelines.insert(run_id, session);
 
         Ok(state)
@@ -117,10 +117,10 @@ mod tests {
     fn test_initialize_session() {
         let mut orch = Orchestrator::new();
         let pipeline = create_test_pipeline();
-        let mut envelope = create_test_envelope();
+        let mut run = create_test_envelope();
 
         let state = orch
-            .initialize_session(RunId::must("proc1"), pipeline.clone(), &mut envelope, false)
+            .initialize_session(RunId::must("proc1"), pipeline.clone(), &mut run, false)
             .unwrap();
 
         assert_eq!(state.run_id.as_str(), "proc1");
@@ -133,9 +133,9 @@ mod tests {
     fn test_initialize_session_duplicate_fails() {
         let mut orch = Orchestrator::new();
         let pipeline = create_test_pipeline();
-        let mut envelope = create_test_envelope();
+        let mut run = create_test_envelope();
 
-        let _state = orch.initialize_session(RunId::must("proc1"), pipeline.clone(), &mut envelope, false)
+        let _state = orch.initialize_session(RunId::must("proc1"), pipeline.clone(), &mut run, false)
             .unwrap();
 
         let mut envelope2 = create_test_envelope();
@@ -150,9 +150,9 @@ mod tests {
     fn test_initialize_session_force_replaces() {
         let mut orch = Orchestrator::new();
         let pipeline = create_test_pipeline();
-        let mut envelope = create_test_envelope();
+        let mut run = create_test_envelope();
 
-        let _state = orch.initialize_session(RunId::must("proc1"), pipeline.clone(), &mut envelope, false)
+        let _state = orch.initialize_session(RunId::must("proc1"), pipeline.clone(), &mut run, false)
             .unwrap();
 
         let mut envelope2 = create_test_envelope();
@@ -167,8 +167,8 @@ mod tests {
         let mut orch = Orchestrator::new();
         let pid = RunId::must("p1");
         let pipeline = create_test_pipeline();
-        let mut envelope = create_test_envelope();
-        let _state = orch.initialize_session(pid.clone(), pipeline, &mut envelope, false).unwrap();
+        let mut run = create_test_envelope();
+        let _state = orch.initialize_session(pid.clone(), pipeline, &mut run, false).unwrap();
 
         assert!(orch.has_session(&pid));
     }
@@ -183,9 +183,9 @@ mod tests {
     fn test_cleanup_session() {
         let mut orch = Orchestrator::new();
         let pipeline = create_test_pipeline();
-        let mut envelope = create_test_envelope();
+        let mut run = create_test_envelope();
 
-        let _state = orch.initialize_session(RunId::must("proc1"), pipeline, &mut envelope, false)
+        let _state = orch.initialize_session(RunId::must("proc1"), pipeline, &mut run, false)
             .unwrap();
 
         assert_eq!(orch.get_session_count(), 1);

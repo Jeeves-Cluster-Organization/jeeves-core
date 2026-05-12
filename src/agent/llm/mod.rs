@@ -13,7 +13,7 @@ use tokio::sync::mpsc;
 use crate::tools::ContentPart;
 use crate::types::Result;
 
-// Streaming events live with the envelope (pipeline-level, not LLM-specific).
+// Streaming events live with the run (pipeline-level, not LLM-specific).
 pub use crate::run::events::{AggregateMetrics, RunEvent, StageMetrics};
 
 /// LLM message body — text or multimodal parts.

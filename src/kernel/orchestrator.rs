@@ -43,7 +43,7 @@ pub(crate) fn get_agent_for_stage(
 /// Orchestration represents an active pipeline execution session.
 ///
 /// The session tracks pipeline execution state only (config, stage visits,
-/// last routing decision). The envelope is owned by the Kernel's
+/// last routing decision). The run is owned by the Kernel's
 /// `runs` store.
 #[derive(Debug, Clone)]
 pub struct Orchestration {
@@ -77,13 +77,13 @@ impl Orchestrator {
     }
 
     /// Decide what to run next for `run_id`. Returns one of `RunAgent`,
-    /// `Terminate`, or `WaitInterrupt`. The envelope may be mutated for
+    /// `Terminate`, or `WaitInterrupt`. The run may be mutated for
     /// bounds-driven termination.
-    #[instrument(skip(self, envelope), fields(run_id = %run_id))]
+    #[instrument(skip(self, run), fields(run_id = %run_id))]
     pub fn get_next_instruction(
         &mut self,
         run_id: &RunId,
-        envelope: &mut Run,
+        run: &mut Run,
     ) -> Result<Instruction> {
         let session = self
             .pipelines
@@ -91,36 +91,36 @@ impl Orchestrator {
             .ok_or_else(|| Error::not_found(format!("Unknown process: {}", run_id)))?;
         session.last_activity_at = Utc::now();
 
-        if envelope.is_terminated() {
+        if run.is_terminated() {
             return Ok(Instruction::terminate(
-                envelope.terminal_reason().unwrap_or(TerminalReason::Completed),
+                run.terminal_reason().unwrap_or(TerminalReason::Completed),
                 "Session already terminated",
             ));
         }
 
         // Pending tool-confirmation interrupt suspends the stage.
-        if envelope.interrupts.is_pending() {
-            let expired = envelope.interrupts.interrupt.as_ref()
+        if run.interrupts.is_pending() {
+            let expired = run.interrupts.interrupt.as_ref()
                 .and_then(|i| i.expires_at)
                 .map(|exp| Utc::now() > exp)
                 .unwrap_or(false);
             if expired {
-                envelope.clear_interrupt();
+                run.clear_interrupt();
                 // Fall through to dispatch the agent again now that the interrupt is gone.
             } else {
                 return Ok(Instruction::WaitInterrupt {
-                    interrupt: envelope.interrupts.interrupt.clone(),
+                    interrupt: run.interrupts.interrupt.clone(),
                 });
             }
         }
 
-        if let Some(reason) = envelope.check_bounds() {
+        if let Some(reason) = run.check_bounds() {
             tracing::warn!(reason = ?reason, "bounds_terminated");
-            envelope.terminate_with(reason, None);
+            run.terminate_with(reason, None);
             return Ok(Instruction::terminate(reason, format!("Bounds exceeded: {:?}", reason)));
         }
 
-        let current_stage = &envelope.current_stage;
+        let current_stage = &run.current_stage;
         if current_stage.is_empty() {
             return Err(Error::state_transition("No current stage set"));
         }
@@ -136,13 +136,13 @@ impl Orchestrator {
     /// 2. If `routing_fn` registered → call it
     /// 3. If no routing_fn → use `default_next`
     /// 4. If no `default_next` → terminate (Completed)
-    #[instrument(skip(self, metrics, envelope), fields(run_id = %run_id, agent_failed))]
+    #[instrument(skip(self, metrics, run), fields(run_id = %run_id, agent_failed))]
     pub fn report_agent_result(
         &mut self,
         run_id: &RunId,
         agent_name: &str,
         metrics: AgentExecutionMetrics,
-        envelope: &mut Run,
+        run: &mut Run,
         agent_failed: bool,
         break_loop: bool,
     ) -> Result<()> {
@@ -152,28 +152,28 @@ impl Orchestrator {
             .ok_or_else(|| Error::not_found(format!("Unknown process: {}", run_id)))?;
 
         // Bookkeeping
-        envelope.metrics.llm_calls += metrics.llm_calls;
-        envelope.metrics.tool_calls += metrics.tool_calls;
+        run.metrics.llm_calls += metrics.llm_calls;
+        run.metrics.tool_calls += metrics.tool_calls;
         if let Some(tokens_in) = metrics.tokens_in {
-            envelope.metrics.tokens_in += tokens_in;
+            run.metrics.tokens_in += tokens_in;
         }
         if let Some(tokens_out) = metrics.tokens_out {
-            envelope.metrics.tokens_out += tokens_out;
+            run.metrics.tokens_out += tokens_out;
         }
-        envelope.iteration += 1;
+        run.iteration += 1;
 
-        if let Some(reason) = envelope.check_bounds() {
-            envelope.terminate_with(reason, None);
+        if let Some(reason) = run.check_bounds() {
+            run.terminate_with(reason, None);
             return Ok(());
         }
 
         if break_loop {
-            envelope.terminate_with(TerminalReason::BreakRequested, None);
+            run.terminate_with(TerminalReason::BreakRequested, None);
             session.last_activity_at = Utc::now();
             return Ok(());
         }
 
-        let current_stage = envelope.current_stage.clone();
+        let current_stage = run.current_stage.clone();
         let pipeline_stage = session.pipeline_config.stages
             .iter()
             .find(|s| s.name == current_stage)
@@ -186,7 +186,7 @@ impl Orchestrator {
         *session.stage_visits.entry(current_stage.clone()).or_insert(0) += 1;
 
         let agent_lookup = pipeline_stage.agent.clone();
-        let interrupt_response = envelope.interrupts.interrupt.as_ref()
+        let interrupt_response = run.interrupts.interrupt.as_ref()
             .and_then(|i| i.response.as_ref())
             .and_then(|r| serde_json::to_value(r).ok());
 
@@ -194,10 +194,10 @@ impl Orchestrator {
             current_stage: &current_stage,
             agent_name: &agent_lookup,
             agent_failed,
-            outputs: &envelope.outputs,
-            metadata: &envelope.audit.metadata,
+            outputs: &run.outputs,
+            metadata: &run.audit.metadata,
             interrupt_response: interrupt_response.as_ref(),
-            state: &envelope.state,
+            state: &run.state,
         };
         let routing_decision = evaluate_routing_with_reason(
             &pipeline_stage,
@@ -211,7 +211,7 @@ impl Orchestrator {
             session.last_routing_decision = Some(routing_decision);
         }
 
-        self.apply_routing_result(run_id, &current_stage, next_target, envelope)
+        self.apply_routing_result(run_id, &current_stage, next_target, run)
     }
 
     /// Advance to the next stage or terminate.
@@ -220,7 +220,7 @@ impl Orchestrator {
         run_id: &RunId,
         from_stage: &str,
         next_target: Option<String>,
-        envelope: &mut Run,
+        run: &mut Run,
     ) -> Result<()> {
         let session = self
             .pipelines
@@ -233,7 +233,7 @@ impl Orchestrator {
                     if let Some(max_visits) = target_stage.max_visits {
                         let visits = session.stage_visits.get(&target).copied().unwrap_or(0);
                         if visits >= max_visits {
-                            envelope.terminate_with(
+                            run.terminate_with(
                                 TerminalReason::MaxStageVisitsExceeded,
                                 Some(format!("Stage '{}' exceeded max_visits limit of {}", target, max_visits)),
                             );
@@ -243,15 +243,15 @@ impl Orchestrator {
                     }
                 }
 
-                envelope.metrics.agent_hops += 1;
+                run.metrics.agent_hops += 1;
                 tracing::info!(from = %from_stage, to = %target, "stage_transition");
 
-                envelope.current_stage = target;
+                run.current_stage = target;
                 session.last_activity_at = Utc::now();
             }
             None => {
                 tracing::info!(reason = ?TerminalReason::Completed, "pipeline_completed");
-                envelope.terminate_with(TerminalReason::Completed, None);
+                run.terminate_with(TerminalReason::Completed, None);
                 session.last_activity_at = Utc::now();
             }
         }
@@ -290,11 +290,11 @@ mod tests {
     fn run_agent_dispatch() {
         let config = Workflow::test_default("p", vec![linear_stage("s1", None)]);
         let pid = RunId::must("p1");
-        let mut envelope = make_envelope(&config);
+        let mut run = make_envelope(&config);
         let mut orch = Orchestrator::new();
-        orch.initialize_session(pid.clone(), config, &mut envelope, false).unwrap();
+        orch.initialize_session(pid.clone(), config, &mut run, false).unwrap();
 
-        let instr = orch.get_next_instruction(&pid, &mut envelope).unwrap();
+        let instr = orch.get_next_instruction(&pid, &mut run).unwrap();
         match instr {
             Instruction::RunAgent { agent, .. } => assert_eq!(agent, "s1"),
             other => panic!("expected RunAgent, got {:?}", other),
@@ -305,12 +305,12 @@ mod tests {
     fn already_terminated_returns_terminate() {
         let config = Workflow::test_default("p", vec![linear_stage("s1", None)]);
         let pid = RunId::must("p1");
-        let mut envelope = make_envelope(&config);
-        envelope.terminate_with(TerminalReason::Completed, None);
+        let mut run = make_envelope(&config);
+        run.terminate_with(TerminalReason::Completed, None);
 
         let mut orch = Orchestrator::new();
-        orch.initialize_session(pid.clone(), config, &mut envelope, false).unwrap();
-        let instr = orch.get_next_instruction(&pid, &mut envelope).unwrap();
+        orch.initialize_session(pid.clone(), config, &mut run, false).unwrap();
+        let instr = orch.get_next_instruction(&pid, &mut run).unwrap();
         assert!(matches!(instr, Instruction::Terminate { .. }));
     }
 
@@ -319,12 +319,12 @@ mod tests {
         use crate::run::FlowInterrupt;
         let config = Workflow::test_default("p", vec![linear_stage("s1", None)]);
         let pid = RunId::must("p1");
-        let mut envelope = make_envelope(&config);
-        envelope.set_interrupt(FlowInterrupt::new());
+        let mut run = make_envelope(&config);
+        run.set_interrupt(FlowInterrupt::new());
 
         let mut orch = Orchestrator::new();
-        orch.initialize_session(pid.clone(), config, &mut envelope, false).unwrap();
-        let instr = orch.get_next_instruction(&pid, &mut envelope).unwrap();
+        orch.initialize_session(pid.clone(), config, &mut run, false).unwrap();
+        let instr = orch.get_next_instruction(&pid, &mut run).unwrap();
         assert!(matches!(instr, Instruction::WaitInterrupt { .. }));
     }
 
@@ -335,20 +335,20 @@ mod tests {
             linear_stage("s2", None),
         ]);
         let pid = RunId::must("p1");
-        let mut envelope = make_envelope(&config);
+        let mut run = make_envelope(&config);
         let mut orch = Orchestrator::new();
-        orch.initialize_session(pid.clone(), config, &mut envelope, false).unwrap();
+        orch.initialize_session(pid.clone(), config, &mut run, false).unwrap();
 
         // first dispatch is s1
-        let instr = orch.get_next_instruction(&pid, &mut envelope).unwrap();
+        let instr = orch.get_next_instruction(&pid, &mut run).unwrap();
         assert!(matches!(&instr, Instruction::RunAgent { agent, .. } if agent == "s1"));
         // report success → routes to s2 via default_next
-        orch.report_agent_result(&pid, "s1", zero_metrics(), &mut envelope, false, false).unwrap();
-        let instr = orch.get_next_instruction(&pid, &mut envelope).unwrap();
+        orch.report_agent_result(&pid, "s1", zero_metrics(), &mut run, false, false).unwrap();
+        let instr = orch.get_next_instruction(&pid, &mut run).unwrap();
         assert!(matches!(&instr, Instruction::RunAgent { agent, .. } if agent == "s2"));
         // s2 has no default_next → next report terminates
-        orch.report_agent_result(&pid, "s2", zero_metrics(), &mut envelope, false, false).unwrap();
-        assert!(envelope.is_terminated());
+        orch.report_agent_result(&pid, "s2", zero_metrics(), &mut run, false, false).unwrap();
+        assert!(run.is_terminated());
     }
 
     #[test]
@@ -365,15 +365,15 @@ mod tests {
             linear_stage("fallback", None),
         ]);
         let pid = RunId::must("p1");
-        let mut envelope = make_envelope(&config);
+        let mut run = make_envelope(&config);
         let mut orch = Orchestrator::new();
         orch.register_routing_fn("decide", Arc::new(|_ctx: &RoutingContext<'_>| {
             RoutingResult::Next("target".into())
         }));
-        orch.initialize_session(pid.clone(), config, &mut envelope, false).unwrap();
+        orch.initialize_session(pid.clone(), config, &mut run, false).unwrap();
 
-        orch.report_agent_result(&pid, "s1", zero_metrics(), &mut envelope, false, false).unwrap();
-        assert_eq!(envelope.current_stage, "target");
+        orch.report_agent_result(&pid, "s1", zero_metrics(), &mut run, false, false).unwrap();
+        assert_eq!(run.current_stage, "target");
     }
 
     #[test]
@@ -390,12 +390,12 @@ mod tests {
             linear_stage("s_err", None),
         ]);
         let pid = RunId::must("p1");
-        let mut envelope = make_envelope(&config);
+        let mut run = make_envelope(&config);
         let mut orch = Orchestrator::new();
-        orch.initialize_session(pid.clone(), config, &mut envelope, false).unwrap();
+        orch.initialize_session(pid.clone(), config, &mut run, false).unwrap();
 
-        orch.report_agent_result(&pid, "s1", zero_metrics(), &mut envelope, true, false).unwrap();
-        assert_eq!(envelope.current_stage, "s_err");
+        orch.report_agent_result(&pid, "s1", zero_metrics(), &mut run, true, false).unwrap();
+        assert_eq!(run.current_stage, "s_err");
     }
 
     #[test]
@@ -408,28 +408,28 @@ mod tests {
             ..Stage::default()
         }]);
         let pid = RunId::must("p1");
-        let mut envelope = make_envelope(&config);
+        let mut run = make_envelope(&config);
         let mut orch = Orchestrator::new();
-        orch.initialize_session(pid.clone(), config, &mut envelope, false).unwrap();
+        orch.initialize_session(pid.clone(), config, &mut run, false).unwrap();
 
         // First report: visit count was 0, becomes 1, transitions back to loop (visits=1, allowed since limit=2)
-        orch.report_agent_result(&pid, "loop", zero_metrics(), &mut envelope, false, false).unwrap();
-        assert!(!envelope.is_terminated(), "first transition allowed");
+        orch.report_agent_result(&pid, "loop", zero_metrics(), &mut run, false, false).unwrap();
+        assert!(!run.is_terminated(), "first transition allowed");
         // Second report: visit count becomes 2 (== limit), transition rejected
-        orch.report_agent_result(&pid, "loop", zero_metrics(), &mut envelope, false, false).unwrap();
-        assert_eq!(envelope.terminal_reason(), Some(TerminalReason::MaxStageVisitsExceeded));
+        orch.report_agent_result(&pid, "loop", zero_metrics(), &mut run, false, false).unwrap();
+        assert_eq!(run.terminal_reason(), Some(TerminalReason::MaxStageVisitsExceeded));
     }
 
     #[test]
     fn break_loop_terminates() {
         let config = Workflow::test_default("p", vec![linear_stage("s1", Some("s2")), linear_stage("s2", None)]);
         let pid = RunId::must("p1");
-        let mut envelope = make_envelope(&config);
+        let mut run = make_envelope(&config);
         let mut orch = Orchestrator::new();
-        orch.initialize_session(pid.clone(), config, &mut envelope, false).unwrap();
+        orch.initialize_session(pid.clone(), config, &mut run, false).unwrap();
 
-        orch.report_agent_result(&pid, "s1", zero_metrics(), &mut envelope, false, true).unwrap();
-        assert_eq!(envelope.terminal_reason(), Some(TerminalReason::BreakRequested));
+        orch.report_agent_result(&pid, "s1", zero_metrics(), &mut run, false, true).unwrap();
+        assert_eq!(run.terminal_reason(), Some(TerminalReason::BreakRequested));
     }
 
     #[test]
@@ -443,12 +443,12 @@ mod tests {
         }]);
         config.max_iterations = 1;
         let pid = RunId::must("p1");
-        let mut envelope = make_envelope(&config);
+        let mut run = make_envelope(&config);
         let mut orch = Orchestrator::new();
-        orch.initialize_session(pid.clone(), config, &mut envelope, false).unwrap();
+        orch.initialize_session(pid.clone(), config, &mut run, false).unwrap();
 
-        orch.report_agent_result(&pid, "s1", zero_metrics(), &mut envelope, false, false).unwrap();
-        assert!(envelope.is_terminated());
+        orch.report_agent_result(&pid, "s1", zero_metrics(), &mut run, false, false).unwrap();
+        assert!(run.is_terminated());
     }
 
     #[test]

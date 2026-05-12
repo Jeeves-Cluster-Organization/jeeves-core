@@ -2,7 +2,7 @@
 //!
 //! Consumers drain a `mpsc::Receiver<RunEvent>` from
 //! [`run_streaming`](crate::kernel::runner::run_streaming).
-//! Events are pipeline-level (not LLM-specific) so they live with the envelope
+//! Events are pipeline-level (not LLM-specific) so they live with the run
 //! that frames a pipeline execution.
 
 use serde::{Deserialize, Serialize};
