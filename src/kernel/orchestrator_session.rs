@@ -35,18 +35,14 @@ impl Orchestrator {
         pipeline_config.validate()?;
 
         // Initialize envelope with pipeline bounds
-        envelope.pipeline.max_iterations = pipeline_config.max_iterations;
-        envelope.bounds.max_llm_calls = pipeline_config.max_llm_calls;
-        envelope.bounds.max_agent_hops = pipeline_config.max_agent_hops;
-        envelope.pipeline.stage_order = pipeline_config.get_stage_order();
-
-        // Initialize execution tracking
-        envelope.pipeline.max_stages = pipeline_config.stages.len() as i32;
-        envelope.pipeline.current_stage_number = 1;
+        envelope.max_iterations = pipeline_config.max_iterations;
+        envelope.limits.max_llm_calls = pipeline_config.max_llm_calls;
+        envelope.limits.max_agent_hops = pipeline_config.max_agent_hops;
+        envelope.stage_order = pipeline_config.get_stage_order();
 
         // Set initial stage if not set
-        if envelope.pipeline.current_stage.is_empty() && !envelope.pipeline.stage_order.is_empty() {
-            envelope.pipeline.current_stage = envelope.pipeline.stage_order[0].clone();
+        if envelope.current_stage.is_empty() && !envelope.stage_order.is_empty() {
+            envelope.current_stage = envelope.stage_order[0].clone();
         }
 
         let now = Utc::now();
@@ -102,11 +98,11 @@ impl Orchestrator {
 
         RunSnapshot {
             run_id: session.run_id.clone(),
-            current_stage: envelope.pipeline.current_stage.clone(),
-            stage_order: envelope.pipeline.stage_order.clone(),
+            current_stage: envelope.current_stage.clone(),
+            stage_order: envelope.stage_order.clone(),
             envelope: envelope_value,
-            terminated: envelope.bounds.is_terminated(),
-            terminal_reason: envelope.bounds.terminal_reason(),
+            terminated: envelope.is_terminated(),
+            terminal_reason: envelope.terminal_reason(),
         }
     }
 }

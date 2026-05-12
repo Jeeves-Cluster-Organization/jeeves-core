@@ -38,19 +38,19 @@ pub fn create_test_pipeline() -> Workflow {
 /// Empty envelope with cleared current_stage (ready for pipeline init).
 pub fn create_test_envelope() -> Run {
     let mut env = Run::anonymous();
-    env.pipeline.current_stage = String::new();
+    env.current_stage = String::new();
     env
 }
 
 /// Build an envelope with the pipeline's bounds and stage_order populated.
 pub fn make_envelope(config: &Workflow) -> Run {
     let mut env = create_test_envelope();
-    env.pipeline.max_iterations = config.max_iterations;
-    env.bounds.max_llm_calls = config.max_llm_calls;
-    env.bounds.max_agent_hops = config.max_agent_hops;
-    env.pipeline.stage_order = config.get_stage_order();
-    if !env.pipeline.stage_order.is_empty() {
-        env.pipeline.current_stage = env.pipeline.stage_order[0].clone();
+    env.max_iterations = config.max_iterations;
+    env.limits.max_llm_calls = config.max_llm_calls;
+    env.limits.max_agent_hops = config.max_agent_hops;
+    env.stage_order = config.get_stage_order();
+    if !env.stage_order.is_empty() {
+        env.current_stage = env.stage_order[0].clone();
     }
     env
 }

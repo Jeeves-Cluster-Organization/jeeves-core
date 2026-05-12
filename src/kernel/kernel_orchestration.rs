@@ -59,7 +59,7 @@ impl Kernel {
                 }
 
                 let stage_name = self.runs.get(run_id)
-                    .map(|e| e.pipeline.current_stage.clone())
+                    .map(|e| e.current_stage.clone())
                     .unwrap_or_default();
 
                 if let Some(sc) = self.orchestrator.get_stage_config(run_id, &stage_name) {
@@ -77,11 +77,11 @@ impl Kernel {
                         "outputs": &envelope.outputs,
                         "aggregate_metrics": {
                             "total_duration_ms": total_duration_ms,
-                            "total_llm_calls": envelope.bounds.llm_call_count,
-                            "total_tool_calls": envelope.bounds.tool_call_count,
-                            "total_tokens_in": envelope.bounds.tokens_in,
-                            "total_tokens_out": envelope.bounds.tokens_out,
-                            "stages_executed": &envelope.pipeline.stage_order,
+                            "total_llm_calls": envelope.metrics.llm_calls,
+                            "total_tool_calls": envelope.metrics.tool_calls,
+                            "total_tokens_in": envelope.metrics.tokens_in,
+                            "total_tokens_out": envelope.metrics.tokens_out,
+                            "stages_executed": &envelope.stage_order,
                         }
                     }));
                 }
@@ -189,7 +189,12 @@ impl Kernel {
             let now = chrono::Utc::now();
             envelope.audit.processing_history.push(crate::run::ProcessingRecord {
                 agent: agent_name.to_string(),
-                stage_order: envelope.pipeline.current_stage_number,
+                stage_order: envelope
+                    .stage_order
+                    .iter()
+                    .position(|s| s == &envelope.current_stage)
+                    .map(|p| (p + 1) as i32)
+                    .unwrap_or(0),
                 started_at: now - chrono::Duration::milliseconds(duration_ms),
                 completed_at: Some(now),
                 duration_ms: duration_ms as i32,
@@ -248,14 +253,14 @@ impl Kernel {
             "state": &envelope.state,
             "metadata": &envelope.audit.metadata,
             "template_vars": serde_json::Value::Object(template_vars),
-            "llm_call_count": envelope.bounds.llm_call_count,
-            "agent_hop_count": envelope.bounds.agent_hop_count,
-            "tokens_in": envelope.bounds.tokens_in,
-            "tokens_out": envelope.bounds.tokens_out,
+            "llm_call_count": envelope.metrics.llm_calls,
+            "agent_hop_count": envelope.metrics.agent_hops,
+            "tokens_in": envelope.metrics.tokens_in,
+            "tokens_out": envelope.metrics.tokens_out,
             "circuit_broken_tools": self.tools.health.get_circuit_broken_tools(),
         });
 
-        let stage_name = envelope.pipeline.current_stage.clone();
+        let stage_name = envelope.current_stage.clone();
         let (max_context_tokens, context_overflow) = self.orchestrator
             .get_stage_config(run_id, &stage_name)
             .map(|sc| {
@@ -366,7 +371,7 @@ impl Kernel {
     pub fn terminate_process(&mut self, pid: &RunId) -> Result<()> {
         self.lifecycle.terminate(pid)?;
         if let Some(env) = self.runs.get_mut(pid) {
-            env.terminate("Process terminated");
+            env.complete("Process terminated");
         }
         self.runs.remove(pid);
         self.orchestrator.cleanup_session(pid);

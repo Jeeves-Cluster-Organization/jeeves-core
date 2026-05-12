@@ -40,30 +40,6 @@ pub(crate) fn get_agent_for_stage(
         .ok_or_else(|| Error::not_found(format!("Stage not found in pipeline: {}", stage_name)))
 }
 
-/// Build the per-stage snapshot pushed onto `completed_stage_snapshots`.
-pub(crate) fn build_stage_snapshot(
-    stage_name: &str,
-    agent_output: &HashMap<String, serde_json::Value>,
-) -> HashMap<String, serde_json::Value> {
-    [
-        (
-            "stage".to_string(),
-            serde_json::Value::String(stage_name.to_string()),
-        ),
-        (
-            "output".to_string(),
-            serde_json::Value::Object(
-                agent_output
-                    .iter()
-                    .map(|(k, v)| (k.clone(), v.clone()))
-                    .collect(),
-            ),
-        ),
-    ]
-    .into_iter()
-    .collect()
-}
-
 /// Orchestration represents an active pipeline execution session.
 ///
 /// The session tracks pipeline execution state only (config, stage visits,
@@ -115,9 +91,9 @@ impl Orchestrator {
             .ok_or_else(|| Error::not_found(format!("Unknown process: {}", run_id)))?;
         session.last_activity_at = Utc::now();
 
-        if envelope.bounds.is_terminated() {
+        if envelope.is_terminated() {
             return Ok(Instruction::terminate(
-                envelope.bounds.terminal_reason().unwrap_or(TerminalReason::Completed),
+                envelope.terminal_reason().unwrap_or(TerminalReason::Completed),
                 "Session already terminated",
             ));
         }
@@ -140,11 +116,11 @@ impl Orchestrator {
 
         if let Some(reason) = envelope.check_bounds() {
             tracing::warn!(reason = ?reason, "bounds_terminated");
-            envelope.bounds.terminate(reason, None);
+            envelope.terminate_with(reason, None);
             return Ok(Instruction::terminate(reason, format!("Bounds exceeded: {:?}", reason)));
         }
 
-        let current_stage = &envelope.pipeline.current_stage;
+        let current_stage = &envelope.current_stage;
         if current_stage.is_empty() {
             return Err(Error::state_transition("No current stage set"));
         }
@@ -176,28 +152,28 @@ impl Orchestrator {
             .ok_or_else(|| Error::not_found(format!("Unknown process: {}", run_id)))?;
 
         // Bookkeeping
-        envelope.bounds.llm_call_count += metrics.llm_calls;
-        envelope.bounds.tool_call_count += metrics.tool_calls;
+        envelope.metrics.llm_calls += metrics.llm_calls;
+        envelope.metrics.tool_calls += metrics.tool_calls;
         if let Some(tokens_in) = metrics.tokens_in {
-            envelope.bounds.tokens_in += tokens_in;
+            envelope.metrics.tokens_in += tokens_in;
         }
         if let Some(tokens_out) = metrics.tokens_out {
-            envelope.bounds.tokens_out += tokens_out;
+            envelope.metrics.tokens_out += tokens_out;
         }
-        envelope.pipeline.iteration += 1;
+        envelope.iteration += 1;
 
         if let Some(reason) = envelope.check_bounds() {
-            envelope.bounds.terminate(reason, None);
+            envelope.terminate_with(reason, None);
             return Ok(());
         }
 
         if break_loop {
-            envelope.bounds.terminate(TerminalReason::BreakRequested, None);
+            envelope.terminate_with(TerminalReason::BreakRequested, None);
             session.last_activity_at = Utc::now();
             return Ok(());
         }
 
-        let current_stage = envelope.pipeline.current_stage.clone();
+        let current_stage = envelope.current_stage.clone();
         let pipeline_stage = session.pipeline_config.stages
             .iter()
             .find(|s| s.name == current_stage)
@@ -208,13 +184,6 @@ impl Orchestrator {
             .clone();
 
         *session.stage_visits.entry(current_stage.clone()).or_insert(0) += 1;
-        envelope.complete_stage(&current_stage);
-
-        if let Some(agent_output) = envelope.outputs.get(agent_name) {
-            envelope.pipeline.completed_stage_snapshots.push(
-                build_stage_snapshot(&current_stage, agent_output),
-            );
-        }
 
         let agent_lookup = pipeline_stage.agent.clone();
         let interrupt_response = envelope.interrupts.interrupt.as_ref()
@@ -264,7 +233,7 @@ impl Orchestrator {
                     if let Some(max_visits) = target_stage.max_visits {
                         let visits = session.stage_visits.get(&target).copied().unwrap_or(0);
                         if visits >= max_visits {
-                            envelope.bounds.terminate(
+                            envelope.terminate_with(
                                 TerminalReason::MaxStageVisitsExceeded,
                                 Some(format!("Stage '{}' exceeded max_visits limit of {}", target, max_visits)),
                             );
@@ -274,18 +243,15 @@ impl Orchestrator {
                     }
                 }
 
-                envelope.bounds.agent_hop_count += 1;
+                envelope.metrics.agent_hops += 1;
                 tracing::info!(from = %from_stage, to = %target, "stage_transition");
 
-                if let Some(pos) = envelope.pipeline.stage_order.iter().position(|s| s == &target) {
-                    envelope.pipeline.current_stage_number = (pos + 1) as i32;
-                }
-                envelope.pipeline.current_stage = target;
+                envelope.current_stage = target;
                 session.last_activity_at = Utc::now();
             }
             None => {
                 tracing::info!(reason = ?TerminalReason::Completed, "pipeline_completed");
-                envelope.bounds.terminate(TerminalReason::Completed, None);
+                envelope.terminate_with(TerminalReason::Completed, None);
                 session.last_activity_at = Utc::now();
             }
         }
@@ -340,7 +306,7 @@ mod tests {
         let config = Workflow::test_default("p", vec![linear_stage("s1", None)]);
         let pid = RunId::must("p1");
         let mut envelope = make_envelope(&config);
-        envelope.bounds.terminate(TerminalReason::Completed, None);
+        envelope.terminate_with(TerminalReason::Completed, None);
 
         let mut orch = Orchestrator::new();
         orch.initialize_session(pid.clone(), config, &mut envelope, false).unwrap();
@@ -382,7 +348,7 @@ mod tests {
         assert!(matches!(&instr, Instruction::RunAgent { agent, .. } if agent == "s2"));
         // s2 has no default_next → next report terminates
         orch.report_agent_result(&pid, "s2", zero_metrics(), &mut envelope, false, false).unwrap();
-        assert!(envelope.bounds.is_terminated());
+        assert!(envelope.is_terminated());
     }
 
     #[test]
@@ -407,7 +373,7 @@ mod tests {
         orch.initialize_session(pid.clone(), config, &mut envelope, false).unwrap();
 
         orch.report_agent_result(&pid, "s1", zero_metrics(), &mut envelope, false, false).unwrap();
-        assert_eq!(envelope.pipeline.current_stage, "target");
+        assert_eq!(envelope.current_stage, "target");
     }
 
     #[test]
@@ -429,7 +395,7 @@ mod tests {
         orch.initialize_session(pid.clone(), config, &mut envelope, false).unwrap();
 
         orch.report_agent_result(&pid, "s1", zero_metrics(), &mut envelope, true, false).unwrap();
-        assert_eq!(envelope.pipeline.current_stage, "s_err");
+        assert_eq!(envelope.current_stage, "s_err");
     }
 
     #[test]
@@ -448,10 +414,10 @@ mod tests {
 
         // First report: visit count was 0, becomes 1, transitions back to loop (visits=1, allowed since limit=2)
         orch.report_agent_result(&pid, "loop", zero_metrics(), &mut envelope, false, false).unwrap();
-        assert!(!envelope.bounds.is_terminated(), "first transition allowed");
+        assert!(!envelope.is_terminated(), "first transition allowed");
         // Second report: visit count becomes 2 (== limit), transition rejected
         orch.report_agent_result(&pid, "loop", zero_metrics(), &mut envelope, false, false).unwrap();
-        assert_eq!(envelope.bounds.terminal_reason(), Some(TerminalReason::MaxStageVisitsExceeded));
+        assert_eq!(envelope.terminal_reason(), Some(TerminalReason::MaxStageVisitsExceeded));
     }
 
     #[test]
@@ -463,7 +429,7 @@ mod tests {
         orch.initialize_session(pid.clone(), config, &mut envelope, false).unwrap();
 
         orch.report_agent_result(&pid, "s1", zero_metrics(), &mut envelope, false, true).unwrap();
-        assert_eq!(envelope.bounds.terminal_reason(), Some(TerminalReason::BreakRequested));
+        assert_eq!(envelope.terminal_reason(), Some(TerminalReason::BreakRequested));
     }
 
     #[test]
@@ -482,7 +448,7 @@ mod tests {
         orch.initialize_session(pid.clone(), config, &mut envelope, false).unwrap();
 
         orch.report_agent_result(&pid, "s1", zero_metrics(), &mut envelope, false, false).unwrap();
-        assert!(envelope.bounds.is_terminated());
+        assert!(envelope.is_terminated());
     }
 
     #[test]

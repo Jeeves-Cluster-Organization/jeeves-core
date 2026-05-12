@@ -3,7 +3,7 @@
 
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 
 use crate::types::{EnvelopeId, RequestId, SessionId, UserId};
 
@@ -28,8 +28,15 @@ pub struct Run {
     #[serde(default, skip_serializing_if = "HashMap::is_empty")]
     pub state: HashMap<String, serde_json::Value>,
 
-    pub pipeline: Pipeline,
-    pub bounds: Bounds,
+    pub current_stage: String,
+    pub stage_order: Vec<String>,
+    pub iteration: i32,
+    pub max_iterations: i32,
+
+    pub limits: Limits,
+    pub metrics: Metrics,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub termination: Option<Termination>,
     pub interrupts: InterruptState,
     pub audit: Audit,
 }
@@ -76,26 +83,16 @@ impl Run {
             received_at: now,
             outputs: HashMap::new(),
             state: HashMap::new(),
-            pipeline: Pipeline {
-                current_stage: String::new(),
-                stage_order: Vec::new(),
-                iteration: 0,
-                max_iterations: 100,                active_stages: HashSet::new(),
-                completed_stage_set: HashSet::new(),
-                failed_stages: HashMap::new(),
-                parallel_mode: false,
-                completed_stage_snapshots: Vec::new(),
-                current_stage_number: 0,
-                max_stages: 0,
+            current_stage: String::new(),
+            stage_order: Vec::new(),
+            iteration: 0,
+            max_iterations: 100,
+            limits: Limits {
+                max_llm_calls: 100,
+                max_agent_hops: 100,
             },
-            bounds: Bounds {
-                llm_call_count: 0,
-                max_llm_calls: 100,                tool_call_count: 0,
-                agent_hop_count: 0,
-                max_agent_hops: 100,                tokens_in: 0,
-                tokens_out: 0,
-                termination: None,
-            },
+            metrics: Metrics::default(),
+            termination: None,
             interrupts: InterruptState {
                 interrupt: None,
             },
@@ -108,75 +105,45 @@ impl Run {
         }
     }
 
-    /// Start a stage (mark as actively executing).
-    pub fn start_stage(&mut self, stage_name: impl Into<String>) {
-        self.pipeline.active_stages.insert(stage_name.into());
-    }
-
-    /// Complete a stage successfully.
-    pub fn complete_stage(&mut self, stage_name: &str) {
-        self.pipeline.completed_stage_set.insert(stage_name.to_string());
-        self.pipeline.active_stages.remove(stage_name);
-    }
-
-    /// Mark a stage as failed.
-    pub fn fail_stage(&mut self, stage_name: impl Into<String>, error_msg: impl Into<String>) {
-        let stage_name_str = stage_name.into();
-        self.pipeline.failed_stages.insert(stage_name_str.clone(), error_msg.into());
-        self.pipeline.active_stages.remove(&stage_name_str);
-    }
-
-    /// Check if a stage is completed.
-    pub fn is_stage_completed(&self, stage_name: &str) -> bool {
-        self.pipeline.completed_stage_set.contains(stage_name)
-    }
-
-    /// Check if a stage failed.
-    pub fn is_stage_failed(&self, stage_name: &str) -> bool {
-        self.pipeline.failed_stages.contains_key(stage_name)
-    }
-
-    /// Check if envelope exceeds any bound. Returns the reason if so.
-    ///
-    /// Single source of truth for bounds checking. Called by the Orchestrator at:
-    /// 1. `get_next_instruction()` — pre-flight check
-    /// 2. `report_agent_result()` — post-iteration check
+    /// Returns the terminal reason if this Run has exceeded any bound.
+    /// Called pre-flight in `get_next_instruction` and post-iteration in
+    /// `report_agent_result`.
     pub fn check_bounds(&self) -> Option<TerminalReason> {
-        if self.bounds.llm_call_count >= self.bounds.max_llm_calls {
+        if self.metrics.llm_calls >= self.limits.max_llm_calls {
             return Some(TerminalReason::MaxLlmCallsExceeded);
         }
-        if self.pipeline.iteration >= self.pipeline.max_iterations {
+        if self.iteration >= self.max_iterations {
             return Some(TerminalReason::MaxIterationsExceeded);
         }
-        if self.bounds.agent_hop_count >= self.bounds.max_agent_hops {
+        if self.metrics.agent_hops >= self.limits.max_agent_hops {
             return Some(TerminalReason::MaxAgentHopsExceeded);
         }
         None
     }
 
-    /// Check if at any bound limit (thin wrapper over `check_bounds()`).
     pub fn at_limit(&self) -> bool {
         self.check_bounds().is_some()
     }
 
-    /// Increment LLM call counter.
-    pub fn increment_llm_calls(&mut self, count: i32) {
-        self.bounds.llm_call_count += count;
+    pub fn is_terminated(&self) -> bool {
+        self.termination.is_some()
     }
 
-    /// Increment agent hop counter.
-    pub fn increment_agent_hops(&mut self) {
-        self.bounds.agent_hop_count += 1;
+    pub fn terminal_reason(&self) -> Option<TerminalReason> {
+        self.termination.as_ref().map(|t| t.reason)
     }
 
-    /// Add processing record to history.
+    pub fn terminate_with(&mut self, reason: TerminalReason, message: Option<String>) {
+        self.termination = Some(Termination { reason, message });
+    }
+
     pub fn add_processing_record(&mut self, record: ProcessingRecord) {
         self.audit.processing_history.push(record);
     }
 
-    /// Terminate envelope with reason.
-    pub fn terminate(&mut self, reason: impl Into<String>) {
-        self.bounds.terminate(TerminalReason::Completed, Some(reason.into()));
+    /// Terminate this Run as completed, recording `reason` as the message.
+    pub fn complete(&mut self, reason: impl Into<String>) {
+        self.terminate_with(TerminalReason::Completed, Some(reason.into()));
         self.audit.completed_at = Some(Utc::now());
     }
 
@@ -210,36 +177,36 @@ impl Run {
         }
 
         // Bounds: non-negative counters
-        if self.bounds.llm_call_count < 0 {
+        if self.metrics.llm_calls < 0 {
             return Err(crate::types::Error::validation("bounds.llm_call_count must be non-negative"));
         }
-        if self.bounds.tool_call_count < 0 {
+        if self.metrics.tool_calls < 0 {
             return Err(crate::types::Error::validation("bounds.tool_call_count must be non-negative"));
         }
-        if self.bounds.agent_hop_count < 0 {
+        if self.metrics.agent_hops < 0 {
             return Err(crate::types::Error::validation("bounds.agent_hop_count must be non-negative"));
         }
 
         // Bounds: positive maximums
-        if self.bounds.max_llm_calls <= 0 {
+        if self.limits.max_llm_calls <= 0 {
             return Err(crate::types::Error::validation("bounds.max_llm_calls must be positive"));
         }
-        if self.bounds.max_agent_hops <= 0 {
+        if self.limits.max_agent_hops <= 0 {
             return Err(crate::types::Error::validation("bounds.max_agent_hops must be positive"));
         }
 
         // Pipeline: current_stage must be in stage_order (if stage_order is populated)
-        if !self.pipeline.stage_order.is_empty()
-            && !self.pipeline.stage_order.contains(&self.pipeline.current_stage)
+        if !self.stage_order.is_empty()
+            && !self.stage_order.contains(&self.current_stage)
         {
             return Err(crate::types::Error::validation(format!(
                 "pipeline.current_stage '{}' not in stage_order",
-                self.pipeline.current_stage
+                self.current_stage
             )));
         }
 
         // Pipeline: positive max_iterations
-        if self.pipeline.max_iterations <= 0 {
+        if self.max_iterations <= 0 {
             return Err(crate::types::Error::validation("pipeline.max_iterations must be positive"));
         }
 
@@ -298,88 +265,34 @@ mod tests {
     fn test_new_envelope_defaults() {
         let env = Run::anonymous();
 
-        // Identity: generated UUIDs are prefixed
         assert!(env.identity.envelope_id.as_str().starts_with("env_"));
         assert!(env.identity.request_id.as_str().starts_with("req_"));
         assert_eq!(env.identity.user_id.as_str(), "anonymous");
         assert!(env.identity.session_id.as_str().starts_with("sess_"));
 
-        // Raw input is empty
         assert!(env.raw_input.is_empty());
-
-        // Outputs map is empty
         assert!(env.outputs.is_empty());
 
-        // Pipeline defaults (via new_minimal)
-        assert_eq!(env.pipeline.current_stage, "");
-        assert!(env.pipeline.stage_order.is_empty());
-        assert_eq!(env.pipeline.iteration, 0);
-        assert_eq!(env.pipeline.max_iterations, 100);
-        assert!(env.pipeline.active_stages.is_empty());
-        assert!(env.pipeline.completed_stage_set.is_empty());
-        assert!(env.pipeline.failed_stages.is_empty());
-        assert!(!env.pipeline.parallel_mode);
+        assert_eq!(env.current_stage, "");
+        assert!(env.stage_order.is_empty());
+        assert_eq!(env.iteration, 0);
+        assert_eq!(env.max_iterations, 100);
 
-        // Bounds defaults (via new_minimal — placeholders overwritten by Workflow)
-        assert_eq!(env.bounds.llm_call_count, 0);
-        assert_eq!(env.bounds.max_llm_calls, 100);
-        assert_eq!(env.bounds.tool_call_count, 0);
-        assert_eq!(env.bounds.agent_hop_count, 0);
-        assert_eq!(env.bounds.max_agent_hops, 100);
-        assert_eq!(env.bounds.tokens_in, 0);
-        assert_eq!(env.bounds.tokens_out, 0);
-        assert!(!env.bounds.is_terminated());
+        assert_eq!(env.metrics.llm_calls, 0);
+        assert_eq!(env.limits.max_llm_calls, 100);
+        assert_eq!(env.metrics.tool_calls, 0);
+        assert_eq!(env.metrics.agent_hops, 0);
+        assert_eq!(env.limits.max_agent_hops, 100);
+        assert_eq!(env.metrics.tokens_in, 0);
+        assert_eq!(env.metrics.tokens_out, 0);
+        assert!(!env.is_terminated());
 
-        // Interrupts defaults
         assert!(!env.interrupts.is_pending());
         assert!(env.interrupts.interrupt.is_none());
 
-        // Pipeline execution tracking defaults
-        assert!(env.pipeline.completed_stage_snapshots.is_empty());
-        assert_eq!(env.pipeline.current_stage_number, 0);
-        assert_eq!(env.pipeline.max_stages, 0);
-
-        // Audit defaults
         assert!(env.audit.processing_history.is_empty());
         assert!(env.audit.completed_at.is_none());
         assert!(env.audit.metadata.is_empty());
-    }
-
-    // ── 2. Stage lifecycle ──────────────────────────────────────────────
-
-    #[test]
-    fn test_stage_lifecycle() {
-        let mut env = Run::anonymous();
-
-        // Start a stage
-        env.start_stage("perception");
-        assert!(env.pipeline.active_stages.contains("perception"));
-        assert!(!env.is_stage_completed("perception"));
-
-        // Complete the stage
-        env.complete_stage("perception");
-        assert!(env.is_stage_completed("perception"));
-        assert!(!env.pipeline.active_stages.contains("perception"));
-    }
-
-    // ── 3. Stage failure ────────────────────────────────────────────────
-
-    #[test]
-    fn test_stage_failure() {
-        let mut env = Run::anonymous();
-
-        env.start_stage("planning");
-        assert!(env.pipeline.active_stages.contains("planning"));
-
-        env.fail_stage("planning", "timeout after 30s");
-        assert!(env.is_stage_failed("planning"));
-        assert!(!env.pipeline.active_stages.contains("planning"));
-        assert_eq!(
-            env.pipeline.failed_stages.get("planning").unwrap(),
-            "timeout after 30s"
-        );
-        // A failed stage is NOT counted as completed
-        assert!(!env.is_stage_completed("planning"));
     }
 
     // ── 4. at_limit: LLM calls ─────────────────────────────────────────
@@ -387,12 +300,10 @@ mod tests {
     #[test]
     fn test_at_limit_llm_calls() {
         let mut env = Run::anonymous();
-        env.bounds.max_llm_calls = 10;
+        env.limits.max_llm_calls = 10;
         assert!(!env.at_limit());
 
-        // Increment to exactly the max
-        env.increment_llm_calls(10);
-        assert_eq!(env.bounds.llm_call_count, 10);
+        env.metrics.llm_calls = 10;
         assert!(env.at_limit());
     }
 
@@ -401,14 +312,10 @@ mod tests {
     #[test]
     fn test_at_limit_agent_hops() {
         let mut env = Run::anonymous();
-        env.bounds.max_agent_hops = 21;
+        env.limits.max_agent_hops = 21;
         assert!(!env.at_limit());
 
-        // Increment agent hops to max
-        for _ in 0..21 {
-            env.increment_agent_hops();
-        }
-        assert_eq!(env.bounds.agent_hop_count, 21);
+        env.metrics.agent_hops = 21;
         assert!(env.at_limit());
     }
 
@@ -417,11 +324,11 @@ mod tests {
     #[test]
     fn test_at_limit_iterations() {
         let mut env = Run::anonymous();
-        env.pipeline.max_iterations = 3;
+        env.max_iterations = 3;
         assert!(!env.at_limit());
 
         // Increment iterations to max
-        env.pipeline.iteration = 3;
+        env.iteration = 3;
         assert!(env.at_limit());
 
         // check_bounds returns the specific reason
@@ -433,12 +340,8 @@ mod tests {
     #[test]
     fn test_not_at_limit_below_max() {
         let mut env = Run::anonymous();
-        env.increment_llm_calls(5);
-        for _ in 0..10 {
-            env.increment_agent_hops();
-        }
-        assert_eq!(env.bounds.llm_call_count, 5);
-        assert_eq!(env.bounds.agent_hop_count, 10);
+        env.metrics.llm_calls = 5;
+        env.metrics.agent_hops = 10;
         assert!(!env.at_limit());
     }
 
@@ -448,14 +351,14 @@ mod tests {
     fn test_terminate() {
         let mut env = Run::anonymous();
 
-        assert!(!env.bounds.is_terminated());
+        assert!(!env.is_terminated());
         assert!(env.audit.completed_at.is_none());
 
-        env.terminate("user cancelled the request");
+        env.complete("user cancelled the request");
 
-        assert!(env.bounds.is_terminated());
+        assert!(env.is_terminated());
         assert_eq!(
-            env.bounds.termination.as_ref().unwrap().message.as_deref(),
+            env.termination.as_ref().unwrap().message.as_deref(),
             Some("user cancelled the request")
         );
         assert!(env.audit.completed_at.is_some());
@@ -564,22 +467,15 @@ mod tests {
         let a = Run::anonymous();
         let b = Run::default();
 
-        // Pipeline
-        assert_eq!(a.pipeline.current_stage, b.pipeline.current_stage);
-        assert_eq!(a.pipeline.max_iterations, b.pipeline.max_iterations);
-        assert_eq!(a.pipeline.parallel_mode, b.pipeline.parallel_mode);
+        assert_eq!(a.current_stage, b.current_stage);
+        assert_eq!(a.max_iterations, b.max_iterations);
+        assert_eq!(a.iteration, b.iteration);
 
-        // Bounds
-        assert_eq!(a.bounds.max_llm_calls, b.bounds.max_llm_calls);
-        assert_eq!(a.bounds.max_agent_hops, b.bounds.max_agent_hops);
-        assert_eq!(a.bounds.is_terminated(), b.bounds.is_terminated());
+        assert_eq!(a.limits.max_llm_calls, b.limits.max_llm_calls);
+        assert_eq!(a.limits.max_agent_hops, b.limits.max_agent_hops);
+        assert_eq!(a.is_terminated(), b.is_terminated());
 
-        // Interrupts
         assert_eq!(a.interrupts.is_pending(), b.interrupts.is_pending());
-
-        // Execution tracking
-        assert_eq!(a.pipeline.current_stage_number, 0);
-        assert_eq!(b.pipeline.current_stage_number, 0);
 
         // Identity shape (prefixes match even if UUIDs differ)
         assert!(b.identity.envelope_id.as_str().starts_with("env_"));
@@ -641,8 +537,8 @@ mod tests {
     #[test]
     fn test_merge_updates_bounds_preservation() {
         let mut env = Run::anonymous();
-        env.bounds.llm_call_count = 5;
-        env.bounds.max_llm_calls = 10;
+        env.metrics.llm_calls = 5;
+        env.limits.max_llm_calls = 10;
 
         let mut updates = HashMap::new();
         updates.insert("raw_input".to_string(), serde_json::json!("new input text"));
@@ -650,8 +546,8 @@ mod tests {
         env.merge_updates(updates);
 
         assert_eq!(env.raw_input, "new input text");
-        assert_eq!(env.bounds.llm_call_count, 5);
-        assert_eq!(env.bounds.max_llm_calls, 10);
+        assert_eq!(env.metrics.llm_calls, 5);
+        assert_eq!(env.limits.max_llm_calls, 10);
     }
 
     // ── 17. validate: valid envelope passes ───────────────────────────────
@@ -667,7 +563,7 @@ mod tests {
     #[test]
     fn test_validate_terminated_passes() {
         let mut env = Run::anonymous();
-        env.bounds.terminate(TerminalReason::Completed, None);
+        env.terminate_with(TerminalReason::Completed, None);
         assert!(env.validate().is_ok());
     }
 
@@ -676,7 +572,7 @@ mod tests {
     #[test]
     fn test_validate_negative_llm_count_fails() {
         let mut env = Run::anonymous();
-        env.bounds.llm_call_count = -1;
+        env.metrics.llm_calls = -1;
         assert!(env.validate().is_err());
     }
 
@@ -685,7 +581,7 @@ mod tests {
     #[test]
     fn test_validate_zero_max_llm_calls_fails() {
         let mut env = Run::anonymous();
-        env.bounds.max_llm_calls = 0;
+        env.limits.max_llm_calls = 0;
         assert!(env.validate().is_err());
     }
 
@@ -694,16 +590,16 @@ mod tests {
     #[test]
     fn test_validate_current_stage_not_in_order_fails() {
         let mut env = Run::anonymous();
-        env.pipeline.stage_order = vec!["understand".to_string(), "respond".to_string()];
-        env.pipeline.current_stage = "missing_stage".to_string();
+        env.stage_order = vec!["understand".to_string(), "respond".to_string()];
+        env.current_stage = "missing_stage".to_string();
         assert!(env.validate().is_err());
     }
 
     #[test]
     fn test_validate_current_stage_in_order_passes() {
         let mut env = Run::anonymous();
-        env.pipeline.stage_order = vec!["understand".to_string(), "respond".to_string()];
-        env.pipeline.current_stage = "understand".to_string();
+        env.stage_order = vec!["understand".to_string(), "respond".to_string()];
+        env.current_stage = "understand".to_string();
         assert!(env.validate().is_ok());
     }
 }
