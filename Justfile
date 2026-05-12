@@ -9,10 +9,6 @@ check:
     cargo clippy -- -D warnings
     cargo test
 
-# Run the kernel IPC server
-run:
-    cargo run
-
 # Run tests only
 test:
     cargo test
@@ -28,10 +24,6 @@ lint:
 # Format
 fmt:
     cargo fmt
-
-# Build release binary
-build:
-    cargo build --release
 
 # Clean build artifacts
 clean:

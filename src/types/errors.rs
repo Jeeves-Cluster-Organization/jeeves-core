@@ -10,6 +10,7 @@ pub type Result<T> = std::result::Result<T, Error>;
 
 /// Main error enum for the Jeeves kernel.
 #[derive(Error, Debug)]
+#[non_exhaustive]
 pub enum Error {
     /// Validation errors.
     #[error("validation error: {message}")]

@@ -22,7 +22,7 @@ pub mod types;
 #[cfg(test)]
 pub(crate) mod test_helpers;
 
-mod kernel_orchestration;
+mod dispatch;
 
 // Re-export key types
 pub use interrupts::{InterruptService, PendingInterrupt};

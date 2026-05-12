@@ -15,6 +15,7 @@ pub use enums::*;
 pub use events::{AggregateMetrics, RunEvent, StageMetrics};
 pub use types::*;
 
+#[must_use]
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct Run {
     pub identity: Identity,

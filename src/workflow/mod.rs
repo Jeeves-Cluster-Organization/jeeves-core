@@ -22,6 +22,7 @@ use crate::types::{Error, Result};
 
 /// Pipeline shape. Linear/branching/cyclic flows come from per-stage
 /// `routing_fn` + `default_next`; no graph topology in the kernel.
+#[must_use]
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
 pub struct Workflow {
     /// Used in `RunEvent.pipeline` for event attribution.

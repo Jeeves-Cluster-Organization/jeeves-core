@@ -82,6 +82,7 @@ pub struct RoutingDecision {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
+#[non_exhaustive]
 pub enum RoutingReason {
     ErrorRoute,
     RoutingFn { name: String },

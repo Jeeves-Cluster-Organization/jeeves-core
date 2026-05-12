@@ -7,6 +7,7 @@ use serde::{Deserialize, Serialize};
 /// Why processing terminated.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "SCREAMING_SNAKE_CASE")]
+#[non_exhaustive]
 pub enum TerminalReason {
     Completed,
     MaxIterationsExceeded,

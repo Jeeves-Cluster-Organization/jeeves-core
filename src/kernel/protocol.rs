@@ -9,7 +9,7 @@ use crate::workflow::{ContextOverflow, RetryPolicy};
 use super::routing::RoutingDecision;
 
 /// Per-dispatch context layered on after the orchestrator runs. Populated by
-/// `kernel_orchestration::get_next_instruction`.
+/// `kernel::dispatch::get_next_instruction`.
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct AgentDispatchContext {
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -38,6 +38,7 @@ pub struct AgentDispatchContext {
 #[must_use]
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "SCREAMING_SNAKE_CASE")]
+#[non_exhaustive]
 pub enum Instruction {
     RunAgent {
         agent: String,

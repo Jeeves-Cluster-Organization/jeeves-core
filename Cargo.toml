@@ -59,7 +59,6 @@ genai = "0.5"
 
 [dev-dependencies]
 # Testing
-axum = "0.8"
 proptest = "1.6"
 mockall = "0.13"
 tokio-test = "0.4"

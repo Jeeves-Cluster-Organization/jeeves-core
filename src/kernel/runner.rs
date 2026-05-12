@@ -14,7 +14,7 @@ use crate::types::{RunId, Result};
 use crate::workflow::Workflow;
 use tokio::sync::mpsc;
 
-/// Result of running a pipeline to completion.
+/// Result of running a workflow to completion.
 #[must_use]
 #[derive(Debug)]
 pub struct WorkerResult {
