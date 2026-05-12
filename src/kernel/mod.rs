@@ -168,8 +168,8 @@ pub struct RemainingBudget {
 /// Full system status snapshot returned by `Kernel::get_system_status()`.
 #[derive(Debug, Clone, serde::Serialize)]
 pub struct SystemStatus {
-    pub processes_total: usize,
-    pub processes_by_state: HashMap<RunStatus, usize>,
+    pub runs_total: usize,
+    pub runs_by_state: HashMap<RunStatus, usize>,
     pub active_orchestration_sessions: usize,
 }
 
@@ -189,31 +189,31 @@ mod tests {
         let kernel = Kernel::new();
         let status = kernel.get_system_status();
 
-        assert_eq!(status.processes_total, 0);
+        assert_eq!(status.runs_total, 0);
         assert_eq!(status.active_orchestration_sessions, 0);
 
-        for (_state, count) in &status.processes_by_state {
+        for (_state, count) in &status.runs_by_state {
             assert_eq!(*count, 0);
         }
     }
 
     #[test]
-    fn test_get_system_status_with_processes() {
+    fn test_get_system_status_with_runs() {
         let mut kernel = Kernel::new();
 
-        let pid1 = RunId::must("pid1");
-        let pid2 = RunId::must("pid2");
+        let run1 = RunId::must("run1");
+        let run2 = RunId::must("run2");
 
-        kernel.lifecycle.create(pid1.clone(), RequestId::must("req1"), UserId::must("user1"), SessionId::must("sess1"), None).unwrap();
-        kernel.lifecycle.create(pid2.clone(), RequestId::must("req2"), UserId::must("user2"), SessionId::must("sess2"), None).unwrap();
+        kernel.lifecycle.create(run1.clone(), RequestId::must("req1"), UserId::must("user1"), SessionId::must("sess1"), None).unwrap();
+        kernel.lifecycle.create(run2.clone(), RequestId::must("req2"), UserId::must("user2"), SessionId::must("sess2"), None).unwrap();
 
-        kernel.lifecycle.run(&pid1).unwrap();
+        kernel.lifecycle.run(&run1).unwrap();
 
         let status = kernel.get_system_status();
 
-        assert_eq!(status.processes_total, 2);
-        assert_eq!(*status.processes_by_state.get(&RunStatus::Ready).unwrap(), 1);
-        assert_eq!(*status.processes_by_state.get(&RunStatus::Running).unwrap(), 1);
+        assert_eq!(status.runs_total, 2);
+        assert_eq!(*status.runs_by_state.get(&RunStatus::Ready).unwrap(), 1);
+        assert_eq!(*status.runs_by_state.get(&RunStatus::Running).unwrap(), 1);
     }
 
     #[test]
@@ -229,18 +229,18 @@ mod tests {
     }
 
     #[test]
-    fn test_process_lifecycle_create_and_destroy() {
+    fn test_run_lifecycle_create_and_destroy() {
         let mut kernel = Kernel::new();
-        let pid = RunId::must("p1");
+        let run_id = RunId::must("r1");
 
-        kernel.create_process(pid.clone(), RequestId::must("req1"), UserId::must("user1"), SessionId::must("sess1"), None).unwrap();
-        assert!(kernel.lifecycle.get(&pid).is_some());
+        kernel.create_run(run_id.clone(), RequestId::must("req1"), UserId::must("user1"), SessionId::must("sess1"), None).unwrap();
+        assert!(kernel.lifecycle.get(&run_id).is_some());
         assert_eq!(kernel.lifecycle.count(), 1);
 
-        kernel.lifecycle.run(&pid).unwrap();
-        kernel.terminate_process(&pid).unwrap();
+        kernel.lifecycle.run(&run_id).unwrap();
+        kernel.terminate_run(&run_id).unwrap();
 
-        assert!(kernel.lifecycle.get(&pid).is_none());
+        assert!(kernel.lifecycle.get(&run_id).is_none());
         assert_eq!(kernel.lifecycle.count(), 0);
     }
 

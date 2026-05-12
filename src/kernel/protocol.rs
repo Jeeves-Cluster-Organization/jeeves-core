@@ -122,7 +122,7 @@ pub struct RunSnapshot {
     pub run_id: RunId,
     /// Name of the stage currently executing or about to execute.
     pub current_stage: StageName,
-    /// Ordered list of all stage names in the pipeline.
+    /// Ordered list of all stage names in the workflow.
     pub stage_order: Vec<StageName>,
     /// Run serialized as JSON (outputs, bounds, audit trail, interrupts).
     pub run: serde_json::Value,

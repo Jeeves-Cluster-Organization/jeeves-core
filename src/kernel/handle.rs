@@ -12,7 +12,7 @@ use tokio::sync::{mpsc, oneshot};
 /// Command variants sent to the kernel actor. `pub(crate)` because consumers
 /// drive the kernel through `KernelHandle` methods, never by naming commands.
 pub(crate) enum KernelCommand {
-    /// Initialize a workflow session (auto-creates PCB if needed).
+    /// Initialize a workflow session (auto-creates a run record if needed).
     InitializeSession {
         run_id: RunId,
         workflow: Box<Workflow>,
@@ -20,7 +20,7 @@ pub(crate) enum KernelCommand {
         force: bool,
         resp_tx: oneshot::Sender<Result<RunSnapshot>>,
     },
-    /// Get the next instruction for a process.
+    /// Get the next instruction for a run.
     GetNextInstruction {
         run_id: RunId,
         resp_tx: oneshot::Sender<Result<Instruction>>,
@@ -42,16 +42,16 @@ pub(crate) enum KernelCommand {
         run_id: RunId,
         resp_tx: oneshot::Sender<Result<RunSnapshot>>,
     },
-    /// Create a process (lifecycle).
-    CreateProcess {
+    /// Create a run record (lifecycle).
+    CreateRun {
         run_id: RunId,
         request_id: RequestId,
         user_id: UserId,
         session_id: SessionId,
         resp_tx: oneshot::Sender<Result<RunRecord>>,
     },
-    /// Terminate a process.
-    TerminateProcess {
+    /// Terminate a run.
+    TerminateRun {
         run_id: RunId,
         resp_tx: oneshot::Sender<Result<()>>,
     },
@@ -67,7 +67,7 @@ pub(crate) enum KernelCommand {
         resp_tx: oneshot::Sender<Result<()>>,
     },
     /// Set an interrupt without a lifecycle transition (tool-confirmation gate).
-    SetProcessInterrupt {
+    SetRunInterrupt {
         run_id: RunId,
         interrupt: crate::run::FlowInterrupt,
         resp_tx: oneshot::Sender<Result<()>>,
@@ -98,11 +98,11 @@ impl std::fmt::Debug for KernelCommand {
                     Self::GetNextInstruction { .. } => "GetNextInstruction",
                     Self::ProcessAgentResult { .. } => "ProcessAgentResult",
                     Self::GetSessionState { .. } => "GetSessionState",
-                    Self::CreateProcess { .. } => "CreateProcess",
-                    Self::TerminateProcess { .. } => "TerminateProcess",
+                    Self::CreateRun { .. } => "CreateRun",
+                    Self::TerminateRun { .. } => "TerminateRun",
                     Self::GetSystemStatus { .. } => "GetSystemStatus",
                     Self::ResolveInterrupt { .. } => "ResolveInterrupt",
-                    Self::SetProcessInterrupt { .. } => "SetProcessInterrupt",
+                    Self::SetRunInterrupt { .. } => "SetRunInterrupt",
                     Self::GetToolHealth { .. } => "GetToolHealth",
                     Self::RegisterRoutingFn { .. } => unreachable!(),
                 })
@@ -177,7 +177,7 @@ impl KernelHandle {
         })
     }
 
-    /// Get the next instruction for a process.
+    /// Get the next instruction for a run.
     pub async fn get_next_instruction(&self, run_id: &RunId) -> Result<Instruction> {
         kernel_request!(self, GetNextInstruction {
             run_id: run_id.clone(),
@@ -216,15 +216,15 @@ impl KernelHandle {
         })
     }
 
-    /// Create a process.
-    pub async fn create_process(
+    /// Create a run record.
+    pub async fn create_run(
         &self,
         run_id: RunId,
         request_id: RequestId,
         user_id: UserId,
         session_id: SessionId,
     ) -> Result<RunRecord> {
-        kernel_request!(self, CreateProcess {
+        kernel_request!(self, CreateRun {
             run_id: run_id,
             request_id: request_id,
             user_id: user_id,
@@ -232,29 +232,29 @@ impl KernelHandle {
         })
     }
 
-    /// Terminate a process.
-    pub async fn terminate_process(&self, run_id: &RunId) -> Result<()> {
-        kernel_request!(self, TerminateProcess {
+    /// Terminate a run.
+    pub async fn terminate_run(&self, run_id: &RunId) -> Result<()> {
+        kernel_request!(self, TerminateRun {
             run_id: run_id.clone(),
         })
     }
 
-    /// Set a pending interrupt on a process without lifecycle transition.
+    /// Set a pending interrupt on a run without a lifecycle transition.
     ///
-    /// Used by the worker pipeline loop for tool confirmation gates.
-    /// Does NOT change lifecycle state (process stays Ready).
-    pub async fn set_process_interrupt(
+    /// Used by the worker workflow loop for tool confirmation gates. Does NOT
+    /// change lifecycle state (run stays in its current state).
+    pub async fn set_run_interrupt(
         &self,
         run_id: &RunId,
         interrupt: crate::run::FlowInterrupt,
     ) -> Result<()> {
-        kernel_request!(self, SetProcessInterrupt {
+        kernel_request!(self, SetRunInterrupt {
             run_id: run_id.clone(),
             interrupt: interrupt,
         })
     }
 
-    /// Resolve a pending interrupt for a process.
+    /// Resolve a pending interrupt for a run.
     pub async fn resolve_interrupt(
         &self,
         run_id: &RunId,
@@ -286,14 +286,14 @@ impl KernelHandle {
             .is_err()
         {
             return SystemStatus {
-                processes_total: 0,
-                processes_by_state: Default::default(),
+                runs_total: 0,
+                runs_by_state: Default::default(),
                 active_orchestration_sessions: 0,
             };
         }
         resp_rx.await.unwrap_or(SystemStatus {
-            processes_total: 0,
-            processes_by_state: Default::default(),
+            runs_total: 0,
+            runs_by_state: Default::default(),
             active_orchestration_sessions: 0,
         })
     }

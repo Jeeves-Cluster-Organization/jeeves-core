@@ -98,7 +98,7 @@ impl Default for DefaultLimits {
 /// Agent definition for config-driven agent registration via JEEVES_AGENTS env var.
 ///
 /// Not to be confused with `kernel::orchestrator_types::AgentConfig` which is
-/// the per-stage pipeline config (prompt_key, has_llm, temperature, etc.).
+/// the per-stage workflow config (prompt_key, has_llm, temperature, etc.).
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AgentDefinition {
     /// Agent name (used as key in AgentRegistry).

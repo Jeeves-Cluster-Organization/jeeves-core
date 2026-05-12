@@ -113,7 +113,7 @@ impl Workflow {
             if let Some(ref dn) = stage.default_next {
                 if !stage_names.contains(dn.as_str()) {
                     return Err(Error::validation(format!(
-                        "Stage '{}' has default_next '{}' which does not exist in pipeline",
+                        "Stage '{}' has default_next '{}' which does not exist in workflow",
                         stage.name, dn
                     )));
                 }
@@ -122,7 +122,7 @@ impl Workflow {
             if let Some(ref en) = stage.error_next {
                 if !stage_names.contains(en.as_str()) {
                     return Err(Error::validation(format!(
-                        "Stage '{}' has error_next '{}' which does not exist in pipeline",
+                        "Stage '{}' has error_next '{}' which does not exist in workflow",
                         stage.name, en
                     )));
                 }

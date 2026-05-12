@@ -3,7 +3,7 @@
 //! This module provides foundational types used throughout the system:
 //! - **IDs**: Strongly-typed identifiers (RunId, EnvelopeId, etc.)
 //! - **Errors**: Application error types with thiserror derives
-//! - **Config**: Configuration structures for kernel, pipeline, and resources
+//! - **Config**: Configuration structures for kernel, workflow, and resources
 
 pub mod config;
 mod errors;

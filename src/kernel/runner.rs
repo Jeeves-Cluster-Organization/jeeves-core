@@ -171,7 +171,7 @@ pub async fn run_loop(
 
                 // Tool confirmation gate: if agent requests an interrupt, suspend stage
                 if let Some(interrupt) = output.interrupt_request {
-                    handle.set_process_interrupt(run_id, interrupt).await?;
+                    handle.set_run_interrupt(run_id, interrupt).await?;
                     continue; // get_next_instruction → WaitInterrupt
                 }
 

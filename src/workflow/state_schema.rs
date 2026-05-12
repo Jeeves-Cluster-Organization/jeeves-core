@@ -1,4 +1,4 @@
-//! State accumulation across pipeline loop-backs.
+//! State accumulation across workflow loop-backs.
 
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};

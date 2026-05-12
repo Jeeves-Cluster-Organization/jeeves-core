@@ -14,18 +14,18 @@ use super::{Kernel, RunStatus, RemainingBudget, ResourceQuota, SystemStatus};
 
 impl Kernel {
     /// Stores `run` in `runs` and hands it to the orchestrator
-    /// to seed the session. The orchestrator updates the run's pipeline
+    /// to seed the session. The orchestrator updates the run's workflow
     /// bounds in place; ownership stays with `runs`.
-    #[instrument(skip(self, pipeline_config, run), fields(run_id = %run_id))]
+    #[instrument(skip(self, workflow, run), fields(run_id = %run_id))]
     pub fn initialize_orchestration(
         &mut self,
         run_id: RunId,
-        pipeline_config: orchestrator::Workflow,
+        workflow: orchestrator::Workflow,
         mut run: Run,
         force: bool,
     ) -> Result<orchestrator::RunSnapshot> {
         let state = self.orchestrator
-            .initialize_session(run_id.clone(), pipeline_config, &mut run, force)?;
+            .initialize_session(run_id.clone(), workflow, &mut run, force)?;
         self.runs.insert(run_id, run);
 
         Ok(state)
@@ -42,7 +42,7 @@ impl Kernel {
         run_id: &RunId,
     ) -> Result<orchestrator::Instruction> {
         let run = self.runs.get_mut(run_id)
-            .ok_or_else(|| Error::not_found(format!("Run not found for process: {}", run_id)))?;
+            .ok_or_else(|| Error::not_found(format!("Run not found for run_id: {}", run_id)))?;
         let mut instruction = self.orchestrator.get_next_instruction(run_id, run)?;
 
         match &mut instruction {
@@ -103,9 +103,9 @@ impl Kernel {
     }
 
     /// Merges an agent's output into the run, reports it to the
-    /// orchestrator, and applies the metrics delta to the PCB. The caller
-    /// pulls the next instruction separately — the split is what keeps
-    /// fork/parallel paths deadlock-free.
+    /// orchestrator, and applies the metrics delta to the run record. The
+    /// caller pulls the next instruction separately — the split is what
+    /// keeps fork/parallel paths deadlock-free.
     #[allow(clippy::too_many_arguments)]
     #[instrument(skip(self, output, metrics), fields(run_id = %run_id))]
     pub fn process_agent_result(
@@ -220,7 +220,7 @@ impl Kernel {
         run_id: &RunId,
     ) -> Result<orchestrator::RunSnapshot> {
         let run = self.runs.get(run_id)
-            .ok_or_else(|| Error::not_found(format!("Run not found for process: {}", run_id)))?;
+            .ok_or_else(|| Error::not_found(format!("Run not found: {}", run_id)))?;
         self.orchestrator.get_session_state(run_id, run)
     }
 
@@ -276,33 +276,33 @@ impl Kernel {
         Some((agent_context, max_context_tokens, context_overflow))
     }
 
-    /// Create a new process.
-    #[instrument(skip(self), fields(pid = %pid))]
-    pub fn create_process(
+    /// Create a new run record.
+    #[instrument(skip(self), fields(run_id = %run_id))]
+    pub fn create_run(
         &mut self,
-        pid: RunId,
+        run_id: RunId,
         request_id: RequestId,
         user_id: UserId,
         session_id: SessionId,
         quota: Option<ResourceQuota>,
     ) -> Result<super::RunRecord> {
-        self.lifecycle.create(pid, request_id, user_id, session_id, quota)
+        self.lifecycle.create(run_id, request_id, user_id, session_id, quota)
     }
 
     /// Check whether the run has exceeded its quota. Reads live counters from
     /// `Run.metrics` + `Run.iteration`, the wall-clock elapsed from
     /// `RunRecord.started_at`, and bounds from `RunRecord.quota` — one source
     /// of truth per dimension.
-    pub fn check_quota(&self, pid: &RunId) -> Result<()> {
-        let pcb = self
+    pub fn check_quota(&self, run_id: &RunId) -> Result<()> {
+        let record = self
             .lifecycle
-            .get(pid)
-            .ok_or_else(|| Error::not_found(format!("Process {} not found", pid)))?;
-        let usage = self.usage_from_run(pid, pcb);
-        if let Some(violation) = usage.exceeds_quota(&pcb.quota) {
+            .get(run_id)
+            .ok_or_else(|| Error::not_found(format!("Run {} not found", run_id)))?;
+        let usage = self.usage_from_run(run_id, record);
+        if let Some(violation) = usage.exceeds_quota(&record.quota) {
             return Err(Error::quota_exceeded(format!(
-                "Process {} quota exceeded: {}",
-                pid, violation
+                "Run {} quota exceeded: {}",
+                run_id, violation
             )));
         }
         Ok(())
@@ -311,8 +311,8 @@ impl Kernel {
     /// Snapshot of usage built from `Run.metrics` + elapsed wall-clock. The
     /// kernel doesn't store this — it's derived on demand by `check_quota` and
     /// `get_remaining_budget`.
-    fn usage_from_run(&self, pid: &RunId, pcb: &super::RunRecord) -> super::ResourceUsage {
-        let run = self.runs.get(pid);
+    fn usage_from_run(&self, run_id: &RunId, record: &super::RunRecord) -> super::ResourceUsage {
+        let run = self.runs.get(run_id);
         super::ResourceUsage {
             llm_calls: run.map_or(0, |r| r.metrics.llm_calls),
             tool_calls: run.map_or(0, |r| r.metrics.tool_calls),
@@ -320,7 +320,7 @@ impl Kernel {
             iterations: run.map_or(0, |r| r.iteration),
             tokens_in: run.map_or(0, |r| r.metrics.tokens_in),
             tokens_out: run.map_or(0, |r| r.metrics.tokens_out),
-            elapsed_seconds: pcb.elapsed_seconds(),
+            elapsed_seconds: record.elapsed_seconds(),
         }
     }
 
@@ -338,72 +338,73 @@ impl Kernel {
             .record_usage(user_id, llm_calls, tool_calls, tokens_in, tokens_out);
     }
 
-    /// Set a tool-confirmation interrupt on a process. The pipeline loop
-    /// suspends the stage; the consumer resolves via `resolve_process_interrupt`.
-    pub fn set_process_interrupt(&mut self, pid: &RunId, interrupt: FlowInterrupt) -> Result<()> {
+    /// Set a tool-confirmation interrupt on a run. The workflow loop
+    /// suspends the stage; the consumer resolves via `resolve_run_interrupt`.
+    pub fn set_run_interrupt(&mut self, run_id: &RunId, interrupt: FlowInterrupt) -> Result<()> {
         // Register in interrupt manager (so resolve_interrupt can find it by ID)
         let interrupt_id = interrupt.id.clone();
-        if let Some(env) = self.runs.get(pid) {
+        if let Some(run) = self.runs.get(run_id) {
             self.interrupts.register_flow_interrupt(
                 interrupt.clone(),
-                env.identity.request_id.as_str(),
-                env.identity.user_id.as_str(),
-                env.identity.session_id.as_str(),
-                env.identity.envelope_id.as_str(),
+                &run.identity.request_id,
+                &run.identity.user_id,
+                &run.identity.session_id,
+                &run.identity.envelope_id,
             );
         }
 
-        // Mark on PCB for resolve_interrupt's awareness.
-        if let Some(pcb) = self.lifecycle.get_mut(pid) {
-            pcb.pending_interrupt = Some(interrupt_id);
+        // Mark on the run record so resolve_interrupt can see it.
+        if let Some(record) = self.lifecycle.get_mut(run_id) {
+            record.pending_interrupt = Some(interrupt_id);
         }
 
         // Set on run (get_next_instruction will see it → WaitInterrupt)
-        let env = self.runs.get_mut(pid)
-            .ok_or_else(|| Error::not_found(format!("Run not found: {}", pid)))?;
-        env.set_interrupt(interrupt);
+        let run = self.runs.get_mut(run_id)
+            .ok_or_else(|| Error::not_found(format!("Run not found: {}", run_id)))?;
+        run.set_interrupt(interrupt);
         Ok(())
     }
 
     /// Resolve a pending interrupt and stash the response for the next agent dispatch.
-    pub fn resolve_process_interrupt(
+    pub fn resolve_run_interrupt(
         &mut self,
-        pid: &RunId,
+        run_id: &RunId,
         interrupt_id: &str,
         response: crate::run::InterruptResponse,
     ) -> Result<()> {
         let response_json = serde_json::to_value(&response).unwrap_or_default();
-        if !self.interrupts.resolve(interrupt_id, response, None) {
+        if !self.interrupts.resolve(interrupt_id, response) {
             return Err(Error::not_found(format!("Interrupt {} not found", interrupt_id)));
         }
 
-        if let Some(env) = self.runs.get_mut(pid) {
-            env.audit.metadata.insert("_interrupt_response".to_string(), response_json);
-            env.clear_interrupt();
+        if let Some(run) = self.runs.get_mut(run_id) {
+            run.audit.metadata.insert("_interrupt_response".to_string(), response_json);
+            run.clear_interrupt();
         }
-        if let Some(pcb) = self.lifecycle.get_mut(pid) {
-            pcb.pending_interrupt = None;
+        if let Some(record) = self.lifecycle.get_mut(run_id) {
+            record.pending_interrupt = None;
         }
         Ok(())
     }
 
-    /// Terminate a process and remove it from the kernel.
-    pub fn terminate_process(&mut self, pid: &RunId) -> Result<()> {
-        self.lifecycle.terminate(pid)?;
-        if let Some(env) = self.runs.get_mut(pid) {
-            env.complete("Process terminated");
+    /// Terminate a run and remove it from the kernel.
+    pub fn terminate_run(&mut self, run_id: &RunId) -> Result<()> {
+        self.lifecycle.terminate(run_id)?;
+        if let Some(run) = self.runs.get_mut(run_id) {
+            run.complete("Run terminated");
         }
-        self.runs.remove(pid);
-        self.orchestrator.cleanup_session(pid);
+        self.runs.remove(run_id);
+        self.orchestrator.cleanup_session(run_id);
         Ok(())
     }
 
-    /// Cleanup stale orchestration sessions and their envelopes.
+    /// Cleanup stale orchestration sessions and their runs.
+    /// Returns the count of sessions removed.
     pub fn cleanup_stale_sessions(&mut self, max_age_seconds: i64) -> usize {
-        let removed_pids = self.orchestrator.cleanup_stale_sessions(max_age_seconds);
-        let count = removed_pids.len();
-        for pid in &removed_pids {
-            self.runs.remove(pid);
+        let removed = self.orchestrator.cleanup_stale_sessions(max_age_seconds);
+        let count = removed.len();
+        for run_id in &removed {
+            self.runs.remove(run_id);
         }
         count
     }
@@ -425,24 +426,24 @@ impl Kernel {
         let orchestrator_sessions = self.orchestrator.get_session_count();
 
         SystemStatus {
-            processes_total: total,
-            processes_by_state: by_state,
+            runs_total: total,
+            runs_by_state: by_state,
             active_orchestration_sessions: orchestrator_sessions,
         }
     }
 
-    /// Get remaining resource budget for a process.
-    pub fn get_remaining_budget(&self, pid: &RunId) -> Option<RemainingBudget> {
-        let pcb = self.lifecycle.get(pid)?;
-        let usage = self.usage_from_run(pid, pcb);
+    /// Get remaining resource budget for a run.
+    pub fn get_remaining_budget(&self, run_id: &RunId) -> Option<RemainingBudget> {
+        let record = self.lifecycle.get(run_id)?;
+        let usage = self.usage_from_run(run_id, record);
         Some(RemainingBudget {
-            llm_calls_remaining: (pcb.quota.max_llm_calls - usage.llm_calls).max(0),
-            iterations_remaining: (pcb.quota.max_iterations - usage.iterations).max(0),
-            agent_hops_remaining: (pcb.quota.max_agent_hops - usage.agent_hops).max(0),
-            tokens_in_remaining: (pcb.quota.max_input_tokens as i64 - usage.tokens_in).max(0),
-            tokens_out_remaining: (pcb.quota.max_output_tokens as i64 - usage.tokens_out).max(0),
-            time_remaining_seconds: if pcb.quota.timeout_seconds > 0 {
-                (pcb.quota.timeout_seconds as f64 - usage.elapsed_seconds).max(0.0)
+            llm_calls_remaining: (record.quota.max_llm_calls - usage.llm_calls).max(0),
+            iterations_remaining: (record.quota.max_iterations - usage.iterations).max(0),
+            agent_hops_remaining: (record.quota.max_agent_hops - usage.agent_hops).max(0),
+            tokens_in_remaining: (record.quota.max_input_tokens as i64 - usage.tokens_in).max(0),
+            tokens_out_remaining: (record.quota.max_output_tokens as i64 - usage.tokens_out).max(0),
+            time_remaining_seconds: if record.quota.timeout_seconds > 0 {
+                (record.quota.timeout_seconds as f64 - usage.elapsed_seconds).max(0.0)
             } else {
                 f64::MAX
             },
@@ -450,37 +451,3 @@ impl Kernel {
     }
 }
 
-#[cfg(test)]
-mod tests {
-    use crate::run::Run;
-    use crate::kernel::orchestrator::{
-        Instruction, Workflow, Stage,
-    };
-    use crate::kernel::Kernel;
-    use crate::types::{RunId, RequestId, UserId, SessionId};
-
-    fn test_stage(name: &str) -> Stage {
-        Stage {
-            name: name.into(),
-            agent: name.into(),
-            ..Stage::default()
-        }
-    }
-
-    fn _test_config(stages: Vec<Stage>) -> Workflow {
-        Workflow::test_default("test", stages)
-    }
-
-    fn _setup_kernel_with_process(kernel: &mut Kernel, pid: &RunId) {
-        let _ = kernel.create_process(
-            pid.clone(),
-            RequestId::must("req-1"),
-            UserId::must("user-1"),
-            SessionId::must("sess-1"),
-            None,
-        );
-    }
-
-    // No tests remain in this module after the CommBus prune.
-    // Helpers retained as `_`-prefixed for future reuse.
-}

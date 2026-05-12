@@ -53,9 +53,9 @@ async fn dispatch(kernel: &mut Kernel, cmd: KernelCommand) {
             force,
             resp_tx,
         } => {
-            // Auto-create PCB if not already registered
+            // Auto-create a run record if not already registered.
             if kernel.lifecycle.get(&run_id).is_none() {
-                let _ = kernel.create_process(
+                let _ = kernel.create_run(
                     run_id.clone(),
                     run.identity.request_id.clone(),
                     run.identity.user_id.clone(),
@@ -77,10 +77,10 @@ async fn dispatch(kernel: &mut Kernel, cmd: KernelCommand) {
             resp_tx,
         } => {
             let result = kernel.get_next_instruction(&run_id);
-            // Auto-terminate PCB when orchestrator says TERMINATE
+            // Auto-terminate the run when orchestrator says TERMINATE.
             if let Ok(ref instr) = result {
                 if matches!(instr, Instruction::Terminate { .. }) {
-                    let _ = kernel.terminate_process(&run_id);
+                    let _ = kernel.terminate_run(&run_id);
                 }
             }
             let _ = resp_tx.send(result);
@@ -118,14 +118,14 @@ async fn dispatch(kernel: &mut Kernel, cmd: KernelCommand) {
             let _ = resp_tx.send(result);
         }
 
-        KernelCommand::CreateProcess {
+        KernelCommand::CreateRun {
             run_id,
             request_id,
             user_id,
             session_id,
             resp_tx,
         } => {
-            let result = kernel.create_process(
+            let result = kernel.create_run(
                 run_id,
                 request_id,
                 user_id,
@@ -135,11 +135,11 @@ async fn dispatch(kernel: &mut Kernel, cmd: KernelCommand) {
             let _ = resp_tx.send(result);
         }
 
-        KernelCommand::TerminateProcess {
+        KernelCommand::TerminateRun {
             run_id,
             resp_tx,
         } => {
-            let result = kernel.terminate_process(&run_id);
+            let result = kernel.terminate_run(&run_id);
             let _ = resp_tx.send(result);
         }
 
@@ -154,16 +154,16 @@ async fn dispatch(kernel: &mut Kernel, cmd: KernelCommand) {
             response,
             resp_tx,
         } => {
-            let result = kernel.resolve_process_interrupt(&run_id, &interrupt_id, response);
+            let result = kernel.resolve_run_interrupt(&run_id, &interrupt_id, response);
             let _ = resp_tx.send(result);
         }
 
-        KernelCommand::SetProcessInterrupt {
+        KernelCommand::SetRunInterrupt {
             run_id,
             interrupt,
             resp_tx,
         } => {
-            let result = kernel.set_process_interrupt(&run_id, interrupt);
+            let result = kernel.set_run_interrupt(&run_id, interrupt);
             let _ = resp_tx.send(result);
         }
 

@@ -148,9 +148,9 @@ async fn test_kernel_actor_pipeline_round_trip() {
     agents.register("understand", Arc::new(DeterministicAgent));
     agents.register("respond", Arc::new(DeterministicAgent));
 
-    let pid = RunId::must("test-p1");
+    let run_id = RunId::must("test-p1");
     let result = run(
-        &handle, pid, two_stage_pipeline(), Run::new("test-user", "test-session", "hello world", None), &agents,
+        &handle, run_id, two_stage_pipeline(), Run::new("test-user", "test-session", "hello world", None), &agents,
     )
     .await
     .expect("pipeline should complete");
@@ -166,11 +166,11 @@ async fn test_kernel_actor_session_state() {
     let cancel = CancellationToken::new();
     let handle = spawn(kernel, cancel.clone());
 
-    let pid = RunId::must("state-test");
-    let envelope = jeeves_core::run::Run::new("user1", "sess1", "test input", None);
+    let run_id = RunId::must("state-test");
+    let request = jeeves_core::run::Run::new("user1", "sess1", "test input", None);
 
     let session = handle
-        .initialize_session(pid.clone(), two_stage_pipeline(), envelope, false)
+        .initialize_session(run_id.clone(), two_stage_pipeline(), request, false)
         .await
         .expect("init should succeed");
 
@@ -178,7 +178,7 @@ async fn test_kernel_actor_session_state() {
     assert_eq!(session.stage_order.len(), 2);
     assert!(!session.terminated);
 
-    let state = handle.get_session_state(&pid).await.expect("state query should succeed");
+    let state = handle.get_session_state(&run_id).await.expect("state query should succeed");
     assert_eq!(state.run_id.as_str(), "state-test");
     cancel.cancel();
 }
@@ -190,26 +190,26 @@ async fn test_kernel_actor_system_status() {
     let handle = spawn(kernel, cancel.clone());
 
     let status = handle.get_system_status().await;
-    assert_eq!(status.processes_total, 0);
+    assert_eq!(status.runs_total, 0);
     assert_eq!(status.active_orchestration_sessions, 0);
     cancel.cancel();
 }
 
 #[tokio::test]
-async fn test_kernel_actor_terminate_process() {
+async fn test_kernel_actor_terminate_run() {
     let kernel = Kernel::new();
     let cancel = CancellationToken::new();
     let handle = spawn(kernel, cancel.clone());
 
-    let pid = RunId::must("term-test");
-    let envelope = jeeves_core::run::Run::new("user1", "sess1", "hello", None);
+    let run_id = RunId::must("term-test");
+    let request = jeeves_core::run::Run::new("user1", "sess1", "hello", None);
 
     let _state = handle
-        .initialize_session(pid.clone(), two_stage_pipeline(), envelope, false)
+        .initialize_session(run_id.clone(), two_stage_pipeline(), request, false)
         .await
         .expect("init should succeed");
 
-    handle.terminate_process(&pid).await.expect("terminate should succeed");
+    handle.terminate_run(&run_id).await.expect("terminate should succeed");
     cancel.cancel();
 }
 
@@ -398,12 +398,12 @@ async fn test_streaming_emits_stage_events() {
     }))
     .unwrap();
 
-    let pid = RunId::must("stream-1");
-    let envelope = jeeves_core::run::Run::new("user", "sess", "hello", None);
-    let _state = handle.initialize_session(pid.clone(), config, envelope, false).await.unwrap();
+    let run_id = RunId::must("stream-1");
+    let request = jeeves_core::run::Run::new("user", "sess", "hello", None);
+    let _state = handle.initialize_session(run_id.clone(), config, request, false).await.unwrap();
 
     let (tx, mut rx) = tokio::sync::mpsc::channel(64);
-    let result = run_loop(&handle, &pid, &agents, Some(tx), "test").await.unwrap();
+    let result = run_loop(&handle, &run_id, &agents, Some(tx), "test").await.unwrap();
 
     assert!(result.terminated());
 
@@ -455,12 +455,12 @@ async fn test_streaming_emits_tool_events() {
     }))
     .unwrap();
 
-    let pid = RunId::must("stream-tool");
-    let envelope = jeeves_core::run::Run::new("user", "sess", "hello", None);
-    let _state = handle.initialize_session(pid.clone(), config, envelope, false).await.unwrap();
+    let run_id = RunId::must("stream-tool");
+    let request = jeeves_core::run::Run::new("user", "sess", "hello", None);
+    let _state = handle.initialize_session(run_id.clone(), config, request, false).await.unwrap();
 
     let (tx, mut rx) = tokio::sync::mpsc::channel(64);
-    let _ = run_loop(&handle, &pid, &agents, Some(tx), "test").await.unwrap();
+    let _ = run_loop(&handle, &run_id, &agents, Some(tx), "test").await.unwrap();
 
     let mut events = Vec::new();
     while let Ok(event) = rx.try_recv() {
@@ -493,12 +493,12 @@ async fn test_streaming_emits_done() {
     }))
     .unwrap();
 
-    let pid = RunId::must("done-test");
-    let envelope = jeeves_core::run::Run::new("user", "sess", "hi", None);
-    let _state = handle.initialize_session(pid.clone(), config, envelope, false).await.unwrap();
+    let run_id = RunId::must("done-test");
+    let request = jeeves_core::run::Run::new("user", "sess", "hi", None);
+    let _state = handle.initialize_session(run_id.clone(), config, request, false).await.unwrap();
 
     let (tx, mut rx) = tokio::sync::mpsc::channel(64);
-    let _ = run_loop(&handle, &pid, &agents, Some(tx), "test").await.unwrap();
+    let _ = run_loop(&handle, &run_id, &agents, Some(tx), "test").await.unwrap();
 
     let mut events = Vec::new();
     while let Ok(event) = rx.try_recv() {
@@ -553,12 +553,12 @@ async fn test_streaming_event_ordering() {
         "max_agent_hops": 5
     })).unwrap();
 
-    let pid = RunId::must("order-1");
-    let envelope = jeeves_core::run::Run::new("user", "sess", "hi", None);
-    let _state = handle.initialize_session(pid.clone(), config, envelope, false).await.unwrap();
+    let run_id = RunId::must("order-1");
+    let request = jeeves_core::run::Run::new("user", "sess", "hi", None);
+    let _state = handle.initialize_session(run_id.clone(), config, request, false).await.unwrap();
 
     let (tx, mut rx) = tokio::sync::mpsc::channel(64);
-    let _ = run_loop(&handle, &pid, &agents, Some(tx), "test").await.unwrap();
+    let _ = run_loop(&handle, &run_id, &agents, Some(tx), "test").await.unwrap();
 
     let mut events = Vec::new();
     while let Ok(event) = rx.try_recv() {
@@ -869,11 +869,11 @@ async fn test_invalid_pipeline_rejected() {
     }))
     .unwrap();
 
-    let pid = RunId::must("invalid-pipeline");
-    let envelope = jeeves_core::run::Run::new("user", "sess", "hello", None);
+    let run_id = RunId::must("invalid-pipeline");
+    let request = jeeves_core::run::Run::new("user", "sess", "hello", None);
 
     let result = handle
-        .initialize_session(pid, config, envelope, false)
+        .initialize_session(run_id, config, request, false)
         .await;
 
     assert!(result.is_err(), "duplicate stage names should be rejected");
@@ -907,11 +907,11 @@ async fn test_valid_complex_pipeline() {
     }))
     .unwrap();
 
-    let pid = RunId::must("complex-pipeline");
-    let envelope = jeeves_core::run::Run::new("user", "sess", "hello", None);
+    let run_id = RunId::must("complex-pipeline");
+    let request = jeeves_core::run::Run::new("user", "sess", "hello", None);
 
     let result = handle
-        .initialize_session(pid, config, envelope, false)
+        .initialize_session(run_id, config, request, false)
         .await;
 
     assert!(result.is_ok(), "complex pipeline should pass validation");
@@ -1074,18 +1074,18 @@ async fn test_confirmation_gate_full_pipeline_buffered() {
         tools: Arc::new(tool_reg),
     }));
 
-    let pid = RunId::new();
-    let envelope = Run::new("user-1", "sess-1", "delete everything", None);
+    let run_id = RunId::new();
+    let request = Run::new("user-1", "sess-1", "delete everything", None);
 
     // Initialize session
-    let _state = handle.initialize_session(pid.clone(), pipeline.clone(), envelope, false).await.unwrap();
+    let _state = handle.initialize_session(run_id.clone(), pipeline.clone(), request, false).await.unwrap();
 
     // Run pipeline loop in buffered mode — should return incomplete (WaitInterrupt)
-    let result = run_loop(&handle, &pid, &agents, None, "confirm_test").await.unwrap();
+    let result = run_loop(&handle, &run_id, &agents, None, "confirm_test").await.unwrap();
     assert!(!result.terminated(), "Pipeline should NOT terminate — waiting for interrupt");
 
     // Get next instruction — should be WaitInterrupt
-    let instr = handle.get_next_instruction(&pid).await.unwrap();
+    let instr = handle.get_next_instruction(&run_id).await.unwrap();
     assert!(matches!(instr, jeeves_core::kernel::protocol::Instruction::WaitInterrupt { .. }));
 
     // Resolve the interrupt
@@ -1094,7 +1094,7 @@ async fn test_confirmation_gate_full_pipeline_buffered() {
     } else {
         panic!("Expected WaitInterrupt");
     };
-    handle.resolve_interrupt(&pid, interrupt_id.as_str(), jeeves_core::run::InterruptResponse {
+    handle.resolve_interrupt(&run_id, interrupt_id.as_str(), jeeves_core::run::InterruptResponse {
         text: None,
         approved: Some(true),
         decision: None,
@@ -1103,7 +1103,7 @@ async fn test_confirmation_gate_full_pipeline_buffered() {
     }).await.unwrap();
 
     // Re-run pipeline loop — should now execute the tool and complete
-    let result2 = run_loop(&handle, &pid, &agents, None, "confirm_test").await.unwrap();
+    let result2 = run_loop(&handle, &run_id, &agents, None, "confirm_test").await.unwrap();
     assert!(result2.terminated(), "Pipeline should complete after interrupt resolved");
     assert_eq!(result2.terminal_reason(), Some(TerminalReason::Completed));
 

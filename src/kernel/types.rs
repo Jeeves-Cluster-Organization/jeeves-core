@@ -4,10 +4,10 @@ use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use crate::types::{InterruptId, RunId, RequestId, SessionId, UserId};
 
-/// Process lifecycle state.
+/// Run lifecycle state.
 ///
-/// 3-state machine. A process pauses on a tool-confirmation interrupt by
-/// staying in `Running` and stamping `pending_interrupt` on its PCB; the
+/// 3-state machine. A run pauses on a tool-confirmation interrupt by staying
+/// in `Running` and stamping `pending_interrupt` on its `RunRecord`; the
 /// kernel doesn't have a separate Waiting/Blocked state for that case.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Hash)]
 #[serde(rename_all = "SCREAMING_SNAKE_CASE")]
@@ -17,7 +17,7 @@ pub enum RunStatus {
     /// Active execution. May be suspended on a pending interrupt; consult
     /// `RunRecord::pending_interrupt` to differentiate.
     Running,
-    /// Terminated. Processes in this state are immediately removed by the
+    /// Terminated. Runs in this state are immediately removed by the
     /// kernel; they don't linger as zombies.
     Terminated,
 }
@@ -29,7 +29,7 @@ impl RunStatus {
     }
 }
 
-/// Resource quota — bounds enforced per process.
+/// Resource quota — bounds enforced per run.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct ResourceQuota {
     pub max_input_tokens: i32,
@@ -129,15 +129,15 @@ impl ResourceUsage {
     }
 }
 
-/// Process Control Block — kernel's metadata about a running process.
+/// Kernel-side bookkeeping for a running run.
 ///
-/// The actual request state is in `Run`; this tracks scheduling state,
+/// The actual request state lives on `Run`; this tracks scheduling state,
 /// resource accounting, and a pointer to any pending tool-confirmation
-/// interrupt by ID (resolved through the interrupts service, not the PCB).
+/// interrupt by ID (resolved through the interrupts service, not the record).
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct RunRecord {
     // Identity
-    pub pid: RunId,
+    pub run_id: RunId,
     pub request_id: RequestId,
     pub user_id: UserId,
     pub session_id: SessionId,
@@ -156,16 +156,16 @@ pub struct RunRecord {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub completed_at: Option<DateTime<Utc>>,
 
-    /// ID of a tool-confirmation interrupt this process is currently
-    /// suspended on. None when actively running.
+    /// ID of a tool-confirmation interrupt this run is currently suspended
+    /// on. None when actively running.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub pending_interrupt: Option<InterruptId>,
 }
 
 impl RunRecord {
-    pub fn new(pid: RunId, request_id: RequestId, user_id: UserId, session_id: SessionId) -> Self {
+    pub fn new(run_id: RunId, request_id: RequestId, user_id: UserId, session_id: SessionId) -> Self {
         Self {
-            pid,
+            run_id,
             request_id,
             user_id,
             session_id,

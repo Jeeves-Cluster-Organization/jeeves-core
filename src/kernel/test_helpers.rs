@@ -1,7 +1,7 @@
 //! Shared test helpers for kernel orchestration tests.
 //!
-//! Eliminates copy-paste of `stage()`, `create_test_pipeline()`,
-//! and `create_test_envelope()` across orchestrator_*.rs test modules.
+//! Eliminates copy-paste of `stage()`, `create_test_workflow()`, and
+//! `create_test_run()` across orchestrator_*.rs test modules.
 
 use crate::run::Run;
 use crate::workflow::{Workflow, Stage};
@@ -23,11 +23,11 @@ pub fn stage(
     }
 }
 
-/// Linear 2-stage pipeline: stage1 → stage2 → terminate.
+/// Linear 2-stage workflow: stage1 → stage2 → terminate.
 /// stage1 has default_next="stage2", stage2 terminates.
-pub fn create_test_pipeline() -> Workflow {
+pub fn create_test_workflow() -> Workflow {
     Workflow::test_default(
-        "test_pipeline",
+        "test_workflow",
         vec![
             stage("stage1", "agent1", None, Some("stage2")),
             stage("stage2", "agent2", None, None),
@@ -35,22 +35,22 @@ pub fn create_test_pipeline() -> Workflow {
     )
 }
 
-/// Empty run with cleared current_stage (ready for pipeline init).
-pub fn create_test_envelope() -> Run {
-    let mut env = Run::anonymous();
-    env.current_stage = crate::types::StageName::default();
-    env
+/// Empty run with cleared current_stage (ready for workflow init).
+pub fn create_test_run() -> Run {
+    let mut run = Run::anonymous();
+    run.current_stage = crate::types::StageName::default();
+    run
 }
 
-/// Build an run with the pipeline's bounds and stage_order populated.
-pub fn make_envelope(config: &Workflow) -> Run {
-    let mut env = create_test_envelope();
-    env.max_iterations = config.max_iterations;
-    env.limits.max_llm_calls = config.max_llm_calls;
-    env.limits.max_agent_hops = config.max_agent_hops;
-    env.stage_order = config.get_stage_order();
-    if !env.stage_order.is_empty() {
-        env.current_stage = env.stage_order[0].clone();
+/// Build a run with the workflow's bounds and stage_order populated.
+pub fn make_run(config: &Workflow) -> Run {
+    let mut run = create_test_run();
+    run.max_iterations = config.max_iterations;
+    run.limits.max_llm_calls = config.max_llm_calls;
+    run.limits.max_agent_hops = config.max_agent_hops;
+    run.stage_order = config.get_stage_order();
+    if !run.stage_order.is_empty() {
+        run.current_stage = run.stage_order[0].clone();
     }
-    env
+    run
 }

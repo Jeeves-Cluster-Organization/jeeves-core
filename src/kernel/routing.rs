@@ -22,6 +22,8 @@ pub struct RoutingContext<'a> {
 
 #[derive(Debug, Clone)]
 pub enum RoutingResult {
+    /// String (not `StageName`) to spare consumers an import in their
+    /// routing closures; the kernel converts internally.
     Next(String),
     Terminate,
 }
@@ -77,7 +79,7 @@ impl std::fmt::Debug for RoutingRegistry {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct RoutingDecision {
     pub from_stage: StageName,
-    /// `None` means the pipeline terminated.
+    /// `None` means the workflow terminated.
     pub target: Option<StageName>,
     pub reason: RoutingReason,
 }
@@ -89,7 +91,7 @@ pub enum RoutingReason {
     ErrorRoute,
     RoutingFn { name: RoutingFnName },
     DefaultRoute,
-    /// No routing fn, no `default_next` — pipeline terminates `Completed`.
+    /// No routing fn, no `default_next` — workflow terminates `Completed`.
     NoMatch,
 }
 

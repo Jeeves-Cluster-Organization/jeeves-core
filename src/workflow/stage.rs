@@ -7,14 +7,14 @@ use serde::{Deserialize, Serialize};
 use super::policy::{ContextOverflow, RetryPolicy};
 use crate::types::{AgentName, OutputKey, PromptKey, RoutingFnName, StageName};
 
-/// Pipeline stage. Routing per stage evaluates in this order:
+/// Workflow stage. Routing per stage evaluates in this order:
 /// 1. agent failed + `error_next` set → `error_next`.
 /// 2. `routing_fn` registered → call it.
 /// 3. `default_next` → that stage.
 /// 4. otherwise → terminate `Completed`.
 #[derive(Debug, Clone, Default, Serialize, Deserialize, JsonSchema)]
 pub struct Stage {
-    /// Unique within the pipeline.
+    /// Unique within the workflow.
     pub name: StageName,
     /// Agent name to dispatch.
     pub agent: AgentName,
@@ -57,7 +57,7 @@ pub struct Stage {
 }
 
 /// LLM / agent-side settings attached to a stage. Flattened into the stage on
-/// the wire so a pipeline JSON looks like one flat record per stage.
+/// the wire so a workflow JSON looks like one flat record per stage.
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
 pub struct AgentConfig {
     /// Prompt template key for this agent. None = deterministic (no LLM call).

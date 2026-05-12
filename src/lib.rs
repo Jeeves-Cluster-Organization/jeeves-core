@@ -14,7 +14,7 @@
 //!                                          ↕
 //!                                  Agent tasks (concurrent)
 //!                                          ↓
-//!                                  LLM calls (reqwest)
+//!                                  LLM provider (HTTP)
 //! ```
 
 // Enforce strict safety at compile time

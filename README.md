@@ -46,13 +46,13 @@ let cancel = tokio_util::sync::CancellationToken::new();
 let handle = jeeves_core::kernel::actor::spawn(kernel, cancel);
 
 let agents = AgentFactoryBuilder::new(llm, prompts, tools)
-    .add_pipeline(workflow.clone()).build();
+    .add_workflow(workflow.clone()).build();
 
-let run = Run::new("user1", "session1", "hello", None);
-let result = run(&handle, RunId::new(), workflow, run, &agents).await?;
+let request = Run::new("user1", "session1", "hello", None);
+let result = run(&handle, RunId::new(), workflow, request, &agents).await?;
 ```
 
-For streaming events use `run_streaming` (returns `mpsc::Receiver<RunEvent>`).
+For streaming events use `run_streaming`, which returns `(JoinHandle<Result<WorkerResult>>, mpsc::Receiver<RunEvent>)`.
 
 ## Feature Flags
 

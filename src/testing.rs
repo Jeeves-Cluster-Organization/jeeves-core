@@ -35,7 +35,7 @@ pub struct PipelineTestHarness {
 }
 
 impl PipelineTestHarness {
-    /// Create a new test harness with the given pipeline config.
+    /// Create a new test harness with the given workflow.
     pub fn new(config: Workflow) -> Self {
         Self {
             config,
@@ -49,13 +49,13 @@ impl PipelineTestHarness {
         self
     }
 
-    /// Run the pipeline to completion with the given input (buffered mode).
+    /// Run the workflow to completion with the given input (buffered mode).
     pub async fn run(self, input: &str) -> Result<WorkerResult> {
         let kernel = Kernel::new();
         let cancel = CancellationToken::new();
         let handle = spawn(kernel, cancel.clone());
 
-        let pid = RunId::must(format!(
+        let run_id = RunId::must(format!(
             "test_{}",
             &uuid::Uuid::new_v4().simple().to_string()[..12]
         ));
@@ -63,17 +63,17 @@ impl PipelineTestHarness {
         let run = Run::new("test_user", "test_session", input, None);
 
         let _state = handle
-            .initialize_session(pid.clone(), self.config, run, false)
+            .initialize_session(run_id.clone(), self.config, run, false)
             .await?;
 
         let agents = Arc::new(self.agents);
-        let result = crate::kernel::runner::run_loop(&handle, &pid, &agents, None, &workflow_name).await;
+        let result = crate::kernel::runner::run_loop(&handle, &run_id, &agents, None, &workflow_name).await;
 
         cancel.cancel();
         result
     }
 
-    /// Run the pipeline with streaming events.
+    /// Run the workflow with streaming events.
     pub async fn run_streaming(
         self,
         input: &str,
@@ -82,7 +82,7 @@ impl PipelineTestHarness {
         let cancel = CancellationToken::new();
         let handle = spawn(kernel, cancel.clone());
 
-        let pid = RunId::must(format!(
+        let run_id = RunId::must(format!(
             "test_{}",
             &uuid::Uuid::new_v4().simple().to_string()[..12]
         ));
@@ -92,7 +92,7 @@ impl PipelineTestHarness {
 
         let (jh, mut rx) = crate::kernel::runner::run_streaming(
             handle,
-            pid,
+            run_id,
             self.config,
             run,
             agents,

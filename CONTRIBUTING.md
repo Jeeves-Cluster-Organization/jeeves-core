@@ -1,7 +1,7 @@
 # Contributing
 
 ```bash
-cargo test                      # 175 lib + 23 integration
+cargo test                      # 170 lib + 23 integration + 2 schema
 cargo clippy --all-features
 cargo fmt
 ```

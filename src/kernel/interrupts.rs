@@ -8,16 +8,16 @@ use chrono::{DateTime, Utc};
 use std::collections::HashMap;
 
 use crate::run::{FlowInterrupt, InterruptResponse};
-use crate::types::InterruptId;
+use crate::types::{EnvelopeId, InterruptId, RequestId, SessionId, UserId};
 
 /// Lightweight bookkeeping for a pending interrupt.
 #[derive(Debug, Clone)]
 pub struct PendingInterrupt {
     pub interrupt: FlowInterrupt,
-    pub request_id: String,
-    pub user_id: String,
-    pub session_id: String,
-    pub envelope_id: String,
+    pub request_id: RequestId,
+    pub user_id: UserId,
+    pub session_id: SessionId,
+    pub envelope_id: EnvelopeId,
     pub registered_at: DateTime<Utc>,
 }
 
@@ -41,33 +41,31 @@ impl InterruptService {
     pub fn register_flow_interrupt(
         &mut self,
         interrupt: FlowInterrupt,
-        request_id: &str,
-        user_id: &str,
-        session_id: &str,
-        envelope_id: &str,
+        request_id: &RequestId,
+        user_id: &UserId,
+        session_id: &SessionId,
+        envelope_id: &EnvelopeId,
     ) {
         let id = interrupt.id.clone();
         self.pending.insert(
             id,
             PendingInterrupt {
                 interrupt,
-                request_id: request_id.to_string(),
-                user_id: user_id.to_string(),
-                session_id: session_id.to_string(),
-                envelope_id: envelope_id.to_string(),
+                request_id: request_id.clone(),
+                user_id: user_id.clone(),
+                session_id: session_id.clone(),
+                envelope_id: envelope_id.clone(),
                 registered_at: Utc::now(),
             },
         );
     }
 
     /// Resolve a pending interrupt with the consumer's response.
-    /// Returns true if `interrupt_id` was registered. The third argument is
-    /// retained for call-site signature compatibility and is ignored.
+    /// Returns true if `interrupt_id` was registered.
     pub fn resolve(
         &mut self,
         interrupt_id: &str,
         response: InterruptResponse,
-        _ignored: Option<()>,
     ) -> bool {
         if self.pending.remove(interrupt_id).is_some() {
             self.resolved.insert(InterruptId::must(interrupt_id), response);
@@ -117,11 +115,17 @@ mod tests {
         let interrupt = make_interrupt();
         let id = interrupt.id.clone();
 
-        svc.register_flow_interrupt(interrupt, "req", "user", "sess", "env");
+        svc.register_flow_interrupt(
+            interrupt,
+            &RequestId::must("req"),
+            &UserId::must("user"),
+            &SessionId::must("sess"),
+            &EnvelopeId::must("env"),
+        );
         assert_eq!(svc.pending_count(), 1);
         assert!(svc.get_pending(id.as_str()).is_some());
 
-        assert!(svc.resolve(id.as_str(), make_response(), None));
+        assert!(svc.resolve(id.as_str(), make_response()));
         assert_eq!(svc.pending_count(), 0);
         assert!(svc.get_response(id.as_str()).is_some());
     }
@@ -129,6 +133,6 @@ mod tests {
     #[test]
     fn resolve_unknown_returns_false() {
         let mut svc = InterruptService::new();
-        assert!(!svc.resolve("nonexistent", make_response(), None));
+        assert!(!svc.resolve("nonexistent", make_response()));
     }
 }

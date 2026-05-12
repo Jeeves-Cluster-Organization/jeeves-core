@@ -1,9 +1,9 @@
-//! Process lifecycle management.
+//! Run lifecycle management.
 //!
-//! Three-state machine: `Ready → Running → Terminated`. Processes that pause
-//! on a tool-confirmation interrupt stay in `Running`; the kernel doesn't
-//! have a dedicated waiting/blocked state for that case (the pending interrupt
-//! ID lives on `RunRecord::pending_interrupt`).
+//! Three-state machine: `Ready → Running → Terminated`. Runs that pause on a
+//! tool-confirmation interrupt stay in `Running`; the kernel doesn't have a
+//! dedicated waiting/blocked state for that case (the pending interrupt ID
+//! lives on `RunRecord::pending_interrupt`).
 
 use std::collections::HashMap;
 
@@ -11,91 +11,91 @@ use crate::types::{Error, RunId, RequestId, Result, SessionId, UserId};
 
 pub use super::types::{RunRecord, RunStatus, ResourceQuota};
 
-/// Lifecycle manager — owns the process map and quota defaults.
+/// Lifecycle manager — owns the run-record map and quota defaults.
 ///
 /// Not a separate actor; held by `Kernel` and accessed via `&mut self`.
 #[derive(Debug)]
 pub struct RunRegistry {
     default_quota: ResourceQuota,
-    pub(crate) processes: HashMap<RunId, RunRecord>,
+    pub(crate) records: HashMap<RunId, RunRecord>,
 }
 
 impl RunRegistry {
     pub fn new(default_quota: Option<ResourceQuota>) -> Self {
         Self {
             default_quota: default_quota.unwrap_or_default(),
-            processes: HashMap::new(),
+            records: HashMap::new(),
         }
     }
 
-    /// Create a new process in `Ready` state. If a PCB already exists for the
-    /// pid, returns the existing one unchanged.
+    /// Create a new run record in `Ready` state. If a record already exists
+    /// for the run_id, returns the existing one unchanged.
     pub fn create(
         &mut self,
-        pid: RunId,
+        run_id: RunId,
         request_id: RequestId,
         user_id: UserId,
         session_id: SessionId,
         quota: Option<ResourceQuota>,
     ) -> Result<RunRecord> {
-        if let Some(existing) = self.processes.get(&pid) {
+        if let Some(existing) = self.records.get(&run_id) {
             return Ok(existing.clone());
         }
-        let mut pcb = RunRecord::new(pid.clone(), request_id, user_id, session_id);
-        pcb.quota = quota.unwrap_or_else(|| self.default_quota.clone());
-        self.processes.insert(pid, pcb.clone());
-        Ok(pcb)
+        let mut record = RunRecord::new(run_id.clone(), request_id, user_id, session_id);
+        record.quota = quota.unwrap_or_else(|| self.default_quota.clone());
+        self.records.insert(run_id, record.clone());
+        Ok(record)
     }
 
     /// Transition `Ready → Running`.
-    pub fn run(&mut self, pid: &RunId) -> Result<()> {
-        let pcb = self.processes.get_mut(pid)
-            .ok_or_else(|| Error::not_found(format!("unknown pid: {}", pid)))?;
-        if pcb.state != RunStatus::Ready {
+    pub fn run(&mut self, run_id: &RunId) -> Result<()> {
+        let record = self.records.get_mut(run_id)
+            .ok_or_else(|| Error::not_found(format!("unknown run_id: {}", run_id)))?;
+        if record.state != RunStatus::Ready {
             return Err(Error::state_transition(format!(
-                "cannot run pid {}: state is {:?}, expected Ready",
-                pid, pcb.state
+                "cannot run {}: state is {:?}, expected Ready",
+                run_id, record.state
             )));
         }
-        pcb.start();
+        record.start();
         Ok(())
     }
 
-    /// Terminate a process and remove it from the map.
-    /// Idempotent: if the pid is unknown, returns Ok(()).
-    pub fn terminate(&mut self, pid: &RunId) -> Result<()> {
-        if let Some(pcb) = self.processes.get_mut(pid) {
-            if !pcb.state.is_terminal() {
-                pcb.complete();
+    /// Terminate a run and remove its record from the map.
+    /// Idempotent: if the run_id is unknown, returns Ok(()).
+    pub fn terminate(&mut self, run_id: &RunId) -> Result<()> {
+        if let Some(record) = self.records.get_mut(run_id) {
+            if !record.state.is_terminal() {
+                record.complete();
             }
         }
-        self.processes.remove(pid);
+        self.records.remove(run_id);
         Ok(())
     }
 
-    /// Get process by PID.
-    pub fn get(&self, pid: &RunId) -> Option<&RunRecord> {
-        self.processes.get(pid)
+    /// Get run record by ID.
+    pub fn get(&self, run_id: &RunId) -> Option<&RunRecord> {
+        self.records.get(run_id)
     }
 
-    /// Get mutable process by PID.
-    pub fn get_mut(&mut self, pid: &RunId) -> Option<&mut RunRecord> {
-        self.processes.get_mut(pid)
+    /// Get mutable run record by ID.
+    pub fn get_mut(&mut self, run_id: &RunId) -> Option<&mut RunRecord> {
+        self.records.get_mut(run_id)
     }
 
-    /// List all processes.
+    /// List all run records.
     pub fn list(&self) -> Vec<RunRecord> {
-        self.processes.values().cloned().collect()
+        self.records.values().cloned().collect()
     }
 
-    /// Count processes.
+    /// Count run records.
     pub fn count(&self) -> usize {
-        self.processes.len()
+        self.records.len()
     }
 
-    /// Count processes in a given state.
+    /// Count records in a given state.
     pub fn count_by_state(&self, state: RunStatus) -> usize {
-        self.processes.values().filter(|pcb| pcb.state == state).count()
+        self.records.values().filter(|r| r.state == state).count()
     }
 
     /// Get the current default quota.
@@ -103,12 +103,12 @@ impl RunRegistry {
         &self.default_quota
     }
 
-    /// User IDs that have non-terminated processes.
+    /// User IDs that have non-terminated runs.
     pub fn get_active_user_ids(&self) -> std::collections::HashSet<String> {
-        self.processes
+        self.records
             .values()
-            .filter(|pcb| !pcb.state.is_terminal())
-            .map(|pcb| pcb.user_id.to_string())
+            .filter(|r| !r.state.is_terminal())
+            .map(|r| r.user_id.to_string())
             .collect()
     }
 }
@@ -123,12 +123,12 @@ impl Default for RunRegistry {
 mod tests {
     use super::*;
 
-    fn submit(lm: &mut RunRegistry, pid: &str) -> RunRecord {
+    fn submit(lm: &mut RunRegistry, run_id: &str) -> RunRecord {
         lm.create(
-            RunId::must(pid),
-            RequestId::must(format!("req-{}", pid)),
-            UserId::must(format!("user-{}", pid)),
-            SessionId::must(format!("sess-{}", pid)),
+            RunId::must(run_id),
+            RequestId::must(format!("req-{}", run_id)),
+            UserId::must(format!("user-{}", run_id)),
+            SessionId::must(format!("sess-{}", run_id)),
             None,
         ).unwrap()
     }
@@ -136,15 +136,15 @@ mod tests {
     #[test]
     fn ready_run_terminate() {
         let mut lm = RunRegistry::default();
-        let pid = RunId::must("p1");
-        let pcb = submit(&mut lm, "p1");
-        assert_eq!(pcb.state, RunStatus::Ready);
+        let run_id = RunId::must("p1");
+        let record = submit(&mut lm, "p1");
+        assert_eq!(record.state, RunStatus::Ready);
 
-        lm.run(&pid).unwrap();
-        assert_eq!(lm.get(&pid).unwrap().state, RunStatus::Running);
+        lm.run(&run_id).unwrap();
+        assert_eq!(lm.get(&run_id).unwrap().state, RunStatus::Running);
 
-        lm.terminate(&pid).unwrap();
-        assert!(lm.get(&pid).is_none(), "terminate removes the PCB immediately");
+        lm.terminate(&run_id).unwrap();
+        assert!(lm.get(&run_id).is_none(), "terminate removes the record immediately");
     }
 
     #[test]
@@ -164,10 +164,10 @@ mod tests {
     #[test]
     fn run_invalid_state_fails() {
         let mut lm = RunRegistry::default();
-        let pid = RunId::must("p1");
+        let run_id = RunId::must("p1");
         submit(&mut lm, "p1");
-        lm.run(&pid).unwrap();
-        assert!(lm.run(&pid).is_err(), "cannot run a Running process");
+        lm.run(&run_id).unwrap();
+        assert!(lm.run(&run_id).is_err(), "cannot run a Running run");
     }
 
     #[test]
@@ -194,9 +194,9 @@ mod tests {
         let mut lm = RunRegistry::default();
         submit(&mut lm, "x");
         submit(&mut lm, "y");
-        let pid_x = RunId::must("x");
-        lm.run(&pid_x).unwrap();
-        lm.terminate(&pid_x).unwrap();
+        let run_x = RunId::must("x");
+        lm.run(&run_x).unwrap();
+        lm.terminate(&run_x).unwrap();
         let users = lm.get_active_user_ids();
         assert!(users.contains("user-y"));
         assert!(!users.contains("user-x"), "terminated user excluded");

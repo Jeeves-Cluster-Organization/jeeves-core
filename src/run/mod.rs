@@ -1,5 +1,6 @@
-//! Run: mutable state for a request flowing through the pipeline.
-//! Fields group into `Identity`, `Pipeline`, `Bounds`, `InterruptState`, `Audit`.
+//! Run: mutable state for a request flowing through a workflow.
+//! Fields group into `Identity`, workflow position (`current_stage`/`stage_order`),
+//! `Limits`/`Metrics`, `InterruptState`, and `Audit`.
 
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
@@ -160,10 +161,11 @@ impl Run {
 
     /// Validate run invariants.
     ///
-    /// Called after deserialization from external input to catch
-    /// malformed state before it enters the kernel.
+    /// Called after deserialization from external input to catch malformed
+    /// state before it enters the kernel. Newtype constructors (`must`,
+    /// `From<&str>`) already reject empty IDs in code; these checks exist
+    /// for the deserialisation path, where serde bypasses those constructors.
     pub fn validate(&self) -> crate::types::Result<()> {
-        // Identity: must be non-empty
         if self.identity.envelope_id.as_str().is_empty() {
             return Err(crate::types::Error::validation("envelope_id must not be empty"));
         }
@@ -196,19 +198,19 @@ impl Run {
             return Err(crate::types::Error::validation("bounds.max_agent_hops must be positive"));
         }
 
-        // Pipeline: current_stage must be in stage_order (if stage_order is populated)
+        // Workflow: current_stage must be in stage_order (if stage_order is populated)
         if !self.stage_order.is_empty()
             && !self.stage_order.contains(&self.current_stage)
         {
             return Err(crate::types::Error::validation(format!(
-                "pipeline.current_stage '{}' not in stage_order",
+                "workflow.current_stage '{}' not in stage_order",
                 self.current_stage
             )));
         }
 
-        // Pipeline: positive max_iterations
+        // Workflow: positive max_iterations
         if self.max_iterations <= 0 {
-            return Err(crate::types::Error::validation("pipeline.max_iterations must be positive"));
+            return Err(crate::types::Error::validation("workflow.max_iterations must be positive"));
         }
 
         Ok(())
@@ -263,7 +265,7 @@ mod tests {
     // ── 1. new() defaults ───────────────────────────────────────────────
 
     #[test]
-    fn test_new_envelope_defaults() {
+    fn test_new_run_defaults() {
         let env = Run::anonymous();
 
         assert!(env.identity.envelope_id.as_str().starts_with("env_"));
@@ -586,7 +588,7 @@ mod tests {
         assert!(env.validate().is_err());
     }
 
-    // ── 22. validate: pipeline stage_order ────────────────────────────────
+    // ── 22. validate: workflow stage_order ────────────────────────────────
 
     #[test]
     fn test_validate_current_stage_not_in_order_fails() {

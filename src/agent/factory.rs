@@ -1,6 +1,4 @@
-//! Agent factory — builds AgentRegistry from pipeline config.
-//!
-//! Single decision tree used by both Rust consumers and PyO3 runner.
+//! Agent factory — builds an `AgentRegistry` from one or more `Workflow`s.
 
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -13,19 +11,19 @@ use crate::agent::llm::LlmProvider;
 use crate::agent::prompts::PromptRegistry;
 use crate::tools::{AclToolExecutor, ContentResolver, ToolRegistry};
 
-/// Builds AgentRegistry from pipeline configs + shared resources.
+/// Builds an `AgentRegistry` from one or more `Workflow`s plus shared resources.
 ///
 /// # Example
 /// ```text
 /// let agents = AgentFactoryBuilder::new(llm, prompts, tools)
-///     .add_pipeline(config)
+///     .add_workflow(workflow)
 ///     .build();
 /// ```
 pub struct AgentFactoryBuilder {
     llm: Arc<dyn LlmProvider>,
     prompts: Arc<PromptRegistry>,
     tools: Arc<ToolRegistry>,
-    pipeline_configs: HashMap<String, Workflow>,
+    workflows: HashMap<String, Workflow>,
     content_resolver: Option<Arc<dyn ContentResolver>>,
     hooks: Vec<crate::agent::hooks::DynHook>,
 }
@@ -33,7 +31,7 @@ pub struct AgentFactoryBuilder {
 impl std::fmt::Debug for AgentFactoryBuilder {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("AgentFactoryBuilder")
-            .field("pipelines", &self.pipeline_configs.keys().collect::<Vec<_>>())
+            .field("workflows", &self.workflows.keys().collect::<Vec<_>>())
             .finish()
     }
 }
@@ -48,7 +46,7 @@ impl AgentFactoryBuilder {
             llm,
             prompts,
             tools,
-            pipeline_configs: HashMap::new(),
+            workflows: HashMap::new(),
             content_resolver: None,
             hooks: Vec::new(),
         }
@@ -68,24 +66,24 @@ impl AgentFactoryBuilder {
         self
     }
 
-    /// Add a single pipeline config.
-    pub fn add_pipeline(mut self, config: Workflow) -> Self {
-        self.pipeline_configs.insert(config.name.clone(), config);
+    /// Add a single workflow.
+    pub fn add_workflow(mut self, workflow: Workflow) -> Self {
+        self.workflows.insert(workflow.name.clone(), workflow);
         self
     }
 
-    /// Add multiple pipeline configs.
-    pub fn add_pipelines(mut self, configs: impl IntoIterator<Item = Workflow>) -> Self {
-        for config in configs {
-            self.pipeline_configs.insert(config.name.clone(), config);
+    /// Add multiple workflows.
+    pub fn add_workflows(mut self, workflows: impl IntoIterator<Item = Workflow>) -> Self {
+        for workflow in workflows {
+            self.workflows.insert(workflow.name.clone(), workflow);
         }
         self
     }
 
-    /// Build AgentRegistry from pipeline configs.
+    /// Build an `AgentRegistry` from the registered workflows.
     pub fn build(self) -> Arc<AgentRegistry> {
         let mut registry = AgentRegistry::new();
-        for config in self.pipeline_configs.values() {
+        for config in self.workflows.values() {
             merge_agents(&mut registry, config, &self);
         }
         Arc::new(registry)
@@ -192,7 +190,7 @@ mod tests {
         let prompts = Arc::new(PromptRegistry::empty());
 
         let agents = AgentFactoryBuilder::new(llm, prompts, tools)
-            .add_pipeline(test_config("p", vec![test_stage("llm1", true)]))
+            .add_workflow(test_config("p", vec![test_stage("llm1", true)]))
             .build();
 
         let agent = agents.get("llm1").expect("llm1 should exist");
@@ -208,7 +206,7 @@ mod tests {
         let prompts = Arc::new(PromptRegistry::empty());
 
         let agents = AgentFactoryBuilder::new(llm, prompts, tools)
-            .add_pipeline(test_config("p", vec![test_stage("my_tool", false)]))
+            .add_workflow(test_config("p", vec![test_stage("my_tool", false)]))
             .build();
 
         let agent = agents.get("my_tool").expect("my_tool should exist");
@@ -222,7 +220,7 @@ mod tests {
         let prompts = Arc::new(PromptRegistry::empty());
 
         let agents = AgentFactoryBuilder::new(llm, prompts, tools)
-            .add_pipeline(test_config("p", vec![test_stage("unknown", false)]))
+            .add_workflow(test_config("p", vec![test_stage("unknown", false)]))
             .build();
 
         let agent = agents.get("unknown").expect("unknown should exist");
@@ -239,7 +237,7 @@ mod tests {
         let stage2 = test_stage("agent1", false);
 
         let agents = AgentFactoryBuilder::new(llm, prompts, tools)
-            .add_pipeline(test_config("p", vec![stage1, stage2]))
+            .add_workflow(test_config("p", vec![stage1, stage2]))
             .build();
 
         // First registration wins — should be LlmAgent, not DeterministicAgent
@@ -254,8 +252,8 @@ mod tests {
         let prompts = Arc::new(PromptRegistry::empty());
 
         let agents = AgentFactoryBuilder::new(llm, prompts, tools)
-            .add_pipeline(test_config("p1", vec![test_stage("a", true)]))
-            .add_pipeline(test_config("p2", vec![test_stage("b", false)]))
+            .add_workflow(test_config("p1", vec![test_stage("a", true)]))
+            .add_workflow(test_config("p2", vec![test_stage("b", false)]))
             .build();
 
         assert!(agents.get("a").is_some(), "agent from p1");
@@ -274,7 +272,7 @@ mod tests {
         let prompts = Arc::new(PromptRegistry::empty());
 
         let agents = AgentFactoryBuilder::new(llm, prompts, tools)
-            .add_pipeline(test_config("p", vec![test_stage("filtered", true)]))
+            .add_workflow(test_config("p", vec![test_stage("filtered", true)]))
             .build();
 
         let agent = agents.get("filtered").expect("filtered should exist");
@@ -292,7 +290,7 @@ mod tests {
         let prompts = Arc::new(PromptRegistry::empty());
 
         let agents = AgentFactoryBuilder::new(llm, prompts, tools)
-            .add_pipeline(test_config("p", vec![test_stage("ungated", true)]))
+            .add_workflow(test_config("p", vec![test_stage("ungated", true)]))
             .build();
 
         let agent = agents.get("ungated").expect("ungated should exist");

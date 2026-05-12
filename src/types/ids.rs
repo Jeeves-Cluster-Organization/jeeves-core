@@ -146,6 +146,8 @@ macro_rules! define_id {
 
 // Run-instance identifiers (UUID-generated).
 define_id!(RunId, uuid);
+// Wire-format name kept after Envelope→Run rename; serialised JSON still
+// uses the `envelope_id` key for byte-identical compatibility.
 define_id!(EnvelopeId, uuid);
 define_id!(RequestId, uuid);
 define_id!(SessionId, uuid);
@@ -206,7 +208,7 @@ mod tests {
     }
 
     #[test]
-    fn process_id_default_is_unique() {
+    fn run_id_default_is_unique() {
         let a = RunId::default();
         let b = RunId::default();
         assert_ne!(a, b);

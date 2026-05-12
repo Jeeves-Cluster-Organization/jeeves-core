@@ -1,4 +1,4 @@
-//! Pipeline orchestration — kernel-driven pipeline execution control.
+//! Workflow orchestration — kernel-driven workflow execution control.
 //!
 //! The Orchestrator:
 //!   - Owns the orchestration loop
@@ -27,28 +27,28 @@ pub use crate::workflow::{Workflow, Stage};
 /// Look up the agent name for a stage in a workflow.
 ///
 /// Module-level (not a method on `Orchestrator`) so the orchestrator can pass
-/// its own fields to it while holding a mutable borrow on `pipelines`.
+/// its own fields to it while holding a mutable borrow on `sessions`.
 pub(crate) fn get_agent_for_stage(
-    pipeline_config: &Workflow,
+    workflow: &Workflow,
     stage_name: &str,
 ) -> Result<crate::types::AgentName> {
-    pipeline_config
+    workflow
         .stages
         .iter()
         .find(|s| s.name.as_str() == stage_name)
         .map(|s| s.agent.clone())
-        .ok_or_else(|| Error::not_found(format!("Stage not found in pipeline: {}", stage_name)))
+        .ok_or_else(|| Error::not_found(format!("Stage not found in workflow: {}", stage_name)))
 }
 
-/// Orchestration represents an active pipeline execution session.
+/// Orchestration represents an active workflow execution session.
 ///
-/// The session tracks pipeline execution state only (config, stage visits,
-/// last routing decision). The run is owned by the Kernel's
+/// The session tracks workflow execution state only (workflow definition,
+/// stage visits, last routing decision). The run is owned by the Kernel's
 /// `runs` store.
 #[derive(Debug, Clone)]
 pub struct Orchestration {
     pub run_id: RunId,
-    pub pipeline_config: Workflow,
+    pub workflow: Workflow,
     pub(crate) stage_visits: HashMap<crate::types::StageName, i32>,
     #[allow(dead_code)] // Retained for diagnostics
     pub(crate) created_at: DateTime<Utc>,
@@ -57,17 +57,17 @@ pub struct Orchestration {
     pub(crate) last_routing_decision: Option<super::routing::RoutingDecision>,
 }
 
-/// Orchestrator manages kernel-side pipeline execution.
+/// Orchestrator manages kernel-side workflow execution.
 #[derive(Debug)]
 pub struct Orchestrator {
-    pub(crate) pipelines: HashMap<RunId, Orchestration>,
+    pub(crate) sessions: HashMap<RunId, Orchestration>,
     pub(crate) routing_registry: RoutingRegistry,
 }
 
 impl Orchestrator {
     pub fn new() -> Self {
         Self {
-            pipelines: HashMap::new(),
+            sessions: HashMap::new(),
             routing_registry: RoutingRegistry::new(),
         }
     }
@@ -86,7 +86,7 @@ impl Orchestrator {
         run: &mut Run,
     ) -> Result<Instruction> {
         let session = self
-            .pipelines
+            .sessions
             .get_mut(run_id)
             .ok_or_else(|| Error::not_found(format!("Unknown process: {}", run_id)))?;
         session.last_activity_at = Utc::now();
@@ -125,11 +125,11 @@ impl Orchestrator {
             return Err(Error::state_transition("No current stage set"));
         }
 
-        let agent_name = get_agent_for_stage(&session.pipeline_config, current_stage.as_str())?;
+        let agent_name = get_agent_for_stage(&session.workflow, current_stage.as_str())?;
         Ok(Instruction::run_agent(agent_name.as_str()))
     }
 
-    /// Process agent execution result and advance the pipeline.
+    /// Process agent execution result and advance the workflow.
     ///
     /// Routing evaluation order:
     /// 1. If `agent_failed` AND `error_next` set → route to `error_next`
@@ -147,7 +147,7 @@ impl Orchestrator {
         break_loop: bool,
     ) -> Result<()> {
         let session = self
-            .pipelines
+            .sessions
             .get_mut(run_id)
             .ok_or_else(|| Error::not_found(format!("Unknown process: {}", run_id)))?;
 
@@ -174,11 +174,11 @@ impl Orchestrator {
         }
 
         let current_stage = run.current_stage.clone();
-        let pipeline_stage = session.pipeline_config.stages
+        let pipeline_stage = session.workflow.stages
             .iter()
             .find(|s| s.name.as_str() == current_stage.as_str())
             .ok_or_else(|| Error::state_transition(format!(
-                "Current stage '{}' not found in pipeline config",
+                "Current stage '{}' not found in workflow",
                 current_stage
             )))?
             .clone();
@@ -207,7 +207,7 @@ impl Orchestrator {
         );
         let next_target = routing_decision.target.clone();
 
-        if let Some(session) = self.pipelines.get_mut(run_id) {
+        if let Some(session) = self.sessions.get_mut(run_id) {
             session.last_routing_decision = Some(routing_decision);
         }
 
@@ -223,13 +223,13 @@ impl Orchestrator {
         run: &mut Run,
     ) -> Result<()> {
         let session = self
-            .pipelines
+            .sessions
             .get_mut(run_id)
             .ok_or_else(|| Error::not_found(format!("Unknown process: {}", run_id)))?;
 
         match next_target {
             Some(target) => {
-                if let Some(target_stage) = session.pipeline_config.stages.iter().find(|s| s.name == target) {
+                if let Some(target_stage) = session.workflow.stages.iter().find(|s| s.name == target) {
                     if let Some(max_visits) = target_stage.max_visits {
                         let visits = session.stage_visits.get(target.as_str()).copied().unwrap_or(0);
                         if visits >= max_visits {
@@ -250,7 +250,7 @@ impl Orchestrator {
                 session.last_activity_at = Utc::now();
             }
             None => {
-                tracing::info!(reason = ?TerminalReason::Completed, "pipeline_completed");
+                tracing::info!(reason = ?TerminalReason::Completed, "run_completed");
                 run.terminate_with(TerminalReason::Completed, None);
                 session.last_activity_at = Utc::now();
             }
@@ -289,12 +289,12 @@ mod tests {
     #[test]
     fn run_agent_dispatch() {
         let config = Workflow::test_default("p", vec![linear_stage("s1", None)]);
-        let pid = RunId::must("p1");
-        let mut run = make_envelope(&config);
+        let run_id = RunId::must("p1");
+        let mut run = make_run(&config);
         let mut orch = Orchestrator::new();
-        orch.initialize_session(pid.clone(), config, &mut run, false).unwrap();
+        orch.initialize_session(run_id.clone(), config, &mut run, false).unwrap();
 
-        let instr = orch.get_next_instruction(&pid, &mut run).unwrap();
+        let instr = orch.get_next_instruction(&run_id, &mut run).unwrap();
         match instr {
             Instruction::RunAgent { agent, .. } => assert_eq!(agent, "s1"),
             other => panic!("expected RunAgent, got {:?}", other),
@@ -304,13 +304,13 @@ mod tests {
     #[test]
     fn already_terminated_returns_terminate() {
         let config = Workflow::test_default("p", vec![linear_stage("s1", None)]);
-        let pid = RunId::must("p1");
-        let mut run = make_envelope(&config);
+        let run_id = RunId::must("p1");
+        let mut run = make_run(&config);
         run.terminate_with(TerminalReason::Completed, None);
 
         let mut orch = Orchestrator::new();
-        orch.initialize_session(pid.clone(), config, &mut run, false).unwrap();
-        let instr = orch.get_next_instruction(&pid, &mut run).unwrap();
+        orch.initialize_session(run_id.clone(), config, &mut run, false).unwrap();
+        let instr = orch.get_next_instruction(&run_id, &mut run).unwrap();
         assert!(matches!(instr, Instruction::Terminate { .. }));
     }
 
@@ -318,13 +318,13 @@ mod tests {
     fn pending_interrupt_returns_wait() {
         use crate::run::FlowInterrupt;
         let config = Workflow::test_default("p", vec![linear_stage("s1", None)]);
-        let pid = RunId::must("p1");
-        let mut run = make_envelope(&config);
+        let run_id = RunId::must("p1");
+        let mut run = make_run(&config);
         run.set_interrupt(FlowInterrupt::new());
 
         let mut orch = Orchestrator::new();
-        orch.initialize_session(pid.clone(), config, &mut run, false).unwrap();
-        let instr = orch.get_next_instruction(&pid, &mut run).unwrap();
+        orch.initialize_session(run_id.clone(), config, &mut run, false).unwrap();
+        let instr = orch.get_next_instruction(&run_id, &mut run).unwrap();
         assert!(matches!(instr, Instruction::WaitInterrupt { .. }));
     }
 
@@ -334,20 +334,20 @@ mod tests {
             linear_stage("s1", Some("s2")),
             linear_stage("s2", None),
         ]);
-        let pid = RunId::must("p1");
-        let mut run = make_envelope(&config);
+        let run_id = RunId::must("p1");
+        let mut run = make_run(&config);
         let mut orch = Orchestrator::new();
-        orch.initialize_session(pid.clone(), config, &mut run, false).unwrap();
+        orch.initialize_session(run_id.clone(), config, &mut run, false).unwrap();
 
         // first dispatch is s1
-        let instr = orch.get_next_instruction(&pid, &mut run).unwrap();
+        let instr = orch.get_next_instruction(&run_id, &mut run).unwrap();
         assert!(matches!(&instr, Instruction::RunAgent { agent, .. } if agent == "s1"));
         // report success → routes to s2 via default_next
-        orch.report_agent_result(&pid, "s1", zero_metrics(), &mut run, false, false).unwrap();
-        let instr = orch.get_next_instruction(&pid, &mut run).unwrap();
+        orch.report_agent_result(&run_id, "s1", zero_metrics(), &mut run, false, false).unwrap();
+        let instr = orch.get_next_instruction(&run_id, &mut run).unwrap();
         assert!(matches!(&instr, Instruction::RunAgent { agent, .. } if agent == "s2"));
         // s2 has no default_next → next report terminates
-        orch.report_agent_result(&pid, "s2", zero_metrics(), &mut run, false, false).unwrap();
+        orch.report_agent_result(&run_id, "s2", zero_metrics(), &mut run, false, false).unwrap();
         assert!(run.is_terminated());
     }
 
@@ -364,15 +364,15 @@ mod tests {
             linear_stage("target", None),
             linear_stage("fallback", None),
         ]);
-        let pid = RunId::must("p1");
-        let mut run = make_envelope(&config);
+        let run_id = RunId::must("p1");
+        let mut run = make_run(&config);
         let mut orch = Orchestrator::new();
         orch.register_routing_fn("decide", Arc::new(|_ctx: &RoutingContext<'_>| {
             RoutingResult::Next("target".into())
         }));
-        orch.initialize_session(pid.clone(), config, &mut run, false).unwrap();
+        orch.initialize_session(run_id.clone(), config, &mut run, false).unwrap();
 
-        orch.report_agent_result(&pid, "s1", zero_metrics(), &mut run, false, false).unwrap();
+        orch.report_agent_result(&run_id, "s1", zero_metrics(), &mut run, false, false).unwrap();
         assert_eq!(run.current_stage.as_str(), "target");
     }
 
@@ -389,12 +389,12 @@ mod tests {
             linear_stage("s_ok", None),
             linear_stage("s_err", None),
         ]);
-        let pid = RunId::must("p1");
-        let mut run = make_envelope(&config);
+        let run_id = RunId::must("p1");
+        let mut run = make_run(&config);
         let mut orch = Orchestrator::new();
-        orch.initialize_session(pid.clone(), config, &mut run, false).unwrap();
+        orch.initialize_session(run_id.clone(), config, &mut run, false).unwrap();
 
-        orch.report_agent_result(&pid, "s1", zero_metrics(), &mut run, true, false).unwrap();
+        orch.report_agent_result(&run_id, "s1", zero_metrics(), &mut run, true, false).unwrap();
         assert_eq!(run.current_stage.as_str(), "s_err");
     }
 
@@ -407,28 +407,28 @@ mod tests {
             max_visits: Some(2),
             ..Stage::default()
         }]);
-        let pid = RunId::must("p1");
-        let mut run = make_envelope(&config);
+        let run_id = RunId::must("p1");
+        let mut run = make_run(&config);
         let mut orch = Orchestrator::new();
-        orch.initialize_session(pid.clone(), config, &mut run, false).unwrap();
+        orch.initialize_session(run_id.clone(), config, &mut run, false).unwrap();
 
         // First report: visit count was 0, becomes 1, transitions back to loop (visits=1, allowed since limit=2)
-        orch.report_agent_result(&pid, "loop", zero_metrics(), &mut run, false, false).unwrap();
+        orch.report_agent_result(&run_id, "loop", zero_metrics(), &mut run, false, false).unwrap();
         assert!(!run.is_terminated(), "first transition allowed");
         // Second report: visit count becomes 2 (== limit), transition rejected
-        orch.report_agent_result(&pid, "loop", zero_metrics(), &mut run, false, false).unwrap();
+        orch.report_agent_result(&run_id, "loop", zero_metrics(), &mut run, false, false).unwrap();
         assert_eq!(run.terminal_reason(), Some(TerminalReason::MaxStageVisitsExceeded));
     }
 
     #[test]
     fn break_loop_terminates() {
         let config = Workflow::test_default("p", vec![linear_stage("s1", Some("s2")), linear_stage("s2", None)]);
-        let pid = RunId::must("p1");
-        let mut run = make_envelope(&config);
+        let run_id = RunId::must("p1");
+        let mut run = make_run(&config);
         let mut orch = Orchestrator::new();
-        orch.initialize_session(pid.clone(), config, &mut run, false).unwrap();
+        orch.initialize_session(run_id.clone(), config, &mut run, false).unwrap();
 
-        orch.report_agent_result(&pid, "s1", zero_metrics(), &mut run, false, true).unwrap();
+        orch.report_agent_result(&run_id, "s1", zero_metrics(), &mut run, false, true).unwrap();
         assert_eq!(run.terminal_reason(), Some(TerminalReason::BreakRequested));
     }
 
@@ -442,12 +442,12 @@ mod tests {
             ..Stage::default()
         }]);
         config.max_iterations = 1;
-        let pid = RunId::must("p1");
-        let mut run = make_envelope(&config);
+        let run_id = RunId::must("p1");
+        let mut run = make_run(&config);
         let mut orch = Orchestrator::new();
-        orch.initialize_session(pid.clone(), config, &mut run, false).unwrap();
+        orch.initialize_session(run_id.clone(), config, &mut run, false).unwrap();
 
-        orch.report_agent_result(&pid, "s1", zero_metrics(), &mut run, false, false).unwrap();
+        orch.report_agent_result(&run_id, "s1", zero_metrics(), &mut run, false, false).unwrap();
         assert!(run.is_terminated());
     }
 

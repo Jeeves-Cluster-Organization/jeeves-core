@@ -133,6 +133,7 @@ pub struct ProcessingRecord {
 /// Run identity fields.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct Identity {
+    /// Wire-format name; identifies the Run instance.
     pub envelope_id: EnvelopeId,
     pub request_id: RequestId,
     pub user_id: UserId,

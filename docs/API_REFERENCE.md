@@ -186,8 +186,8 @@ Both modes coexist within a single workflow — pick per stage based on what con
 
 | Function | Use |
 |---|---|
-| `run(&handle, run_id, workflow, run, &agents)` | Synchronous run to completion. Returns `WorkerResult`. |
-| `run_streaming(handle, run_id, workflow, run, agents)` | Async streaming. Returns `(JoinHandle, mpsc::Receiver<RunEvent>)`. |
+| `run(&handle, run_id, workflow, request, &agents)` | Synchronous run to completion. Returns `WorkerResult`. |
+| `run_streaming(handle, run_id, workflow, request, agents)` | Async streaming. Returns `(JoinHandle, mpsc::Receiver<RunEvent>)`. |
 | `run_loop(&handle, &run_id, &agents, event_tx, workflow_name)` | Drive an already-initialized session. Used internally; rarely consumer-facing. |
 
 ### Agent auto-creation (AgentFactoryBuilder)
@@ -265,18 +265,18 @@ let cancel = tokio_util::sync::CancellationToken::new();
 let handle = jeeves_core::kernel::actor::spawn(kernel, cancel);
 
 let agents = AgentFactoryBuilder::new(llm, prompts, tools)
-    .add_pipeline(workflow.clone())
+    .add_workflow(workflow.clone())
     .build();
 
-let run = Run::new("user1", "session1", "hello", None);
-let result = run(&handle, RunId::new(), workflow, run, &agents).await?;
+let request = Run::new("user1", "session1", "hello", None);
+let result = run(&handle, RunId::new(), workflow, request, &agents).await?;
 ```
 
 For streaming:
 
 ```rust
 let (join, mut rx) = run_streaming(
-    handle, RunId::new(), workflow, run, agents,
+    handle, RunId::new(), workflow, request, agents,
 ).await?;
 while let Some(event) = rx.recv().await {
     match event {

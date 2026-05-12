@@ -10,35 +10,35 @@ use crate::workflow::{Workflow};
 use crate::kernel::protocol::{RunSnapshot};
 
 impl Orchestrator {
-    /// Initialize a new pipeline session.
+    /// Initialize a new workflow session.
     ///
-    /// Takes a mutable run reference to set pipeline bounds (kernel owns the run).
+    /// Takes a mutable run reference to set workflow bounds (kernel owns the run).
     /// If force is false and a session already exists, returns an error.
     /// If force is true, replaces any existing session.
-    #[instrument(skip(self, pipeline_config, run), fields(run_id = %run_id))]
+    #[instrument(skip(self, workflow, run), fields(run_id = %run_id))]
     pub fn initialize_session(
         &mut self,
         run_id: RunId,
-        pipeline_config: Workflow,
+        workflow: Workflow,
         run: &mut Run,
         force: bool,
     ) -> Result<RunSnapshot> {
         // Check for duplicate processID
-        if self.pipelines.contains_key(&run_id) && !force {
+        if self.sessions.contains_key(&run_id) && !force {
             return Err(Error::validation(format!(
-                "Session already exists for process: {} (use force=true to replace)",
+                "Session already exists for run: {} (use force=true to replace)",
                 run_id
             )));
         }
 
-        // Validate pipeline config
-        pipeline_config.validate()?;
+        // Validate workflow.
+        workflow.validate()?;
 
-        // Initialize run with pipeline bounds
-        run.max_iterations = pipeline_config.max_iterations;
-        run.limits.max_llm_calls = pipeline_config.max_llm_calls;
-        run.limits.max_agent_hops = pipeline_config.max_agent_hops;
-        run.stage_order = pipeline_config.get_stage_order();
+        // Initialize run with workflow bounds
+        run.max_iterations = workflow.max_iterations;
+        run.limits.max_llm_calls = workflow.max_llm_calls;
+        run.limits.max_agent_hops = workflow.max_agent_hops;
+        run.stage_order = workflow.get_stage_order();
 
         // Set initial stage if not set
         if run.current_stage.is_empty() && !run.stage_order.is_empty() {
@@ -48,7 +48,7 @@ impl Orchestrator {
         let now = Utc::now();
         let session = Orchestration {
             run_id: run_id.clone(),
-            pipeline_config,
+            workflow,
             stage_visits: std::collections::HashMap::new(),
             created_at: now,
             last_activity_at: now,
@@ -56,36 +56,36 @@ impl Orchestrator {
         };
 
         let state = self.build_session_state(&session, run);
-        self.pipelines.insert(run_id, session);
+        self.sessions.insert(run_id, session);
 
         Ok(state)
     }
 
-    /// Check if a pipeline session exists for the given process.
+    /// Check if a workflow session exists for the given run.
     pub fn has_session(&self, run_id: &RunId) -> bool {
-        self.pipelines.contains_key(run_id)
+        self.sessions.contains_key(run_id)
     }
 
-    /// Cleanup a pipeline session.
+    /// Cleanup a workflow session.
     pub fn cleanup_session(&mut self, run_id: &RunId) -> bool {
-        self.pipelines.remove(run_id).is_some()
+        self.sessions.remove(run_id).is_some()
     }
 
-    /// Cleanup stale pipeline sessions older than the given duration.
-    /// Returns the PIDs of removed sessions so the Kernel can also clean up
-    /// the corresponding envelopes from `runs`.
+    /// Cleanup stale workflow sessions older than the given duration.
+    /// Returns the run IDs of removed sessions so the Kernel can also clean
+    /// up the corresponding entries from `runs`.
     pub fn cleanup_stale_sessions(&mut self, max_age_seconds: i64) -> Vec<RunId> {
         let cutoff = Utc::now() - chrono::TimeDelta::seconds(max_age_seconds);
         let mut to_remove = Vec::new();
 
-        for (pid, session) in &self.pipelines {
+        for (run_id, session) in &self.sessions {
             if session.last_activity_at < cutoff {
-                to_remove.push(pid.clone());
+                to_remove.push(run_id.clone());
             }
         }
 
-        for pid in &to_remove {
-            self.pipelines.remove(pid);
+        for run_id in &to_remove {
+            self.sessions.remove(run_id);
         }
 
         to_remove
@@ -116,11 +116,11 @@ mod tests {
     #[test]
     fn test_initialize_session() {
         let mut orch = Orchestrator::new();
-        let pipeline = create_test_pipeline();
-        let mut run = create_test_envelope();
+        let workflow = create_test_workflow();
+        let mut run = create_test_run();
 
         let state = orch
-            .initialize_session(RunId::must("proc1"), pipeline.clone(), &mut run, false)
+            .initialize_session(RunId::must("proc1"), workflow.clone(), &mut run, false)
             .unwrap();
 
         assert_eq!(state.run_id.as_str(), "proc1");
@@ -133,15 +133,15 @@ mod tests {
     #[test]
     fn test_initialize_session_duplicate_fails() {
         let mut orch = Orchestrator::new();
-        let pipeline = create_test_pipeline();
-        let mut run = create_test_envelope();
+        let workflow = create_test_workflow();
+        let mut run = create_test_run();
 
-        let _state = orch.initialize_session(RunId::must("proc1"), pipeline.clone(), &mut run, false)
+        let _state = orch.initialize_session(RunId::must("proc1"), workflow.clone(), &mut run, false)
             .unwrap();
 
-        let mut envelope2 = create_test_envelope();
+        let mut run2 = create_test_run();
         let result =
-            orch.initialize_session(RunId::must("proc1"), pipeline, &mut envelope2, false);
+            orch.initialize_session(RunId::must("proc1"), workflow, &mut run2, false);
 
         assert!(result.is_err());
         assert!(result.unwrap_err().to_string().contains("already exists"));
@@ -150,15 +150,15 @@ mod tests {
     #[test]
     fn test_initialize_session_force_replaces() {
         let mut orch = Orchestrator::new();
-        let pipeline = create_test_pipeline();
-        let mut run = create_test_envelope();
+        let workflow = create_test_workflow();
+        let mut run = create_test_run();
 
-        let _state = orch.initialize_session(RunId::must("proc1"), pipeline.clone(), &mut run, false)
+        let _state = orch.initialize_session(RunId::must("proc1"), workflow.clone(), &mut run, false)
             .unwrap();
 
-        let mut envelope2 = create_test_envelope();
+        let mut run2 = create_test_run();
         let result =
-            orch.initialize_session(RunId::must("proc1"), pipeline, &mut envelope2, true);
+            orch.initialize_session(RunId::must("proc1"), workflow, &mut run2, true);
 
         assert!(result.is_ok());
     }
@@ -166,16 +166,16 @@ mod tests {
     #[test]
     fn test_has_session_true_after_init() {
         let mut orch = Orchestrator::new();
-        let pid = RunId::must("p1");
-        let pipeline = create_test_pipeline();
-        let mut run = create_test_envelope();
-        let _state = orch.initialize_session(pid.clone(), pipeline, &mut run, false).unwrap();
+        let run_id = RunId::must("p1");
+        let workflow = create_test_workflow();
+        let mut run = create_test_run();
+        let _state = orch.initialize_session(run_id.clone(), workflow, &mut run, false).unwrap();
 
-        assert!(orch.has_session(&pid));
+        assert!(orch.has_session(&run_id));
     }
 
     #[test]
-    fn test_has_session_false_for_unknown_pid() {
+    fn test_has_session_false_for_unknown_run_id() {
         let orch = Orchestrator::new();
         assert!(!orch.has_session(&RunId::must("unknown")));
     }
@@ -183,10 +183,10 @@ mod tests {
     #[test]
     fn test_cleanup_session() {
         let mut orch = Orchestrator::new();
-        let pipeline = create_test_pipeline();
-        let mut run = create_test_envelope();
+        let workflow = create_test_workflow();
+        let mut run = create_test_run();
 
-        let _state = orch.initialize_session(RunId::must("proc1"), pipeline, &mut run, false)
+        let _state = orch.initialize_session(RunId::must("proc1"), workflow, &mut run, false)
             .unwrap();
 
         assert_eq!(orch.get_session_count(), 1);
@@ -203,27 +203,27 @@ mod tests {
     fn test_cleanup_stale_sessions_removes_old_keeps_young() {
         let mut orch = Orchestrator::new();
 
-        let pid_old = RunId::must("old");
-        let pid_young = RunId::must("young");
-        let pipeline = create_test_pipeline();
+        let run_old = RunId::must("old");
+        let run_young = RunId::must("young");
+        let workflow = create_test_workflow();
 
-        let mut env1 = create_test_envelope();
-        let _state = orch.initialize_session(pid_old.clone(), pipeline.clone(), &mut env1, false).unwrap();
+        let mut run1 = create_test_run();
+        let _state = orch.initialize_session(run_old.clone(), workflow.clone(), &mut run1, false).unwrap();
 
-        let mut env2 = create_test_envelope();
-        let _state = orch.initialize_session(pid_young.clone(), pipeline, &mut env2, false).unwrap();
+        let mut run2 = create_test_run();
+        let _state = orch.initialize_session(run_young.clone(), workflow, &mut run2, false).unwrap();
 
         // Manually set the old session's last_activity_at to the past
-        if let Some(session) = orch.pipelines.get_mut(&pid_old) {
+        if let Some(session) = orch.sessions.get_mut(&run_old) {
             session.last_activity_at = Utc::now() - chrono::TimeDelta::seconds(3600);
         }
 
         // Cleanup sessions older than 60 seconds
         let removed = orch.cleanup_stale_sessions(60);
         assert_eq!(removed.len(), 1);
-        assert_eq!(removed[0], pid_old);
+        assert_eq!(removed[0], run_old);
 
-        assert!(!orch.has_session(&pid_old));
-        assert!(orch.has_session(&pid_young));
+        assert!(!orch.has_session(&run_old));
+        assert!(orch.has_session(&run_young));
     }
 }

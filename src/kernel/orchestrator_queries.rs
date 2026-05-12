@@ -8,14 +8,14 @@ use crate::workflow::{Stage, StateField};
 use crate::kernel::protocol::{RunSnapshot};
 
 impl Orchestrator {
-    /// Get a reference to a pipeline session by process ID.
+    /// Get a reference to a workflow session by run ID.
     pub fn get_session(&self, run_id: &RunId) -> Option<&super::orchestrator::Orchestration> {
-        self.pipelines.get(run_id)
+        self.sessions.get(run_id)
     }
 
-    /// Get a mutable reference to a pipeline session by process ID.
+    /// Get a mutable reference to a workflow session by run ID.
     pub fn get_session_mut(&mut self, run_id: &RunId) -> Option<&mut super::orchestrator::Orchestration> {
-        self.pipelines.get_mut(run_id)
+        self.sessions.get_mut(run_id)
     }
 
     /// Get session state for external queries.
@@ -27,9 +27,9 @@ impl Orchestrator {
         run: &Run,
     ) -> Result<RunSnapshot> {
         let session = self
-            .pipelines
+            .sessions
             .get(run_id)
-            .ok_or_else(|| Error::not_found(format!("Unknown process: {}", run_id)))?;
+            .ok_or_else(|| Error::not_found(format!("Unknown run: {}", run_id)))?;
 
         Ok(self.build_session_state(session, run))
     }
@@ -37,25 +37,25 @@ impl Orchestrator {
     /// Get the response_format for a specific stage. The kernel forwards this
     /// verbatim to the LLM provider; it does not interpret the value.
     pub fn get_stage_response_format(&self, run_id: &RunId, stage_name: &str) -> Option<serde_json::Value> {
-        self.pipelines.get(run_id)
+        self.sessions.get(run_id)
             .and_then(|session| {
-                session.pipeline_config.stages.iter()
+                session.workflow.stages.iter()
                     .find(|s| s.name.as_str() == stage_name)
                     .and_then(|s| s.response_format.clone())
             })
     }
 
-    /// Get the state_schema for a process's pipeline.
+    /// Get the state_schema for a run's workflow.
     pub fn get_state_schema(&self, run_id: &RunId) -> Option<&Vec<StateField>> {
-        self.pipelines.get(run_id)
-            .map(|session| &session.pipeline_config.state_schema)
+        self.sessions.get(run_id)
+            .map(|session| &session.workflow.state_schema)
     }
 
     /// Get the output_key for a stage, defaulting to the stage name.
     pub fn get_stage_output_key(&self, run_id: &RunId, stage_name: &str) -> Option<String> {
-        self.pipelines.get(run_id)
+        self.sessions.get(run_id)
             .and_then(|session| {
-                session.pipeline_config.stages.iter()
+                session.workflow.stages.iter()
                     .find(|s| s.name.as_str() == stage_name)
                     .map(|s| {
                         s.output_key
@@ -68,21 +68,21 @@ impl Orchestrator {
 
     /// Get the full stage config for a stage by name.
     pub fn get_stage_config(&self, run_id: &RunId, stage_name: &str) -> Option<&Stage> {
-        self.pipelines.get(run_id)
+        self.sessions.get(run_id)
             .and_then(|session| {
-                session.pipeline_config.stages.iter()
+                session.workflow.stages.iter()
                     .find(|s| s.name.as_str() == stage_name)
             })
     }
 
-    /// Get pipeline session count.
+    /// Get workflow session count.
     pub fn get_session_count(&self) -> usize {
-        self.pipelines.len()
+        self.sessions.len()
     }
 
     /// Take the last routing decision from a session (Option::take — returns and clears).
     pub fn take_last_routing_decision(&mut self, run_id: &RunId) -> Option<super::routing::RoutingDecision> {
-        self.pipelines.get_mut(run_id)
+        self.sessions.get_mut(run_id)
             .and_then(|session| session.last_routing_decision.take())
     }
 }
@@ -96,10 +96,10 @@ mod tests {
     #[test]
     fn test_get_session_state() {
         let mut orch = Orchestrator::new();
-        let pipeline = create_test_pipeline();
-        let mut run = create_test_envelope();
+        let workflow = create_test_workflow();
+        let mut run = create_test_run();
 
-        let _state = orch.initialize_session(RunId::must("proc1"), pipeline, &mut run, false)
+        let _state = orch.initialize_session(RunId::must("proc1"), workflow, &mut run, false)
             .unwrap();
 
         let state = orch.get_session_state(&RunId::must("proc1"), &run).unwrap();
@@ -113,7 +113,7 @@ mod tests {
     #[test]
     fn test_get_session_state_not_found() {
         let orch = Orchestrator::new();
-        let run = create_test_envelope();
+        let run = create_test_run();
 
         let result = orch.get_session_state(&RunId::must("nonexistent"), &run);
         assert!(result.is_err());
@@ -124,9 +124,9 @@ mod tests {
         let mut orch = Orchestrator::new();
         assert_eq!(orch.get_session_count(), 0);
 
-        let pipeline = create_test_pipeline();
-        let mut run = create_test_envelope();
-        let _state = orch.initialize_session(RunId::must("proc1"), pipeline, &mut run, false).unwrap();
+        let workflow = create_test_workflow();
+        let mut run = create_test_run();
+        let _state = orch.initialize_session(RunId::must("proc1"), workflow, &mut run, false).unwrap();
         assert_eq!(orch.get_session_count(), 1);
     }
 }
