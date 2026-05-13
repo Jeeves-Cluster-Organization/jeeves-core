@@ -2,11 +2,53 @@
 //!
 //! Owns tool *metadata* (not implementations — those live in the worker layer).
 
-use crate::run::enums::{RiskSemantic, RiskSeverity, ToolCategory};
 use crate::types::Error;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::collections::HashMap;
+
+/// Risk semantic for tool execution behavior.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum RiskSemantic {
+    ReadOnly,
+    Write,
+    Destructive,
+}
+
+/// Risk severity for tool execution impact.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum RiskSeverity {
+    Low,
+    Medium,
+    High,
+    Critical,
+}
+
+impl RiskSeverity {
+    pub fn requires_confirmation(self) -> bool {
+        matches!(self, RiskSeverity::High | RiskSeverity::Critical)
+    }
+}
+
+/// Tool category.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ToolCategory {
+    // Operation types
+    Read,
+    Write,
+    Execute,
+    Network,
+    System,
+    // Organization
+    Unified,
+    Composite,
+    Resilient,
+    Standalone,
+    Internal,
+}
 
 /// Parameter type for tool inputs.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]

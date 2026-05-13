@@ -8,7 +8,7 @@
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 
-use crate::kernel::protocol::ToolCallResult;
+use crate::agent::metrics::ToolCallResult;
 
 /// Per-stage execution metrics attached to `StageCompleted` events.
 #[derive(Debug, Clone, Serialize, Deserialize)]

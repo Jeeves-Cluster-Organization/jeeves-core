@@ -1,8 +1,9 @@
 //! Typed channel to the kernel actor. Each command is a `KernelCommand`
 //! variant; the caller waits on a oneshot reply.
 
+use crate::agent::metrics::AgentExecutionMetrics;
 use crate::run::Run;
-use crate::kernel::protocol::{AgentExecutionMetrics, Instruction, RunSnapshot};
+use crate::kernel::protocol::{Instruction, RunSnapshot};
 use crate::kernel::{RunRecord, SystemStatus};
 use crate::workflow::Workflow;
 use crate::types::{RunId, RequestId, Result, SessionId, UserId};

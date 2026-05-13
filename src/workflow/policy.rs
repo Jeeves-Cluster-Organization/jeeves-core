@@ -1,16 +1,9 @@
-//! Per-stage execution policies: retry behaviour and context overflow strategy.
+//! Workflow-level execution policies. `ContextOverflow` lives in
+//! `crate::agent::policy` (it's consumed inside the agent loop); this module
+//! owns retry-with-backoff which the runner consumes.
 
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
-
-/// Strategy when the LLM context exceeds `Stage::max_context_tokens`.
-#[derive(Debug, Clone, Copy, Serialize, Deserialize, Default, PartialEq, Eq, JsonSchema)]
-pub enum ContextOverflow {
-    #[default]
-    Fail,
-    /// Drop oldest non-system messages until under the limit.
-    TruncateOldest,
-}
 
 /// Retry-with-backoff for transient agent failures (Temporal activity retry
 /// pattern). Applied before routing to `error_next`; no retry on interrupt

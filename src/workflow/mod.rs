@@ -10,7 +10,7 @@ pub mod policy;
 pub mod stage;
 pub mod state_schema;
 
-pub use policy::{ContextOverflow, RetryPolicy};
+pub use policy::RetryPolicy;
 pub use stage::{AgentConfig, Stage};
 pub use state_schema::{MergeStrategy, StateField};
 

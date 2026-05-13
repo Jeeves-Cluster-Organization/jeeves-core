@@ -26,6 +26,7 @@ pub struct AgentFactoryBuilder {
     workflows: HashMap<String, Workflow>,
     content_resolver: Option<Arc<dyn ContentResolver>>,
     hooks: Vec<crate::agent::hooks::DynHook>,
+    agent_hooks: Vec<crate::agent::hooks::DynAgentHook>,
 }
 
 impl std::fmt::Debug for AgentFactoryBuilder {
@@ -49,6 +50,7 @@ impl AgentFactoryBuilder {
             workflows: HashMap::new(),
             content_resolver: None,
             hooks: Vec::new(),
+            agent_hooks: Vec::new(),
         }
     }
 
@@ -63,6 +65,13 @@ impl AgentFactoryBuilder {
     /// the first non-`Continue` decision wins.
     pub fn with_hook(mut self, hook: crate::agent::hooks::DynHook) -> Self {
         self.hooks.push(hook);
+        self
+    }
+
+    /// Register an `AgentHook` fired by the runner around every
+    /// `Agent::process()` call. Works for all agent kinds.
+    pub fn with_agent_hook(mut self, hook: crate::agent::hooks::DynAgentHook) -> Self {
+        self.agent_hooks.push(hook);
         self
     }
 
@@ -85,6 +94,9 @@ impl AgentFactoryBuilder {
         let mut registry = AgentRegistry::new();
         for config in self.workflows.values() {
             merge_agents(&mut registry, config, &self);
+        }
+        for hook in &self.agent_hooks {
+            registry.register_agent_hook(hook.clone());
         }
         Arc::new(registry)
     }

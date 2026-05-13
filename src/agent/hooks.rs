@@ -1,29 +1,25 @@
-//! Pluggable hooks for the LLM agent's ReAct loop.
+//! Pluggable hooks. Two trait surfaces, one per observation scope:
 //!
-//! A single `LlmAgentHook` trait with default-impl methods covers three
-//! interception points:
+//! - **[`AgentHook`]** — fires once per `Agent::process()` invocation at the
+//!   kernel runner boundary. Works for every `Agent` impl (LlmAgent,
+//!   ToolDelegatingAgent, DeterministicAgent, custom). Sees the
+//!   [`AgentContext`] input and the final [`AgentOutput`]. Right scope for
+//!   telemetry, audit, output redaction.
 //!
-//! - **`before_llm_call`** — fires before each LLM call. Mutate the
-//!   message window for compaction, redaction, prompt-injection defense.
-//! - **`before_tool_call`** — fires after the LLM emits a tool call and
-//!   before it executes. Returns a `HookDecision` to gate the call.
-//! - **`after_tool_call`** — fires after a tool result is produced
-//!   (whether by execution or via `HookDecision::Replace`). Mutate the
-//!   output to redact / decorate.
+//! - **[`LlmAgentHook`]** — fires inside the ReAct loop of `LlmAgent` only.
+//!   Three points: `before_llm_call`, `after_llm_call`, plus per-tool
+//!   `before_tool_call` / `after_tool_call`. Right scope for message-window
+//!   compaction, response inspection, per-tool gating/redaction.
 //!
-//! Implementers override only the methods they care about. Hooks register
-//! on `LlmAgent` via `AgentFactoryBuilder::with_hook` and run in
-//! registration order; for `before_tool_call`, the first non-`Continue`
-//! decision wins.
-//!
-//! Adding a new hook point later (e.g., `before_react_round`,
-//! `after_llm_call`) is a new default-impl method on this trait — not a
-//! breaking change.
+//! Both register on `AgentFactoryBuilder` (`with_agent_hook` /
+//! `with_hook`) and run in registration order; for `before_tool_call`, the
+//! first non-`Continue` decision wins.
 
 use async_trait::async_trait;
 use std::sync::Arc;
 
-use crate::agent::llm::{ChatMessage, ToolCall};
+use crate::agent::llm::{ChatMessage, ChatResponse, ToolCall};
+use crate::agent::{AgentContext, AgentOutput};
 use crate::tools::ToolOutput;
 
 /// Decision returned by `LlmAgentHook::before_tool_call`.
@@ -40,11 +36,15 @@ pub enum HookDecision {
     Block { reason: String },
 }
 
-/// Lifecycle hook for the LLM agent's ReAct loop.
+/// Lifecycle hook for the LLM agent's ReAct loop. Fires only for `LlmAgent`.
 #[async_trait]
 pub trait LlmAgentHook: Send + Sync + std::fmt::Debug {
     /// Mutate the message window before each LLM call.
     async fn before_llm_call(&self, _messages: &mut Vec<ChatMessage>) {}
+
+    /// Inspect / mutate the response after each LLM call (content,
+    /// tool_calls, usage). Fires before tools dispatched in this round.
+    async fn after_llm_call(&self, _response: &mut ChatResponse) {}
 
     /// Decide whether a tool call proceeds. Default: `Continue`.
     async fn before_tool_call(&self, _call: &ToolCall) -> HookDecision {
@@ -56,6 +56,22 @@ pub trait LlmAgentHook: Send + Sync + std::fmt::Debug {
 }
 
 pub type DynHook = Arc<dyn LlmAgentHook>;
+
+/// Wraps every `Agent::process()` call. Works for any `Agent` impl. Fires
+/// outside the retry envelope (once per logical execution, not per attempt).
+#[async_trait]
+pub trait AgentHook: Send + Sync + std::fmt::Debug {
+    /// Fires before agent execution begins. Observer-only.
+    async fn before_agent(&self, _ctx: &AgentContext) {}
+
+    /// Fires after agent execution returns (success, failure, or interrupt
+    /// request). May mutate the output — redaction, decoration, audit
+    /// tagging. Consumers branch on `output.interrupt_request.is_some()` if
+    /// they need to distinguish suspend from terminal completion.
+    async fn after_agent(&self, _ctx: &AgentContext, _output: &mut AgentOutput) {}
+}
+
+pub type DynAgentHook = Arc<dyn AgentHook>;
 
 #[cfg(test)]
 mod tests {
@@ -155,5 +171,127 @@ mod tests {
         let mut messages = vec![ChatMessage::user("hi".to_string())];
         hook.before_llm_call(&mut messages).await;
         assert_eq!(messages.len(), 1);
+    }
+
+    #[tokio::test]
+    async fn after_llm_call_default_impl_is_no_op() {
+        #[derive(Debug)]
+        struct NoOp;
+        #[async_trait]
+        impl LlmAgentHook for NoOp {}
+
+        use crate::agent::llm::TokenUsage;
+        let mut resp = ChatResponse {
+            content: Some("hi".to_string()),
+            tool_calls: vec![],
+            usage: TokenUsage { prompt_tokens: 1, completion_tokens: 1, total_tokens: 2 },
+            model: "mock".into(),
+        };
+        NoOp.after_llm_call(&mut resp).await;
+        assert_eq!(resp.content.as_deref(), Some("hi"));
+    }
+
+    #[tokio::test]
+    async fn after_llm_call_can_mutate_response() {
+        #[derive(Debug)]
+        struct Censor;
+        #[async_trait]
+        impl LlmAgentHook for Censor {
+            async fn after_llm_call(&self, response: &mut ChatResponse) {
+                response.content = Some("[redacted]".to_string());
+            }
+        }
+
+        use crate::agent::llm::TokenUsage;
+        let mut resp = ChatResponse {
+            content: Some("the password is hunter2".to_string()),
+            tool_calls: vec![],
+            usage: TokenUsage { prompt_tokens: 1, completion_tokens: 1, total_tokens: 2 },
+            model: "mock".into(),
+        };
+        Censor.after_llm_call(&mut resp).await;
+        assert_eq!(resp.content.as_deref(), Some("[redacted]"));
+    }
+
+    #[tokio::test]
+    async fn agent_hook_default_impls_no_op() {
+        #[derive(Debug)]
+        struct NoOp;
+        #[async_trait]
+        impl AgentHook for NoOp {}
+
+        use crate::agent::AgentContext;
+        use crate::agent::metrics::AgentExecutionMetrics;
+        use std::collections::HashMap;
+        use std::sync::Arc;
+
+        let ctx = AgentContext {
+            raw_input: "hi".into(),
+            outputs: HashMap::new(),
+            state: HashMap::new(),
+            metadata: HashMap::new(),
+            event_tx: None,
+            stage_name: None,
+            workflow_name: Arc::from("test"),
+            max_context_tokens: None,
+            context_overflow: None,
+            interrupt_response: None,
+            response_format: None,
+        };
+        let mut output = AgentOutput {
+            output: json!({"k": "v"}),
+            metrics: AgentExecutionMetrics::default(),
+            success: true,
+            error_message: String::new(),
+            interrupt_request: None,
+        };
+
+        NoOp.before_agent(&ctx).await;
+        NoOp.after_agent(&ctx, &mut output).await;
+        assert_eq!(output.output, json!({"k": "v"}));
+    }
+
+    #[tokio::test]
+    async fn agent_hook_after_can_mutate_output() {
+        #[derive(Debug)]
+        struct Tag;
+        #[async_trait]
+        impl AgentHook for Tag {
+            async fn after_agent(&self, _ctx: &AgentContext, output: &mut AgentOutput) {
+                if let serde_json::Value::Object(ref mut map) = output.output {
+                    map.insert("audited".to_string(), json!(true));
+                }
+            }
+        }
+
+        use crate::agent::AgentContext;
+        use crate::agent::metrics::AgentExecutionMetrics;
+        use std::collections::HashMap;
+        use std::sync::Arc;
+
+        let ctx = AgentContext {
+            raw_input: "x".into(),
+            outputs: HashMap::new(),
+            state: HashMap::new(),
+            metadata: HashMap::new(),
+            event_tx: None,
+            stage_name: None,
+            workflow_name: Arc::from("t"),
+            max_context_tokens: None,
+            context_overflow: None,
+            interrupt_response: None,
+            response_format: None,
+        };
+        let mut output = AgentOutput {
+            output: json!({"response": "ok"}),
+            metrics: AgentExecutionMetrics::default(),
+            success: true,
+            error_message: String::new(),
+            interrupt_request: None,
+        };
+
+        Tag.after_agent(&ctx, &mut output).await;
+        assert_eq!(output.output["audited"], json!(true));
+        assert_eq!(output.output["response"], json!("ok"));
     }
 }

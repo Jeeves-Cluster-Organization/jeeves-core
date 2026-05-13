@@ -16,10 +16,10 @@ pub mod health;
 pub mod registry;
 
 pub use access::ToolAccessPolicy;
-pub use catalog::{ParamDef, ParamType, ToolCatalog, ToolEntry};
+pub use catalog::{ParamDef, ParamType, RiskSemantic, RiskSeverity, ToolCatalog, ToolCategory, ToolEntry};
 pub use executor::{
     AclToolExecutor, ConfirmationRequest, ContentPart, ContentResolver, NoopToolExecutor,
     ToolExecutor, ToolInfo, ToolOutput,
 };
-pub use health::{HealthConfig, ToolHealthTracker};
+pub use health::{HealthConfig, HealthStatus, ToolHealthTracker};
 pub use registry::{ToolRegistry, ToolRegistryBuilder};

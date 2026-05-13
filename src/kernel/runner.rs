@@ -6,10 +6,11 @@ use std::sync::Arc;
 use tracing::{instrument, Instrument};
 
 use crate::agent::llm::{self, RunEvent};
+use crate::agent::metrics::AgentExecutionMetrics;
 use crate::agent::{Agent, AgentContext, AgentOutput, AgentRegistry, DeterministicAgent};
 use crate::run::Run;
 use crate::kernel::handle::KernelHandle;
-use crate::kernel::protocol::{AgentDispatchContext, AgentExecutionMetrics, Instruction};
+use crate::kernel::protocol::{AgentDispatchContext, Instruction};
 use crate::types::{RunId, Result};
 use crate::workflow::Workflow;
 use tokio::sync::mpsc;
@@ -278,15 +279,34 @@ fn build_agent_context(
     }
 }
 
-/// Execute an agent with per-stage timeout and retry policy.
-///
-/// Wraps `execute_agent` with:
-/// - `tokio::time::timeout` (per-stage wall-clock deadline)
-/// - Retry loop with exponential backoff on transient failures
-///
-/// Timeout/retry are no-ops when None (existing behavior preserved).
+/// Execute an agent with per-stage timeout and retry policy, brackted by
+/// `AgentHook::before_agent` / `after_agent` fires (once per logical
+/// execution, outside the retry envelope).
 #[instrument(skip(agents, ctx, retry_policy), fields(agent = %agent_name))]
 async fn execute_agent_with_policy(
+    agents: &AgentRegistry,
+    agent_name: &str,
+    ctx: &AgentContext,
+    timeout_seconds: Option<u64>,
+    retry_policy: Option<&crate::workflow::RetryPolicy>,
+) -> AgentOutput {
+    for hook in agents.agent_hooks() {
+        hook.before_agent(ctx).await;
+    }
+
+    let mut output = execute_with_retry(agents, agent_name, ctx, timeout_seconds, retry_policy).await;
+
+    for hook in agents.agent_hooks() {
+        hook.after_agent(ctx, &mut output).await;
+    }
+
+    output
+}
+
+/// Retry loop with exponential backoff. Per-stage timeout applies to each
+/// attempt; metrics accumulate across attempts so bounds accounting is
+/// accurate.
+async fn execute_with_retry(
     agents: &AgentRegistry,
     agent_name: &str,
     ctx: &AgentContext,
@@ -299,7 +319,6 @@ async fn execute_agent_with_policy(
     for attempt in 0..max_attempts {
         let output = execute_agent_with_timeout(agents, agent_name, ctx, timeout_seconds, attempt).await;
 
-        // Accumulate metrics across attempts so bounds accounting is accurate
         accumulated_metrics.llm_calls += output.metrics.llm_calls;
         accumulated_metrics.tool_calls += output.metrics.tool_calls;
         accumulated_metrics.tokens_in = Some(
@@ -311,7 +330,6 @@ async fn execute_agent_with_policy(
         accumulated_metrics.duration_ms += output.metrics.duration_ms;
         accumulated_metrics.tool_results.extend(output.metrics.tool_results.clone());
 
-        // Terminal: success, interrupt, or final attempt
         if output.success || output.interrupt_request.is_some() || attempt + 1 >= max_attempts {
             return AgentOutput {
                 metrics: accumulated_metrics,
@@ -319,7 +337,6 @@ async fn execute_agent_with_policy(
             };
         }
 
-        // Transient failure — backoff before next attempt
         if let Some(policy) = retry_policy {
             let backoff_ms = (policy.initial_backoff_ms as f64
                 * policy.backoff_multiplier.powi(attempt as i32)) as u64;

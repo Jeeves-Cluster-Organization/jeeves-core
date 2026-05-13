@@ -17,7 +17,8 @@ use chrono::{DateTime, Utc};
 use std::collections::HashMap;
 use tracing::instrument;
 
-pub use super::protocol::{AgentExecutionMetrics, Instruction, RunSnapshot};
+pub use super::protocol::{Instruction, RunSnapshot};
+pub use crate::agent::metrics::AgentExecutionMetrics;
 pub use super::routing::{
     evaluate_routing_with_reason, RoutingContext, RoutingDecision, RoutingFn, RoutingReason,
     RoutingRegistry, RoutingResult,

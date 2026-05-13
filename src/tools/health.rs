@@ -3,10 +3,19 @@
 //! In-memory sliding-window health metrics per tool. Compile-time-safe,
 //! configurable health tracking with circuit breaking.
 
-use crate::run::enums::HealthStatus;
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, VecDeque};
 use std::time::{Duration, Instant};
+
+/// Health status for a tool's current circuit-breaker state.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum HealthStatus {
+    Healthy,
+    Degraded,
+    Unhealthy,
+    Unknown,
+}
 
 /// Health assessment thresholds (configurable, not hardcoded).
 #[derive(Debug, Clone, Serialize, Deserialize)]

@@ -4,6 +4,8 @@
 pub mod factory;
 pub mod hooks;
 pub mod llm;
+pub mod metrics;
+pub mod policy;
 pub mod prompts;
 
 use async_trait::async_trait;
@@ -17,9 +19,9 @@ use tracing::instrument;
 use crate::agent::llm::{
     collect_stream, ChatMessage, ChatRequest, LlmProvider, MessageContent, RunEvent, ToolCall,
 };
+use crate::agent::metrics::{AgentExecutionMetrics, ToolCallResult};
+use crate::agent::policy::ContextOverflow;
 use crate::agent::prompts::PromptRegistry;
-use crate::workflow::{ContextOverflow};
-use crate::kernel::protocol::{AgentExecutionMetrics, ToolCallResult};
 use crate::tools::{ContentPart, ContentResolver, ToolRegistry};
 
 #[must_use]
@@ -197,13 +199,17 @@ impl Agent for LlmAgent {
                 response_format: ctx.response_format.clone(),
             };
 
-            let resp = match self.llm.chat_stream(&req).await {
+            let mut resp = match self.llm.chat_stream(&req).await {
                 Ok(stream) => match collect_stream(stream, ctx.event_tx.as_ref(), ctx.stage_name.as_deref(), ctx.workflow_name.clone()).await {
                     Ok(resp) => resp,
                     Err(e) => return Ok(make_error_output(e, start, total_llm_calls + 1)),
                 },
                 Err(e) => return Ok(make_error_output(e, start, total_llm_calls + 1)),
             };
+
+            for hook in &self.hooks {
+                hook.after_llm_call(&mut resp).await;
+            }
 
             total_llm_calls += 1;
             total_tokens_in += resp.usage.prompt_tokens as i64;
@@ -273,51 +279,65 @@ impl Agent for LlmAgent {
 
                 let params = tc.arguments.clone();
                 let tool_start = Instant::now();
-                let (mut hook_short_circuit_output, exec_result) = match hook_decision {
-                    Some(crate::agent::hooks::HookDecision::Replace(out)) => (Some(out), None),
-                    Some(crate::agent::hooks::HookDecision::Block { reason }) => (
-                        Some(crate::tools::ToolOutput::json(serde_json::json!({
-                            "error": "tool_call_blocked",
-                            "reason": reason,
-                        }))),
-                        None,
+
+                // Exactly one of the two states applies; encode via enum so the
+                // compiler enforces exhaustiveness in the match below.
+                enum ToolExecPath {
+                    HookShortCircuit(crate::tools::ToolOutput),
+                    Normal(crate::types::Result<crate::tools::ToolOutput>),
+                }
+
+                let path = match hook_decision {
+                    Some(crate::agent::hooks::HookDecision::Replace(out)) => {
+                        ToolExecPath::HookShortCircuit(out)
+                    }
+                    Some(crate::agent::hooks::HookDecision::Block { reason }) => {
+                        ToolExecPath::HookShortCircuit(crate::tools::ToolOutput::json(
+                            serde_json::json!({
+                                "error": "tool_call_blocked",
+                                "reason": reason,
+                            }),
+                        ))
+                    }
+                    _ => ToolExecPath::Normal(
+                        self.tools
+                            .execute_for(self.agent_name.as_str(), &tc.name, params)
+                            .await,
                     ),
-                    _ => (None, Some(self.tools.execute_for(self.agent_name.as_str(), &tc.name, params).await)),
                 };
 
-                let (result_text, result_content, tool_success, tool_error) = if let Some(ref mut output) = hook_short_circuit_output {
-                    // after_tool_call still fires on Replace/Block — audit/redact use cases.
-                    for hook in &self.hooks {
-                        hook.after_tool_call(tc, output).await;
-                    }
-                    let text = output.data.to_string();
-                    let content = if output.content.is_empty() {
-                        None
-                    } else {
-                        Some(self.resolve_content_parts(&output.content))
-                    };
-                    (text, content, true, None)
-                } else {
-                    match exec_result.unwrap() {
-                        Ok(mut tool_output) => {
-                            for hook in &self.hooks {
-                                hook.after_tool_call(tc, &mut tool_output).await;
-                            }
-                            let text = tool_output.data.to_string();
-                            let content = if tool_output.content.is_empty() {
-                                None
-                            } else {
-                                Some(self.resolve_content_parts(&tool_output.content))
-                            };
-                            (text, content, true, None)
+                let (result_text, result_content, tool_success, tool_error) = match path {
+                    ToolExecPath::HookShortCircuit(mut output) => {
+                        // after_tool_call still fires on Replace/Block — audit/redact use cases.
+                        for hook in &self.hooks {
+                            hook.after_tool_call(tc, &mut output).await;
                         }
-                        Err(e) => (
-                            serde_json::json!({"error": e.to_string()}).to_string(),
-                            None,
-                            false,
-                            Some(e.to_string()),
-                        ),
+                        let text = output.data.to_string();
+                        let content = if output.content.is_empty() {
+                            None
+                        } else {
+                            Some(self.resolve_content_parts(&output.content))
+                        };
+                        (text, content, true, None)
                     }
+                    ToolExecPath::Normal(Ok(mut tool_output)) => {
+                        for hook in &self.hooks {
+                            hook.after_tool_call(tc, &mut tool_output).await;
+                        }
+                        let text = tool_output.data.to_string();
+                        let content = if tool_output.content.is_empty() {
+                            None
+                        } else {
+                            Some(self.resolve_content_parts(&tool_output.content))
+                        };
+                        (text, content, true, None)
+                    }
+                    ToolExecPath::Normal(Err(e)) => (
+                        serde_json::json!({"error": e.to_string()}).to_string(),
+                        None,
+                        false,
+                        Some(e.to_string()),
+                    ),
                 };
                 tool_results.push(ToolCallResult {
                     name: tc.name.clone(),
@@ -545,6 +565,7 @@ impl Agent for DeterministicAgent {
 #[derive(Debug, Default)]
 pub struct AgentRegistry {
     agents: HashMap<crate::types::AgentName, Arc<dyn Agent>>,
+    agent_hooks: Vec<crate::agent::hooks::DynAgentHook>,
 }
 
 impl AgentRegistry {
@@ -562,6 +583,14 @@ impl AgentRegistry {
 
     pub fn list_names(&self) -> Vec<crate::types::AgentName> {
         self.agents.keys().cloned().collect()
+    }
+
+    pub fn register_agent_hook(&mut self, hook: crate::agent::hooks::DynAgentHook) {
+        self.agent_hooks.push(hook);
+    }
+
+    pub fn agent_hooks(&self) -> &[crate::agent::hooks::DynAgentHook] {
+        &self.agent_hooks
     }
 }
 

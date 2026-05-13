@@ -38,59 +38,6 @@ impl TerminalReason {
     }
 }
 
-/// Risk semantic for tool execution behavior.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case")]
-pub enum RiskSemantic {
-    ReadOnly,
-    Write,
-    Destructive,
-}
-
-/// Risk severity for tool execution impact.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case")]
-pub enum RiskSeverity {
-    Low,
-    Medium,
-    High,
-    Critical,
-}
-
-impl RiskSeverity {
-    pub fn requires_confirmation(self) -> bool {
-        matches!(self, RiskSeverity::High | RiskSeverity::Critical)
-    }
-}
-
-/// Tool category.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case")]
-pub enum ToolCategory {
-    // Operation types
-    Read,
-    Write,
-    Execute,
-    Network,
-    System,
-    // Organization
-    Unified,
-    Composite,
-    Resilient,
-    Standalone,
-    Internal,
-}
-
-/// Health status.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case")]
-pub enum HealthStatus {
-    Healthy,
-    Degraded,
-    Unhealthy,
-    Unknown,
-}
-
 /// Loop control verdict.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]

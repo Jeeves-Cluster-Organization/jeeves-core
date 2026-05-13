@@ -45,7 +45,7 @@ pub use types::{Config, Error, Result};
 /// Usage: `use jeeves_core::prelude::*;`
 pub mod prelude {
     pub use crate::agent::factory::AgentFactoryBuilder;
-    pub use crate::agent::hooks::{HookDecision, LlmAgentHook};
+    pub use crate::agent::hooks::{AgentHook, DynAgentHook, HookDecision, LlmAgentHook};
     pub use crate::agent::llm::{LlmProvider, MessageContent, RunEvent};
     pub use crate::agent::prompts::PromptRegistry;
     pub use crate::agent::AgentRegistry;

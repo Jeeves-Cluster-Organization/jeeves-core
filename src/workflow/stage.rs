@@ -4,7 +4,8 @@
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
-use super::policy::{ContextOverflow, RetryPolicy};
+use super::policy::RetryPolicy;
+use crate::agent::policy::ContextOverflow;
 use crate::types::{AgentName, OutputKey, PromptKey, RoutingFnName, StageName};
 
 /// Workflow stage. Routing per stage evaluates in this order:

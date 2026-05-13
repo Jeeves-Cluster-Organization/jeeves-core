@@ -4,12 +4,12 @@ use std::collections::HashMap;
 
 use tracing::instrument;
 
+use crate::agent::policy::ContextOverflow;
 use crate::run::{Run, FlowInterrupt};
 use crate::types::{Error, RunId, RequestId, Result, SessionId, UserId};
 
 use super::merge_state_field;
 use super::orchestrator;
-use crate::workflow::ContextOverflow;
 use super::{Kernel, RunStatus, RemainingBudget, ResourceQuota, SystemStatus};
 
 impl Kernel {
