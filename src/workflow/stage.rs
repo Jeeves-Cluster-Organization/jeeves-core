@@ -59,13 +59,13 @@ pub struct Stage {
 
 /// LLM / agent-side settings attached to a stage. Flattened into the stage on
 /// the wire so a workflow JSON looks like one flat record per stage.
-#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize, JsonSchema)]
 pub struct AgentConfig {
     /// Prompt template key for this agent. None = deterministic (no LLM call).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub prompt_key: Option<PromptKey>,
     /// Whether this agent makes LLM calls (default: false — explicit opt-in).
-    #[serde(default = "default_has_llm")]
+    #[serde(default)]
     pub has_llm: bool,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub temperature: Option<f64>,
@@ -74,20 +74,4 @@ pub struct AgentConfig {
     /// Model role (e.g. "fast", "reasoning") — resolved by the LLM provider.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub model_role: Option<String>,
-}
-
-impl Default for AgentConfig {
-    fn default() -> Self {
-        Self {
-            has_llm: false,
-            prompt_key: None,
-            temperature: None,
-            max_tokens: None,
-            model_role: None,
-        }
-    }
-}
-
-fn default_has_llm() -> bool {
-    false
 }

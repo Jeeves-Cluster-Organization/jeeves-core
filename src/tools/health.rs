@@ -139,7 +139,9 @@ impl ToolMetrics {
             }
         }
         let mut patterns: Vec<(String, usize)> = counts.into_iter().collect();
-        patterns.sort_by(|a, b| b.1.cmp(&a.1));
+        // Descending by count, then ascending by name as deterministic
+        // tie-breaker — HashMap iteration order is otherwise unspecified.
+        patterns.sort_by_key(|p| (std::cmp::Reverse(p.1), p.0.clone()));
         patterns
     }
 }
