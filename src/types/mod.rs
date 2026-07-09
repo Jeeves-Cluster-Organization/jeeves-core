@@ -22,9 +22,11 @@ pub enum ErrorKind {
     Denied,
     Permanent,
     Routing,
+    StateReduction,
     CircuitOpen,
     Limit,
     Cancelled,
+    Panic,
     Internal,
 }
 
@@ -76,6 +78,10 @@ impl Error {
         Self::new(ErrorKind::Routing, message)
     }
 
+    pub fn state_reduction(message: impl Into<Arc<str>>) -> Self {
+        Self::new(ErrorKind::StateReduction, message)
+    }
+
     pub fn circuit_open(message: impl Into<Arc<str>>) -> Self {
         Self::new(ErrorKind::CircuitOpen, message)
     }
@@ -86,6 +92,10 @@ impl Error {
 
     pub fn cancelled(message: impl Into<Arc<str>>) -> Self {
         Self::new(ErrorKind::Cancelled, message)
+    }
+
+    pub fn panic(message: impl Into<Arc<str>>) -> Self {
+        Self::new(ErrorKind::Panic, message)
     }
 
     pub fn internal(message: impl Into<Arc<str>>) -> Self {
@@ -235,6 +245,37 @@ impl Sub for Usage {
     }
 }
 
+/// Identity shared by all events produced during one stage attempt.
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub struct StageAttempt {
+    pub stage: Arc<str>,
+    pub visit: u32,
+    pub attempt: u32,
+}
+
+/// The execution phase that produced a stage-attempt failure.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum StageFailurePhase {
+    Action,
+    Routing,
+    StateReduction,
+    Control,
+}
+
+/// One failure retained on an attempt. Multiple phases may fail, so history
+/// keeps every cause instead of overwriting the original action error.
+#[derive(Debug, Clone)]
+pub struct StageFailure {
+    pub phase: StageFailurePhase,
+    pub error: Error,
+}
+
+impl StageFailure {
+    pub fn new(phase: StageFailurePhase, error: Error) -> Self {
+        Self { phase, error }
+    }
+}
+
 /// One executed stage attempt. Repeated visits and retries remain distinct.
 #[derive(Debug, Clone)]
 pub struct StageRecord {
@@ -242,14 +283,18 @@ pub struct StageRecord {
     pub visit: u32,
     pub attempt: u32,
     pub output: Option<Value>,
-    pub error: Option<Error>,
+    pub failures: Vec<StageFailure>,
     pub usage: Usage,
     pub duration: Duration,
 }
 
 impl StageRecord {
     pub fn succeeded(&self) -> bool {
-        self.error.is_none()
+        self.failures.is_empty()
+    }
+
+    pub fn last_failure(&self) -> Option<&StageFailure> {
+        self.failures.last()
     }
 }
 

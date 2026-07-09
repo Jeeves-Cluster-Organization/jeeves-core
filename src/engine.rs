@@ -1,9 +1,10 @@
 //! Direct workflow execution with per-run ownership.
 
-use futures::StreamExt;
+use futures::{FutureExt, StreamExt};
 use serde_json::Value;
 use std::collections::HashMap;
 use std::fmt;
+use std::panic::AssertUnwindSafe;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 use tokio::sync::{mpsc, watch};
@@ -14,10 +15,12 @@ use crate::llm::{
     LlmAction, LlmOutput, LlmProvider, Message, ModelRequest, ModelResponse, ModelStreamEvent,
     ToolCall, ToolDecision, ToolResult,
 };
-use crate::tools::{ApprovalRequest, ApprovalResponse, DenialBehavior, ToolDefinition};
+use crate::tools::{
+    ApprovalRequest, ApprovalResponse, DenialBehavior, ToolContext, ToolDefinition,
+};
 use crate::types::{
     Error, ErrorKind, LimitKind, Result, RunId, RunInput, RunOutcome, RunResult, RunView,
-    StageRecord, Usage,
+    StageAttempt, StageFailure, StageFailurePhase, StageRecord, Usage,
 };
 use crate::workflow::{RetryOn, Route, Stage, StageAction, StageRouting, ToolAction, Workflow};
 
@@ -56,7 +59,7 @@ impl Engine {
         let (approval_tx, approval_rx) = mpsc::unbounded_channel();
         let (result_tx, result_rx) = watch::channel(None);
 
-        let execution = Execution {
+        let mut execution = Execution {
             workflow,
             llm: self.inner.llm.clone(),
             state: ExecutionState::new(run_id.clone(), input.into()),
@@ -65,7 +68,14 @@ impl Engine {
             cancellation,
         };
         runtime.spawn(async move {
-            let outcome = execution.run().await;
+            let stop = match AssertUnwindSafe(execution.run()).catch_unwind().await {
+                Ok(stop) => stop,
+                Err(payload) => Stop::Failed(Error::panic(format!(
+                    "workflow execution panicked: {}",
+                    panic_message(payload)
+                ))),
+            };
+            let outcome = execution.finish(stop);
             let _ = execution_finished_event(&outcome, &result_tx);
         });
 
@@ -311,10 +321,64 @@ enum ActionStop {
     Limit(LimitKind),
 }
 
+struct ToolCallGuard {
+    event_tx: mpsc::UnboundedSender<RunEvent>,
+    attempt: StageAttempt,
+    call_id: Arc<str>,
+    tool: Arc<str>,
+    started: Instant,
+    finished: bool,
+}
+
+impl ToolCallGuard {
+    fn new(
+        event_tx: mpsc::UnboundedSender<RunEvent>,
+        attempt: StageAttempt,
+        call_id: Arc<str>,
+        tool: Arc<str>,
+    ) -> Self {
+        Self {
+            event_tx,
+            attempt,
+            call_id,
+            tool,
+            started: Instant::now(),
+            finished: false,
+        }
+    }
+
+    fn finish(mut self, result: Result<Value>) {
+        self.finished = true;
+        let _ = self.event_tx.send(RunEvent::ToolCallFinished {
+            attempt: self.attempt.clone(),
+            call_id: self.call_id.clone(),
+            tool: self.tool.clone(),
+            result,
+            duration: self.started.elapsed(),
+        });
+    }
+}
+
+impl Drop for ToolCallGuard {
+    fn drop(&mut self) {
+        if !self.finished {
+            let _ = self.event_tx.send(RunEvent::ToolCallAborted {
+                attempt: self.attempt.clone(),
+                call_id: self.call_id.clone(),
+                tool: self.tool.clone(),
+                duration: self.started.elapsed(),
+            });
+        }
+    }
+}
+
 impl Execution {
-    async fn run(mut self) -> Arc<RunOutcome> {
+    async fn run(&mut self) -> Stop {
         self.state.state = self.workflow.initial_state.clone();
-        let stop = self.execute_loop().await;
+        self.execute_loop().await
+    }
+
+    fn finish(&self, stop: Stop) -> Arc<RunOutcome> {
         let result = self.finish_result();
         let outcome = match stop {
             Stop::Completed => RunOutcome::Completed(result),
@@ -350,96 +414,158 @@ impl Execution {
                 return Stop::Limit(LimitKind::StageVisits);
             }
 
-            let mut attempt = 1;
+            let mut attempt_number = 1;
             loop {
                 if self.state.stage_executions >= self.workflow.limits.max_stage_executions {
                     return Stop::Limit(LimitKind::StageExecutions);
                 }
                 self.state.stage_executions += 1;
-                let _ = self.event_tx.send(RunEvent::StageStarted {
+                let attempt = StageAttempt {
                     stage: stage.name.clone(),
                     visit,
-                    attempt,
+                    attempt: attempt_number,
+                };
+                let _ = self.event_tx.send(RunEvent::StageStarted {
+                    attempt: attempt.clone(),
                 });
 
                 let before_usage = self.state.usage;
                 let started = Instant::now();
-                let action_result = self.execute_attempt(&stage).await;
-                let record_error = match &action_result {
-                    Ok(_) => None,
-                    Err(ActionStop::Error(error)) => Some(error.clone()),
-                    Err(ActionStop::Cancelled) => {
-                        Some(Error::cancelled("run cancelled during stage execution"))
-                    }
-                    Err(ActionStop::Limit(limit)) => {
-                        Some(Error::limit(format!("run limit reached: {limit:?}")))
-                    }
+                let action_result = match AssertUnwindSafe(self.execute_attempt(&stage, &attempt))
+                    .catch_unwind()
+                    .await
+                {
+                    Ok(result) => result,
+                    Err(payload) => Err(ActionStop::Error(Error::panic(format!(
+                        "stage '{}' action panicked: {}",
+                        stage.name,
+                        panic_message(payload)
+                    )))),
                 };
-                let record = StageRecord {
+                let mut record = StageRecord {
                     stage: stage.name.clone(),
                     visit,
-                    attempt,
+                    attempt: attempt_number,
                     output: action_result.as_ref().ok().cloned(),
-                    error: record_error,
+                    failures: Vec::new(),
                     usage: self.state.usage - before_usage,
                     duration: started.elapsed(),
                 };
-                self.state.history.push(record.clone());
-                let reducer_result = self
-                    .workflow
-                    .reducer
-                    .as_ref()
-                    .map(|reducer| reducer.reduce(&mut self.state.state, &record));
-                let _ = self
-                    .event_tx
-                    .send(RunEvent::StageAttemptFinished(Arc::new(record)));
-                if let Some(Err(error)) = reducer_result {
-                    return Stop::Failed(error);
-                }
 
                 match action_result {
-                    Ok(_) => match self.route_success(&stage) {
-                        Ok(Some(next)) => {
-                            let reason = if matches!(stage.routing, StageRouting::Dynamic(_)) {
-                                RoutingReason::Dynamic
-                            } else {
-                                RoutingReason::Success
-                            };
-                            let _ = self.event_tx.send(RunEvent::Routed {
-                                from: stage.name.clone(),
-                                to: Some(next.clone()),
-                                reason,
-                            });
-                            current = next;
-                            break;
+                    Ok(_) => {
+                        // Routing can inspect this attempt's output, but state
+                        // remains the value committed by prior attempts.
+                        self.state.history.push(record.clone());
+                        let routing = self.route_success(&stage);
+                        let _ = self.state.history.pop();
+
+                        let (route, routing_error) = match routing {
+                            Ok(route) => (Some(route), None),
+                            Err(error) => {
+                                record.failures.push(StageFailure::new(
+                                    StageFailurePhase::Routing,
+                                    error.clone(),
+                                ));
+                                (None, Some(error))
+                            }
+                        };
+                        let reduction_error = self.reduce_record(&mut record);
+                        self.publish_record(record);
+
+                        if let Some(error) = reduction_error.or(routing_error) {
+                            if let Some(next) = &stage.on_error {
+                                let _ = self.event_tx.send(RunEvent::Routed {
+                                    from: stage.name.clone(),
+                                    to: Some(next.clone()),
+                                    reason: RoutingReason::ErrorRecovery,
+                                });
+                                current = next.clone();
+                                break;
+                            }
+                            return Stop::Failed(error);
                         }
-                        Ok(None) => {
-                            let _ = self.event_tx.send(RunEvent::Routed {
-                                from: stage.name.clone(),
-                                to: None,
-                                reason: RoutingReason::Success,
-                            });
-                            return Stop::Completed;
+
+                        let Some(route) = route else {
+                            return Stop::Failed(Error::internal(
+                                "routing result missing without a routing failure",
+                            ));
+                        };
+                        match route {
+                            Some(next) => {
+                                let reason = if matches!(stage.routing, StageRouting::Dynamic(_)) {
+                                    RoutingReason::Dynamic
+                                } else {
+                                    RoutingReason::Success
+                                };
+                                let _ = self.event_tx.send(RunEvent::Routed {
+                                    from: stage.name.clone(),
+                                    to: Some(next.clone()),
+                                    reason,
+                                });
+                                current = next;
+                                break;
+                            }
+                            None => {
+                                let _ = self.event_tx.send(RunEvent::Routed {
+                                    from: stage.name.clone(),
+                                    to: None,
+                                    reason: RoutingReason::Success,
+                                });
+                                return Stop::Completed;
+                            }
                         }
-                        Err(error) => return Stop::Failed(error),
-                    },
-                    Err(ActionStop::Cancelled) => return Stop::Cancelled,
-                    Err(ActionStop::Limit(limit)) => return Stop::Limit(limit),
+                    }
+                    Err(ActionStop::Cancelled) => {
+                        record.failures.push(StageFailure::new(
+                            StageFailurePhase::Control,
+                            Error::cancelled("run cancelled during stage execution"),
+                        ));
+                        self.publish_record(record);
+                        return Stop::Cancelled;
+                    }
+                    Err(ActionStop::Limit(limit)) => {
+                        record.failures.push(StageFailure::new(
+                            StageFailurePhase::Control,
+                            Error::limit(format!("run limit reached: {limit:?}")),
+                        ));
+                        self.publish_record(record);
+                        return Stop::Limit(limit);
+                    }
                     Err(ActionStop::Error(error)) => {
-                        if self.should_retry(&stage, &error, attempt) {
+                        record
+                            .failures
+                            .push(StageFailure::new(StageFailurePhase::Action, error.clone()));
+                        let reduction_error = self.reduce_record(&mut record);
+                        self.publish_record(record);
+
+                        if let Some(reduction_error) = reduction_error {
+                            if let Some(next) = &stage.on_error {
+                                let _ = self.event_tx.send(RunEvent::Routed {
+                                    from: stage.name.clone(),
+                                    to: Some(next.clone()),
+                                    reason: RoutingReason::ErrorRecovery,
+                                });
+                                current = next.clone();
+                                break;
+                            }
+                            return Stop::Failed(reduction_error);
+                        }
+
+                        if self.should_retry(&stage, &error, attempt_number) {
                             let Some(policy) = stage.retry else {
                                 return Stop::Failed(Error::internal(
                                     "retry selected without a retry policy",
                                 ));
                             };
-                            let backoff = policy.backoff_for_retry(attempt);
+                            let backoff = policy.backoff_for_retry(attempt_number);
                             match self.wait_backoff(backoff).await {
                                 Ok(()) => {}
                                 Err(ActionStop::Cancelled) => return Stop::Cancelled,
                                 Err(ActionStop::Limit(limit)) => return Stop::Limit(limit),
                                 Err(ActionStop::Error(error)) => return Stop::Failed(error),
                             }
-                            attempt += 1;
+                            attempt_number += 1;
                             continue;
                         }
                         if let Some(next) = &stage.on_error {
@@ -456,6 +582,50 @@ impl Execution {
                 }
             }
         }
+    }
+
+    /// Apply state reduction transactionally. Control stops deliberately skip
+    /// this path, so cancellation and limit outcomes cannot be replaced by a
+    /// reducer failure.
+    fn reduce_record(&mut self, record: &mut StageRecord) -> Option<Error> {
+        let Some(reducer) = &self.workflow.reducer else {
+            return None;
+        };
+        let reduced = std::panic::catch_unwind(AssertUnwindSafe(|| {
+            reducer.reduce(&self.state.state, record)
+        }));
+        match reduced {
+            Ok(Ok(next_state)) => {
+                self.state.state = next_state;
+                None
+            }
+            Ok(Err(error)) => {
+                let error = error.with_kind(ErrorKind::StateReduction);
+                record.failures.push(StageFailure::new(
+                    StageFailurePhase::StateReduction,
+                    error.clone(),
+                ));
+                Some(error)
+            }
+            Err(payload) => {
+                let error = Error::panic(format!(
+                    "state reducer panicked: {}",
+                    panic_message(payload)
+                ));
+                record.failures.push(StageFailure::new(
+                    StageFailurePhase::StateReduction,
+                    error.clone(),
+                ));
+                Some(error)
+            }
+        }
+    }
+
+    fn publish_record(&mut self, record: StageRecord) {
+        self.state.history.push(record.clone());
+        let _ = self
+            .event_tx
+            .send(RunEvent::StageAttemptFinished(Arc::new(record)));
     }
 
     fn should_retry(&self, stage: &Stage, error: &Error, attempt: u32) -> bool {
@@ -501,9 +671,20 @@ impl Execution {
         let route = match &stage.routing {
             StageRouting::Complete => Route::Complete,
             StageRouting::Next(next) => Route::Next(next.clone()),
-            StageRouting::Dynamic(router) => router
-                .route(&self.state.view())
-                .map_err(|error| error.with_kind(ErrorKind::Routing))?,
+            StageRouting::Dynamic(router) => {
+                match std::panic::catch_unwind(AssertUnwindSafe(|| {
+                    router.route(&self.state.view())
+                })) {
+                    Ok(result) => result.map_err(|error| error.with_kind(ErrorKind::Routing))?,
+                    Err(payload) => {
+                        return Err(Error::panic(format!(
+                            "router for stage '{}' panicked: {}",
+                            stage.name,
+                            panic_message(payload)
+                        )))
+                    }
+                }
+            }
         };
         match route {
             Route::Complete => Ok(None),
@@ -518,10 +699,14 @@ impl Execution {
         }
     }
 
-    async fn execute_attempt(&mut self, stage: &Stage) -> std::result::Result<Value, ActionStop> {
+    async fn execute_attempt(
+        &mut self,
+        stage: &Stage,
+        attempt: &StageAttempt,
+    ) -> std::result::Result<Value, ActionStop> {
         let timeout = self.effective_timeout(stage.timeout)?;
         let cancellation = self.cancellation.clone();
-        let action = self.execute_action(stage);
+        let action = self.execute_action(stage, attempt);
         match timeout {
             Some((duration, deadline_limited)) => {
                 tokio::select! {
@@ -570,29 +755,43 @@ impl Execution {
             .is_some_and(|deadline| self.state.started.elapsed() >= deadline)
     }
 
-    async fn execute_action(&mut self, stage: &Stage) -> std::result::Result<Value, ActionStop> {
+    async fn execute_action(
+        &mut self,
+        stage: &Stage,
+        attempt: &StageAttempt,
+    ) -> std::result::Result<Value, ActionStop> {
         match &stage.action {
             StageAction::RouteOnly => Ok(Value::Null),
             StageAction::Deterministic(action) => action
                 .execute(&self.state.view())
                 .await
                 .map_err(ActionStop::Error),
-            StageAction::Tool(action) => self.execute_direct_tool(stage, action).await,
-            StageAction::Llm(action) => self.execute_llm(stage, action).await,
+            StageAction::Tool(action) => self.execute_direct_tool(attempt, action).await,
+            StageAction::Llm(action) => self.execute_llm(attempt, action).await,
         }
     }
 
     async fn execute_direct_tool(
         &mut self,
-        stage: &Stage,
+        attempt: &StageAttempt,
         action: &ToolAction,
     ) -> std::result::Result<Value, ActionStop> {
         let arguments = action
             .build_arguments(&self.state.view())
             .map_err(ActionStop::Error)?;
-        if let Some(prompt) = action.tool.handler.approval(&arguments) {
+        let call_id: Arc<str> = Arc::from(uuid::Uuid::new_v4().to_string());
+        let approval = {
+            let context = self.tool_context(attempt, &call_id);
+            action
+                .tool
+                .handler
+                .approval(&context, &arguments)
+                .await
+                .map_err(ActionStop::Error)?
+        };
+        if let Some(prompt) = approval {
             let approved = self
-                .request_approval(stage, &action.tool, arguments.clone(), prompt)
+                .request_approval(attempt, &call_id, &action.tool, arguments.clone(), prompt)
                 .await?;
             if !approved {
                 return match action.on_denied {
@@ -604,14 +803,13 @@ impl Execution {
                 };
             }
         }
-        let call_id = uuid::Uuid::new_v4().to_string();
-        self.call_tool(stage, &action.tool, &call_id, arguments)
+        self.call_tool(attempt, &action.tool, call_id, arguments)
             .await
     }
 
     async fn execute_llm(
         &mut self,
-        stage: &Stage,
+        attempt: &StageAttempt,
         action: &LlmAction,
     ) -> std::result::Result<Value, ActionStop> {
         let provider = self
@@ -628,9 +826,11 @@ impl Execution {
         };
         let mut messages = vec![Message::system(prompt), Message::user(user_input)];
         let mut tool_rounds = 0;
+        let mut model_call = 0;
 
         loop {
             self.consume_llm_call()?;
+            model_call += 1;
             for hook in &action.hooks {
                 hook.before_model(&mut messages)
                     .await
@@ -655,7 +855,8 @@ impl Execution {
                         response.text.push_str(&content);
                         if matches!(action.output, LlmOutput::Text) {
                             let _ = self.event_tx.send(RunEvent::TextDelta {
-                                stage: stage.name.clone(),
+                                attempt: attempt.clone(),
+                                model_call,
                                 content,
                             });
                         }
@@ -716,7 +917,7 @@ impl Execution {
                         value,
                         succeeded: true,
                     },
-                    ToolDecision::Continue => self.execute_llm_tool(stage, action, &call).await?,
+                    ToolDecision::Continue => self.execute_llm_tool(attempt, action, &call).await?,
                 };
                 for hook in &action.hooks {
                     hook.after_tool(&call, &mut result)
@@ -749,7 +950,7 @@ impl Execution {
 
     async fn execute_llm_tool(
         &mut self,
-        stage: &Stage,
+        attempt: &StageAttempt,
         action: &LlmAction,
         call: &ToolCall,
     ) -> std::result::Result<ToolResult, ActionStop> {
@@ -765,9 +966,17 @@ impl Execution {
             });
         };
 
-        if let Some(prompt) = tool.handler.approval(&call.arguments) {
+        let call_id: Arc<str> = Arc::from(call.id.as_str());
+        let approval = {
+            let context = self.tool_context(attempt, &call_id);
+            tool.handler
+                .approval(&context, &call.arguments)
+                .await
+                .map_err(ActionStop::Error)?
+        };
+        if let Some(prompt) = approval {
             let approved = self
-                .request_approval(stage, &tool, call.arguments.clone(), prompt)
+                .request_approval(attempt, &call_id, &tool, call.arguments.clone(), prompt)
                 .await?;
             if !approved {
                 return match action.on_denied {
@@ -787,7 +996,7 @@ impl Execution {
         }
 
         match self
-            .call_tool(stage, &tool, &call.id, call.arguments.clone())
+            .call_tool(attempt, &tool, call_id, call.arguments.clone())
             .await
         {
             Ok(value) => Ok(ToolResult {
@@ -804,7 +1013,8 @@ impl Execution {
 
     async fn request_approval(
         &mut self,
-        stage: &Stage,
+        attempt: &StageAttempt,
+        call_id: &Arc<str>,
         tool: &Arc<ToolDefinition>,
         arguments: Value,
         prompt: crate::tools::ApprovalPrompt,
@@ -812,7 +1022,8 @@ impl Execution {
         let request_id: Arc<str> = Arc::from(uuid::Uuid::new_v4().to_string());
         let request = ApprovalRequest {
             request_id: request_id.clone(),
-            stage: stage.name.clone(),
+            attempt: attempt.clone(),
+            call_id: call_id.clone(),
             tool: tool.spec.name.clone(),
             arguments,
             prompt,
@@ -846,29 +1057,41 @@ impl Execution {
 
     async fn call_tool(
         &mut self,
-        stage: &Stage,
+        attempt: &StageAttempt,
         tool: &Arc<ToolDefinition>,
-        call_id: &str,
+        call_id: Arc<str>,
         arguments: Value,
     ) -> std::result::Result<Value, ActionStop> {
         self.consume_tool_call()?;
-        let call_id: Arc<str> = Arc::from(call_id);
         let _ = self.event_tx.send(RunEvent::ToolCallStarted {
-            stage: stage.name.clone(),
+            attempt: attempt.clone(),
             call_id: call_id.clone(),
             tool: tool.spec.name.clone(),
             arguments: arguments.clone(),
         });
-        let started = Instant::now();
-        let result = tool.handler.call(arguments).await;
-        let _ = self.event_tx.send(RunEvent::ToolCallFinished {
-            stage: stage.name.clone(),
-            call_id,
-            tool: tool.spec.name.clone(),
-            result: result.clone(),
-            duration: started.elapsed(),
-        });
+        let guard = ToolCallGuard::new(
+            self.event_tx.clone(),
+            attempt.clone(),
+            call_id.clone(),
+            tool.spec.name.clone(),
+        );
+        let result = {
+            let context = self.tool_context(attempt, &call_id);
+            tool.handler.call(&context, arguments).await
+        };
+        guard.finish(result.clone());
         result.map_err(ActionStop::Error)
+    }
+
+    fn tool_context<'a>(&'a self, attempt: &'a StageAttempt, call_id: &'a str) -> ToolContext<'a> {
+        ToolContext {
+            run_id: &self.state.run_id,
+            workflow: &self.workflow.name,
+            attempt,
+            call_id,
+            metadata: &self.state.input.metadata,
+            cancellation: self.cancellation.clone(),
+        }
     }
 
     fn consume_llm_call(&mut self) -> std::result::Result<(), ActionStop> {
@@ -916,5 +1139,15 @@ fn merge_tool_call(calls: &mut Vec<ToolCall>, incoming: ToolCall) {
         *existing = incoming;
     } else {
         calls.push(incoming);
+    }
+}
+
+fn panic_message(payload: Box<dyn std::any::Any + Send>) -> String {
+    if let Some(message) = payload.downcast_ref::<&str>() {
+        (*message).to_string()
+    } else if let Some(message) = payload.downcast_ref::<String>() {
+        message.clone()
+    } else {
+        "non-string panic payload".to_string()
     }
 }

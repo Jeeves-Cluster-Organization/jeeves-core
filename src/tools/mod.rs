@@ -1,12 +1,13 @@
 //! LLM-callable tools and composable reliability wrappers.
 
 use async_trait::async_trait;
-use serde_json::Value;
+use serde_json::{Map, Value};
 use std::fmt;
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
+use tokio_util::sync::CancellationToken;
 
-use crate::types::{Error, Result};
+use crate::types::{Error, ErrorKind, Result, RunId, StageAttempt};
 
 /// Model-visible metadata for one tool.
 #[derive(Debug, Clone)]
@@ -55,15 +56,37 @@ impl ApprovalPrompt {
     }
 }
 
+/// Trusted invocation data supplied by the runtime, never by the model.
+#[derive(Debug, Clone)]
+pub struct ToolContext<'a> {
+    pub run_id: &'a RunId,
+    pub workflow: &'a str,
+    pub attempt: &'a StageAttempt,
+    pub call_id: &'a str,
+    pub metadata: &'a Map<String, Value>,
+    pub cancellation: CancellationToken,
+}
+
 /// A single callable tool implementation.
 #[async_trait]
 pub trait Tool: Send + Sync {
-    async fn call(&self, arguments: Value) -> Result<Value>;
+    async fn call(&self, context: &ToolContext<'_>, arguments: Value) -> Result<Value>;
 
     /// Return an approval prompt for this invocation, or `None` to execute it.
-    fn approval(&self, _arguments: &Value) -> Option<ApprovalPrompt> {
-        None
+    async fn approval(
+        &self,
+        _context: &ToolContext<'_>,
+        _arguments: &Value,
+    ) -> Result<Option<ApprovalPrompt>> {
+        Ok(None)
     }
+}
+
+/// Whether a tool may be invoked again after an indeterminate stage failure.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ReplaySafety {
+    Unsafe,
+    Idempotent,
 }
 
 /// One authoritative tool record: specification and matching handler.
@@ -71,11 +94,25 @@ pub trait Tool: Send + Sync {
 pub struct ToolDefinition {
     pub spec: ToolSpec,
     pub handler: Arc<dyn Tool>,
+    pub replay_safety: ReplaySafety,
 }
 
 impl ToolDefinition {
     pub fn new(spec: ToolSpec, handler: Arc<dyn Tool>) -> Self {
-        Self { spec, handler }
+        Self {
+            spec,
+            handler,
+            replay_safety: ReplaySafety::Unsafe,
+        }
+    }
+
+    pub fn with_replay_safety(mut self, replay_safety: ReplaySafety) -> Self {
+        self.replay_safety = replay_safety;
+        self
+    }
+
+    pub fn idempotent(self) -> Self {
+        self.with_replay_safety(ReplaySafety::Idempotent)
     }
 }
 
@@ -83,6 +120,7 @@ impl fmt::Debug for ToolDefinition {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("ToolDefinition")
             .field("spec", &self.spec)
+            .field("replay_safety", &self.replay_safety)
             .finish_non_exhaustive()
     }
 }
@@ -114,7 +152,8 @@ impl ApprovalResponse {
 #[derive(Debug, Clone)]
 pub struct ApprovalRequest {
     pub request_id: Arc<str>,
-    pub stage: Arc<str>,
+    pub attempt: StageAttempt,
+    pub call_id: Arc<str>,
     pub tool: Arc<str>,
     pub arguments: Value,
     pub prompt: ApprovalPrompt,
@@ -129,10 +168,20 @@ pub enum DenialBehavior {
 }
 
 /// Minimal circuit-breaker configuration.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum CircuitFailurePolicy {
+    /// Count service-side and infrastructure failures, not caller mistakes or
+    /// control-flow outcomes.
+    ServiceFailures,
+    /// Count every returned error.
+    AllErrors,
+}
+
 #[derive(Debug, Clone, Copy)]
 pub struct CircuitBreakerConfig {
     pub failure_threshold: u32,
     pub cooldown: Duration,
+    pub failure_policy: CircuitFailurePolicy,
 }
 
 impl CircuitBreakerConfig {
@@ -151,6 +200,7 @@ impl Default for CircuitBreakerConfig {
         Self {
             failure_threshold: 3,
             cooldown: Duration::from_secs(30),
+            failure_policy: CircuitFailurePolicy::ServiceFailures,
         }
     }
 }
@@ -219,31 +269,58 @@ impl CircuitBreakerTool {
         }
     }
 
-    fn finish_call(&self, succeeded: bool) {
+    fn counts_failure(&self, error: &Error) -> bool {
+        match self.config.failure_policy {
+            CircuitFailurePolicy::AllErrors => true,
+            CircuitFailurePolicy::ServiceFailures => matches!(
+                error.kind(),
+                ErrorKind::Transient
+                    | ErrorKind::Timeout
+                    | ErrorKind::Permanent
+                    | ErrorKind::CircuitOpen
+                    | ErrorKind::Panic
+                    | ErrorKind::Internal
+            ),
+        }
+    }
+
+    fn finish_call(&self, result: &Result<Value>) {
         let Ok(mut state) = self.state.lock() else {
             return;
         };
-        if succeeded {
-            *state = BreakerState::Closed {
-                consecutive_failures: 0,
-            };
-            return;
-        }
-
-        let next_failures = match *state {
-            BreakerState::Closed {
-                consecutive_failures,
-            } => consecutive_failures.saturating_add(1),
-            BreakerState::HalfOpen | BreakerState::Open { .. } => self.config.failure_threshold,
-        };
-        if next_failures >= self.config.failure_threshold {
-            *state = BreakerState::Open {
-                opened_at: Instant::now(),
-            };
-        } else {
-            *state = BreakerState::Closed {
-                consecutive_failures: next_failures,
-            };
+        match result {
+            Ok(_) => {
+                *state = BreakerState::Closed {
+                    consecutive_failures: 0,
+                };
+            }
+            Err(error) if self.counts_failure(error) => {
+                let next_failures = match *state {
+                    BreakerState::Closed {
+                        consecutive_failures,
+                    } => consecutive_failures.saturating_add(1),
+                    BreakerState::HalfOpen | BreakerState::Open { .. } => {
+                        self.config.failure_threshold
+                    }
+                };
+                if next_failures >= self.config.failure_threshold {
+                    *state = BreakerState::Open {
+                        opened_at: Instant::now(),
+                    };
+                } else {
+                    *state = BreakerState::Closed {
+                        consecutive_failures: next_failures,
+                    };
+                }
+            }
+            Err(_) if matches!(*state, BreakerState::HalfOpen) => {
+                // A caller error does not prove recovery; reopen and permit a
+                // later valid probe after the cooldown.
+                *state = BreakerState::Open {
+                    opened_at: Instant::now(),
+                };
+            }
+            Err(_) => {}
         }
     }
 }
@@ -259,15 +336,19 @@ impl fmt::Debug for CircuitBreakerTool {
 
 #[async_trait]
 impl Tool for CircuitBreakerTool {
-    async fn call(&self, arguments: Value) -> Result<Value> {
+    async fn call(&self, context: &ToolContext<'_>, arguments: Value) -> Result<Value> {
         self.begin_call()?;
-        let result = self.inner.call(arguments).await;
-        self.finish_call(result.is_ok());
+        let result = self.inner.call(context, arguments).await;
+        self.finish_call(&result);
         result
     }
 
-    fn approval(&self, arguments: &Value) -> Option<ApprovalPrompt> {
-        self.inner.approval(arguments)
+    async fn approval(
+        &self,
+        context: &ToolContext<'_>,
+        arguments: &Value,
+    ) -> Result<Option<ApprovalPrompt>> {
+        self.inner.approval(context, arguments).await
     }
 }
 
@@ -280,7 +361,7 @@ mod tests {
 
     #[async_trait]
     impl Tool for FailsTwice {
-        async fn call(&self, _arguments: Value) -> Result<Value> {
+        async fn call(&self, _context: &ToolContext<'_>, _arguments: Value) -> Result<Value> {
             let call = self.0.fetch_add(1, Ordering::SeqCst);
             if call < 2 {
                 Err(Error::transient("not yet"))
@@ -297,20 +378,40 @@ mod tests {
             CircuitBreakerConfig {
                 failure_threshold: 2,
                 cooldown: Duration::from_millis(1),
+                failure_policy: CircuitFailurePolicy::ServiceFailures,
             },
         )?;
 
-        assert!(breaker.call(Value::Null).await.is_err());
-        assert!(breaker.call(Value::Null).await.is_err());
+        let run_id = RunId::new();
+        let attempt = StageAttempt {
+            stage: Arc::from("test"),
+            visit: 1,
+            attempt: 1,
+        };
+        let metadata = Map::new();
+        let context = ToolContext {
+            run_id: &run_id,
+            workflow: "test",
+            attempt: &attempt,
+            call_id: "call-1",
+            metadata: &metadata,
+            cancellation: CancellationToken::new(),
+        };
+
+        assert!(breaker.call(&context, Value::Null).await.is_err());
+        assert!(breaker.call(&context, Value::Null).await.is_err());
         assert_eq!(breaker.status(), CircuitBreakerStatus::Open);
         assert!(matches!(
-            breaker.call(Value::Null).await,
+            breaker.call(&context, Value::Null).await,
             Err(error) if error.kind() == crate::types::ErrorKind::CircuitOpen
         ));
 
         tokio::time::sleep(Duration::from_millis(2)).await;
         assert_eq!(breaker.status(), CircuitBreakerStatus::HalfOpen);
-        assert_eq!(breaker.call(Value::Null).await, Ok(Value::Bool(true)));
+        assert_eq!(
+            breaker.call(&context, Value::Null).await,
+            Ok(Value::Bool(true))
+        );
         assert_eq!(breaker.status(), CircuitBreakerStatus::Closed);
         Ok(())
     }

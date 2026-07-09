@@ -27,11 +27,12 @@ pub mod prelude {
     };
     pub use crate::tools::{
         ApprovalPrompt, ApprovalRequest, ApprovalResponse, CircuitBreakerConfig,
-        CircuitBreakerStatus, CircuitBreakerTool, DenialBehavior, Tool, ToolDefinition, ToolSpec,
+        CircuitBreakerStatus, CircuitBreakerTool, CircuitFailurePolicy, DenialBehavior,
+        ReplaySafety, Tool, ToolContext, ToolDefinition, ToolSpec,
     };
     pub use crate::types::{
         Error, ErrorKind, LimitKind, Result, RunId, RunInput, RunOutcome, RunResult, RunView,
-        StageRecord, Usage,
+        StageAttempt, StageFailure, StageFailurePhase, StageRecord, Usage,
     };
     pub use crate::workflow::{
         DeterministicAction, RetryOn, RetryPolicy, Route, RunLimits, Stage, StateReducer,

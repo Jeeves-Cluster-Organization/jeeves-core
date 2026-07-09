@@ -8,7 +8,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use crate::llm::LlmAction;
-use crate::tools::{DenialBehavior, ToolDefinition};
+use crate::tools::{DenialBehavior, ReplaySafety, ToolDefinition};
 use crate::types::{Error, Result, RunView, StageRecord};
 
 /// Total run bounds. Every dimension is checked before consuming more budget.
@@ -57,6 +57,9 @@ pub struct RetryPolicy {
     pub backoff_multiplier: f64,
     pub max_backoff: Duration,
     pub retry_on: RetryOn,
+    /// Explicit escape hatch for actions whose external side effects are
+    /// deduplicated or compensated outside core.
+    pub allow_side_effect_replay: bool,
 }
 
 impl RetryPolicy {
@@ -67,11 +70,17 @@ impl RetryPolicy {
             backoff_multiplier: 2.0,
             max_backoff: Duration::from_secs(30),
             retry_on: RetryOn::Retryable,
+            allow_side_effect_replay: false,
         }
     }
 
     pub fn retry_on_any_failure(mut self) -> Self {
         self.retry_on = RetryOn::AnyFailure;
+        self
+    }
+
+    pub fn allow_side_effect_replay(mut self) -> Self {
+        self.allow_side_effect_replay = true;
         self
     }
 
@@ -174,14 +183,16 @@ where
 
 /// Optional consumer state reducer invoked after every stage attempt.
 pub trait StateReducer: Send + Sync {
-    fn reduce(&self, state: &mut Value, record: &StageRecord) -> Result<()>;
+    /// Derive the next state without mutating the committed value. Core only
+    /// commits the returned value when reduction succeeds.
+    fn reduce(&self, state: &Value, record: &StageRecord) -> Result<Value>;
 }
 
 impl<F> StateReducer for F
 where
-    F: Fn(&mut Value, &StageRecord) -> Result<()> + Send + Sync,
+    F: Fn(&Value, &StageRecord) -> Result<Value> + Send + Sync,
 {
-    fn reduce(&self, state: &mut Value, record: &StageRecord) -> Result<()> {
+    fn reduce(&self, state: &Value, record: &StageRecord) -> Result<Value> {
         self(state, record)
     }
 }
@@ -463,6 +474,31 @@ impl WorkflowBuilder {
             }
             if let Some(retry) = stage.retry {
                 retry.validate()?;
+                if !retry.allow_side_effect_replay {
+                    let unsafe_tools: Vec<&str> = match &stage.action {
+                        StageAction::Tool(action)
+                            if action.tool.replay_safety == ReplaySafety::Unsafe =>
+                        {
+                            vec![action.tool.spec.name.as_ref()]
+                        }
+                        StageAction::Llm(action) => action
+                            .tools
+                            .iter()
+                            .filter(|tool| tool.replay_safety == ReplaySafety::Unsafe)
+                            .map(|tool| tool.spec.name.as_ref())
+                            .collect(),
+                        StageAction::Deterministic(_)
+                        | StageAction::Tool(_)
+                        | StageAction::RouteOnly => Vec::new(),
+                    };
+                    if !unsafe_tools.is_empty() {
+                        return Err(Error::configuration(format!(
+                            "stage '{}' retries replay-unsafe tools: {}",
+                            stage.name,
+                            unsafe_tools.join(", ")
+                        )));
+                    }
+                }
             }
             if let StageAction::Llm(action) = &stage.action {
                 action.validate()?;

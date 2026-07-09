@@ -98,7 +98,7 @@ async fn retry_any_failure_is_explicit_and_preserves_failed_attempts() {
     let result = completed(&outcome);
     assert_eq!(calls.load(Ordering::SeqCst), 2);
     assert_eq!(result.history.len(), 2);
-    assert!(result.history[0].error.is_some());
+    assert!(!result.history[0].failures.is_empty());
     assert!(result.history[1].succeeded());
 }
 
@@ -119,7 +119,7 @@ async fn exhausted_failure_routes_to_recovery_and_can_complete() {
     let result = completed(&outcome);
     assert_eq!(result.latest_outputs["recover"], json!({"recovered": true}));
     assert_eq!(result.history.len(), 2);
-    assert!(result.history[0].error.is_some());
+    assert!(!result.history[0].failures.is_empty());
 }
 
 #[tokio::test]
@@ -140,12 +140,13 @@ async fn reducer_derives_shared_state_from_attempt_history() {
     let workflow = Workflow::builder("state")
         .state(
             json!({"successes": 0}),
-            |state: &mut Value, record: &StageRecord| {
+            |state: &Value, record: &StageRecord| {
+                let mut next = state.clone();
                 if record.succeeded() {
-                    let count = state["successes"].as_u64().unwrap_or_default();
-                    state["successes"] = json!(count + 1);
+                    let count = next["successes"].as_u64().unwrap_or_default();
+                    next["successes"] = json!(count + 1);
                 }
-                Ok(())
+                Ok(next)
             },
         )
         .stage(Stage::deterministic_fn("one", |_| Ok(json!(1))).next("two"))
@@ -273,7 +274,7 @@ struct EchoTool {
 
 #[async_trait]
 impl Tool for EchoTool {
-    async fn call(&self, arguments: Value) -> Result<Value> {
+    async fn call(&self, _context: &ToolContext<'_>, arguments: Value) -> Result<Value> {
         self.calls.fetch_add(1, Ordering::SeqCst);
         Ok(arguments)
     }
@@ -355,13 +356,17 @@ struct ApprovalTool {
 
 #[async_trait]
 impl Tool for ApprovalTool {
-    async fn call(&self, arguments: Value) -> Result<Value> {
+    async fn call(&self, _context: &ToolContext<'_>, arguments: Value) -> Result<Value> {
         self.calls.fetch_add(1, Ordering::SeqCst);
         Ok(json!({"executed": arguments}))
     }
 
-    fn approval(&self, _arguments: &Value) -> Option<ApprovalPrompt> {
-        Some(ApprovalPrompt::new("approve test tool"))
+    async fn approval(
+        &self,
+        _context: &ToolContext<'_>,
+        _arguments: &Value,
+    ) -> Result<Option<ApprovalPrompt>> {
+        Ok(Some(ApprovalPrompt::new("approve test tool")))
     }
 }
 

@@ -5,7 +5,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use crate::tools::ApprovalRequest;
-use crate::types::{Error, RunOutcome, StageRecord};
+use crate::types::{Error, RunOutcome, StageAttempt, StageRecord};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum RoutingReason {
@@ -18,25 +18,30 @@ pub enum RoutingReason {
 #[non_exhaustive]
 pub enum RunEvent {
     StageStarted {
-        stage: Arc<str>,
-        visit: u32,
-        attempt: u32,
+        attempt: StageAttempt,
     },
     TextDelta {
-        stage: Arc<str>,
+        attempt: StageAttempt,
+        model_call: u32,
         content: String,
     },
     ToolCallStarted {
-        stage: Arc<str>,
+        attempt: StageAttempt,
         call_id: Arc<str>,
         tool: Arc<str>,
         arguments: Value,
     },
     ToolCallFinished {
-        stage: Arc<str>,
+        attempt: StageAttempt,
         call_id: Arc<str>,
         tool: Arc<str>,
         result: std::result::Result<Value, Error>,
+        duration: Duration,
+    },
+    ToolCallAborted {
+        attempt: StageAttempt,
+        call_id: Arc<str>,
+        tool: Arc<str>,
         duration: Duration,
     },
     ApprovalRequested(ApprovalRequest),
