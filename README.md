@@ -2,7 +2,8 @@
 
 Jeeves Core is a small, in-process Rust workflow runtime for deterministic work,
 LLM calls, and tools. It is a library: there is no service, actor kernel, global
-run registry, workflow file format, or persistence layer.
+run registry, workflow file format, or persistence layer. Workflows and prompts
+are compiled-in Rust values; changing them requires rebuilding.
 
 The runtime is intentionally direct:
 
@@ -59,7 +60,9 @@ provides recovery after configured retries are exhausted.
 `LlmProvider` has one primitive: a stream of model events. Free-form text stages
 forward `RunEvent::TextDelta` while collecting their final string. Structured
 stages collect privately, parse the final JSON, and run the supplied validator;
-invalid output is a normal stage failure and can use workflow retry.
+invalid output is a normal stage failure and can use workflow retry. The
+response schema sent to the provider is only a hint; the supplied validator is
+the authoritative compliance check.
 
 The included `GenaiProvider` supports the providers handled by the `genai`
 crate. `LLM_API_BASE` selects an OpenAI-compatible endpoint; otherwise `genai`
@@ -94,8 +97,9 @@ When a tool's `approval` method returns a prompt, execution emits
 tool calls return an error value to the model by default; denied direct tool
 stages fail by default. Either behavior can be overridden per action.
 
-Dropping the final handle cancels the task. Detached and recoverable runs are
-outside this crate's scope.
+Runs, events, history, and approvals are memory-only and process-local; there
+is no persistence or recovery across restarts. Dropping the final handle
+cancels the task. Detached and recoverable runs are outside this crate's scope.
 
 ## Reliability and extension
 
@@ -109,9 +113,8 @@ outside this crate's scope.
 - Provider or tool wrappers are the extension point for caching, telemetry,
   authorization, and provider-local reliability behavior.
 
-See [`docs/simplification-decisions.md`](docs/simplification-decisions.md) for
-the accepted design and migration status. Public Rust API details are generated
-from the crate documentation with `cargo doc --no-deps`.
+Public Rust API details are generated from the crate documentation with
+`cargo doc --no-deps`.
 
 ## Development
 

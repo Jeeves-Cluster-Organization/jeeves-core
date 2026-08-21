@@ -21,8 +21,7 @@ Keep changes direct and explicit:
 - add a core abstraction only when multiple consumers need the same mechanism;
 - put cross-cutting provider and tool behavior in small wrappers.
 
-The accepted architecture and remaining consumer work are recorded in
-`docs/simplification-decisions.md`.
+The architecture and consumer-facing constraints are described in `README.md`.
 
 ## License
 
