@@ -1,5 +1,4 @@
-//! Workflow construction validation. External workflow schemas were removed;
-//! workflows are now Rust values.
+//! Workflow construction validation.
 
 #![allow(clippy::expect_used)]
 

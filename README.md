@@ -1,29 +1,46 @@
 # Jeeves Core
 
-Jeeves Core is a small, in-process Rust workflow runtime for deterministic work,
-LLM calls, and tools. It is a library: there is no service, actor kernel, global
-run registry, workflow file format, or persistence layer. Workflows and prompts
-are compiled-in Rust values; changing them requires rebuilding.
+[![CI](https://github.com/Jeeves-Cluster-Organization/jeeves-core/actions/workflows/ci.yml/badge.svg)](https://github.com/Jeeves-Cluster-Organization/jeeves-core/actions/workflows/ci.yml)
+[![License: Apache-2.0](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](LICENSE)
+![MSRV](https://img.shields.io/badge/MSRV-1.75-orange.svg)
+
+A small, in-process Rust workflow runtime for deterministic work, LLM calls,
+and tools. There is no service, actor kernel, global run registry, workflow
+file format, or persistence layer: workflows are compiled-in Rust values, and
+changing them requires rebuilding.
 
 The runtime is intentionally direct:
 
-- workflows are ordinary Rust values;
 - each stage is a deterministic action, LLM action, direct tool call, or route;
 - routing is synchronous, fallible, and read-only;
-- each run is owned by a `RunHandle` and one Tokio task;
-- events and approval responses are typed, in-process Rust values;
 - every attempt is retained in ordered history;
-- retries, bounds, error recovery, and optional state reduction are explicit.
+- retries, bounds, error recovery, and optional state reduction are explicit;
+- events and approval responses are typed, in-process Rust values.
 
-Rust 1.75 or newer is required.
+## Where it fits
 
-## Basic workflow
+Jeeves Core occupies a narrow niche on purpose: **bounded, auditable stage
+graphs that run inside your process**. It is not an agent framework.
+
+| If you need... | Consider |
+|---|---|
+| Agents, RAG pipelines, provider integrations | [`rig`](https://rig.rs), [`swiftide`](https://swiftide.rs) |
+| LangGraph-style stateful graphs with session persistence | [`graph-flow`](https://github.com/a-agmon/rs-graph-llm) |
+| Hard per-run cost bounds, panic-isolated stages, full attempt audit trail, human approval pauses — embedded in an app or game | **Jeeves Core** |
+
+Distinctive behaviors: run budgets (`RunLimits`) are enforced *before* model or
+tool calls are spent; panics in actions, routing, reducers, or the run itself
+become typed errors instead of process crashes; and tools can pause execution
+in place to await a human decision through the run handle.
+
+## Quick start
+
+The same example runs as a doctest in the crate root docs:
 
 ```rust
 use jeeves_core::prelude::*;
 use serde_json::json;
 
-# async fn example() -> Result<()> {
 let workflow = Workflow::builder("double")
     .stage(
         Stage::deterministic_fn("read", |run: &RunView<'_>| {
@@ -47,8 +64,13 @@ let engine = Engine::builder().workflow(workflow)?.build()?;
 let outcome = engine.run("double", json!({"value": 21})).await?;
 
 assert_eq!(outcome.result().latest_outputs["double"], json!(42));
-# Ok(())
-# }
+```
+
+Runnable versions live in `examples/`:
+
+```bash
+cargo run --example pipeline      # deterministic stages, retry, recovery routing
+cargo run --example llm_stream    # streaming LLM output via the offline mock provider
 ```
 
 The first declared stage is the entry point. A stage completes the workflow
@@ -116,13 +138,20 @@ cancels the task. Detached and recoverable runs are outside this crate's scope.
 Public Rust API details are generated from the crate documentation with
 `cargo doc --no-deps`.
 
+## Testing
+
+Behavior coverage lives in two integration suites: `tests/validation.rs`
+(workflow construction rules) and `tests/runner.rs` (routing, retries, limits,
+streaming, structured output, tools, approvals, cancellation). Documentation
+examples execute as doctests under `cargo test`.
+
 ## Development
 
 ```bash
-cargo fmt --all -- --check
-cargo test --no-fail-fast
-cargo clippy --all-targets -- -D warnings
+just check    # fmt + check + test + clippy + doc, matching CI
 ```
+
+Rust 1.75 or newer is required.
 
 ## License
 

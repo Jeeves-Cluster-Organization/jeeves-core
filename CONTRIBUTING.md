@@ -4,7 +4,7 @@ Jeeves Core contains only reusable in-process workflow mechanics. Domain
 actions, prompts, UI policy, persistence, distributed execution, and consumer
 telemetry belong in consumers or wrappers.
 
-Before committing, run:
+Before committing, run (or `just check`, which runs the same suite):
 
 ```bash
 cargo fmt --all -- --check
@@ -12,6 +12,10 @@ cargo test --no-fail-fast
 cargo clippy --all-targets -- -D warnings
 RUSTDOCFLAGS="-D warnings" cargo doc --no-deps
 ```
+
+Documentation examples in `src/lib.rs` execute as doctests and are covered by
+`cargo test`. User-facing examples live in `examples/` and should stay
+runnable offline.
 
 Keep changes direct and explicit:
 
