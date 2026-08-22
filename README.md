@@ -129,11 +129,11 @@ cancels the task. Detached and recoverable runs are outside this crate's scope.
   stage failure.
 - `RunLimits` bounds stage executions, LLM calls, tool calls, and an optional
   deadline; stages and LLM actions add visit and tool-round bounds.
-- `CircuitBreakerTool` is an opt-in per-tool wrapper with threshold, cooldown,
-  and status inspection.
 - `LlmLoopHook` provides only the model/tool-loop interception points.
-- Provider or tool wrappers are the extension point for caching, telemetry,
-  authorization, and provider-local reliability behavior.
+- Wrapping a `Tool` or an `LlmProvider` is the extension point for caching,
+  telemetry, authorization, fail-fast breakers, or rate limiting. Return
+  `Error::unavailable(...)` from such a wrapper and core retry semantics treat
+  the failure as automatically retryable.
 
 Public Rust API details are generated from the crate documentation with
 `cargo doc --no-deps`.

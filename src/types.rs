@@ -23,7 +23,7 @@ pub enum ErrorKind {
     Permanent,
     Routing,
     StateReduction,
-    CircuitOpen,
+    Unavailable,
     Limit,
     Cancelled,
     Panic,
@@ -82,8 +82,11 @@ impl Error {
         Self::new(ErrorKind::StateReduction, message)
     }
 
-    pub fn circuit_open(message: impl Into<Arc<str>>) -> Self {
-        Self::new(ErrorKind::CircuitOpen, message)
+    /// A resource is temporarily unavailable and callers should back off.
+    /// Reserved for consumer wrappers such as fail-fast breakers, rate
+    /// limiters, or cooldown guards; classified as retryable.
+    pub fn unavailable(message: impl Into<Arc<str>>) -> Self {
+        Self::new(ErrorKind::Unavailable, message)
     }
 
     pub fn limit(message: impl Into<Arc<str>>) -> Self {
@@ -113,7 +116,7 @@ impl Error {
     pub fn is_retryable(&self) -> bool {
         matches!(
             self.kind,
-            ErrorKind::Transient | ErrorKind::Timeout | ErrorKind::CircuitOpen
+            ErrorKind::Transient | ErrorKind::Timeout | ErrorKind::Unavailable
         )
     }
 

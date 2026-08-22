@@ -131,9 +131,8 @@ pub mod prelude {
         ModelStreamEvent, Prompt, ToolDecision,
     };
     pub use crate::tools::{
-        ApprovalPrompt, ApprovalRequest, ApprovalResponse, CircuitBreakerConfig,
-        CircuitBreakerStatus, CircuitBreakerTool, CircuitFailurePolicy, DenialBehavior,
-        ReplaySafety, Tool, ToolContext, ToolDefinition, ToolSpec,
+        ApprovalPrompt, ApprovalRequest, ApprovalResponse, DenialBehavior, ReplaySafety, Tool,
+        ToolContext, ToolDefinition, ToolSpec,
     };
     pub use crate::types::{
         Error, ErrorKind, LimitKind, Result, RunId, RunInput, RunOutcome, RunResult, RunView,
