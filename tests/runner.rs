@@ -268,6 +268,45 @@ async fn structured_output_is_collected_validated_and_retried() {
     }
 }
 
+#[tokio::test]
+async fn token_limit_stop_rejects_valid_but_truncated_structured_output() {
+    let llm = Arc::new(MockLlmProvider::new([
+        vec![
+            ModelStreamEvent::Text("{\"answer\":41}".into()),
+            ModelStreamEvent::StopReason(ModelStopReason::MaxTokens("length".into())),
+        ],
+        vec![
+            ModelStreamEvent::Text("{\"answer\":42}".into()),
+            ModelStreamEvent::StopReason(ModelStopReason::Completed("stop".into())),
+        ],
+    ]));
+    let action =
+        LlmAction::structured(
+            Prompt::text("answer"),
+            json!({"type": "object"}),
+            |_| Ok(()),
+        );
+    let workflow = Workflow::builder("truncation")
+        .stage(
+            Stage::llm("answer", action)
+                .retry(RetryPolicy::exponential(2, Duration::ZERO).retry_on_any_failure()),
+        )
+        .build()
+        .expect("valid workflow");
+    let engine = Engine::builder()
+        .llm(llm)
+        .workflow(workflow)
+        .expect("workflow registration")
+        .build()
+        .expect("engine build");
+
+    let outcome = engine.run("truncation", "input").await.expect("run");
+    let result = completed(&outcome);
+    assert_eq!(result.latest_outputs["answer"], json!({"answer": 42}));
+    assert_eq!(result.history.len(), 2);
+    assert_eq!(result.usage.llm_calls, 2);
+}
+
 struct EchoTool {
     calls: AtomicU32,
 }

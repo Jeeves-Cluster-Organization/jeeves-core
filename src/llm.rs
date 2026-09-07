@@ -91,6 +91,19 @@ pub struct ModelRequest {
     pub max_tokens: Option<u32>,
     pub model: Option<Arc<str>>,
     pub response_schema: Option<Value>,
+    /// Provider-specific top-level request fields.
+    pub extra_body: Option<Value>,
+}
+
+/// Why a model stopped generating.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum ModelStopReason {
+    Completed(String),
+    MaxTokens(String),
+    ToolCall(String),
+    ContentFilter(String),
+    StopSequence(String),
+    Other(String),
 }
 
 /// Events yielded by a provider stream.
@@ -99,6 +112,7 @@ pub enum ModelStreamEvent {
     Text(String),
     ToolCall(ToolCall),
     Usage(TokenUsage),
+    StopReason(ModelStopReason),
 }
 
 pub type ModelStream = Pin<Box<dyn Stream<Item = Result<ModelStreamEvent>> + Send>>;
@@ -161,6 +175,7 @@ pub struct ModelResponse {
     pub text: String,
     pub tool_calls: Vec<ToolCall>,
     pub usage: TokenUsage,
+    pub stop_reason: Option<ModelStopReason>,
 }
 
 /// Decision made before an LLM-selected tool call.
@@ -234,6 +249,7 @@ pub struct LlmAction {
     pub temperature: Option<f64>,
     pub max_tokens: Option<u32>,
     pub model: Option<Arc<str>>,
+    pub extra_body: Option<Value>,
     pub max_tool_rounds: u32,
     pub on_denied: DenialBehavior,
 }
@@ -248,6 +264,7 @@ impl LlmAction {
             temperature: None,
             max_tokens: None,
             model: None,
+            extra_body: None,
             max_tool_rounds: 10,
             on_denied: DenialBehavior::Continue,
         }
@@ -292,6 +309,12 @@ impl LlmAction {
         self
     }
 
+    /// Add provider-specific top-level request fields.
+    pub fn with_extra_body(mut self, extra_body: Value) -> Self {
+        self.extra_body = Some(extra_body);
+        self
+    }
+
     pub fn with_max_tool_rounds(mut self, max_tool_rounds: u32) -> Self {
         self.max_tool_rounds = max_tool_rounds;
         self
@@ -308,6 +331,13 @@ impl LlmAction {
         }
         if self.max_tokens == Some(0) {
             return Err(Error::configuration("LLM max_tokens must be positive"));
+        }
+        if self
+            .extra_body
+            .as_ref()
+            .is_some_and(|value| !value.is_object())
+        {
+            return Err(Error::configuration("LLM extra_body must be an object"));
         }
         let mut names = std::collections::HashSet::new();
         for tool in &self.tools {
@@ -339,6 +369,7 @@ impl fmt::Debug for LlmAction {
             .field("temperature", &self.temperature)
             .field("max_tokens", &self.max_tokens)
             .field("model", &self.model)
+            .field("extra_body", &self.extra_body)
             .field("max_tool_rounds", &self.max_tool_rounds)
             .field("on_denied", &self.on_denied)
             .finish()

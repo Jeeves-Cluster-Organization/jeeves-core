@@ -128,7 +128,7 @@ pub mod prelude {
     pub use crate::llm::genai::GenaiProvider;
     pub use crate::llm::{
         LlmAction, LlmLoopHook, LlmOutput, LlmProvider, MockLlmProvider, ModelRequest,
-        ModelStreamEvent, Prompt, ToolDecision,
+        ModelStopReason, ModelStreamEvent, Prompt, ToolDecision,
     };
     pub use crate::tools::{
         ApprovalPrompt, ApprovalRequest, ApprovalResponse, DenialBehavior, ReplaySafety, Tool,

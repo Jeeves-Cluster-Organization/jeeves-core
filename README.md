@@ -88,7 +88,12 @@ the authoritative compliance check.
 
 The included `GenaiProvider` supports the providers handled by the `genai`
 crate. `LLM_API_BASE` selects an OpenAI-compatible endpoint; otherwise `genai`
-uses its normal credential resolution.
+uses its normal credential resolution. `LlmAction::with_max_tokens` bounds model
+output; a provider-reported token-limit stop fails the stage rather than accepting
+truncated output. `LlmAction::with_extra_body` forwards a JSON object of
+provider-specific top-level request fields through Genai. Use it only with fields
+supported by the selected endpoint; do not override the action's model, messages,
+or output budget through this escape hatch.
 
 ```rust
 use jeeves_core::prelude::*;

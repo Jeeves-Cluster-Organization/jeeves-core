@@ -846,6 +846,7 @@ impl Execution {
                     LlmOutput::Text => None,
                     LlmOutput::Structured { schema, .. } => Some(schema.clone()),
                 },
+                extra_body: action.extra_body.clone(),
             };
             let mut stream = provider.stream(&request).await.map_err(ActionStop::Error)?;
             let mut response = ModelResponse::default();
@@ -865,6 +866,7 @@ impl Execution {
                         merge_tool_call(&mut response.tool_calls, call);
                     }
                     ModelStreamEvent::Usage(usage) => response.usage = usage,
+                    ModelStreamEvent::StopReason(reason) => response.stop_reason = Some(reason),
                 }
             }
             self.state.usage.input_tokens = self
@@ -881,6 +883,14 @@ impl Execution {
                 hook.after_model(&mut response)
                     .await
                     .map_err(ActionStop::Error)?;
+            }
+            if matches!(
+                response.stop_reason,
+                Some(crate::llm::ModelStopReason::MaxTokens(_))
+            ) {
+                return Err(ActionStop::Error(Error::invalid_input(
+                    "LLM output was truncated at its token limit",
+                )));
             }
 
             if response.tool_calls.is_empty() {
