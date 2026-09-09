@@ -1,6 +1,7 @@
 #include <jeeves/llm/llamacpp.hpp>
 
 #include "tool_calls.hpp"
+#include "gemma4.hpp"
 
 #include <llama-cpp.h>
 
@@ -102,7 +103,16 @@ Result<std::string> apply_chat_template(llama_model * model, const ModelRequest 
     for (std::size_t i = 0; i < roles.size(); ++i) messages.push_back({roles[i].c_str(), contents[i].c_str()});
     const char * chat_template = llama_model_chat_template(model, nullptr);
     int32_t needed = llama_chat_apply_template(chat_template, messages.data(), messages.size(), true, nullptr, 0);
-    if (needed < 0) return std::unexpected(Error::configuration("llama.cpp could not apply the model chat template"));
+    if (needed < 0) {
+        char architecture[64]{};
+        llama_model_meta_val_str(model, "general.architecture", architecture, sizeof(architecture));
+        const std::string_view embedded = chat_template ? chat_template : "";
+        if (std::string_view(architecture) == "gemma4" &&
+            embedded.find("<|turn>") != std::string_view::npos &&
+            embedded.find("<|channel>thought") != std::string_view::npos)
+            return detail::gemma4_text_prompt(request);
+        return std::unexpected(Error::configuration("llama.cpp could not apply the model chat template"));
+    }
     std::string prompt(static_cast<std::size_t>(needed) + 1, '\0');
     int32_t written = llama_chat_apply_template(chat_template, messages.data(), messages.size(), true,
                                                 prompt.data(), static_cast<int32_t>(prompt.size()));
@@ -162,6 +172,18 @@ public:
         std::string grammar;
         if (request.extra_body && request.extra_body->contains("grammar") && (*request.extra_body)["grammar"].is_string())
             grammar = (*request.extra_body)["grammar"].get<std::string>();
+        // A schema request must at least produce JSON syntax. Semantic schema
+        // validation remains the workflow's responsibility; explicit grammar wins.
+        if (grammar.empty() && request.response_schema && request.tools.empty()) grammar = R"gbnf(
+root ::= value
+value ::= object | array | string | number | "true" ws | "false" ws | "null" ws
+object ::= "{" ws (string ":" ws value ("," ws string ":" ws value)*)? "}" ws
+array ::= "[" ws (value ("," ws value)*)? "]" ws
+string ::= "\"" char* "\"" ws
+char ::= [^"\\\x00-\x1f] | "\\" (["\\/bfnrt] | "u" [0-9a-fA-F] [0-9a-fA-F] [0-9a-fA-F] [0-9a-fA-F])
+number ::= "-"? ("0" | [1-9] [0-9]*) ("." [0-9]+)? ([eE] [+-]? [0-9]+)? ws
+ws ::= [ \t\n\r]*
+)gbnf";
         if (!grammar.empty()) {
             auto * grammar_sampler = llama_sampler_init_grammar(vocab, grammar.c_str(), "root");
             if (!grammar_sampler) return std::unexpected(Error::invalid_input("llama.cpp grammar is invalid"));

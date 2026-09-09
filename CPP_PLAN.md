@@ -137,12 +137,14 @@ Keep `LlmProvider` + `MockLlmProvider` so runner tests never need a GGUF.
 - ctor takes GGUF path (Rust `new(default_model)` was a model id; here it is a file path)
 - optional `with_model_role(role, path)` if we load more than one GGUF
 - shared `llama_model`; **one context per `stream()`** (contexts are not concurrent)
-- messages → `llama_chat_apply_template` + `llama_model_chat_template`
+- messages → `llama_chat_apply_template` + `llama_model_chat_template`; Gemma 4 single-turn text
+  fallback when the built-in helper rejects its Jinja template (no tools/history in that fallback)
 - token loop → `ModelStreamEvent::Text`
 - `max_tokens` / `n_predict` → `ModelStopReason::MaxTokens`
 - temperature / extra_body sampler keys: `top_k`, `top_p`, `min_p`, `seed`, `n_threads`, `grammar`
 - `n_ctx` / `n_gpu_layers` are load/context params (ctor or extra_body at first stream)
-- structured `response_schema`: optional JSON GBNF grammar hint; validator still wins
+- structured `response_schema` without tools: JSON syntax grammar unless explicitly overridden;
+  semantic schema validation still belongs to the workflow
 - usage from prompt vs generated token counts
 - cancel → `llama_set_abort_callback` on the run `stop_token`
 - RAII: `llama-cpp.h` unique_ptrs

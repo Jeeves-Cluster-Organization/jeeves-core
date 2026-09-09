@@ -1,4 +1,5 @@
 #include <jeeves/jeeves.hpp>
+#include "../cpp/llm/gemma4.hpp"
 #include <gtest/gtest.h>
 
 #include <limits>
@@ -105,4 +106,19 @@ TEST(Validation, run_ids_and_tool_names_are_validated) {
     EXPECT_EQ(id.as_str()[14], '4');
     EXPECT_NE(std::string("89ab").find(id.as_str()[19]), std::string::npos);
     EXPECT_EQ(ToolSpec::create("", "", nullptr).error().message(), "tool name cannot be empty");
+}
+
+TEST(Validation, gemma4_single_turn_text_template) {
+    ModelRequest request;
+    request.messages = {Message::system(" Answer briefly. "), Message::user(" Hello ")};
+    auto prompt = detail::gemma4_text_prompt(request);
+    ASSERT_TRUE(prompt);
+    EXPECT_EQ(*prompt, "<|turn>system\nAnswer briefly.<turn|>\n<|turn>user\nHello<turn|>\n"
+                       "<|turn>model\n<|channel>thought\n<channel|>");
+    request.response_schema = json{{"type", "object"}};
+    prompt = detail::gemma4_text_prompt(request);
+    ASSERT_TRUE(prompt);
+    EXPECT_NE(prompt->find("Return JSON matching this schema: {\"type\":\"object\"}"), std::string::npos);
+    request.messages.push_back(Message::assistant("history", {}));
+    EXPECT_FALSE(detail::gemma4_text_prompt(request));
 }
