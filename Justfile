@@ -20,3 +20,8 @@ fmt:
 
 doc:
     cargo doc --no-deps --open
+
+cpp-check:
+    cmake -S . -B build-cpp
+    cmake --build build-cpp -j 4
+    ctest --test-dir build-cpp --output-on-failure

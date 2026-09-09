@@ -1,4 +1,6 @@
 /target/
+/build/
+/build-cpp/
 .env
 .env.*
 .DS_Store

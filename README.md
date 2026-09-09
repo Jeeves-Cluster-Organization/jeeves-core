@@ -4,9 +4,9 @@
 [![License: Apache-2.0](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](LICENSE)
 ![MSRV](https://img.shields.io/badge/MSRV-1.75-orange.svg)
 
-A small, in-process Rust workflow runtime for deterministic work, LLM calls,
+A small, in-process workflow runtime with Rust and C++23 implementations for deterministic work, LLM calls,
 and tools. There is no service, actor kernel, global run registry, workflow
-file format, or persistence layer: workflows are compiled-in Rust values, and
+file format, or persistence layer: workflows are compiled-in values, and
 changing them requires rebuilding.
 
 The runtime is intentionally direct:
@@ -157,6 +157,95 @@ just check    # fmt + check + test + clippy + doc, matching CI
 ```
 
 Rust 1.75 or newer is required.
+
+## C++ implementation
+
+The Rust crate and C++ library are maintained together. C++ follows the same
+workflow, retry, routing, history, reducer, budget, tool, approval, and streaming
+contracts. Its provider uses the **prebuilt llama.cpp library directly** through
+the public C API. GenAI remains in Rust; C++ has no GenAI or HTTP provider and
+does not build llama.cpp from source.
+
+Build with CMake 3.20+ and a compiler/standard library supporting C++23
+`std::expected` and C++20 `std::jthread`/stop tokens:
+
+```bash
+cmake -S . -B build-cpp
+cmake --build build-cpp -j 4
+ctest --test-dir build-cpp --output-on-failure
+./build-cpp/jeeves_pipeline_example
+./build-cpp/jeeves_llm_stream_example
+```
+
+CMake uses installed nlohmann/json and GoogleTest when available, otherwise
+downloads them once. It discovers installed llama.cpp through `find_package(llama)`
+(including `/opt/homebrew`). Core, mock tests, and examples also build without it;
+use `-DCMAKE_DISABLE_FIND_PACKAGE_llama=TRUE` to select that configuration.
+`JEEVES_HAS_LLAMA=1` exposes `LlamaCppProvider` when the dependency is present.
+Tests and examples can be disabled with `JEEVES_BUILD_TESTS=OFF` and
+`JEEVES_BUILD_EXAMPLES=OFF`. Link the CMake target `jeeves::core` and include
+`<jeeves/jeeves.hpp>`.
+
+```cpp
+using namespace jeeves;
+
+Result<std::shared_ptr<RunOutcome>> greet() {
+    auto workflow = Workflow::builder("greet")
+        .stage(Stage::llm("speak", LlmAction::text(Prompt::text("Greet warmly."))))
+        .build();
+    if (!workflow) return std::unexpected(workflow.error());
+
+    auto registered = Engine::builder()
+        .llm(MockLlmProvider::text("Hello, world!"))
+        .workflow(std::move(*workflow));
+    if (!registered) return std::unexpected(registered.error());
+    auto engine = registered->build();
+    if (!engine) return std::unexpected(engine.error());
+    return engine->run("greet", "input");
+}
+```
+
+The C++ API uses `Result<T>` (`std::expected<T, Error>`), `json`
+(`nlohmann::json`), constructors in place of Rust `new`, and `ToolSpec::create`
+for its fallible constructor. `Router`, `StateReducer`, and `PromptBuilder`
+support derived implementations as well as closure adapters. Consumer callbacks
+and shared handlers must support concurrent runs, as Rust requires `Send + Sync`.
+Configure shared tools and providers before starting runs.
+
+`RunEvent::value` is a `std::variant`; inspect it with `std::get_if` or `std::visit`.
+An approval is the `ApprovalRequest` alternative. `RunOutcome::kind()` identifies
+the terminal case, with `result()`, `error()`, and `limit()` providing its data.
+`take_events()` returns a move-only receiver with blocking `recv()`/`next()`.
+Copying a handle shares control and result but never copies the receiver.
+The `Finished` event and `result()` contain the same outcome pointer.
+
+Each run has one execution thread. Timed attempts use a temporary timer thread
+to signal their stop token. `RunView::stop`, `ToolContext::cancellation`, and
+`ModelRequest::stop` allow blocking implementations to cooperate with cancellation
+and deadlines. The timer is joined when the attempt ends. Dropping the last
+handle requests cancellation without waiting for consumer code; execution data
+stays alive until that worker exits. Blocking callbacks that ignore the token
+cannot be forcibly interrupted. Retry gets a fresh attempt token.
+
+For local inference, construct `std::make_shared<LlamaCppProvider>("/path/model.gguf")`.
+Models load lazily and are shared; each stream owns a separate context and sampler.
+`with_model_role(role, path)` maps an action's model role to another GGUF; an
+unmapped model name is treated as a path. `max_tokens` takes precedence over
+`extra_body.n_predict` (default 512); exhausting either the output budget or
+context reports `MaxTokens`. Supported `extra_body` settings are `top_k`, `top_p`,
+`min_p`, `seed`, `n_threads`, `grammar`, `n_ctx` (default 4096), and `n_gpu_layers`
+(fixed on the first load of each model). Structured schemas are included as
+prompt hints; explicit GBNF can be supplied through `grammar`. The stage validator
+remains authoritative. Tool parsing accepts complete `<tool_call>` blocks or
+JSON containing `name` and `arguments`, including JSON-string arguments.
+Tool generation is model-dependent and best-effort.
+
+`tests/validation.cpp` and `tests/runner.cpp` cover every Rust integration-test
+case and both crate documentation examples, plus C++ control/lifetime edge cases.
+The Rust-only HTTP adapter test has no C++ equivalent. Parser/JSON-library
+diagnostic suffixes can differ; runtime error kinds and engine messages match.
+Tests use the mock provider and need no GGUF. Actual GGUF generation is optional
+and is not part of the offline parity suite.
 
 ## License
 
