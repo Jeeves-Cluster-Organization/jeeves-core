@@ -2,6 +2,7 @@
 
 #include "tool_calls.hpp"
 
+#include <chat.h>
 #include <llama-cpp.h>
 
 #include <algorithm>
@@ -53,6 +54,13 @@ Result<void> validate_request(const ModelRequest & request) {
     }
     if (request.extra_body->contains("grammar") && !request.extra_body->at("grammar").is_string())
         return std::unexpected(Error::invalid_input("llama.cpp grammar must be a string"));
+    if (request.extra_body->contains("chat_template_kwargs")) {
+        const auto & kwargs = request.extra_body->at("chat_template_kwargs");
+        if (!kwargs.is_object())
+            return std::unexpected(Error::invalid_input("llama.cpp chat_template_kwargs must be an object"));
+        if (kwargs.contains("enable_thinking") && !kwargs.at("enable_thinking").is_boolean())
+            return std::unexpected(Error::invalid_input("llama.cpp enable_thinking must be a boolean"));
+    }
     return {};
 }
 
@@ -97,19 +105,26 @@ Result<std::string> apply_chat_template(llama_model * model, const ModelRequest 
         if (!contents.empty() && request.messages.front().role == Role::System) contents.front() += hint;
         else { roles.insert(roles.begin(), "system"); contents.insert(contents.begin(), std::move(hint)); }
     }
-    std::vector<llama_chat_message> messages;
-    messages.reserve(roles.size());
-    for (std::size_t i = 0; i < roles.size(); ++i) messages.push_back({roles[i].c_str(), contents[i].c_str()});
-    const char * chat_template = llama_model_chat_template(model, nullptr);
-    int32_t needed = llama_chat_apply_template(chat_template, messages.data(), messages.size(), true, nullptr, 0);
-    if (needed < 0)
-        return std::unexpected(Error::configuration("llama.cpp could not apply the model chat template"));
-    std::string prompt(static_cast<std::size_t>(needed) + 1, '\0');
-    int32_t written = llama_chat_apply_template(chat_template, messages.data(), messages.size(), true,
-                                                prompt.data(), static_cast<int32_t>(prompt.size()));
-    if (written < 0) return std::unexpected(Error::configuration("llama.cpp could not apply the model chat template"));
-    prompt.resize(static_cast<std::size_t>(written));
-    return prompt;
+    try {
+        auto templates = common_chat_templates_init(model, "");
+        if (!templates)
+            return std::unexpected(Error::configuration("llama.cpp could not initialize the model chat template"));
+        common_chat_templates_inputs inputs;
+        inputs.messages.reserve(roles.size());
+        for (std::size_t i = 0; i < roles.size(); ++i)
+            inputs.messages.push_back(common_chat_msg{.role = roles[i], .content = contents[i]});
+        if (request.extra_body && request.extra_body->contains("chat_template_kwargs")) {
+            const auto & kwargs = request.extra_body->at("chat_template_kwargs");
+            for (const auto & [key, value] : kwargs.items())
+                inputs.chat_template_kwargs[key] = value.dump();
+            const auto thinking = kwargs.find("enable_thinking");
+            if (thinking != kwargs.end()) inputs.enable_thinking = thinking->get<bool>();
+        }
+        return common_chat_templates_apply(templates.get(), inputs).prompt;
+    } catch (const std::exception & error) {
+        return std::unexpected(Error::configuration(
+            std::string("llama.cpp could not apply the model chat template: ") + error.what()));
+    }
 }
 
 Result<std::vector<llama_token>> tokenize(const llama_vocab * vocab, const std::string & prompt) {

@@ -233,7 +233,10 @@ unmapped model name is treated as a path. `max_tokens` takes precedence over
 context reports `MaxTokens`. Supported `extra_body` settings are `top_k`, `top_p`,
 `min_p`, `seed`, `n_threads`, `grammar`, `n_ctx` (default 4096), and `n_gpu_layers`
 (fixed on the first load of each model). Structured schemas are included as
-prompt hints; explicit GBNF can be supplied through `grammar`. The stage validator
+prompt hints; explicit GBNF can be supplied through `grammar`. `chat_template_kwargs`
+are applied by llama.cpp's Jinja renderer; for example,
+`{"chat_template_kwargs":{"enable_thinking":false}}` disables reasoning when the
+model template supports it. The stage validator
 remains authoritative. Tool parsing accepts complete `<tool_call>` blocks or
 JSON containing `name` and `arguments`, including JSON-string arguments.
 Tool generation is model-dependent and best-effort.

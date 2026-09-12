@@ -600,7 +600,9 @@ TEST(LlamaCpp, invalid_settings_and_cancelled_requests_do_not_load_models) {
     LlamaCppProvider provider("missing-test-model.gguf");
     ModelRequest request;
     for (auto setting : {json{{"n_ctx", -1}}, json{{"n_threads", 0}}, json{{"n_predict", 0}},
-                         json{{"top_p", "wrong"}}, json{{"grammar", 3}}, json::array()}) {
+                         json{{"top_p", "wrong"}}, json{{"grammar", 3}},
+                         json{{"chat_template_kwargs", false}},
+                         json{{"chat_template_kwargs", {{"enable_thinking", "no"}}}}, json::array()}) {
         request.extra_body = setting;
         auto result = provider.stream(request);
         ASSERT_FALSE(result); EXPECT_EQ(result.error().kind(), ErrorKind::InvalidInput);
