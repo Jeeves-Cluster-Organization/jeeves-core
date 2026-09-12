@@ -10,6 +10,20 @@ env:
   CARGO_TERM_COLOR: always
 
 jobs:
+  cpp:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Configure
+        run: cmake -S . -B build-cpp -DCMAKE_BUILD_TYPE=Debug
+
+      - name: Build
+        run: cmake --build build-cpp --parallel 4
+
+      - name: Test
+        run: ctest --test-dir build-cpp --output-on-failure
+
   quality:
     runs-on: ubuntu-latest
     steps:

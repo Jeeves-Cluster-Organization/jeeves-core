@@ -7,8 +7,6 @@
 
 namespace jeeves {
 
-#ifdef JEEVES_HAS_LLAMA
-
 class LlamaCppProvider final : public LlmProvider {
 public:
     explicit LlamaCppProvider(std::string gguf_path);
@@ -25,7 +23,5 @@ private:
     struct Impl;
     std::unique_ptr<Impl> impl_;
 };
-
-#endif
 
 } // namespace jeeves

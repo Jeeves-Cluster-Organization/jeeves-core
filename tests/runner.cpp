@@ -596,7 +596,6 @@ TEST(LlamaCpp, parses_completed_tool_arguments_and_multiple_calls) {
     EXPECT_TRUE(detail::parse_tool_calls(R"({"name":"echo","arguments":"not json"})").empty());
 }
 
-#ifdef JEEVES_HAS_LLAMA
 TEST(LlamaCpp, invalid_settings_and_cancelled_requests_do_not_load_models) {
     LlamaCppProvider provider("missing-test-model.gguf");
     ModelRequest request;
@@ -611,4 +610,3 @@ TEST(LlamaCpp, invalid_settings_and_cancelled_requests_do_not_load_models) {
     auto result = provider.stream(request);
     ASSERT_FALSE(result); EXPECT_EQ(result.error().kind(), ErrorKind::Cancelled);
 }
-#endif

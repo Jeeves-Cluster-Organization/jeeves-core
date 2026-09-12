@@ -162,11 +162,10 @@ Rust 1.75 or newer is required.
 
 The Rust crate and C++ library are maintained together. C++ follows the same
 workflow, retry, routing, history, reducer, budget, tool, approval, and streaming
-contracts. Its provider uses the **prebuilt llama.cpp library directly** through
-the public C API. GenAI remains in Rust; C++ has no GenAI or HTTP provider and
-does not build llama.cpp from source.
+contracts. Its provider uses llama.cpp directly through the public C API. GenAI
+remains in Rust; C++ has no GenAI or HTTP provider.
 
-Build with CMake 3.20+ and a compiler/standard library supporting C++23
+Build with CMake 3.21+ and a compiler/standard library supporting C++23
 `std::expected` and C++20 `std::jthread`/stop tokens:
 
 ```bash
@@ -178,13 +177,12 @@ ctest --test-dir build-cpp --output-on-failure
 ```
 
 CMake uses installed nlohmann/json and GoogleTest when available, otherwise
-downloads them once. It discovers installed llama.cpp through `find_package(llama)`
-(including `/opt/homebrew`). Core, mock tests, and examples also build without it;
-use `-DCMAKE_DISABLE_FIND_PACKAGE_llama=TRUE` to select that configuration.
-`JEEVES_HAS_LLAMA=1` exposes `LlamaCppProvider` when the dependency is present.
-Tests and examples can be disabled with `JEEVES_BUILD_TESTS=OFF` and
-`JEEVES_BUILD_EXAMPLES=OFF`. Link the CMake target `jeeves::core` and include
-`<jeeves/jeeves.hpp>`.
+downloads them once. The C++ library always builds its pinned llama.cpp revision;
+`LlamaCppProvider` is part of every C++ build.
+Tests and examples default to enabled in a standalone build and disabled when
+Jeeves is included by another CMake project. Override them with
+`JEEVES_BUILD_TESTS` and `JEEVES_BUILD_EXAMPLES`. Link the CMake target
+`jeeves::core` and include `<jeeves/jeeves.hpp>`.
 
 ```cpp
 using namespace jeeves;

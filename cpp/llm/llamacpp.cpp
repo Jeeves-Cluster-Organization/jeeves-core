@@ -277,8 +277,7 @@ struct LlamaCppProvider::Impl {
     std::unordered_map<std::string, SharedModel> models;
 };
 
-LlamaCppProvider::LlamaCppProvider(std::string gguf_path) : impl_(std::make_unique<Impl>(std::move(gguf_path))) {
-}
+LlamaCppProvider::LlamaCppProvider(std::string gguf_path) : impl_(std::make_unique<Impl>(std::move(gguf_path))) {}
 LlamaCppProvider::~LlamaCppProvider() = default;
 LlamaCppProvider::LlamaCppProvider(LlamaCppProvider &&) noexcept = default;
 LlamaCppProvider & LlamaCppProvider::operator=(LlamaCppProvider &&) noexcept = default;

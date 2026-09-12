@@ -1,6 +1,7 @@
 # C++ port plan (frozen)
 
-1:1 C++ of `jeeves-core`. Only intentional delta: drop `genai`, replace with **prebuilt llama.cpp**. No CI. Rust crate stays until C++ tests match.
+1:1 C++ of `jeeves-core`. Only intentional delta: drop `genai`, replace it with
+the pinned llama.cpp source build. Rust and C++ checks both run in CI.
 
 Do not re-litigate this document while implementing. Execute it.
 
@@ -66,11 +67,10 @@ Cancel/timeout of a **blocking** action that ignores `stop` cannot be force-kill
 
 **Use**
 
-- C++23, CMake ≥ 3.20
+- C++23, CMake ≥ 3.21
 - nlohmann/json via FetchContent (header-only)
 - GoogleTest via FetchContent (tests only)
-- A pinned llama.cpp source build when `JEEVES_FETCH_LLAMA=ON`; otherwise use
-  `find_package(llama)`. If neither is selected or found, core + mock still build.
+- A pinned llama.cpp source build in every C++ configuration.
 
 **Do not**
 
