@@ -137,8 +137,11 @@ Keep `LlmProvider` + `MockLlmProvider` so runner tests never need a GGUF.
 - ctor takes GGUF path (Rust `new(default_model)` was a model id; here it is a file path)
 - optional `with_model_role(role, path)` if we load more than one GGUF
 - shared `llama_model`; **one context per `stream()`** (contexts are not concurrent)
-- messages → `llama_chat_apply_template` + `llama_model_chat_template`; Gemma 4 single-turn text
-  fallback when the built-in helper rejects its Jinja template (no tools/history in that fallback)
+- messages → `llama_chat_apply_template` + `llama_model_chat_template`
+- `NativeChat` adapters match architecture + embedded template marker when libllama cannot
+  apply that Jinja (Gemma 4 single-turn text is the first; no tools/history in that adapter)
+- thinking-channel adapters skip the default JSON token grammar and deliver `visible_text`
+  at completion; an explicit `extra_body.grammar` still applies; other models stream tokens
 - token loop → `ModelStreamEvent::Text`
 - `max_tokens` / `n_predict` → `ModelStopReason::MaxTokens`
 - temperature / extra_body sampler keys: `top_k`, `top_p`, `min_p`, `seed`, `n_threads`, `grammar`
