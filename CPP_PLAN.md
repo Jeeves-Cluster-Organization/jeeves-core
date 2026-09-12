@@ -69,15 +69,11 @@ Cancel/timeout of a **blocking** action that ignores `stop` cannot be force-kill
 - C++23, CMake ≥ 3.20
 - nlohmann/json via FetchContent (header-only)
 - GoogleTest via FetchContent (tests only)
-- **Prebuilt llama.cpp** — Homebrew is already present:
-
-  `/opt/homebrew` (`find_package(llama)` → target `llama`, includes `llama.h` / `llama-cpp.h`)
-
-  CMake: `find_package(llama QUIET)` with prefix `/opt/homebrew`. If found, compile `llamacpp.cpp` and `JEEVES_HAS_LLAMA=1`. If not found, core + mock still build.
+- A pinned llama.cpp source build when `JEEVES_FETCH_LLAMA=ON`; otherwise use
+  `find_package(llama)`. If neither is selected or found, core + mock still build.
 
 **Do not**
 
-- FetchContent / compile llama.cpp from source
 - Boost, Asio, HTTP, OpenSSL, uuid lib
 - llama.cpp `common/` (unstable). Public C API only.
 
@@ -138,10 +134,6 @@ Keep `LlmProvider` + `MockLlmProvider` so runner tests never need a GGUF.
 - optional `with_model_role(role, path)` if we load more than one GGUF
 - shared `llama_model`; **one context per `stream()`** (contexts are not concurrent)
 - messages → `llama_chat_apply_template` + `llama_model_chat_template`
-- `NativeChat` adapters match architecture + embedded template marker when libllama cannot
-  apply that Jinja (Gemma 4 single-turn text is the first; no tools/history in that adapter)
-- thinking-channel adapters skip the default JSON token grammar and deliver `visible_text`
-  at completion; an explicit `extra_body.grammar` still applies; other models stream tokens
 - token loop → `ModelStreamEvent::Text`
 - `max_tokens` / `n_predict` → `ModelStopReason::MaxTokens`
 - temperature / extra_body sampler keys: `top_k`, `top_p`, `min_p`, `seed`, `n_threads`, `grammar`

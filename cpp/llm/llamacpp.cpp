@@ -1,7 +1,6 @@
 #include <jeeves/llm/llamacpp.hpp>
 
 #include "tool_calls.hpp"
-#include "native_chat.hpp"
 
 #include <llama-cpp.h>
 
@@ -102,11 +101,6 @@ Result<std::string> apply_chat_template(llama_model * model, const ModelRequest 
     messages.reserve(roles.size());
     for (std::size_t i = 0; i < roles.size(); ++i) messages.push_back({roles[i].c_str(), contents[i].c_str()});
     const char * chat_template = llama_model_chat_template(model, nullptr);
-    char architecture[64]{};
-    llama_model_meta_val_str(model, "general.architecture", architecture, sizeof(architecture));
-    const std::string_view embedded = chat_template ? chat_template : "";
-    if (const auto * chat = detail::native_chat_for(architecture, embedded))
-        return chat->prompt(request);
     int32_t needed = llama_chat_apply_template(chat_template, messages.data(), messages.size(), true, nullptr, 0);
     if (needed < 0)
         return std::unexpected(Error::configuration("llama.cpp could not apply the model chat template"));
@@ -153,12 +147,8 @@ public:
         if (tokens->empty() || tokens->size() >= llama_n_ctx(context.get()))
             return std::unexpected(Error::invalid_input("prompt exceeds the llama.cpp context size"));
         std::stop_token stop = request.stop;
-        const char * chat_template = llama_model_chat_template(model.get(), nullptr);
-        char architecture[64]{};
-        llama_model_meta_val_str(model.get(), "general.architecture", architecture, sizeof(architecture));
-        const auto * chat = detail::native_chat_for(architecture, chat_template ? chat_template : "");
         auto stream = std::unique_ptr<LlamaStream>(new LlamaStream(std::move(model), std::move(context),
-            std::move(*tokens), max_tokens, stop, !request.tools.empty(), chat));
+            std::move(*tokens), max_tokens, stop, !request.tools.empty()));
         llama_set_abort_callback(stream->context_.get(), [](void * data) {
             return static_cast<std::stop_token *>(data)->stop_requested();
         }, &stream->stop_);
@@ -173,10 +163,7 @@ public:
         std::string grammar;
         if (request.extra_body && request.extra_body->contains("grammar") && (*request.extra_body)["grammar"].is_string())
             grammar = (*request.extra_body)["grammar"].get<std::string>();
-        // Thinking-channel adapters emit non-JSON tokens first. Schema checks stay
-        // in the workflow; an explicit extra_body grammar still wins.
-        const bool default_grammar = !chat || chat->allow_default_schema_grammar;
-        if (grammar.empty() && default_grammar && request.response_schema && request.tools.empty()) grammar = R"gbnf(
+        if (grammar.empty() && request.response_schema && request.tools.empty()) grammar = R"gbnf(
 root ::= value
 value ::= object | array | string | number | "true" ws | "false" ws | "null" ws
 object ::= "{" ws (string ":" ws value ("," ws string ":" ws value)*)? "}" ws
@@ -215,25 +202,20 @@ ws ::= [ \t\n\r]*
         }
         if (done_) return std::nullopt;
         if (stop_.stop_requested()) { done_ = true; return std::unexpected(Error::cancelled("llama.cpp generation cancelled")); }
-        const bool defer = chat_ && chat_->defer_visible_text;
-        while (generated_ < max_tokens_ && prompt_tokens_.size() + generated_ < llama_n_ctx(context_.get())) {
-            if (stop_.stop_requested()) { done_ = true; return std::unexpected(Error::cancelled("llama.cpp generation cancelled")); }
+        if (generated_ < max_tokens_ && prompt_tokens_.size() + generated_ < llama_n_ctx(context_.get())) {
             auto piece = sample_piece();
             if (!piece) return std::unexpected(piece.error());
-            if (!*piece)
-                return finish(ModelStopReason::completed("stop"));
-            if (!defer)
-                return ModelStreamEvent(std::move(**piece));
+            if (!*piece) return finish(ModelStopReason::completed("stop"));
+            return ModelStreamEvent(std::move(**piece));
         }
         return finish(ModelStopReason::max_tokens("length"));
     }
 
 private:
     LlamaStream(SharedModel model, llama_context_ptr context, std::vector<llama_token> prompt,
-                std::uint32_t max_tokens, std::stop_token stop, bool parse_tools,
-                const detail::NativeChat * chat)
+                std::uint32_t max_tokens, std::stop_token stop, bool parse_tools)
         : model_(std::move(model)), context_(std::move(context)), prompt_tokens_(std::move(prompt)),
-          max_tokens_(max_tokens), stop_(stop), parse_tools_(parse_tools), chat_(chat) {}
+          max_tokens_(max_tokens), stop_(stop), parse_tools_(parse_tools) {}
 
     Result<std::optional<std::string>> sample_piece() {
         const auto token = llama_sampler_sample(sampler_.get(), context_.get(), -1);
@@ -263,8 +245,6 @@ private:
 
     std::optional<Result<ModelStreamEvent>> finish(ModelStopReason reason) {
         done_ = true;
-        if (chat_ && chat_->defer_visible_text)
-            pending_.emplace_back(ModelStreamEvent(chat_->visible_text(output_)));
         if (parse_tools_ && reason.kind != ModelStopKind::MaxTokens) {
             auto calls = detail::parse_tool_calls(output_);
             if (!calls.empty()) reason = ModelStopReason::tool_call("tool_calls");
@@ -286,7 +266,6 @@ private:
     std::deque<Result<ModelStreamEvent>> pending_;
     bool done_ = false;
     bool parse_tools_ = false;
-    const detail::NativeChat * chat_ = nullptr;
 };
 
 } // namespace
@@ -299,7 +278,6 @@ struct LlamaCppProvider::Impl {
 };
 
 LlamaCppProvider::LlamaCppProvider(std::string gguf_path) : impl_(std::make_unique<Impl>(std::move(gguf_path))) {
-    init_backend();
 }
 LlamaCppProvider::~LlamaCppProvider() = default;
 LlamaCppProvider::LlamaCppProvider(LlamaCppProvider &&) noexcept = default;
@@ -311,6 +289,7 @@ LlamaCppProvider & LlamaCppProvider::with_model_role(std::string role, std::stri
 Result<std::unique_ptr<ModelStream>> LlamaCppProvider::stream(const ModelRequest & request) {
     if (request.stop.stop_requested()) return std::unexpected(Error::cancelled("llama.cpp generation cancelled"));
     if (auto valid = validate_request(request); !valid) return std::unexpected(valid.error());
+    init_backend();
     const std::string role = request.model.value_or("default");
     SharedModel model;
     {

@@ -1,5 +1,4 @@
 #include <jeeves/jeeves.hpp>
-#include "../cpp/llm/native_chat.hpp"
 #include <gtest/gtest.h>
 
 #include <limits>
@@ -106,32 +105,4 @@ TEST(Validation, run_ids_and_tool_names_are_validated) {
     EXPECT_EQ(id.as_str()[14], '4');
     EXPECT_NE(std::string("89ab").find(id.as_str()[19]), std::string::npos);
     EXPECT_EQ(ToolSpec::create("", "", nullptr).error().message(), "tool name cannot be empty");
-}
-
-TEST(Validation, gemma4_single_turn_text_template) {
-    ModelRequest request;
-    request.messages = {Message::system(" Answer briefly. "), Message::user(" Hello ")};
-    auto prompt = detail::gemma4_text_prompt(request);
-    ASSERT_TRUE(prompt);
-    EXPECT_EQ(*prompt, "<|turn>system\n<|think|>\nAnswer briefly.<turn|>\n<|turn>user\nHello<turn|>\n"
-                       "<|turn>model\n");
-    request.response_schema = json{{"type", "object"}};
-    prompt = detail::gemma4_text_prompt(request);
-    ASSERT_TRUE(prompt);
-    EXPECT_NE(prompt->find("Return JSON matching this schema: {\"type\":\"object\"}"), std::string::npos);
-    request.messages.push_back(Message::assistant("history", {}));
-    EXPECT_FALSE(detail::gemma4_text_prompt(request));
-}
-
-TEST(Validation, native_chat_matches_embedded_template_markers) {
-    EXPECT_EQ(detail::native_chat_for("gemma4", "<|turn>user"), &detail::kGemma4Chat);
-    EXPECT_EQ(detail::native_chat_for("gemma4", "plain chatml"), nullptr);
-    EXPECT_EQ(detail::native_chat_for("llama", "<|turn>"), nullptr);
-    EXPECT_FALSE(detail::kGemma4Chat.allow_default_schema_grammar);
-    EXPECT_TRUE(detail::kGemma4Chat.defer_visible_text);
-}
-
-TEST(Validation, gemma4_visible_text_strips_thought_and_fences) {
-    EXPECT_EQ(detail::gemma4_visible_text("thought<channel|> {\"ready\":true} "), "{\"ready\":true}");
-    EXPECT_EQ(detail::gemma4_visible_text("<|channel>response\n```json\n{\"a\":1}\n```"), "{\"a\":1}");
 }
