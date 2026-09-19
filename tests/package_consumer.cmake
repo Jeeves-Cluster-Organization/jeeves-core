@@ -8,4 +8,5 @@ execute_process(COMMAND "${CMAKE_COMMAND}" -S "${JEEVES_SOURCE}/tests/package"
   "-DNLOHMANN_SOURCE=${NLOHMANN_SOURCE}"
   COMMAND_ERROR_IS_FATAL ANY)
 execute_process(COMMAND "${CMAKE_COMMAND}" --build "${TEST_ROOT}/build"
+  --config Release
   COMMAND_ERROR_IS_FATAL ANY)

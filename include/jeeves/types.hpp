@@ -22,7 +22,7 @@ using Duration = std::chrono::steady_clock::duration;
 enum class ErrorKind {
     Configuration, NotFound, Transient, Timeout, InvalidInput, Denied,
     Permanent, Routing, StateReduction, Unavailable, Limit, Cancelled,
-    Panic, Internal,
+    Exception, Internal,
 };
 
 class Error {
@@ -41,7 +41,7 @@ public:
     static Error unavailable(std::string m) { return {ErrorKind::Unavailable, std::move(m)}; }
     static Error limit(std::string m) { return {ErrorKind::Limit, std::move(m)}; }
     static Error cancelled(std::string m) { return {ErrorKind::Cancelled, std::move(m)}; }
-    static Error panic(std::string m) { return {ErrorKind::Panic, std::move(m)}; }
+    static Error exception(std::string m) { return {ErrorKind::Exception, std::move(m)}; }
     static Error internal(std::string m) { return {ErrorKind::Internal, std::move(m)}; }
 
     [[nodiscard]] ErrorKind kind() const noexcept { return kind_; }

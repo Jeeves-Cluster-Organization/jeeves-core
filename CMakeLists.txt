@@ -24,7 +24,7 @@ else()
   set(JEEVES_NLOHMANN_VERSION ${nlohmann_json_VERSION})
 endif()
 
-add_library(jeeves_core_cpp STATIC
+add_library(jeeves_core STATIC
   cpp/sync.cpp
   cpp/types.cpp
   cpp/events.cpp
@@ -33,21 +33,20 @@ add_library(jeeves_core_cpp STATIC
   cpp/llm.cpp
   cpp/engine.cpp
   cpp/llm/koboldcpp.cpp)
-add_library(jeeves::core ALIAS jeeves_core_cpp)
+add_library(jeeves::core ALIAS jeeves_core)
 find_package(Threads REQUIRED)
-target_include_directories(jeeves_core_cpp PUBLIC
+target_include_directories(jeeves_core PUBLIC
   $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
   $<INSTALL_INTERFACE:${CMAKE_INSTALL_INCLUDEDIR}>)
-target_link_libraries(jeeves_core_cpp PUBLIC Threads::Threads
+target_link_libraries(jeeves_core PUBLIC Threads::Threads
   $<BUILD_INTERFACE:nlohmann_json::nlohmann_json>)
-target_compile_features(jeeves_core_cpp PUBLIC cxx_std_23)
-set_target_properties(jeeves_core_cpp PROPERTIES CXX_EXTENSIONS OFF)
-set_target_properties(jeeves_core_cpp PROPERTIES EXPORT_NAME core)
+target_compile_features(jeeves_core PUBLIC cxx_std_23)
+set_target_properties(jeeves_core PROPERTIES CXX_EXTENSIONS OFF EXPORT_NAME core)
 if(WIN32)
-  target_link_libraries(jeeves_core_cpp PRIVATE ws2_32)
+  target_link_libraries(jeeves_core PRIVATE ws2_32)
 endif()
 
-install(TARGETS jeeves_core_cpp EXPORT JeevesCoreTargets
+install(TARGETS jeeves_core EXPORT JeevesCoreTargets
   ARCHIVE DESTINATION ${CMAKE_INSTALL_LIBDIR}
   LIBRARY DESTINATION ${CMAKE_INSTALL_LIBDIR}
   RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR}
@@ -69,7 +68,7 @@ install(FILES
   "${CMAKE_CURRENT_BINARY_DIR}/JeevesCoreConfigVersion.cmake"
   DESTINATION ${CMAKE_INSTALL_LIBDIR}/cmake/JeevesCore)
 
-option(JEEVES_BUILD_TESTS "Build C++ tests" ${PROJECT_IS_TOP_LEVEL})
+option(JEEVES_BUILD_TESTS "Build tests" ${PROJECT_IS_TOP_LEVEL})
 if(JEEVES_BUILD_TESTS)
   enable_testing()
   find_package(GTest CONFIG QUIET)
@@ -111,7 +110,7 @@ if(JEEVES_BUILD_TESTS)
   set_tests_properties(JeevesCore.package_consumer PROPERTIES TIMEOUT 120)
 endif()
 
-option(JEEVES_BUILD_EXAMPLES "Build C++ examples" ${PROJECT_IS_TOP_LEVEL})
+option(JEEVES_BUILD_EXAMPLES "Build examples" ${PROJECT_IS_TOP_LEVEL})
 if(JEEVES_BUILD_EXAMPLES)
   add_executable(jeeves_pipeline_example examples/pipeline.cpp)
   target_link_libraries(jeeves_pipeline_example PRIVATE jeeves::core)

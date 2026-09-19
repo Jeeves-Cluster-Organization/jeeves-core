@@ -6,49 +6,25 @@ on:
   pull_request:
     branches: [main]
 
-env:
-  CARGO_TERM_COLOR: always
-
 jobs:
   cpp:
     strategy:
       fail-fast: false
       matrix:
-        os: [macos-14, ubuntu-24.04, windows-2022]
+        os: [macos-15, ubuntu-24.04, windows-2022]
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
 
       - name: Configure
-        run: cmake -S . -B build-cpp -DJEEVES_BUILD_TESTS=ON -DJEEVES_BUILD_EXAMPLES=ON
+        run: >-
+          cmake -S . -B build
+          -DCMAKE_BUILD_TYPE=Release
+          -DJEEVES_BUILD_TESTS=ON
+          -DJEEVES_BUILD_EXAMPLES=ON
 
       - name: Build
-        run: cmake --build build-cpp --config Release --parallel 4
+        run: cmake --build build --config Release --parallel 4
 
       - name: Test
-        run: ctest --test-dir build-cpp -C Release --output-on-failure
-
-  quality:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-
-      - uses: dtolnay/rust-toolchain@stable
-        with:
-          components: rustfmt, clippy
-
-      - uses: Swatinem/rust-cache@v2
-
-      - name: Format
-        run: cargo fmt --all -- --check
-
-      - name: Test
-        run: cargo test --locked --no-fail-fast
-
-      - name: Clippy
-        run: cargo clippy --locked --all-targets -- -D warnings
-
-      - name: Documentation
-        env:
-          RUSTDOCFLAGS: -D warnings
-        run: cargo doc --locked --no-deps
+        run: ctest --test-dir build -C Release --output-on-failure

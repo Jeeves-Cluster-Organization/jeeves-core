@@ -176,8 +176,8 @@ private:
                 const auto started = std::chrono::steady_clock::now();
                 ActionResult action = std::unexpected(ActionStop::failed(Error::internal("action did not execute")));
                 try { action = execute_attempt(stage, attempt); }
-                catch (...) { action = std::unexpected(ActionStop::failed(Error::panic(
-                    "stage '" + stage.name_ + "' action panicked: " + exception_message()))); }
+                catch (...) { action = std::unexpected(ActionStop::failed(Error::exception(
+                    "stage '" + stage.name_ + "' action threw an exception: " + exception_message()))); }
                 StageRecord record{stage.name_, visit, attempt_number,
                     action ? std::optional<json>(*action) : std::nullopt, {}, state_.usage - before,
                     std::chrono::steady_clock::now() - started};
@@ -260,7 +260,7 @@ private:
             Error error = reduced.error().with_kind(ErrorKind::StateReduction);
             record.failures.push_back({StageFailurePhase::StateReduction, error}); return error;
         } catch (...) {
-            Error error = Error::panic("state reducer panicked: " + exception_message());
+            Error error = Error::exception("state reducer threw an exception: " + exception_message());
             record.failures.push_back({StageFailurePhase::StateReduction, error}); return error;
         }
     }
@@ -299,7 +299,8 @@ private:
                 if (!selected) return std::unexpected(selected.error().with_kind(ErrorKind::Routing));
                 route = std::move(*selected);
             } catch (...) {
-                return std::unexpected(Error::panic("router for stage '" + stage.name_ + "' panicked: " + exception_message()));
+                return std::unexpected(Error::exception(
+                    "router for stage '" + stage.name_ + "' threw an exception: " + exception_message()));
             }
         }
         if (route.target() && !workflow_->stage(*route.target()))
@@ -660,7 +661,8 @@ Result<RunHandle> Engine::start_impl(const std::string & name, RunInput input, b
         Execution execution(workflow, llm, run_id, std::move(input), events, approvals, stop, started);
         Stop stopped = Stop::failed(Error::internal("workflow did not execute"));
         try { stopped = execution.run(); }
-        catch (...) { stopped = Stop::failed(Error::panic("workflow execution panicked: " + exception_message())); }
+        catch (...) { stopped = Stop::failed(Error::exception(
+            "workflow execution threw an exception: " + exception_message())); }
         auto outcome = execution.finish(std::move(stopped));
         {
             std::lock_guard lock(result->mutex); result->value = std::move(outcome);

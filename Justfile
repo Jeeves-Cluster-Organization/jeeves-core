@@ -3,25 +3,9 @@
 default: check
 
 check:
-    cargo fmt --all -- --check
-    cargo check --all-targets
-    cargo test --no-fail-fast
-    cargo clippy --all-targets -- -D warnings
-    RUSTDOCFLAGS="-D warnings" cargo doc --no-deps
+    cmake -S . -B build -DJEEVES_BUILD_TESTS=ON -DJEEVES_BUILD_EXAMPLES=ON
+    cmake --build build -j 4
+    ctest --test-dir build --output-on-failure
 
 test:
-    cargo test --no-fail-fast
-
-lint:
-    cargo clippy --all-targets -- -D warnings
-
-fmt:
-    cargo fmt --all
-
-doc:
-    cargo doc --no-deps --open
-
-cpp-check:
-    cmake -S . -B build-cpp
-    cmake --build build-cpp -j 4
-    ctest --test-dir build-cpp --output-on-failure
+    ctest --test-dir build --output-on-failure

@@ -438,8 +438,9 @@ TEST(KoboldCppProvider, StructuredOutputStillUsesWorkflowValidator) {
 }
 
 TEST(KoboldCppProcess, LaunchesPinnedGpuOnlyChildAndVerifiesReadiness) {
-    const auto root = std::filesystem::temp_directory_path() / "jeeves-koboldcpp-process-test";
-    std::filesystem::remove_all(root);
+    const auto unique = std::chrono::steady_clock::now().time_since_epoch().count();
+    const auto root = std::filesystem::temp_directory_path() /
+        ("jeeves-koboldcpp-process-test-" + std::to_string(unique));
     std::filesystem::create_directories(root);
     const auto model = root / "model.gguf";
     const auto adapter = root / "adapter.json";
@@ -466,14 +467,16 @@ TEST(KoboldCppProcess, LaunchesPinnedGpuOnlyChildAndVerifiesReadiness) {
     EXPECT_TRUE((*process)->running());
     (*process)->shutdown();
     EXPECT_FALSE((*process)->running());
-    std::ifstream log(diagnostics);
-    const std::string arguments((std::istreambuf_iterator<char>(log)), {});
-    EXPECT_NE(arguments.find("arg:--skiplauncher"), std::string::npos);
-    EXPECT_NE(arguments.find("arg:--gpulayers\narg:999"), std::string::npos);
-    EXPECT_NE(arguments.find("arg:--multiuser\narg:0"), std::string::npos);
+    {
+        std::ifstream log(diagnostics);
+        const std::string arguments((std::istreambuf_iterator<char>(log)), {});
+        EXPECT_NE(arguments.find("arg:--skiplauncher"), std::string::npos);
+        EXPECT_NE(arguments.find("arg:--gpulayers\narg:999"), std::string::npos);
+        EXPECT_NE(arguments.find("arg:--multiuser\narg:0"), std::string::npos);
 #ifndef __APPLE__
-    EXPECT_NE(arguments.find("arg:--usevulkan"), std::string::npos);
+        EXPECT_NE(arguments.find("arg:--usevulkan"), std::string::npos);
 #endif
+    }
     config.required_version = "not-the-fixture-version";
     auto mismatched = KoboldCppProcess::launch(config);
     ASSERT_TRUE(mismatched) << mismatched.error();
@@ -482,5 +485,6 @@ TEST(KoboldCppProcess, LaunchesPinnedGpuOnlyChildAndVerifiesReadiness) {
     EXPECT_EQ(rejected.error().kind(), ErrorKind::Configuration);
     EXPECT_NE(rejected.error().message().find("version"), std::string::npos);
     (*mismatched)->shutdown();
-    std::filesystem::remove_all(root);
+    std::error_code cleanup_error;
+    std::filesystem::remove_all(root, cleanup_error);
 }

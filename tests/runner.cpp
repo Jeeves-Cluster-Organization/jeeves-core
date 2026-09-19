@@ -274,8 +274,9 @@ TEST(Examples, mock_greet_stream) {
     EXPECT_EQ(completed(outcome).latest_outputs.at("speak"), "Hello, world!");
 }
 
-TEST(Parity, default_retry_only_retries_transient_timeout_and_unavailable) {
-    for (auto kind : {ErrorKind::Transient, ErrorKind::Timeout, ErrorKind::Unavailable, ErrorKind::InvalidInput, ErrorKind::Panic}) {
+TEST(Runner, default_retry_only_retries_transient_timeout_and_unavailable) {
+    for (auto kind : {ErrorKind::Transient, ErrorKind::Timeout, ErrorKind::Unavailable,
+                      ErrorKind::InvalidInput, ErrorKind::Exception}) {
         std::atomic_uint calls{0};
         auto workflow = must(Workflow::builder("w").stage(Stage::deterministic_fn("s", [&](const RunView &) -> Result<json> {
             if (calls++ == 0) return std::unexpected(Error(kind, "first"));
@@ -293,7 +294,7 @@ TEST(Parity, default_retry_only_retries_transient_timeout_and_unavailable) {
     EXPECT_EQ(policy.backoff_for_retry(UINT32_MAX), 25ms);
 }
 
-TEST(Parity, stage_execution_visit_and_llm_limits_are_distinct) {
+TEST(Runner, stage_execution_visit_and_llm_limits_are_distinct) {
     auto bounded = must(Workflow::builder("w").limits(RunLimits{2, 0, 0, {}})
         .stage(Stage::route_only("s").next("s")).build());
     auto outcome = must(engine(bounded).run("w", "input"));
@@ -312,7 +313,7 @@ TEST(Parity, stage_execution_visit_and_llm_limits_are_distinct) {
     EXPECT_TRUE(llm->stream(ModelRequest{}));
 }
 
-TEST(Parity, routing_precedes_reduction_and_failed_reduction_is_transactional) {
+TEST(Runner, routing_precedes_reduction_and_failed_reduction_is_transactional) {
     auto workflow = must(Workflow::builder("w").state(json(7), [](const json & state, const StageRecord & record) -> Result<json> {
         EXPECT_EQ(state, 7);
         if (record.stage == "choose") return std::unexpected(Error::permanent("reducer failed"));
@@ -336,7 +337,7 @@ TEST(Parity, routing_precedes_reduction_and_failed_reduction_is_transactional) {
     EXPECT_EQ(result.history[0].failures[1].error.kind(), ErrorKind::StateReduction);
 }
 
-TEST(Parity, reduction_failure_after_action_failure_prevents_retry_and_retains_both_causes) {
+TEST(Runner, reduction_failure_after_action_failure_prevents_retry_and_retains_both_causes) {
     std::atomic_uint calls{0};
     auto workflow = must(Workflow::builder("w").state(json(1), [](const json &, const StageRecord &) -> Result<json> {
         return std::unexpected(Error::permanent("reduction"));
@@ -348,13 +349,13 @@ TEST(Parity, reduction_failure_after_action_failure_prevents_retry_and_retains_b
     EXPECT_EQ(outcome->result().state, 1); EXPECT_EQ(outcome->result().history[0].failures.size(), 2);
 }
 
-TEST(Parity, callbacks_throw_as_typed_panic_errors) {
+TEST(Runner, callbacks_throw_as_typed_exception_errors) {
     for (int phase = 0; phase < 3; ++phase) {
         auto stage = Stage::deterministic_fn("s", [phase](const RunView &) -> Result<json> {
-            if (phase == 0) throw std::runtime_error("action panic");
+            if (phase == 0) throw std::runtime_error("action exception");
             return json(1);
         }).route([phase](const RunView &) -> Result<Route> {
-            if (phase == 1) throw std::runtime_error("router panic");
+            if (phase == 1) throw std::runtime_error("router exception");
             return Route::complete();
         });
         auto workflow = must(Workflow::builder("w").stage(stage).state(nullptr,
@@ -363,12 +364,13 @@ TEST(Parity, callbacks_throw_as_typed_panic_errors) {
                 return json(nullptr);
             }).build());
         auto outcome = must(engine(workflow).run("w", "input"));
-        EXPECT_EQ(outcome->kind(), OutcomeKind::Failed); EXPECT_EQ(outcome->error()->kind(), ErrorKind::Panic);
+        EXPECT_EQ(outcome->kind(), OutcomeKind::Failed);
+        EXPECT_EQ(outcome->error()->kind(), ErrorKind::Exception);
         EXPECT_EQ(outcome->result().history.size(), 1);
     }
 }
 
-TEST(Parity, dynamic_route_missing_target_is_a_routing_failure) {
+TEST(Runner, dynamic_route_missing_target_is_a_routing_failure) {
     auto workflow = must(Workflow::builder("w").stage(Stage::route_only("s")
         .route([](const RunView &) -> Result<Route> { return Route::next("missing"); })).build());
     auto outcome = must(engine(workflow).run("w", "input"));
@@ -376,7 +378,7 @@ TEST(Parity, dynamic_route_missing_target_is_a_routing_failure) {
     EXPECT_TRUE(outcome->result().latest_outputs.empty());
 }
 
-TEST(Parity, timed_action_unblocks_and_retry_gets_a_fresh_stop_token) {
+TEST(Runner, timed_action_unblocks_and_retry_gets_a_fresh_stop_token) {
     std::atomic_uint calls{0};
     auto workflow = must(Workflow::builder("w").stage(Stage::deterministic_fn("s", [&](const RunView & run) -> Result<json> {
         EXPECT_FALSE(run.stop.stop_requested());
@@ -393,7 +395,7 @@ TEST(Parity, timed_action_unblocks_and_retry_gets_a_fresh_stop_token) {
     EXPECT_EQ(calls, 2);
 }
 
-TEST(Parity, deadline_and_cancel_skip_reducer) {
+TEST(Runner, deadline_and_cancel_skip_reducer) {
     for (bool cancel : {false, true}) {
         std::atomic_uint reductions{0};
         auto action = std::make_shared<PendingAction>();
@@ -413,7 +415,7 @@ TEST(Parity, deadline_and_cancel_skip_reducer) {
     }
 }
 
-TEST(Parity, approval_receiver_drop_and_timeout_finish_the_run) {
+TEST(Runner, approval_receiver_drop_and_timeout_finish_the_run) {
     for (bool drop : {false, true}) {
         auto tool = std::make_shared<ApprovalTool>();
         auto workflow = must(Workflow::builder("w").stage(Stage::tool("s", ToolAction(definition(tool)))
@@ -429,7 +431,7 @@ TEST(Parity, approval_receiver_drop_and_timeout_finish_the_run) {
     }
 }
 
-TEST(Parity, denied_direct_tool_policies) {
+TEST(Runner, denied_direct_tool_policies) {
     for (auto behavior : {DenialBehavior::Continue, DenialBehavior::FailStage, DenialBehavior::CancelRun}) {
         auto tool = std::make_shared<ApprovalTool>();
         auto workflow = must(Workflow::builder("w").stage(Stage::tool("s", ToolAction(definition(tool)).on_denied(behavior))).build());
@@ -444,7 +446,7 @@ TEST(Parity, denied_direct_tool_policies) {
     }
 }
 
-TEST(Parity, last_handle_drop_cancels_but_dropping_a_clone_does_not) {
+TEST(Runner, last_handle_drop_cancels_but_dropping_a_clone_does_not) {
     auto action = std::make_shared<PendingAction>();
     auto entered = action->entered.get_future();
     auto workflow = must(Workflow::builder("w").stage(Stage::deterministic("s", action)).build());
@@ -459,7 +461,7 @@ TEST(Parity, last_handle_drop_cancels_but_dropping_a_clone_does_not) {
     ASSERT_TRUE(outcome); EXPECT_EQ(outcome->kind(), OutcomeKind::Cancelled);
 }
 
-TEST(Parity, deadline_bounds_retry_backoff) {
+TEST(Runner, deadline_bounds_retry_backoff) {
     auto workflow = must(Workflow::builder("w").limits(RunLimits{10, 0, 0, 30ms})
         .stage(Stage::deterministic_fn("s", [](const RunView &) -> Result<json> {
             return std::unexpected(Error::transient("retry"));
@@ -468,36 +470,37 @@ TEST(Parity, deadline_bounds_retry_backoff) {
     EXPECT_EQ(outcome->limit(), LimitKind::Deadline); EXPECT_EQ(outcome->result().history.size(), 1);
 }
 
-TEST(Parity, tool_panic_and_cancellation_emit_aborted_events) {
+TEST(Runner, tool_exception_and_cancellation_emit_aborted_events) {
     class FailingTool final : public Tool {
     public:
-        bool panic;
-        explicit FailingTool(bool value) : panic(value) {}
+        bool throws;
+        explicit FailingTool(bool value) : throws(value) {}
         Result<json> call(const ToolContext & context, json) override {
-            if (panic) throw std::runtime_error("tool panic");
+            if (throws) throw std::runtime_error("tool exception");
             std::mutex mutex; std::condition_variable_any changed; std::unique_lock lock(mutex);
             changed.wait(lock, context.cancellation, [] { return false; });
             return json(nullptr);
         }
     };
-    for (bool panic : {false, true}) {
-        auto workflow = must(Workflow::builder("w").stage(Stage::tool("s", ToolAction(definition(std::make_shared<FailingTool>(panic))))).build());
+    for (bool throws : {false, true}) {
+        auto workflow = must(Workflow::builder("w").stage(
+            Stage::tool("s", ToolAction(definition(std::make_shared<FailingTool>(throws))))).build());
         auto handle = must(engine(workflow).start("w", "input"));
         auto events = handle.take_events();
         unsigned aborted = 0, finished = 0;
         while (auto event = events->recv()) {
-            if (!panic && std::holds_alternative<RunEvent::ToolCallStarted>(event->value)) handle.cancel();
+            if (!throws && std::holds_alternative<RunEvent::ToolCallStarted>(event->value)) handle.cancel();
             aborted += std::holds_alternative<RunEvent::ToolCallAborted>(event->value);
             finished += std::holds_alternative<RunEvent::ToolCallFinished>(event->value);
         }
         auto outcome = must(handle.result());
         EXPECT_EQ(aborted, 1); EXPECT_EQ(finished, 0);
-        if (panic) EXPECT_EQ(outcome->error()->kind(), ErrorKind::Panic);
+        if (throws) EXPECT_EQ(outcome->error()->kind(), ErrorKind::Exception);
         else EXPECT_EQ(outcome->kind(), OutcomeKind::Cancelled);
     }
 }
 
-TEST(Parity, llm_hooks_requests_usage_and_merged_tool_calls) {
+TEST(Runner, llm_hooks_requests_usage_and_merged_tool_calls) {
     class Hook final : public LlmLoopHook {
     public:
         unsigned model_calls = 0;
@@ -512,7 +515,6 @@ TEST(Parity, llm_hooks_requests_usage_and_merged_tool_calls) {
             return {};
         }
         Result<void> after_model(ModelResponse & response) override {
-            // Token accounting happens before this hook, as in Rust.
             response.usage = {999, 999}; return {};
         }
         Result<void> after_tool(const ToolCall &, ToolResult &) override { ++tool_results; return {}; }
@@ -541,7 +543,7 @@ TEST(Parity, llm_hooks_requests_usage_and_merged_tool_calls) {
     EXPECT_EQ(echo->calls, 1); EXPECT_EQ(hook->tool_results, 2);
 }
 
-TEST(Parity, hooks_can_reject_or_replace_tools_without_spending_budget) {
+TEST(Runner, hooks_can_reject_or_replace_tools_without_spending_budget) {
     class Hook final : public LlmLoopHook {
         Result<ToolDecision> before_tool(const ToolCall & call) override {
             return call.id == "reject" ? ToolDecision::reject("no") : ToolDecision::replace(json("replacement"));
@@ -559,7 +561,7 @@ TEST(Parity, hooks_can_reject_or_replace_tools_without_spending_budget) {
     EXPECT_EQ(completed(outcome).latest_outputs.at("s"), "ok"); EXPECT_EQ(tool->calls, 0);
 }
 
-TEST(Parity, tool_round_limit_precedes_invocation) {
+TEST(Runner, tool_round_limit_precedes_invocation) {
     auto tool = std::make_shared<EchoTool>();
     auto workflow = must(Workflow::builder("w").stage(Stage::llm("s", LlmAction::text(Prompt::text("p"))
         .with_tools({definition(tool)}).with_max_tool_rounds(0))).build());
@@ -567,7 +569,7 @@ TEST(Parity, tool_round_limit_precedes_invocation) {
     EXPECT_EQ(outcome->limit(), LimitKind::ToolRounds); EXPECT_EQ(tool->calls, 0);
 }
 
-TEST(Parity, usage_saturates_and_run_metadata_is_preserved) {
+TEST(Runner, usage_saturates_and_run_metadata_is_preserved) {
     Usage usage{UINT32_MAX, UINT32_MAX, UINT64_MAX, UINT64_MAX};
     usage += Usage{1, 1, 1, 1};
     EXPECT_EQ(usage, (Usage{UINT32_MAX, UINT32_MAX, UINT64_MAX, UINT64_MAX}));
