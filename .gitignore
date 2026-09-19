@@ -1,4 +1,5 @@
 /build/
+/build-cpp/
 /compile_commands.json
 .env
 .env.*
