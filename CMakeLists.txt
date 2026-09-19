@@ -35,13 +35,11 @@ add_library(jeeves_core_cpp STATIC
   cpp/llm/koboldcpp.cpp)
 add_library(jeeves::core ALIAS jeeves_core_cpp)
 find_package(Threads REQUIRED)
-get_target_property(JEEVES_JSON_INCLUDE_DIRECTORIES
-  nlohmann_json::nlohmann_json INTERFACE_INCLUDE_DIRECTORIES)
 target_include_directories(jeeves_core_cpp PUBLIC
   $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
-  $<BUILD_INTERFACE:${JEEVES_JSON_INCLUDE_DIRECTORIES}>
   $<INSTALL_INTERFACE:${CMAKE_INSTALL_INCLUDEDIR}>)
-target_link_libraries(jeeves_core_cpp PUBLIC Threads::Threads)
+target_link_libraries(jeeves_core_cpp PUBLIC Threads::Threads
+  $<BUILD_INTERFACE:nlohmann_json::nlohmann_json>)
 target_compile_features(jeeves_core_cpp PUBLIC cxx_std_23)
 set_target_properties(jeeves_core_cpp PROPERTIES CXX_EXTENSIONS OFF)
 set_target_properties(jeeves_core_cpp PROPERTIES EXPORT_NAME core)
