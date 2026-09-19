@@ -5,7 +5,7 @@
 
 namespace jeeves::detail {
 
-// Best-effort llama text protocol; malformed candidates remain ordinary text.
+// Best-effort tagged tool-call text protocol; malformed candidates remain ordinary text.
 inline std::vector<ToolCall> parse_tool_calls(const std::string & text) {
     std::vector<ToolCall> calls;
     auto parse = [&](const std::string & encoded) {

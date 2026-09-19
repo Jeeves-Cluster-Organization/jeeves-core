@@ -1,222 +1,35 @@
-# C++ port plan (frozen)
+# C++ implementation notes
 
-1:1 C++ of `jeeves-core`. Only intentional delta: drop `genai`, replace it with
-the pinned llama.cpp source build. Rust and C++ checks both run in CI.
+The C++23 library mirrors Jeeves Core's Rust workflow contracts: stages, routing,
+retry policy, limits, history, reducers, run handles, events, cancellation,
+approval, tools, structured output validation, and usage accounting.
 
-Do not re-litigate this document while implementing. Execute it.
+## Provider boundary
 
----
+`LlmProvider` remains the sole model boundary and `MockLlmProvider` remains the
+default test seam. `KoboldCppProvider` is a loopback HTTP adapter for KoboldCpp's
+OpenAI-compatible `/v1/chat/completions` endpoint. It emits the existing
+`ModelStreamEvent` alternatives and does not own a model or process.
 
-## Layout
+`KoboldCppProcess` is an optional companion API for applications that bundle the
+engine. It launches a separate executable without a shell or UI, forces
+`127.0.0.1`, chooses a private port, supplies model/adapter/context/GPU flags,
+captures diagnostics, polls readiness, and performs bounded shutdown. Metal,
+CUDA, and Vulkan are explicit; CPU fallback is rejected. The application owns
+the supervisor lifetime.
 
-Rust keeps `src/`. C++ does not reuse that tree.
+Cancellation closes the active chat-completion socket and makes a best-effort
+keyed POST to `/api/extra/abort`. The provider consumes OpenAI SSE incrementally,
+reassembles streamed tool calls, preserves usage-before-stop ordering, and admits
+one active generation at a time. Workflow retry and cancellation semantics remain
+in the engine. Response schemas are still hints; parsing and the action's validator
+remain the authoritative structured-output checks.
 
-```
-CMakeLists.txt
-include/jeeves/types.hpp
-include/jeeves/events.hpp
-include/jeeves/tools.hpp
-include/jeeves/workflow.hpp
-include/jeeves/llm.hpp
-include/jeeves/llm/llamacpp.hpp
-include/jeeves/engine.hpp
-include/jeeves/jeeves.hpp          # prelude
-cpp/sync.hpp / cpp/sync.cpp        # internal channels, cancel, uuid
-cpp/types.cpp
-cpp/tools.cpp
-cpp/workflow.cpp
-cpp/llm.cpp
-cpp/engine.cpp
-cpp/llm/llamacpp.cpp
-tests/validation.cpp
-tests/runner.cpp
-examples/pipeline.cpp
-examples/llm_stream.cpp
-```
+## Build and verification
 
-Public names, builders, events, outcomes, and error strings match Rust unless noted below.
-
----
-
-## Runtime (no Tokio, no Asio, no Boost)
-
-One run = one `std::jthread`. Virtuals may block on that thread.
-
-| Rust | C++ |
-|---|---|
-| `tokio::spawn` | `std::jthread` |
-| `CancellationToken` + last-handle drop | shared `std::stop_source`; `RunLifetime` dtor `request_stop()` |
-| unbounded mpsc | mutex + deque + cv (internal) |
-| `watch` result | mutex + cv + `shared_ptr<RunOutcome>` |
-| `select!` | timed cv wait + `stop_token` |
-| `catch_unwind` | `try/catch (...)` → `ErrorKind::Panic` (not segfaults) |
-| `async_trait` | virtual methods |
-| `ModelStream` | pull `next()` → `optional<Result<ModelStreamEvent>>` |
-| `Engine::start` requires Tokio | not required |
-| implicit future cancel | `RunView::stop` (`std::stop_token`) so `PendingAction` can unblock |
-
-`Engine::run` = `start`, drop event rx, wait result.
-
-Public errors: `std::expected<T, Error>` (C++23). No exceptions across the library boundary. User-callback throws → `Panic`.
-
-Cancel/timeout of a **blocking** action that ignores `stop` cannot be force-killed (same as blocking inside a Rust async fn). Approval, backoff, and llama abort **do** check stop. `PendingAction` in tests waits on `run.stop`.
-
----
-
-## Dependencies
-
-**Use**
-
-- C++23, CMake ≥ 3.21
-- nlohmann/json via FetchContent (header-only)
-- GoogleTest via FetchContent (tests only)
-- A pinned llama.cpp source build in every C++ configuration.
-
-**Do not**
-
-- Boost, Asio, HTTP, OpenSSL, uuid lib
-- llama.cpp `common/` (unstable). Public C API only.
-
-Hand-roll UUID v4.
-
----
-
-## API mapping (keep 1:1)
-
-- `Arc<str>` → `std::string`
-- `Arc<T>` → `std::shared_ptr<T>`
-- `Option` → `std::optional`
-- `Result<T>` → `std::expected<T, Error>`
-- `serde_json::Value` → `nlohmann::json`
-- traits → abstract bases + `std::function` adapters (`deterministic_fn`, routers, reducers, prompts)
-- `Duration` → `std::chrono::steady_clock::duration`
-- `RunHandle::result()` blocking wait
-- `take_events()` move-only receiver, once; clones have no rx
-- `Finished` event and `result()` share the **same** `shared_ptr` (pointer equality test)
-
-`RunView` extra field vs Rust: `std::stop_token stop`. Needed for cancel-safe actions.
-
----
-
-## Engine semantics (copy, do not simplify)
-
-Port `src/engine.rs` control flow as-is:
-
-- first declared stage is entry
-- visit/attempt counters; `max_visits` → `LimitKind::StageVisits`
-- limits checked **before** spending (`consume_llm_call` / `consume_tool_call` / stage executions)
-- on success: push history, route, pop, then reduce, then publish
-- reducer is transactional; control stops (cancel/limit) skip reducer
-- retry vs `on_error` after action failure; reduction failure can also `on_error`
-- `ToolCallGuard`: abort event on drop if not finished
-- approval fails immediately if event rx missing/dropped (`ErrorKind::Configuration`)
-- LLM tool-not-found → JSON error to model, not stage fail
-- denied LLM tool default `DenialBehavior::Continue`
-- denied direct tool default `FailStage`
-- `MaxTokens` stop → `Error::invalid_input("LLM output was truncated at its token limit")`
-- structured output: buffer privately, parse JSON, validator is authoritative; no `TextDelta`
-- text output: forward `TextDelta` while collecting
-- schema is a provider hint only
-- drop last handle cancels the run
-- `merge_tool_call` by non-empty id
-
----
-
-## LlamaCppProvider (replaces GenaiProvider)
-
-Drop: `LLM_API_BASE`, `with_client`, HTTP extra_body test, genai credential resolution.
-
-Keep `LlmProvider` + `MockLlmProvider` so runner tests never need a GGUF.
-
-`LlamaCppProvider`:
-
-- ctor takes GGUF path (Rust `new(default_model)` was a model id; here it is a file path)
-- optional `with_model_role(role, path)` if we load more than one GGUF
-- shared `llama_model`; **one context per `stream()`** (contexts are not concurrent)
-- messages → `llama_chat_apply_template` + `llama_model_chat_template`
-- token loop → `ModelStreamEvent::Text`
-- `max_tokens` / `n_predict` → `ModelStopReason::MaxTokens`
-- temperature / extra_body sampler keys: `top_k`, `top_p`, `min_p`, `seed`, `n_threads`, `grammar`
-- `n_ctx` / `n_gpu_layers` are load/context params (ctor or extra_body at first stream)
-- structured `response_schema` without tools: JSON syntax grammar unless explicitly overridden;
-  semantic schema validation still belongs to the workflow
-- usage from prompt vs generated token counts
-- cancel → `llama_set_abort_callback` on the run `stop_token`
-- RAII: `llama-cpp.h` unique_ptrs
-- `llama_backend_init` once
-
-Tool-call parsing from model text: best-effort (common `<tool_call>` / JSON name+arguments). Mock covers the runner tool-loop tests.
-
----
-
-## Tests (must all exist and pass)
-
-**validation.cpp**
-
-- duplicate stages rejected
-- missing static route rejected
-- LLM workflow without provider rejected at engine build
-
-**runner.cpp** (same cases as `tests/runner.rs`)
-
-- linear pipeline + history
-- exact stage/LLM limits allow completion
-- retry-any preserves failed attempts
-- exhausted failure routes to recovery
-- unrecovered failure is `Failed`
-- reducer derives state
-- dynamic routing reads latest output
-- text deltas + `Finished` same pointer as `result()`
-- structured collect/validate/retry and **no** `TextDelta`
-- token-limit stop rejects truncated JSON then retries
-- direct tool args from history
-- `max_tool_calls=0` does not invoke tool
-- approval pauses and resumes same LLM loop
-- denied LLM tool returns to model without execute
-- unobserved approval → `Configuration`, tool not called
-- explicit cancel → `Cancelled` (`PendingAction` waits on `run.stop`)
-
-**doctest equivalents** (in runner or a small example test)
-
-- `double` pipeline (`value: 21` → `42`)
-- mock greet stream `"Hello, world!"`
-
-**Drop**
-
-- `sends_max_tokens_and_extra_body_to_openai_compatible_http`
-- genai `parses_completed_streamed_tool_arguments` (only if we keep a llama tool-arg JSON-string helper)
-
-Also enforce `WorkflowBuilder` / `LlmAction` / `EngineBuilder` / `ToolSpec` / `RunId` validation from Rust `build()` / constructors (messages can stay identical).
-
-Optional gated GGUF test: not required for 1:1.
-
----
-
-## Examples
-
-- `examples/pipeline.cpp` — newsroom collect/verify retry (offline)
-- `examples/llm_stream.cpp` — mock streaming deltas (offline)
-
----
-
-## Build order (do not skip)
-
-1. CMake + `types` + internal sync + nlohmann
-2. `workflow` validation + validation tests
-3. deterministic engine: route, retry, limits, reducer, cancel
-4. tools + approval
-5. LLM loop + mock + streaming events
-6. `LlamaCppProvider` against Homebrew llama
-7. examples
-8. run tests; fix until green
-
-No GitHub CI. Local: `cmake -B build && cmake --build build && ctest --test-dir build --output-on-failure`
-
----
-
-## Out of scope
-
-- persistence, detached runs, multi-consumer events
-- compiling llama.cpp from source
-- HTTP OpenAI-compatible provider
-- matching Rust doctest harness / clippy / rustdoc
+The CMake graph contains no embedded model runtime. It needs only nlohmann/json,
+threads, and `ws2_32` on Windows. Offline workflow tests use mocks. Separate
+loopback fixture tests cover OpenAI request serialization, malformed responses,
+HTTP failures, cancellation/abort, token usage/stop mapping, process readiness,
+and validation. The install/export smoke test builds an external consumer against
+the generated `JeevesCore` CMake package.

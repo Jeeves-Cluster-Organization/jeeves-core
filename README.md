@@ -162,8 +162,8 @@ Rust 1.75 or newer is required.
 
 The Rust crate and C++ library are maintained together. C++ follows the same
 workflow, retry, routing, history, reducer, budget, tool, approval, and streaming
-contracts. Its provider uses llama.cpp directly through the public C API. GenAI
-remains in Rust; C++ has no GenAI or HTTP provider.
+contracts. C++ local inference uses KoboldCpp through its loopback-only OpenAI
+chat-completions API. GenAI remains the Rust provider.
 
 Build with CMake 3.21+ and a compiler/standard library supporting C++23
 `std::expected` and C++20 `std::jthread`/stop tokens:
@@ -177,12 +177,22 @@ ctest --test-dir build-cpp --output-on-failure
 ```
 
 CMake uses installed nlohmann/json and GoogleTest when available, otherwise
-downloads them once. The C++ library always builds its pinned llama.cpp revision;
-`LlamaCppProvider` is part of every C++ build.
+downloads them once. The C++ library does not fetch or link an inference engine.
 Tests and examples default to enabled in a standalone build and disabled when
 Jeeves is included by another CMake project. Override them with
 `JEEVES_BUILD_TESTS` and `JEEVES_BUILD_EXAMPLES`. Link the CMake target
 `jeeves::core` and include `<jeeves/jeeves.hpp>`.
+
+Jeeves is also an installable CMake package. Its generated package config records
+the exact nlohmann/json version used to build the library, preventing a silent
+JSON ABI mismatch in consumers:
+
+```bash
+cmake --install build-cpp --prefix /path/to/prefix
+```
+
+Consumers use `find_package(JeevesCore 0.1 CONFIG REQUIRED)` and link
+`jeeves::core`.
 
 ```cpp
 using namespace jeeves;
@@ -225,28 +235,32 @@ handle requests cancellation without waiting for consumer code; execution data
 stays alive until that worker exits. Blocking callbacks that ignore the token
 cannot be forcibly interrupted. Retry gets a fresh attempt token.
 
-For local inference, construct `std::make_shared<LlamaCppProvider>("/path/model.gguf")`.
-Models load lazily and are shared; each stream owns a separate context and sampler.
-`with_model_role(role, path)` maps an action's model role to another GGUF; an
-unmapped model name is treated as a path. `max_tokens` takes precedence over
-`extra_body.n_predict` (default 512); exhausting either the output budget or
-context reports `MaxTokens`. Supported `extra_body` settings are `top_k`, `top_p`,
-`min_p`, `seed`, `n_threads`, `grammar`, `n_ctx` (default 4096), and `n_gpu_layers`
-(fixed on the first load of each model). Structured schemas are included as
-prompt hints; explicit GBNF can be supplied through `grammar`. `chat_template_kwargs`
-are applied by llama.cpp's Jinja renderer; for example,
-`{"chat_template_kwargs":{"enable_thinking":false}}` disables reasoning when the
-model template supports it. The stage validator
-remains authoritative. Tool parsing accepts complete `<tool_call>` blocks or
-JSON containing `name` and `arguments`, including JSON-string arguments.
-Tool generation is model-dependent and best-effort.
+For local inference, launch a `KoboldCppProcess` with an executable, model,
+chat-completions adapter, context size, GPU backend, startup timeout and diagnostics
+path. The supervisor selects a private port and forces `127.0.0.1`; the application
+owns the returned RAII process. Construct `KoboldCppProvider(process->endpoint())`
+and call `wait_until_ready` before the first model request. Metal, CUDA and Vulkan
+are explicit backends; launch always requests full GPU offload and exposes no CPU
+fallback setting. Readiness verifies the expected KoboldCpp version, loaded model,
+and exact context size. Startup retries the narrow selected-port handoff race.
+
+`KoboldCppProvider` maps messages, tools, temperature, maximum output tokens,
+response schemas and non-reserved `extra_body` fields to
+`/v1/chat/completions`. A completion becomes the existing text/tool/usage/stop
+`ModelStream` events directly from the SSE response. One provider serializes
+generations to match the bundled single-user server. Every request has a unique
+generation key; cancellation closes the active socket and sends a keyed
+`/api/extra/abort`. The provider accepts loopback endpoints only. Structured
+schemas remain provider hints; Jeeves' supplied validator remains authoritative.
 
 `tests/validation.cpp` and `tests/runner.cpp` cover every Rust integration-test
 case and both crate documentation examples, plus C++ control/lifetime edge cases.
 The Rust-only HTTP adapter test has no C++ equivalent. Parser/JSON-library
 diagnostic suffixes can differ; runtime error kinds and engine messages match.
-Tests use the mock provider and need no GGUF. Actual GGUF generation is optional
-and is not part of the offline parity suite.
+`tests/koboldcpp.cpp` adds loopback HTTP fixtures for serialization, fragmented
+chunked SSE, reply and status errors, generation serialization, cancellation/abort,
+process ownership/readiness, and structured validation. All other tests use the
+mock provider and need neither KoboldCpp nor a GGUF.
 
 ## License
 

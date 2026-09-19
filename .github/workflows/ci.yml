@@ -11,18 +11,22 @@ env:
 
 jobs:
   cpp:
-    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [macos-14, ubuntu-24.04, windows-2022]
+    runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
 
       - name: Configure
-        run: cmake -S . -B build-cpp -DCMAKE_BUILD_TYPE=Debug
+        run: cmake -S . -B build-cpp -DJEEVES_BUILD_TESTS=ON -DJEEVES_BUILD_EXAMPLES=ON
 
       - name: Build
-        run: cmake --build build-cpp --parallel 4
+        run: cmake --build build-cpp --config Release --parallel 4
 
       - name: Test
-        run: ctest --test-dir build-cpp --output-on-failure
+        run: ctest --test-dir build-cpp -C Release --output-on-failure
 
   quality:
     runs-on: ubuntu-latest

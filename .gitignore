@@ -1,6 +1,7 @@
 /target/
 /build/
 /build-cpp/
+/build-vcpkg-deps/
 /compile_commands.json
 .env
 .env.*

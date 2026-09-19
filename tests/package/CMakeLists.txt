@@ -1,0 +1,18 @@
+cmake_minimum_required(VERSION 3.21)
+project(jeeves_package_consumer LANGUAGES CXX)
+
+include(FetchContent)
+if(DEFINED NLOHMANN_SOURCE)
+  add_subdirectory("${NLOHMANN_SOURCE}" nlohmann-json EXCLUDE_FROM_ALL)
+else()
+  find_package(nlohmann_json 3.11.3 QUIET)
+endif()
+if(NOT TARGET nlohmann_json::nlohmann_json)
+  FetchContent_Declare(nlohmann_json
+    URL https://github.com/nlohmann/json/releases/download/v3.11.3/json.tar.xz)
+  FetchContent_MakeAvailable(nlohmann_json)
+endif()
+find_package(JeevesCore 0.1 CONFIG REQUIRED)
+add_executable(jeeves_package_consumer main.cpp)
+target_link_libraries(jeeves_package_consumer PRIVATE jeeves::core)
+target_compile_features(jeeves_package_consumer PRIVATE cxx_std_23)

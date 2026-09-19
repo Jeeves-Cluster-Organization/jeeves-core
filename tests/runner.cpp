@@ -583,7 +583,7 @@ TEST(Parity, usage_saturates_and_run_metadata_is_preserved) {
     EXPECT_EQ(outcome->result().latest_outputs.at("s"), handle.id().as_str());
 }
 
-TEST(LlamaCpp, parses_completed_tool_arguments_and_multiple_calls) {
+TEST(ToolCalls, parses_completed_tool_arguments_and_multiple_calls) {
     auto calls = detail::parse_tool_calls(R"(<tool_call>{"id":"one","function":{"name":"echo","arguments":"{\"x\":1}"}}</tool_call>
         <tool_call>{"id":"two","name":"echo","arguments":{"x":2}}</tool_call>)");
     ASSERT_EQ(calls.size(), 2);
@@ -594,21 +594,4 @@ TEST(LlamaCpp, parses_completed_tool_arguments_and_multiple_calls) {
     EXPECT_TRUE(detail::parse_tool_calls(R"({"name":"a person's name"})").empty());
     EXPECT_TRUE(detail::parse_tool_calls(R"(<tool_call>{"name":"echo","arguments":{}})").empty());
     EXPECT_TRUE(detail::parse_tool_calls(R"({"name":"echo","arguments":"not json"})").empty());
-}
-
-TEST(LlamaCpp, invalid_settings_and_cancelled_requests_do_not_load_models) {
-    LlamaCppProvider provider("missing-test-model.gguf");
-    ModelRequest request;
-    for (auto setting : {json{{"n_ctx", -1}}, json{{"n_threads", 0}}, json{{"n_predict", 0}},
-                         json{{"top_p", "wrong"}}, json{{"grammar", 3}},
-                         json{{"chat_template_kwargs", false}},
-                         json{{"chat_template_kwargs", {{"enable_thinking", "no"}}}}, json::array()}) {
-        request.extra_body = setting;
-        auto result = provider.stream(request);
-        ASSERT_FALSE(result); EXPECT_EQ(result.error().kind(), ErrorKind::InvalidInput);
-    }
-    request.extra_body.reset();
-    std::stop_source stop; stop.request_stop(); request.stop = stop.get_token();
-    auto result = provider.stream(request);
-    ASSERT_FALSE(result); EXPECT_EQ(result.error().kind(), ErrorKind::Cancelled);
 }

@@ -1,0 +1,11 @@
+file(REMOVE_RECURSE "${TEST_ROOT}")
+file(MAKE_DIRECTORY "${TEST_ROOT}")
+execute_process(COMMAND "${CMAKE_COMMAND}" --install "${JEEVES_BUILD}"
+  --prefix "${TEST_ROOT}/install" COMMAND_ERROR_IS_FATAL ANY)
+execute_process(COMMAND "${CMAKE_COMMAND}" -S "${JEEVES_SOURCE}/tests/package"
+  -B "${TEST_ROOT}/build" -G "${TEST_GENERATOR}"
+  "-DCMAKE_PREFIX_PATH=${TEST_ROOT}/install"
+  "-DNLOHMANN_SOURCE=${NLOHMANN_SOURCE}"
+  COMMAND_ERROR_IS_FATAL ANY)
+execute_process(COMMAND "${CMAKE_COMMAND}" --build "${TEST_ROOT}/build"
+  COMMAND_ERROR_IS_FATAL ANY)

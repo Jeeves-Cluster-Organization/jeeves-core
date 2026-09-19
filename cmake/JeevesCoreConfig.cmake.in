@@ -1,0 +1,18 @@
+@PACKAGE_INIT@
+
+include(CMakeFindDependencyMacro)
+find_dependency(Threads)
+if(NOT TARGET nlohmann_json::nlohmann_json)
+  find_dependency(nlohmann_json @JEEVES_NLOHMANN_VERSION@ EXACT)
+elseif(DEFINED nlohmann_json_VERSION AND
+       NOT nlohmann_json_VERSION VERSION_EQUAL @JEEVES_NLOHMANN_VERSION@)
+  set(JeevesCore_FOUND FALSE)
+  set(JeevesCore_NOT_FOUND_MESSAGE
+    "JeevesCore was built with nlohmann_json @JEEVES_NLOHMANN_VERSION@, but ${nlohmann_json_VERSION} is already loaded")
+  return()
+endif()
+
+include("${CMAKE_CURRENT_LIST_DIR}/JeevesCoreTargets.cmake")
+set_property(TARGET jeeves::core APPEND PROPERTY
+  INTERFACE_LINK_LIBRARIES nlohmann_json::nlohmann_json)
+check_required_components(JeevesCore)
